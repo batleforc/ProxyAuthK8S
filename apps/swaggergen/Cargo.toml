@@ -1,0 +1,12 @@
+[package]
+name = "swaggergen"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+utoipa = { workspace = true }
+api = { path = "../../libs/api" }
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

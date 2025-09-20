@@ -1,0 +1,18 @@
+version: '3'
+
+tasks:
+  run:
+    cmds:
+      - echo "Running the main task"
+      - cargo run --bin server
+    desc: "Run the main task"
+  gen:crds:
+    silent: true
+    cmds:
+      - cargo run --bin crdgen
+    desc: "Generate Custom Resource Definitions"
+  gen:swagger:
+    silent: true
+    cmds:
+      - cargo run --bin swaggergen
+    desc: "Generate Swagger documentation"
