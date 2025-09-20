@@ -1,0 +1,109 @@
+schemaVersion: 2.2.0
+metadata:
+  name: ProxyAuthK8S
+  language: rust
+  version: 1.0.0
+
+components:
+- name: tools
+  container:
+    image: ghcr.io/batleforc/weebodevimage/che-rust:main
+    memoryLimit: 8Gi
+    memoryRequest: 1Gi
+    cpuLimit: "2"
+    cpuRequest: "500m"
+    mountSources: true
+    endpoints:
+    - name: 5437-http
+      targetPort: 5437
+      exposure: public
+      protocol: https
+      secure: true
+    env:
+    - name: RUST_ENV
+      value: "dev-che"
+    - name: "PORT"
+      value: "5437"
+- name: jaeger
+  container:
+    image: jaegertracing/all-in-one:1.22
+    memoryLimit: 2Gi
+    memoryRequest: 512Mi
+    cpuLimit: "500m"
+    cpuRequest: "100m"
+    mountSources: false
+    endpoints:
+    - name: jaeger-ui
+      targetPort: 16686
+      exposure: public
+      protocol: http
+- name: redis
+  container:
+    image: redis
+    memoryLimit: 2Gi
+    memoryRequest: 512Mi
+    cpuLimit: "500m"
+    cpuRequest: "100m"
+    mountSources: false
+    endpoints:
+    - name: redis
+      targetPort: 6379
+      exposure: public
+      protocol: tcp
+    volumeMounts:
+      # Outside of the persistence of redis
+      # if this folder is not writable, redis will stop working after some time
+      - name: redis-volume
+        path: /data
+- name: redis-volume
+  volume:
+    size: 2Gi
+- name: dbgate
+  container:
+    image: dbgate/dbgate:latest
+    memoryLimit: 2Gi
+    memoryRequest: 512Mi
+    cpuLimit: "500m"
+    cpuRequest: "100m"
+    mountSources: false
+    endpoints:
+    - name: dbgate
+      targetPort: 8080
+      exposure: public
+      protocol: http
+    volumeMounts:
+      - name: dbgate-volume
+        path: /data
+    env:
+      - name: CONNECTIONS
+        value: "redis"
+      - name: LABEL_redis
+        value: "Redis"
+      - name: ENGINE_redis
+        value: "redis@dbgate-plugin-redis"
+      - name: SERVER_redis
+        value: "localhost"
+      - name: PORT_redis
+        value: "6379"
+- name: dbgate-volume
+  volume:
+    size: 1Gi
+
+commands:
+- id: build
+  exec:
+    component: tools
+    workingDir: ${PROJECT_SOURCE}
+    commandLine: cargo build
+    group:
+      kind: build
+      isDefault: true
+
+- id: run
+  exec:
+    component: tools
+    workingDir: ${PROJECT_SOURCE}
+    commandLine: cargo run
+    group:
+      kind: run
+      isDefault: true
