@@ -1,0 +1,14 @@
+{
+  "name": "@proxy-auth-k8s/source",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {},
+  "private": true,
+  "dependencies": {
+    "@monodon/rust": "2.3.0"
+  },
+  "devDependencies": {
+    "@nx/workspace": "21.5.3",
+    "nx": "21.5.3"
+  }
+}
