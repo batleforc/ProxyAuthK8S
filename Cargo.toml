@@ -1,6 +1,30 @@
+
 [workspace]
-resolver = "2"
-members = []
+resolver = '2'
+members = [
+	'libs/crd',
+	'apps/server',
+	'libs/trace',
+	'apps/crdgen',
+	'apps/swaggergen',
+	'libs/api',
+	'libs/controller',
+]
 
 [profile.release]
 lto = true
+
+[workspace.dependencies]
+actix-web = "4"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+anyhow = "1"
+utoipa = { version = "5", features = ["actix_extras"] }
+k8s-openapi = { version = "0", features = ["v1_34"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+tracing = "0.1"
+kube = { version = "2", features = ["derive", "runtime", "client"] }
+schemars = { version = "1" }
+futures = "0.3"
+chrono = { version = "0.4", features = ["serde"] }

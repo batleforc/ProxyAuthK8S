@@ -1,0 +1,13 @@
+[package]
+name = "crdgen"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+kube = { workspace = true }
+crd = { path = "../../libs/crd" }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
