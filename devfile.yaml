@@ -68,7 +68,7 @@ components:
     mountSources: false
     endpoints:
     - name: dbgate
-      targetPort: 8080
+      targetPort: 3000
       exposure: public
       protocol: http
     volumeMounts:

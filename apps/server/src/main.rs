@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
                     .service(echo),
             )
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind(("0.0.0.0", 5437))?
     .shutdown_timeout(5);
 
     tokio::join!(server.run()).0?;
