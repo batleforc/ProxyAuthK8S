@@ -16,3 +16,15 @@ tasks:
     cmds:
       - cargo run --bin swaggergen
     desc: "Generate Swagger documentation"
+  run:service:
+    cmds:
+      - echo "Running the service task"
+      - command -v docker && docker compose up || true
+      - command -v podman && podman compose up || true
+      # check if neither docker nor podman is installed
+      - |
+        if ! command -v docker >/dev/null && ! command -v podman >/dev/null; then
+          echo "Neither docker nor podman is installed. Please install one of them to run the service."
+          exit 1
+        fi
+    desc: "Run the service task"
