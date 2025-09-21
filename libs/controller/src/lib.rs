@@ -1,8 +1,3 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}
+pub mod ctx;
+pub mod error;
+pub mod proxy_kube_api;
