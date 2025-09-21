@@ -5,13 +5,24 @@ edition = "2021"
 
 
 [dependencies]
-actix-web = {workspace = true}
-tokio = {workspace = true}
-anyhow = {workspace = true}
-utoipa = {workspace = true}
-utoipa-scalar = { version = "0.3", features = ["actix-web"]}
+actix-web = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+utoipa = { workspace = true }
+tracing = { workspace = true }
+
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry-appender-tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+utoipa-scalar = { version = "0.3", features = ["actix-web"] }
+actix-cors = { version = "0.7" }
+tracing-actix-web = { version = "0.7", features = ["opentelemetry_0_30"] }
 
 api = { path = "../../libs/api" }
+trace = { path = "../../libs/trace" }
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

@@ -4,5 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
 
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry-appender-tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[features]
+default = ["log"]
+log = []
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

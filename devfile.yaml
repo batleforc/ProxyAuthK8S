@@ -26,7 +26,7 @@ components:
       value: "5437"
 - name: jaeger
   container:
-    image: jaegertracing/all-in-one:1.22
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.10.0
     memoryLimit: 2Gi
     memoryRequest: 512Mi
     cpuLimit: "500m"
