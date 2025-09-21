@@ -5,15 +5,16 @@ use std::sync::OnceLock;
 use opentelemetry::{global, KeyValue};
 #[cfg(feature = "log")]
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
+use opentelemetry_otlp::tonic_types::metadata;
 #[cfg(feature = "log")]
 use opentelemetry_otlp::LogExporter;
+use opentelemetry_otlp::WithTonicConfig;
 use opentelemetry_otlp::{MetricExporter, SpanExporter};
 use opentelemetry_sdk::{
     logs::SdkLoggerProvider, metrics::SdkMeterProvider, trace::SdkTracerProvider, Resource,
 };
 #[cfg(feature = "log")]
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
-
 #[derive(Clone)]
 pub struct Context {
     pub pod_name: String,
@@ -31,9 +32,17 @@ fn get_resource(ctx: &Context) -> Resource {
         .clone()
 }
 
+fn get_metadata(ctx: &Context) -> metadata::MetadataMap {
+    let mut metadata = metadata::MetadataMap::new();
+    metadata.insert("service.name", "ProxyAuthK8S".parse().unwrap());
+    metadata.insert("service.pod", ctx.pod_name.clone().parse().unwrap());
+    metadata
+}
+
 fn init_traces(ctx: &Context) -> SdkTracerProvider {
     let exporter = SpanExporter::builder()
         .with_tonic()
+        .with_metadata(get_metadata(ctx))
         .build()
         .expect("Failed to create span exporter");
     SdkTracerProvider::builder()
@@ -45,6 +54,7 @@ fn init_traces(ctx: &Context) -> SdkTracerProvider {
 fn init_metrics(ctx: &Context) -> SdkMeterProvider {
     let exporter = MetricExporter::builder()
         .with_tonic()
+        .with_metadata(get_metadata(ctx))
         .build()
         .expect("Failed to create metric exporter");
 
@@ -58,6 +68,7 @@ fn init_metrics(ctx: &Context) -> SdkMeterProvider {
 fn init_logs(ctx: &Context) -> SdkLoggerProvider {
     let exporter = LogExporter::builder()
         .with_tonic()
+        .with_metadata(get_metadata(ctx))
         .build()
         .expect("Failed to create log exporter");
 

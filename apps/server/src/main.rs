@@ -5,7 +5,7 @@ use actix_web::{
 };
 use api::api_doc::ApiDoc;
 use trace::{shutdown_tracing, start_tracing};
-use tracing::{error, instrument};
+use tracing::{error, info, instrument};
 use tracing_actix_web::{RequestId, TracingLogger};
 use utoipa::OpenApi;
 use utoipa_scalar::{Scalar, Servable};
@@ -13,6 +13,7 @@ use utoipa_scalar::{Scalar, Servable};
 #[instrument]
 #[get("/")]
 async fn hello() -> impl Responder {
+    info!("Someone called the hello endpoint");
     HttpResponse::Ok().body("Hello world!")
 }
 
