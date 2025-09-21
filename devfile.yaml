@@ -73,7 +73,7 @@ components:
       protocol: http
     volumeMounts:
       - name: dbgate-volume
-        path: /data
+        path: /.dbgate
     env:
       - name: CONNECTIONS
         value: "redis"
