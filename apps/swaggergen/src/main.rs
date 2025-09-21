@@ -1,5 +1,6 @@
-use api::api_doc::ApiDoc;
-use utoipa::OpenApi;
+use api::gen_openapi;
+
 fn main() {
-    println!("{}", ApiDoc::openapi().to_pretty_json().unwrap());
+    let api = gen_openapi();
+    println!("{}", api.to_pretty_json().unwrap());
 }
