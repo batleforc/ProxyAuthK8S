@@ -2,7 +2,7 @@
 
 use std::sync::OnceLock;
 
-use opentelemetry::{global, KeyValue};
+use opentelemetry::{global, InstrumentationScope, KeyValue};
 #[cfg(feature = "log")]
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::tonic_types::metadata;
@@ -10,6 +10,7 @@ use opentelemetry_otlp::tonic_types::metadata;
 use opentelemetry_otlp::LogExporter;
 use opentelemetry_otlp::WithTonicConfig;
 use opentelemetry_otlp::{MetricExporter, SpanExporter};
+use opentelemetry_sdk::metrics::{Instrument, Stream};
 use opentelemetry_sdk::{
     logs::SdkLoggerProvider, metrics::SdkMeterProvider, trace::SdkTracerProvider, Resource,
 };
@@ -25,7 +26,7 @@ fn get_resource(ctx: &Context) -> Resource {
     RESOURCE
         .get_or_init(|| {
             Resource::builder()
-                .with_service_name("ProxyAuthK8S")
+                .with_service_name("proxyauthk8s")
                 .with_attributes(vec![KeyValue::new("service.pod", ctx.pod_name.clone())])
                 .build()
         })
@@ -34,7 +35,7 @@ fn get_resource(ctx: &Context) -> Resource {
 
 fn get_metadata(ctx: &Context) -> metadata::MetadataMap {
     let mut metadata = metadata::MetadataMap::new();
-    metadata.insert("service.name", "ProxyAuthK8S".parse().unwrap());
+    metadata.insert("service.name", "proxyauthk8s".parse().unwrap());
     metadata.insert("service.pod", ctx.pod_name.clone().parse().unwrap());
     metadata
 }
@@ -61,6 +62,18 @@ fn init_metrics(ctx: &Context) -> SdkMeterProvider {
     SdkMeterProvider::builder()
         .with_periodic_exporter(exporter)
         .with_resource(get_resource(ctx))
+        .with_view(|i: &Instrument| {
+            if i.name() == "http.server.duration" {
+                Some(
+                    Stream::builder()
+                        .with_name("http.server.duration")
+                        .build()
+                        .unwrap(),
+                )
+            } else {
+                None
+            }
+        })
         .build()
 }
 
@@ -115,6 +128,15 @@ pub fn start_tracing(
 
     let meter_provider = init_metrics(&ctx.clone());
     global::set_meter_provider(meter_provider.clone());
+
+    let common_scope_attributes = vec![KeyValue::new("service.framework", "rust")];
+    let scope = InstrumentationScope::builder("basic")
+        .with_version("1.0")
+        .with_attributes(common_scope_attributes)
+        .build();
+
+    global::tracer_with_scope(scope.clone());
+    global::meter_with_scope(scope);
 
     #[cfg(feature = "log")]
     return (Some(logger_provider), tracer_provider, meter_provider);

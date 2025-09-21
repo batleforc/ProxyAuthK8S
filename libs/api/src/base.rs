@@ -1,5 +1,5 @@
 use actix_web::{get, HttpResponse, Responder};
-use tracing::instrument;
+use tracing::{info, instrument};
 
 /// Base path just to answer if the server is up and running.
 ///
@@ -14,5 +14,6 @@ use tracing::instrument;
 #[get("/health")]
 #[instrument(name = "health")]
 pub async fn health() -> impl Responder {
+    info!("Health check OK");
     HttpResponse::Ok().finish()
 }
