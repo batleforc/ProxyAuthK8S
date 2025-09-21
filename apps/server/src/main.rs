@@ -1,32 +1,13 @@
+use std::net::Ipv4Addr;
+
 use actix_cors::Cors;
-use actix_web::{
-    dev::Service, get, http::header, middleware::Compress, post, web, App, HttpResponse,
-    HttpServer, Responder, Scope,
-};
-use api::api_doc::ApiDoc;
+use actix_web::{dev::Service, http::header, middleware::Compress, App, HttpServer};
+use api::{api_doc::ApiDoc, init_api};
 use trace::{shutdown_tracing, start_tracing};
-use tracing::{error, info, instrument};
 use tracing_actix_web::{RequestId, TracingLogger};
 use utoipa::OpenApi;
+use utoipa_actix_web::{scope, AppExt};
 use utoipa_scalar::{Scalar, Servable};
-
-#[instrument]
-#[get("/")]
-async fn hello() -> impl Responder {
-    info!("Someone called the hello endpoint");
-    HttpResponse::Ok().body("Hello world!")
-}
-
-#[post("/echo")]
-async fn echo(req_body: String) -> impl Responder {
-    HttpResponse::Ok().body(req_body)
-}
-
-#[instrument(level = "error")]
-async fn manual_hello() -> impl Responder {
-    error!("Saying hey there!");
-    HttpResponse::Ok().body("Hey there!")
-}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -43,34 +24,34 @@ async fn main() -> anyhow::Result<()> {
             .allow_any_method()
             .allow_any_header()
             .max_age(3600);
-        App::new()
-            .wrap(cors)
-            .wrap(Compress::default())
-            .service(Scalar::with_url("/api/docs", api_doc.clone()))
-            .service(
-                Scope::new("/api")
-                    .wrap_fn(|mut req, srv| {
-                        let request_id_asc = req.extract::<RequestId>();
-                        let fut = srv.call(req);
-                        async move {
-                            let mut res = fut.await?;
-                            let request_id: RequestId = request_id_asc.await.unwrap();
-                            let request_id_str = format!("{}", request_id);
-                            let headers = res.headers_mut();
-                            headers.insert(
-                                header::HeaderName::from_static("x-request-id"),
-                                header::HeaderValue::from_str(request_id_str.as_str()).unwrap(),
-                            );
-                            Ok(res)
-                        }
-                    })
-                    .wrap(TracingLogger::default())
-                    .route("/hey", web::get().to(manual_hello))
-                    .service(hello)
-                    .service(echo),
-            )
+        let (app, api) = App::new()
+            .into_utoipa_app()
+            .openapi(api_doc.clone())
+            .map(|app| {
+                app.wrap_fn(|mut req, srv| {
+                    let request_id_asc = req.extract::<RequestId>();
+                    let fut = srv.call(req);
+                    async move {
+                        let mut res = fut.await?;
+                        let request_id: RequestId = request_id_asc.await.unwrap();
+                        let request_id_str = format!("{}", request_id);
+                        let headers = res.headers_mut();
+                        headers.insert(
+                            header::HeaderName::from_static("x-request-id"),
+                            header::HeaderValue::from_str(request_id_str.as_str()).unwrap(),
+                        );
+                        Ok(res)
+                    }
+                })
+            })
+            .map(|app| app.wrap(TracingLogger::default()))
+            .map(|app| app.wrap(Compress::default()))
+            .map(|app| app.wrap(cors))
+            .service(scope("/api/v1").configure(init_api()))
+            .split_for_parts();
+        app.service(Scalar::with_url("/api/docs", api))
     })
-    .bind(("0.0.0.0", 5437))?
+    .bind((Ipv4Addr::UNSPECIFIED, 5437))?
     .shutdown_timeout(5);
 
     tokio::join!(server.run()).0?;
