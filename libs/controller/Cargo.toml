@@ -20,5 +20,6 @@ tokio = { workspace = true }
 thiserror = { version = "2" }
 
 crd = { path = "../crd" }
+common = { path = "../common" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

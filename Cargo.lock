@@ -462,6 +462,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "kube",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -476,6 +483,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "common",
  "crd",
  "futures",
  "k8s-openapi",
@@ -2341,6 +2349,9 @@ dependencies = [
  "actix-web",
  "anyhow",
  "api",
+ "common",
+ "controller",
+ "kube",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-instrumentation-actix-web",

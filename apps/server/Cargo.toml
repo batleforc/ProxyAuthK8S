@@ -11,6 +11,7 @@ anyhow = { workspace = true }
 utoipa = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
+kube = { workspace = true }
 
 utoipa-actix-web = { workspace = true }
 
@@ -28,6 +29,8 @@ opentelemetry-instrumentation-actix-web = { version = "0.22", features = [
 
 api = { path = "../../libs/api" }
 trace = { path = "../../libs/trace" }
+common = { path = "../../libs/common" }
+controller = { path = "../../libs/controller" }
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
