@@ -2,6 +2,8 @@
     "cSpell.words": [
         "actix",
         "appender",
+        "finalizer",
+        "thiserror",
         "utoipa"
     ]
 }
