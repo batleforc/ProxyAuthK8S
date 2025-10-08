@@ -1,0 +1,37 @@
+version: '3'
+
+tasks:
+  up:
+    desc: "Start Talos cluster"
+    cmds:
+      - talosctl cluster create --workers 1
+  down:
+    desc: "Destroy Talos cluster"
+    cmds:
+      - talosctl cluster destroy
+  kubeconfig:
+    desc: "Get kubeconfig for Talos cluster"
+    cmds:
+      - talosctl kubeconfig 'kubeconfig.local.yaml' -n 10.5.0.2
+  dashboard:
+    desc: "Open Talos dashboard"
+    cmds:
+      - talosctl dashboard -n 10.5.0.2
+  k:
+    desc: "Shortcut for kubectl"
+    env:
+      KUBECONFIG: kubeconfig.local.yaml
+    cmds:
+      - kubectl {{ .CLI_ARGS }}
+  k9s:
+    desc: "Shortcut for k9s"
+    env:
+      KUBECONFIG: kubeconfig.local.yaml
+    cmds:
+      - k9s {{ .CLI_ARGS }}
+  crd:
+    desc: "Apply CRDs to Talos cluster"
+    env:
+      KUBECONFIG: kubeconfig.local.yaml
+    cmds:
+      - kubectl apply -f ./deploy/crds.yaml

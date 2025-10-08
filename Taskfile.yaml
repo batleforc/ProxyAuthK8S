@@ -1,11 +1,16 @@
 version: '3'
 
+includes:
+  talos: .taskfile/talos.yaml
+
 tasks:
   run:
+    env:
+      KUBECONFIG: ./kubeconfig.local.yaml
     cmds:
-      - echo "Running the main task"
+      - echo "Running the backend "
       - cargo run --bin server
-    desc: "Run the main task"
+    desc: "Run the backend"
   gen:crds:
     silent: true
     cmds:
@@ -28,3 +33,8 @@ tasks:
           exit 1
         fi
     desc: "Run the service task"
+  recu:
+    desc: "Run all gen jobs"
+    cmds:
+      - task gen:crds > deploy/crds.yaml
+      - task gen:swagger > swagger.json
