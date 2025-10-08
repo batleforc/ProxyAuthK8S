@@ -23,6 +23,7 @@ cog check
 [git_hooks.pre-commit]
 script = """#!/bin/sh
 set -e
+task recu
 git add .
 gitleaks git --pre-commit --redact --staged --verbose
 """
