@@ -43,7 +43,6 @@ async fn main() -> anyhow::Result<()> {
                     else {
                         uuid::Uuid::new_v4().to_string()
                     };
-                    tracing::Span::current().record("request.id", &request_id);
                     let fut = srv.call(req);
                     async move {
                         let mut res = fut.await?;
@@ -54,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
                             header::HeaderValue::from_str(request_id.as_str()).unwrap(),
                         );
                         tracing::info!(request_id = %request_id);
+                        tracing::Span::current().record("service.request.id", &request_id);
                         Ok(res)
                     }
                 })

@@ -4,12 +4,21 @@ services:
     container_name: redis
     ports:
       - "6379:6379"
-  jaeger:
-    image: cr.jaegertracing.io/jaegertracing/jaeger:2.10.0
-    container_name: jaeger
+  # jaeger:
+  #   image: cr.jaegertracing.io/jaegertracing/jaeger:2.10.0
+  #   container_name: jaeger
+  #   ports:
+  #     - "4317:4317" # OTLP gRPC receiver
+  #     - "4318:4318" # OTLP HTTP receiver
+  #     - "5778:5778" # Configurations
+  #     - "9411:9411" # Zipkin
+  #     - "16686:16686" # Jaeger UI
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    restart: unless-stopped
+    environment:
+      ZO_ROOT_USER_EMAIL: "root@example.com"
+      ZO_ROOT_USER_PASSWORD: "Complexpass#123"
     ports:
-      - "4317:4317" # OTLP gRPC receiver
-      - "4318:4318" # OTLP HTTP receiver
-      - "5778:5778" # Configurations
-      - "9411:9411" # Zipkin
-      - "16686:16686" # Jaeger UI
+      - "5080:5080"
+      - "5081:5081"

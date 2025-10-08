@@ -14,6 +14,8 @@ tasks:
     desc: "Run the backend"
     env:
       KUBECONFIG: ./kubeconfig.local.yaml
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:5081/api/default"
+      OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Basic cm9vdEBleGFtcGxlLmNvbTpBaU9hZHozNHp6RHdWSHkw,organization=default,stream-name=default"
     silent: true
     cmds:
       - echo "Running the backend"

@@ -27,7 +27,10 @@ fn get_resource(ctx: &Context) -> Resource {
         .get_or_init(|| {
             Resource::builder()
                 .with_service_name("proxyauthk8s")
-                .with_attributes(vec![KeyValue::new("service.pod", ctx.pod_name.clone())])
+                .with_attributes(vec![
+                    KeyValue::new("service.pod", ctx.pod_name.clone()),
+                    KeyValue::new("service.version", env!("CARGO_PKG_VERSION").to_string()),
+                ])
                 .build()
         })
         .clone()
