@@ -1,5 +1,12 @@
 {
   "recommendations": [
-    "esbenp.prettier-vscode"
+    "esbenp.prettier-vscode",
+    "rust-lang.rust-analyzer",
+    "vadimcn.vscode-lldb",
+    "tamasfe.even-better-toml",
+    "oderwat.indent-rainbow",
+    "ms-kubernetes-tools.vscode-kubernetes-tools",
+    "pflannery.vscode-versionlens",
+    "redhat.vscode-yaml"
   ]
 }

@@ -505,6 +505,8 @@ dependencies = [
  "futures",
  "k8s-openapi",
  "kube",
+ "r2d2",
+ "redis",
  "schemars",
  "serde",
  "serde_json",

@@ -1,0 +1,21 @@
+version: '3'
+
+tasks:
+  k:
+    desc: "Shortcut for kubectl"
+    env:
+      KUBECONFIG: kubeconfig.lab.yaml
+    cmds:
+      - kubectl {{ .CLI_ARGS }}
+  k9s:
+    desc: "Shortcut for k9s"
+    env:
+      KUBECONFIG: kubeconfig.lab.yaml
+    cmds:
+      - k9s {{ .CLI_ARGS }}
+  crd:
+    desc: "Apply CRDs to Talos cluster"
+    env:
+      KUBECONFIG: kubeconfig.lab.yaml
+    cmds:
+      - kubectl apply -f ./deploy/crds.yaml

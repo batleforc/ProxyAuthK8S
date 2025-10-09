@@ -2,6 +2,7 @@ version: '3'
 
 includes:
   talos: .taskfile/talos.yaml
+  lab: .taskfile/lab.yaml
 
 tasks:
   init:

@@ -3,6 +3,7 @@
         "actix",
         "appender",
         "finalizer",
+        "taskfile",
         "thiserror",
         "utoipa"
     ]
