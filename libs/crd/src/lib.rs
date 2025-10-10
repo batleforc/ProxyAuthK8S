@@ -54,4 +54,10 @@ impl ProxyKubeApi {
             self.name_any()
         )
     }
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+    pub fn from_json(json: &str) -> Option<Self> {
+        serde_json::from_str(json).ok()
+    }
 }
