@@ -1,10 +1,13 @@
 {
-    "cSpell.words": [
-        "actix",
-        "appender",
-        "finalizer",
-        "taskfile",
-        "thiserror",
-        "utoipa"
-    ]
+  "cSpell.words": [
+    "actix",
+    "appender",
+    "finalizer",
+    "taskfile",
+    "thiserror",
+    "utoipa"
+  ],
+  "task": {
+    "outputTo": "terminal"
+  }
 }
