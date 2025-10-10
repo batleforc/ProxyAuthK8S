@@ -1,9 +1,16 @@
+use std::sync::Arc;
+
 use common::State;
 use crd::ProxyKubeApi;
-use kube::Api;
+use futures::StreamExt;
+use kube::{
+    runtime::{watcher::Config, Controller},
+    Api,
+};
 use tracing::instrument;
 
-pub mod ctx;
+use crate::proxy_kube_api::{error_policy_proxy_kube_api, reconcile_proxy_kube_api};
+
 pub mod error;
 pub mod proxy_kube_api;
 
@@ -18,4 +25,16 @@ pub async fn run(state: State) {
         );
         panic!("Failed to list ProxyKubeApi resources: {}", e);
     }
+    let controller_state = Arc::new(state.clone());
+
+    Controller::new(proxy_kube_apis, Config::default().any_semantic())
+        .shutdown_on_signal()
+        .run(
+            reconcile_proxy_kube_api,
+            error_policy_proxy_kube_api,
+            controller_state,
+        )
+        .filter_map(|x| async move { std::result::Result::ok(x) })
+        .for_each(|_| futures::future::ready(()))
+        .await;
 }

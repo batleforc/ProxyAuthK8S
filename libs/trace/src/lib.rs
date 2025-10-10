@@ -21,6 +21,8 @@ pub struct Context {
     pub pod_name: String,
 }
 
+pub mod helper;
+
 fn get_resource(ctx: &Context) -> Resource {
     static RESOURCE: OnceLock<Resource> = OnceLock::new();
     RESOURCE

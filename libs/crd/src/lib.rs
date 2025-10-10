@@ -1,6 +1,6 @@
 use authentication_configuration::AuthenticationConfiguration;
 use default::default_enabled;
-use kube::CustomResource;
+use kube::{CustomResource, ResourceExt};
 use schemars::JsonSchema;
 use security::SecurityConfiguration;
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ pub mod default;
 pub mod security;
 pub mod status;
 
-pub static FINALIZER: &str = "weebo.si.rs";
+pub static PROXY_KUBE_FINALIZER: &str = "weebo.si.rs";
 
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[kube(
@@ -44,4 +44,14 @@ pub enum CertSource {
     Secret { name: String, key: String },
     /// Use a cert from a file path
     Cert(String),
+}
+
+impl ProxyKubeApi {
+    pub fn to_identifier(&self) -> String {
+        format!(
+            "{}/{}",
+            self.namespace().unwrap_or_default(),
+            self.name_any()
+        )
+    }
 }

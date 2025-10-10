@@ -18,10 +18,12 @@ anyhow = { workspace = true }
 tokio = { workspace = true }
 r2d2 = { workspace = true }
 redis = { workspace = true }
+opentelemetry = { workspace = true }
 
 thiserror = { version = "2" }
 
 crd = { path = "../crd" }
 common = { path = "../common" }
+trace = { path = "../trace" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

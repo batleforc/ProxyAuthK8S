@@ -13,6 +13,10 @@ pub enum ControllerError {
     // Finalizer error
     #[error("Finalizer error: {0}")]
     FinalizerError(#[source] Box<kube::runtime::finalizer::Error<ControllerError>>),
+
+    // Invalid resource error
+    #[error("Invalid resource: {0}")]
+    InvalidResource(String),
 }
 
 pub type Result<T, E = ControllerError> = std::result::Result<T, E>;

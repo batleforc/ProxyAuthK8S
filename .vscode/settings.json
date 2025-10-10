@@ -3,11 +3,17 @@
     "actix",
     "appender",
     "finalizer",
+    "proxykubeapis",
+    "proxys",
+    "schemars",
     "taskfile",
     "thiserror",
-    "utoipa"
+    "utoipa",
+    "weebo"
   ],
   "task": {
     "outputTo": "terminal"
-  }
+  },
+  "editor.fontFamily": "'FiraCode Nerd Font', 'FiraCode NF','Droid Sans Mono', 'monospace', monospace",
+  "editor.fontLigatures": true
 }

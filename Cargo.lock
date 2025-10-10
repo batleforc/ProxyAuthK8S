@@ -505,6 +505,7 @@ dependencies = [
  "futures",
  "k8s-openapi",
  "kube",
+ "opentelemetry",
  "r2d2",
  "redis",
  "schemars",
@@ -513,6 +514,7 @@ dependencies = [
  "serde_yaml",
  "thiserror 2.0.16",
  "tokio",
+ "trace",
  "tracing",
  "uuid",
 ]
@@ -2835,6 +2837,7 @@ dependencies = [
  "serde",
  "tokio",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
 ]
 
@@ -2880,6 +2883,24 @@ dependencies = [
  "log",
  "once_cell",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-opentelemetry"
+version = "0.31.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddcf5959f39507d0d04d6413119c04f33b623f4f951ebcbdddddfad2d0623a9c"
+dependencies = [
+ "js-sys",
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "smallvec",
+ "tracing",
+ "tracing-core",
+ "tracing-log",
+ "tracing-subscriber",
+ "web-time",
 ]
 
 [[package]]
@@ -3140,6 +3161,16 @@ name = "web-sys"
 version = "0.3.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fbe734895e869dc429d78c4b433f8d17d95f8d05317440b4fad5ab2d33e596dc"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "web-time"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
