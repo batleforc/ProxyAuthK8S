@@ -22,6 +22,7 @@ spec:
             properties:
               auth_config:
                 description: Main configuration for authentication
+                nullable: true
                 properties:
                   jwt:
                     items:
@@ -157,16 +158,24 @@ spec:
                   - Secret
                 - required:
                   - Cert
+                - required:
+                  - Insecure
                 properties:
                   Cert:
-                    description: Use a cert from a file path
+                    description: Base64 encoded cert
                     type: string
+                  Insecure:
+                    description: Insecure, do not use TLS
+                    type: boolean
                   Secret:
                     description: Use a cert from a secret
                     properties:
                       key:
                         type: string
                       name:
+                        type: string
+                      namespace:
+                        nullable: true
                         type: string
                     required:
                     - key
@@ -188,6 +197,7 @@ spec:
                 type: boolean
               security_config:
                 description: Security configuration
+                nullable: true
                 properties:
                   enabled:
                     default: true
@@ -257,10 +267,51 @@ spec:
                 - fail2login_equal_ban
                 - per_user_group_rate_limiting
                 type: object
+              service:
+                description: Service to expose the proxy
+                oneOf:
+                - required:
+                  - KubernetesService
+                - required:
+                  - ExternalService
+                properties:
+                  ExternalService:
+                    description: External service
+                    properties:
+                      url:
+                        description: URL of the external service (e.g. https://example.com)
+                        type: string
+                    required:
+                    - url
+                    type: object
+                  KubernetesService:
+                    description: Kubernetes service
+                    properties:
+                      name:
+                        description: Name of the service
+                        type: string
+                      namespace:
+                        description: If not set, will use the resource namespace
+                        nullable: true
+                        type: string
+                      port:
+                        description: Port of the service
+                        format: uint16
+                        maximum: 65535.0
+                        minimum: 0.0
+                        nullable: true
+                        type: integer
+                      port_name:
+                        description: Port name of the service
+                        nullable: true
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
             required:
-            - auth_config
             - cert
-            - security_config
+            - service
             type: object
           status:
             nullable: true

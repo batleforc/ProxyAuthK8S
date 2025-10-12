@@ -53,7 +53,6 @@ async fn main() -> anyhow::Result<()> {
                             header::HeaderValue::from_str(request_id.as_str()).unwrap(),
                         );
                         tracing::info!(request_id = %request_id);
-                        tracing::Span::current().record("service.request.id", &request_id);
                         Ok(res)
                     }
                 })

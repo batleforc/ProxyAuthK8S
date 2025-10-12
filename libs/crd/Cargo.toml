@@ -13,5 +13,10 @@ kube = { workspace = true }
 schemars = { workspace = true }
 futures = { workspace = true }
 chrono = { workspace = true }
+reqwest = { workspace = true }
+
+base64 = "0.22"
+
+common = { path = "../common" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

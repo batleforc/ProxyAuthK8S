@@ -2,17 +2,11 @@ services:
   redis:
     image: redis
     container_name: redis
+    command: /bin/sh -c "redis-server --requirepass $$REDIS_HOST_PASSWORD"
+    environment:
+      REDIS_HOST_PASSWORD: "Complexpass"
     ports:
       - "6379:6379"
-  # jaeger:
-  #   image: cr.jaegertracing.io/jaegertracing/jaeger:2.10.0
-  #   container_name: jaeger
-  #   ports:
-  #     - "4317:4317" # OTLP gRPC receiver
-  #     - "4318:4318" # OTLP HTTP receiver
-  #     - "5778:5778" # Configurations
-  #     - "9411:9411" # Zipkin
-  #     - "16686:16686" # Jaeger UI
   openobserve:
     image: public.ecr.aws/zinclabs/openobserve:latest
     restart: unless-stopped
@@ -22,3 +16,15 @@ services:
     ports:
       - "5080:5080"
       - "5081:5081"
+  dbgate:
+    image: dbgate/dbgate
+    restart: always
+    ports:
+      - 3030:3000
+    environment:
+      CONNECTIONS: redis
+      LABEL_redis: Redis
+      SERVER_redis: redis
+      PASSWORD_redis: Complexpass
+      PORT_redis: 6379
+      ENGINE_redis: redis@dbgate-plugin-redis

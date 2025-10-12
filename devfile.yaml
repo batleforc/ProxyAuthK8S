@@ -24,19 +24,30 @@ components:
       value: "dev-che"
     - name: "PORT"
       value: "5437"
-- name: jaeger
+- name: openobserve
   container:
-    image: cr.jaegertracing.io/jaegertracing/jaeger:2.10.0
-    memoryLimit: 2Gi
-    memoryRequest: 512Mi
+    image: public.ecr.aws/zinclabs/openobserve:latest
+    memoryLimit: 4Gi
+    memoryRequest: 1Gi
     cpuLimit: "500m"
-    cpuRequest: "100m"
+    cpuRequest: "250m"
     mountSources: false
+    env:
+    - name: ZO_ROOT_USER_EMAIL
+      value: "root@example.com"
+    - name: ZO_ROOT_USER_PASSWORD
+      value: "Complexpass#123"
     endpoints:
-    - name: jaeger-ui
-      targetPort: 16686
+    - name: openobserve
+      targetPort: 5080
       exposure: public
-      protocol: http
+      protocol: https
+      secure: true
+    - name: grpc
+      targetPort: 5081
+      exposure: public
+      protocol: tcp
+      secure: false
 - name: redis
   container:
     image: redis
@@ -45,6 +56,13 @@ components:
     cpuLimit: "500m"
     cpuRequest: "100m"
     mountSources: false
+    command:
+      - redis-server
+    args:
+      - --requirepass $$REDIS_HOST_PASSWORD
+    env:
+      - name: REDIS_HOST_PASSWORD
+        value: Complexpass#123
     endpoints:
     - name: redis
       targetPort: 6379
@@ -83,6 +101,8 @@ components:
         value: "redis@dbgate-plugin-redis"
       - name: SERVER_redis
         value: "localhost"
+      - name: PASSWORD_redis
+        value: "Complexpass#123"
       - name: PORT_redis
         value: "6379"
 - name: dbgate-volume

@@ -1,0 +1,11 @@
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+metadata:
+  name: local
+  namespace: default
+spec:
+  cert:
+    Insecure: true
+  service:
+    ExternalService:
+      url: "https://10.5.0.20:6443"

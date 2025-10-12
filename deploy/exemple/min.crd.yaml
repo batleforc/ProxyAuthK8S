@@ -1,0 +1,13 @@
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+metadata:
+  name: local
+  namespace: default
+spec:
+  cert:
+    Insecure: true
+  service:
+    KubernetesService:
+      name: kubernetes
+      namespace: default
+      port: 443
