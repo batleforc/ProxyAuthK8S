@@ -16,8 +16,7 @@ uuid = { workspace = true }
 futures = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
-r2d2 = { workspace = true }
-redis = { workspace = true }
+deadpool-redis = { workspace = true }
 opentelemetry = { workspace = true }
 
 thiserror = { version = "2" }

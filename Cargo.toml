@@ -28,8 +28,7 @@ kube = { version = '2', features = ['derive', 'runtime', 'client'] }
 schemars = { version = '1' }
 futures = '0.3'
 chrono = { version = '0.4', features = ['serde'] }
-redis = { version = "0.32", features = ["tokio-comp", "r2d2", "ahash"] }
-r2d2 = '0.8'
+deadpool-redis = { version = "0.22.0", features = ["serde"] }
 opentelemetry = { version = '0.30', features = ['trace', 'metrics', 'logs'] }
 opentelemetry_sdk = { version = '0.30', features = [
 	'trace',
