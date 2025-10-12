@@ -11,6 +11,7 @@ use crate::error::{ControllerError, Result};
 pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Result<Action> {
     info!("Reconciling ProxyKubeApi: {}", proxy.to_identifier());
     let id = proxy.to_identifier();
+    let path = proxy.to_path();
     let ps: PatchParams = PatchParams::apply("proxy-kube-api-controller").force();
     let proxy_cloned = proxy.clone();
     let metadata = proxy_cloned.clone().metadata;
@@ -75,7 +76,8 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
             }
         }
     }
-    let new_status = ProxyKubeApiStatus::new(true, Some(format!("/{}", id)), None).get_patch();
+    let new_status =
+        ProxyKubeApiStatus::new(true, Some(format!("/clusters/{}", path)), None).get_patch();
     let _ = proxys
         .patch_status(name, &ps, &new_status)
         .await
