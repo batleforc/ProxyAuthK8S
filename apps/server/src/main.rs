@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use actix_cors::Cors;
 use actix_web::{dev::Service, http::header, middleware::Compress, web::Data, App, HttpServer};
-use api::{api_doc::ApiDoc, init_api};
+use api::{api_doc::ApiDoc, init_api, init_cluster_api};
 use opentelemetry_instrumentation_actix_web::{RequestMetrics, RequestTracing};
 use trace::{shutdown_tracing, start_tracing};
 use utoipa::OpenApi;
@@ -63,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
             .map(|app| app.wrap(cors))
             .app_data(Data::new(state.clone()))
             .service(scope("/api/v1").configure(init_api()))
+            .service(scope("/clusters").configure(init_cluster_api()))
             .split_for_parts();
         app.service(Scalar::with_url("/api/docs", api))
     })

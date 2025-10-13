@@ -8,5 +8,8 @@ utoipa = { workspace = true }
 utoipa-actix-web = { workspace = true }
 actix-web = { workspace = true }
 tracing = { workspace = true }
+deadpool-redis = { workspace = true }
+
+common = { path = "../common" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

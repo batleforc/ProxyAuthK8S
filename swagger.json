@@ -19,7 +19,25 @@
         "operationId": "health",
         "responses": {
           "200": {
-            "description": "Content of the blog timeline ordered by date."
+            "description": "Nothing"
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
+    "/clusters/{ns}/{cluster}": {
+      "get": {
+        "tags": [
+          "clusters"
+        ],
+        "summary": "Cluster base path",
+        "description": "ATM only allow to know if cluster exist",
+        "operationId": "base_cluster",
+        "responses": {
+          "200": {
+            "description": "ATM nothing real"
           },
           "500": {
             "description": "Internal server error."

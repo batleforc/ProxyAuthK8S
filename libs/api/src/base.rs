@@ -7,7 +7,7 @@ use tracing::{info, instrument};
 #[utoipa::path(
     tag = "health",
     responses(
-        (status = 200, description = "Content of the blog timeline ordered by date."),
+        (status = 200, description = "Nothing"),
         (status = 500, description = "Internal server error."),
     )
 )]
