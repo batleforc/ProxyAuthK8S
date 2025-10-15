@@ -148,8 +148,28 @@ spec:
                       - user_validation_rules
                       type: object
                     type: array
+                  oidc_provider:
+                    properties:
+                      client_id:
+                        type: string
+                      client_secret:
+                        nullable: true
+                        type: string
+                      enabled:
+                        default: false
+                        type: boolean
+                      extra_scope:
+                        type: string
+                      issuer_url:
+                        type: string
+                    required:
+                    - client_id
+                    - extra_scope
+                    - issuer_url
+                    type: object
                 required:
                 - jwt
+                - oidc_provider
                 type: object
               cert:
                 description: Certificate for the Kubernetes API
