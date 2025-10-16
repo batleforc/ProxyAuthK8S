@@ -4,6 +4,9 @@ includes:
   talos: .taskfile/talos.yaml
   lab: .taskfile/lab.yaml
 
+dotenv:
+  - .env
+
 tasks:
   init:
     desc: "Initialize the project"
@@ -17,7 +20,7 @@ tasks:
       KUBECONFIG: ./kubeconfig.local.yaml
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:5081/api/default"
       OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Basic cm9vdEBleGFtcGxlLmNvbTpBaU9hZHozNHp6RHdWSHkw,organization=default,stream-name=default"
-      REDIS_URL: redis://:Complexpass@localhost:6379
+      REDIS_URL: redis://:{{ .REDIS_PASSWORD }}@localhost:6379/prorxyauthk8s
     silent: true
     cmds:
       - echo "Running the backend"
@@ -37,14 +40,15 @@ tasks:
     silent: true
     cmds:
       - echo "Running the service task"
+      - echo "Traefik Dashboard https://traefik.k8s.localhost/dashboard/"
       # check if neither docker nor podman is installed
       - |
         if ! command -v docker >/dev/null && ! command -v podman >/dev/null; then
           echo "Neither docker nor podman is installed. Please install one of them to run the service."
           exit 1
         fi
-      - command -v docker && docker compose up || true
-      - command -v podman && podman compose up || true
+      - command -v docker && PUID="$(id -u)" PGID="$(id -g)" docker compose up || true
+      - command -v podman && PUID="$(id -u)" PGID="$(id -g)"  podman compose up || true
   recu:
     desc: "Run all gen jobs"
     silent: true

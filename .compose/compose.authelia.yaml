@@ -1,0 +1,24 @@
+services:
+  authelia:
+    image: "authelia/authelia"
+    container_name: authelia
+    user: "${PUID}:${PGID}"
+    volumes:
+      - "./authelia:/config"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.authelia.rule: "Host(`authelia.k8s.localhost`)"
+      traefik.http.routers.authelia.entrypoints: "https"
+      traefik.http.routers.authelia.tls: "true"
+      traefik.http.routers.authelia.tls.options: "default"
+      traefik.http.middlewares.authelia.forwardauth.address: "http://authelia:9091/api/authz/forward-auth" # yamllint disable-line rule:line-length
+      traefik.http.middlewares.authelia.forwardauth.trustForwardHeader: "true"
+      traefik.http.middlewares.authelia.forwardauth.authResponseHeaders: "Remote-User,Remote-Groups,Remote-Name,Remote-Email" # yamllint disable-line rule:line-length
+    restart: "unless-stopped"
+    healthcheck:
+      ## In production the healthcheck section should be commented.
+      disable: true
+    environment:
+      TZ: "Europe/Paris"
+      PUID: "${PUID}"
+      PGID: "${PGID}"

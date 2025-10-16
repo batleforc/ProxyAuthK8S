@@ -1,30 +1,30 @@
+include:
+  - .compose/compose.openobserve.yaml
+  - .compose/compose.redis.yaml
+  - .compose/compose.traefik.yaml
+  - .compose/compose.authelia.yaml
+
 services:
-  redis:
-    image: redis
-    container_name: redis
-    command: /bin/sh -c "redis-server --requirepass $$REDIS_HOST_PASSWORD"
-    environment:
-      REDIS_HOST_PASSWORD: "Complexpass"
-    ports:
-      - "6379:6379"
-  openobserve:
-    image: public.ecr.aws/zinclabs/openobserve:latest
-    restart: unless-stopped
-    environment:
-      ZO_ROOT_USER_EMAIL: "root@example.com"
-      ZO_ROOT_USER_PASSWORD: "Complexpass#123"
-    ports:
-      - "5080:5080"
-      - "5081:5081"
-  dbgate:
-    image: dbgate/dbgate
-    restart: always
-    ports:
-      - 3030:3000
-    environment:
-      CONNECTIONS: redis
-      LABEL_redis: Redis
-      SERVER_redis: redis
-      PASSWORD_redis: Complexpass
-      PORT_redis: 6379
-      ENGINE_redis: redis@dbgate-plugin-redis
+  secure:
+    image: "traefik/whoami"
+    container_name: "secure"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.secure.rule: "Host(`secure.k8s.localhost`)"
+      traefik.http.routers.secure.entrypoints: "https"
+      traefik.http.routers.secure.tls: "true"
+      traefik.http.routers.secure.tls.options: "default"
+      traefik.http.routers.secure.middlewares: "authelia@docker"
+    restart: "unless-stopped"
+
+  public:
+    image: "traefik/whoami"
+    container_name: "public"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.public.rule: "Host(`public.k8s.localhost`)"
+      traefik.http.routers.public.entrypoints: "https"
+      traefik.http.routers.public.tls: "true"
+      traefik.http.routers.public.tls.options: "default"
+      traefik.http.routers.public.middlewares: "authelia@docker"
+    restart: "unless-stopped"

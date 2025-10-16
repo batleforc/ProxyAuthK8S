@@ -1,0 +1,25 @@
+services:
+  redis:
+    image: ghcr.io/dragonflydb/dragonfly
+    container_name: redis
+    environment:
+      REDIS_HOST_PASSWORD: "${REDIS_PASSWORD}"
+      DFLY_requirepass: "${REDIS_PASSWORD}"
+    ports:
+      - "6379:6379"
+  dbgate:
+    image: dbgate/dbgate
+    restart: always
+    environment:
+      CONNECTIONS: redis
+      LABEL_redis: Redis
+      SERVER_redis: redis
+      PASSWORD_redis: "${REDIS_PASSWORD}"
+      PORT_redis: 6379
+      ENGINE_redis: redis@dbgate-plugin-redis
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.dbgate.rule: "Host(`dbgate.k8s.localhost`)"
+      traefik.http.routers.dbgate.entrypoints: "https"
+      traefik.http.routers.dbgate.tls: "true"
+      traefik.http.routers.dbgate.tls.options: "default"
