@@ -4,7 +4,7 @@ tasks:
   up:
     desc: "Start Talos cluster"
     cmds:
-      - talosctl cluster create --workers 1
+      - talosctl cluster create --workers 1 --config-patch-control-plane @.talos/patch_auth.yaml
   down:
     desc: "Destroy Talos cluster"
     cmds:
@@ -35,3 +35,13 @@ tasks:
       KUBECONFIG: kubeconfig.local.yaml
     cmds:
       - kubectl apply -f ./deploy/crds.yaml
+  create-kubeconfig-oidc:
+    vars:
+      server_url:
+        sh: cat kubeconfig.local.yaml | yq .clusters[0].cluster.server
+      server_ca:
+        sh: cat kubeconfig.local.yaml | yq .clusters[0].cluster."certificate-authority-data"
+    cmds:
+    - cp kubeconfig-template.oidc.yaml kubeconfig.local-oidc.yaml
+    - yq e -i '.clusters[0].cluster.server = "{{ .server_url }}"' kubeconfig.local-oidc.yaml
+    - yq e -i '.clusters[0].cluster."certificate-authority-data" = "{{ .server_ca }}"' kubeconfig.local-oidc.yaml
