@@ -9,7 +9,10 @@ utoipa-actix-web = { workspace = true }
 actix-web = { workspace = true }
 tracing = { workspace = true }
 deadpool-redis = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
 
 common = { path = "../common" }
+crd = { path = "../crd" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

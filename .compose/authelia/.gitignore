@@ -1,2 +1,5 @@
 notification.txt
 db.sqlite3
+private.pem
+public.pem
+configuration.yml

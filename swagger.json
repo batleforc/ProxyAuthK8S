@@ -44,6 +44,88 @@
           }
         }
       }
+    },
+    "/clusters/{ns}/{cluster}/{path}": {
+      "get": {
+        "tags": [
+          "clusters"
+        ],
+        "summary": "Cluster redirect",
+        "description": "Redirect to the cluster if exists",
+        "operationId": "get_redirect",
+        "responses": {
+          "200": {
+            "description": "ATM nothing real"
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "clusters"
+        ],
+        "summary": "Cluster redirect",
+        "description": "Redirect to the cluster if exists",
+        "operationId": "put_redirect",
+        "responses": {
+          "200": {
+            "description": "ATM nothing real"
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "clusters"
+        ],
+        "summary": "Cluster redirect",
+        "description": "Redirect to the cluster if exists",
+        "operationId": "post_redirect",
+        "responses": {
+          "200": {
+            "description": "ATM nothing real"
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "clusters"
+        ],
+        "summary": "Cluster redirect",
+        "description": "Redirect to the cluster if exists",
+        "operationId": "delete_redirect",
+        "responses": {
+          "200": {
+            "description": "ATM nothing real"
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "clusters"
+        ],
+        "summary": "Cluster redirect",
+        "description": "Redirect to the cluster if exists",
+        "operationId": "patch_redirect",
+        "responses": {
+          "200": {
+            "description": "ATM nothing real"
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
     }
   },
   "components": {},

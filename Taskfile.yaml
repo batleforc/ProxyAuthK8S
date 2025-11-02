@@ -19,8 +19,8 @@ tasks:
     env:
       KUBECONFIG: ./kubeconfig.local.yaml
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:5081/api/default"
-      OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Basic cm9vdEBleGFtcGxlLmNvbTpBaU9hZHozNHp6RHdWSHkw,organization=default,stream-name=default"
-      REDIS_URL: redis://:{{ .REDIS_PASSWORD }}@localhost:6379/prorxyauthk8s
+      OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Basic cm9vdEBleGFtcGxlLmNvbTpDb21wbGV4cGFzcyMxMjM=,organization=default,stream-name=default"
+      REDIS_URL: redis://:{{ .REDIS_PASSWORD }}@localhost:6379
     silent: true
     cmds:
       - echo "Running the backend"
@@ -49,6 +49,14 @@ tasks:
         fi
       - command -v docker && PUID="$(id -u)" PGID="$(id -g)" docker compose up || true
       - command -v podman && PUID="$(id -u)" PGID="$(id -g)"  podman compose up || true
+  init:service:
+    desc: "Initialize the service task"
+    silent: true
+    cmds:
+      - echo "Initializing the service task"
+      - echo "Generating self-signed certificates for local development"
+      - docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)/.compose/authelia":/keys authelia/authelia:latest authelia crypto pair rsa generate --directory /keys
+
   recu:
     desc: "Run all gen jobs"
     silent: true

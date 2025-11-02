@@ -1,4 +1,8 @@
-use crate::{api_doc::ApiDoc, base::health, cluster::base::base_cluster};
+use crate::{
+    api_doc::ApiDoc,
+    base::health,
+    cluster::{base::base_cluster, redirect},
+};
 use actix_web::App;
 use utoipa::{openapi::OpenApi as OpenApiType, OpenApi};
 use utoipa_actix_web::{scope, service_config::ServiceConfig, AppExt};
@@ -15,7 +19,12 @@ pub fn init_api() -> impl FnOnce(&mut ServiceConfig) {
 
 pub fn init_cluster_api() -> impl FnOnce(&mut ServiceConfig) {
     |cfg: &mut ServiceConfig| {
-        cfg.service(base_cluster);
+        cfg.service(base_cluster)
+            .service(redirect::get_redirect)
+            .service(redirect::post_redirect)
+            .service(redirect::put_redirect)
+            .service(redirect::patch_redirect)
+            .service(redirect::delete_redirect);
     }
 }
 

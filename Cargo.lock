@@ -279,7 +279,10 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "common",
+ "crd",
  "deadpool-redis",
+ "reqwest",
+ "serde",
  "tracing",
  "utoipa",
  "utoipa-actix-web",
