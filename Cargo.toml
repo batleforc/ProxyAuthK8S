@@ -15,6 +15,7 @@ members = [
 [workspace.dependencies]
 actix-web = '4'
 tokio = { version = '1', features = ['macros', 'rt-multi-thread'] }
+tokio-stream = '0.1'
 anyhow = '1'
 utoipa = { version = '5', features = ['actix_extras'] }
 utoipa-actix-web = { version = '0.1' }
@@ -28,6 +29,7 @@ kube = { version = '2', features = ['derive', 'runtime', 'client'] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
 schemars = { version = '1' }
 futures = '0.3'
+futures-util = "0.3"
 chrono = { version = '0.4', features = ['serde'] }
 deadpool-redis = { version = "0.22.0", features = ["serde"] }
 opentelemetry = { version = '0.30', features = ['trace', 'metrics', 'logs'] }

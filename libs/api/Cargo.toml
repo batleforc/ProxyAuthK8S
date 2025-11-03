@@ -11,6 +11,9 @@ tracing = { workspace = true }
 deadpool-redis = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+futures-util = { workspace = true }
 
 common = { path = "../common" }
 crd = { path = "../crd" }

@@ -1,30 +1,6 @@
 include:
-  - .compose/compose.openobserve.yaml
+  #- .compose/compose.openobserve.yaml
+  - .compose/compose.otel.yaml
   - .compose/compose.redis.yaml
   - .compose/compose.traefik.yaml
-  - .compose/compose.authelia.yaml
-
-services:
-  secure:
-    image: "traefik/whoami"
-    container_name: "secure"
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.secure.rule: "Host(`secure.k8s.localhost`)"
-      traefik.http.routers.secure.entrypoints: "https"
-      traefik.http.routers.secure.tls: "true"
-      traefik.http.routers.secure.tls.options: "default"
-      traefik.http.routers.secure.middlewares: "authelia@docker"
-    restart: "unless-stopped"
-
-  public:
-    image: "traefik/whoami"
-    container_name: "public"
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.public.rule: "Host(`public.k8s.localhost`)"
-      traefik.http.routers.public.entrypoints: "https"
-      traefik.http.routers.public.tls: "true"
-      traefik.http.routers.public.tls.options: "default"
-      traefik.http.routers.public.middlewares: "authelia@docker"
-    restart: "unless-stopped"
+  #- .compose/compose.authelia.yaml

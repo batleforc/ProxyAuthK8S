@@ -20,6 +20,7 @@ async fn main() -> anyhow::Result<()> {
     let controller = controller::run(state.clone());
     let mut api_doc = ApiDoc::openapi();
     api_doc.info.version = env!("CARGO_PKG_VERSION").to_string();
+    let reqwest_client = reqwest::Client::default();
     let server = HttpServer::new(move || {
         let cors = Cors::default()
             .allow_any_origin()
@@ -62,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
             .map(|app| app.wrap(Compress::default()))
             .map(|app| app.wrap(cors))
             .app_data(Data::new(state.clone()))
+            .app_data(Data::new(reqwest_client.clone()))
             .service(scope("/api/v1").configure(init_api()))
             .service(scope("/clusters").configure(init_cluster_api()))
             .split_for_parts();

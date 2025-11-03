@@ -1,4 +1,4 @@
-use actix_web::{delete, get, patch, post, put, web, HttpRequest, Responder};
+use actix_web::{delete, dev::PeerAddr, get, http, patch, post, put, web, HttpRequest, Responder};
 use common::State;
 use redirect::redirect;
 use tracing::instrument;
@@ -18,9 +18,15 @@ pub mod redirect;
     )
 )]
 #[get("/{ns}/{cluster}/{path:.*}")]
-#[instrument(name = "get_redirect", skip(data))]
-pub async fn get_redirect(req: HttpRequest, data: web::Data<State>) -> impl Responder {
-    redirect(req, data).await
+#[instrument(name = "get_redirect", skip(data, payload))]
+pub async fn get_redirect(
+    req: HttpRequest,
+    data: web::Data<State>,
+    payload: web::Payload,
+    method: http::Method,
+    peer_addr: Option<PeerAddr>,
+) -> impl Responder {
+    redirect(req, data, payload, method, peer_addr).await
 }
 
 /// Cluster redirect
@@ -34,9 +40,15 @@ pub async fn get_redirect(req: HttpRequest, data: web::Data<State>) -> impl Resp
     )
 )]
 #[post("/{ns}/{cluster}/{path:.*}")]
-#[instrument(name = "post_redirect", skip(data))]
-pub async fn post_redirect(req: HttpRequest, data: web::Data<State>) -> impl Responder {
-    redirect(req, data).await
+#[instrument(name = "post_redirect", skip(data, payload))]
+pub async fn post_redirect(
+    req: HttpRequest,
+    data: web::Data<State>,
+    payload: web::Payload,
+    method: http::Method,
+    peer_addr: Option<PeerAddr>,
+) -> impl Responder {
+    redirect(req, data, payload, method, peer_addr).await
 }
 
 /// Cluster redirect
@@ -50,9 +62,15 @@ pub async fn post_redirect(req: HttpRequest, data: web::Data<State>) -> impl Res
     )
 )]
 #[put("/{ns}/{cluster}/{path:.*}")]
-#[instrument(name = "put_redirect", skip(data))]
-pub async fn put_redirect(req: HttpRequest, data: web::Data<State>) -> impl Responder {
-    redirect(req, data).await
+#[instrument(name = "put_redirect", skip(data, payload))]
+pub async fn put_redirect(
+    req: HttpRequest,
+    data: web::Data<State>,
+    payload: web::Payload,
+    method: http::Method,
+    peer_addr: Option<PeerAddr>,
+) -> impl Responder {
+    redirect(req, data, payload, method, peer_addr).await
 }
 
 /// Cluster redirect
@@ -66,9 +84,15 @@ pub async fn put_redirect(req: HttpRequest, data: web::Data<State>) -> impl Resp
     )
 )]
 #[patch("/{ns}/{cluster}/{path:.*}")]
-#[instrument(name = "patch_redirect", skip(data))]
-pub async fn patch_redirect(req: HttpRequest, data: web::Data<State>) -> impl Responder {
-    redirect(req, data).await
+#[instrument(name = "patch_redirect", skip(data, payload))]
+pub async fn patch_redirect(
+    req: HttpRequest,
+    data: web::Data<State>,
+    payload: web::Payload,
+    method: http::Method,
+    peer_addr: Option<PeerAddr>,
+) -> impl Responder {
+    redirect(req, data, payload, method, peer_addr).await
 }
 
 /// Cluster redirect
@@ -82,7 +106,13 @@ pub async fn patch_redirect(req: HttpRequest, data: web::Data<State>) -> impl Re
     )
 )]
 #[delete("/{ns}/{cluster}/{path:.*}")]
-#[instrument(name = "delete_redirect", skip(data))]
-pub async fn delete_redirect(req: HttpRequest, data: web::Data<State>) -> impl Responder {
-    redirect(req, data).await
+#[instrument(name = "delete_redirect", skip(data, payload))]
+pub async fn delete_redirect(
+    req: HttpRequest,
+    data: web::Data<State>,
+    payload: web::Payload,
+    method: http::Method,
+    peer_addr: Option<PeerAddr>,
+) -> impl Responder {
+    redirect(req, data, payload, method, peer_addr).await
 }

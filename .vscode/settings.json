@@ -6,6 +6,7 @@
     "finalizer",
     "proxykubeapis",
     "proxys",
+    "reqwest",
     "schemars",
     "taskfile",
     "thiserror",

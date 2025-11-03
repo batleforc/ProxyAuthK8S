@@ -80,26 +80,9 @@ impl ProxyKubeApi {
             Ok(url) => url,
             Err(_) => return Ok(false),
         };
-        let mut reqwest_client = reqwest::ClientBuilder::new();
-        reqwest_client = match &self
-            .spec
-            .cert
-            .get_cert(ctx.client.clone(), &self.namespace().unwrap_or_default())
-            .await
-        {
-            Ok(Some(cert)) => match reqwest::Certificate::from_pem(cert.as_bytes()) {
-                Ok(c) => reqwest_client.add_root_certificate(c),
-                Err(err) => return Err(err.to_string()),
-            },
-            Ok(None) => reqwest_client.danger_accept_invalid_certs(true),
-            Err(err) => {
-                return Err(err.to_string());
-            }
-        };
-        reqwest_client = reqwest_client.use_rustls_tls();
-        let client = match reqwest_client.build() {
+        let client = match self.get_client(ctx.clone()).await {
             Ok(c) => c,
-            Err(err) => return Err(err.to_string()),
+            Err(err) => return Err(err),
         };
         match client.get(&ip).send().await {
             Ok(resp) => {
@@ -128,6 +111,29 @@ impl ProxyKubeApi {
                 }
                 return Err(err.to_string());
             }
+        }
+    }
+    pub async fn get_client(&self, ctx: Arc<State>) -> Result<reqwest::Client, String> {
+        let mut reqwest_client = reqwest::ClientBuilder::new();
+        reqwest_client = match &self
+            .spec
+            .cert
+            .get_cert(ctx.client.clone(), &self.namespace().unwrap_or_default())
+            .await
+        {
+            Ok(Some(cert)) => match reqwest::Certificate::from_pem(cert.as_bytes()) {
+                Ok(c) => reqwest_client.add_root_certificate(c),
+                Err(err) => return Err(err.to_string()),
+            },
+            Ok(None) => reqwest_client.danger_accept_invalid_certs(true),
+            Err(err) => {
+                return Err(err.to_string());
+            }
+        };
+        reqwest_client = reqwest_client.use_rustls_tls();
+        match reqwest_client.build() {
+            Ok(c) => Ok(c),
+            Err(err) => Err(err.to_string()),
         }
     }
 }
