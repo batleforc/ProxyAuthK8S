@@ -7,5 +7,6 @@ edition = "2021"
 kube = { workspace = true }
 deadpool-redis = { workspace = true }
 tracing = { workspace = true }
+rustls = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

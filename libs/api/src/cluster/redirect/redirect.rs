@@ -5,9 +5,9 @@ use deadpool_redis::redis::AsyncTypedCommands;
 use futures_util::stream::StreamExt;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{error, instrument};
+use tracing::{error, info, instrument};
 
-#[instrument(name = "main_redirect", skip(data, payload))]
+#[instrument(name = "main_redirect", level = "warn", skip(data, payload))]
 pub async fn redirect(
     req: HttpRequest,
     data: web::Data<State>,
@@ -50,7 +50,12 @@ pub async fn redirect(
             return HttpResponse::NotFound().finish();
         }
     };
-
+    info!(
+        "Forwarding request from {} to {} with method {}",
+        req.uri().to_string(),
+        url_to_call,
+        method.as_str()
+    );
     let (tx, rx) = mpsc::unbounded_channel();
     actix_web::rt::spawn(async move {
         while let Some(chunk) = payload.next().await {
@@ -72,7 +77,7 @@ pub async fn redirect(
         .body(reqwest::Body::wrap_stream(UnboundedReceiverStream::new(rx)));
     for (h, v) in req.headers().iter() {
         forwarded_req = forwarded_req.header(h.as_str(), v.clone().to_str().unwrap());
-        println!("Header: {}: {}", h.as_str(), v.clone().to_str().unwrap());
+        info!("Header: {}: {}", h.as_str(), v.clone().to_str().unwrap());
     }
     if let Some(PeerAddr(addr)) = peer_addr {
         forwarded_req = forwarded_req.header("x-forwarded-for", addr.ip().to_string());

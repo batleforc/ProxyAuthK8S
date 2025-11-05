@@ -25,6 +25,25 @@ tasks:
     cmds:
       - echo "Running the backend"
       - cargo run --bin server
+  run:tls:
+    desc: "Run the TLS terminator"
+    env:
+      KUBECONFIG: ./kubeconfig.local.yaml
+      REDIS_URL: redis://:{{ .REDIS_PASSWORD }}@localhost:6379
+      SERVER_HTTPS: "true"
+      SERVER_TLS_CERT_PATH: "./.tls/cert.pem"
+      SERVER_TLS_KEY_PATH: "./.tls/key.pem"
+    silent: true
+    cmds:
+      - echo "Running the backend"
+      - cargo run --bin server
+  gen:tls:
+    desc: "Generate self-signed TLS certificates for local development"
+    silent: true
+    cmds:
+      - echo "Generating self-signed TLS certificates for local development"
+      - mkdir -p .tls
+      - mkcert -key-file .tls/key.pem -cert-file .tls/cert.pem 127.0.0.1 localhost
   gen:crds:
     desc: "Generate Custom Resource Definitions"
     silent: true

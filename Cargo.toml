@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.dependencies]
-actix-web = '4'
+actix-web = { version = '4', features = ['rustls-0_23'] }
 tokio = { version = '1', features = ['macros', 'rt-multi-thread'] }
 tokio-stream = '0.1'
 anyhow = '1'
@@ -31,29 +31,31 @@ schemars = { version = '1' }
 futures = '0.3'
 futures-util = "0.3"
 chrono = { version = '0.4', features = ['serde'] }
-deadpool-redis = { version = "0.22.0", features = ["serde"] }
-opentelemetry = { version = '0.30', features = ['trace', 'metrics', 'logs'] }
-opentelemetry_sdk = { version = '0.30', features = [
+deadpool-redis = { version = "0.22", features = ["serde"] }
+opentelemetry = { version = '0.31', features = ['trace', 'metrics', 'logs'] }
+opentelemetry_sdk = { version = '0.31', features = [
 	'trace',
 	'metrics',
 	'logs',
 	'rt-tokio',
 ] }
-opentelemetry-otlp = { version = '0.30', features = [
+opentelemetry-otlp = { version = '0.31', features = [
 	'grpc-tonic',
 	'trace',
 	'metrics',
 	'logs',
 	'internal-logs',
+	'serialize',
 ] }
-opentelemetry-appender-tracing = { version = '0.30' }
+opentelemetry-appender-tracing = { version = '0.31' }
 tracing-subscriber = { version = '0.3', features = [
 	'env-filter',
 	'registry',
 	'std',
 	'fmt',
 ] }
-tracing-opentelemetry = { version = '0.31' }
+tracing-opentelemetry = { version = '0.32.0' }
+rustls = { version = "0.23", features = ["ring"], default-features = false }
 
 [profile.release]
 lto = true

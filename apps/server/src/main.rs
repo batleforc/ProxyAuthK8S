@@ -17,11 +17,11 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let state = common::State::new().await;
+    let server_config = common::ServerConfig::new();
     let controller = controller::run(state.clone());
     let mut api_doc = ApiDoc::openapi();
     api_doc.info.version = env!("CARGO_PKG_VERSION").to_string();
-    let reqwest_client = reqwest::Client::default();
-    let server = HttpServer::new(move || {
+    let mut server = HttpServer::new(move || {
         let cors = Cors::default()
             .allow_any_origin()
             .allow_any_method()
@@ -63,14 +63,24 @@ async fn main() -> anyhow::Result<()> {
             .map(|app| app.wrap(Compress::default()))
             .map(|app| app.wrap(cors))
             .app_data(Data::new(state.clone()))
-            .app_data(Data::new(reqwest_client.clone()))
             .service(scope("/api/v1").configure(init_api()))
             .service(scope("/clusters").configure(init_cluster_api()))
             .split_for_parts();
         app.service(Scalar::with_url("/api/docs", api))
     })
-    .bind((Ipv4Addr::UNSPECIFIED, 5437))?
     .shutdown_timeout(5);
+    if server_config.https {
+        let tls_config = server_config.get_rustls_config();
+        if tls_config.is_none() {
+            panic!("HTTPS is enabled but cert_path or key_path is not set");
+        }
+        server = server.bind_rustls_0_23(
+            (Ipv4Addr::UNSPECIFIED, server_config.port),
+            tls_config.unwrap(),
+        )?;
+    } else {
+        server = server.bind((Ipv4Addr::UNSPECIFIED, server_config.port))?;
+    }
 
     tokio::join!(controller, server.run()).1?;
     if let Err(e) = shutdown_tracing(logger, trace, meter) {

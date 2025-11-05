@@ -13,6 +13,7 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 kube = { workspace = true }
 reqwest = { workspace = true }
+rustls = { workspace = true }
 
 utoipa-actix-web = { workspace = true }
 
@@ -24,7 +25,7 @@ tracing-subscriber = { workspace = true }
 
 utoipa-scalar = { version = "0.3", features = ["actix-web"] }
 actix-cors = { version = "0.7" }
-opentelemetry-instrumentation-actix-web = { version = "0.22", features = [
+opentelemetry-instrumentation-actix-web = { version = "0.23", features = [
     "metrics",
 ] }
 

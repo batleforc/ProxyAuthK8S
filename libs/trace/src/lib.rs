@@ -2,7 +2,7 @@
 
 use std::sync::OnceLock;
 
-use opentelemetry::{global, InstrumentationScope, KeyValue};
+use opentelemetry::{global, KeyValue};
 #[cfg(feature = "log")]
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::tonic_types::metadata;
@@ -11,6 +11,8 @@ use opentelemetry_otlp::LogExporter;
 use opentelemetry_otlp::WithTonicConfig;
 use opentelemetry_otlp::{MetricExporter, SpanExporter};
 use opentelemetry_sdk::metrics::{Instrument, Stream};
+use opentelemetry_sdk::propagation::TraceContextPropagator;
+use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler};
 use opentelemetry_sdk::{
     logs::SdkLoggerProvider, metrics::SdkMeterProvider, trace::SdkTracerProvider, Resource,
 };
@@ -53,6 +55,10 @@ fn init_traces(ctx: &Context) -> SdkTracerProvider {
         .expect("Failed to create span exporter");
     SdkTracerProvider::builder()
         .with_resource(get_resource(ctx))
+        .with_sampler(Sampler::AlwaysOn)
+        .with_id_generator(RandomIdGenerator::default())
+        .with_max_events_per_span(64)
+        .with_max_attributes_per_span(16)
         .with_batch_exporter(exporter)
         .build()
 }
@@ -103,6 +109,8 @@ pub fn start_tracing(
     SdkTracerProvider,
     SdkMeterProvider,
 ) {
+    global::set_text_map_propagator(TraceContextPropagator::new());
+
     #[cfg(feature = "log")]
     let logger_provider = {
         let logger_provider = init_logs(&ctx.clone());
@@ -134,14 +142,14 @@ pub fn start_tracing(
     let meter_provider = init_metrics(&ctx.clone());
     global::set_meter_provider(meter_provider.clone());
 
-    let common_scope_attributes = vec![KeyValue::new("service.framework", "rust")];
-    let scope = InstrumentationScope::builder("basic")
-        .with_version("1.0")
-        .with_attributes(common_scope_attributes)
-        .build();
+    // let common_scope_attributes = vec![KeyValue::new("service.framework", "rust")];
+    // let scope = InstrumentationScope::builder("basic")
+    //     .with_version("1.0")
+    //     .with_attributes(common_scope_attributes)
+    //     .build();
 
-    global::tracer_with_scope(scope.clone());
-    global::meter_with_scope(scope);
+    // global::tracer_with_scope(scope.clone());
+    // global::meter_with_scope(scope);
 
     #[cfg(feature = "log")]
     return (Some(logger_provider), tracer_provider, meter_provider);
