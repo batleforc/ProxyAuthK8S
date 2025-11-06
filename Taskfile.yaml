@@ -31,8 +31,8 @@ tasks:
       KUBECONFIG: ./kubeconfig.local.yaml
       REDIS_URL: redis://:{{ .REDIS_PASSWORD }}@localhost:6379
       SERVER_HTTPS: "true"
-      SERVER_TLS_CERT_PATH: "./.tls/cert.pem"
-      SERVER_TLS_KEY_PATH: "./.tls/key.pem"
+      SERVER_CERT_PATH: ".tls/cert.pem"
+      SERVER_KEY_PATH: ".tls/key.pem"
     silent: true
     cmds:
       - echo "Running the backend"

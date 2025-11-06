@@ -67,17 +67,13 @@ impl ServerConfig {
 
     pub fn get_rustls_config(&self) -> Option<rustls::ServerConfig> {
         if self.https {
-            rustls::crypto::ring::default_provider()
-                .install_default()
-                .unwrap();
-
             // load TLS key/cert files
-            let cert_chain = CertificateDer::pem_file_iter("cert.pem")
+            let cert_chain = CertificateDer::pem_file_iter(self.cert_path.as_ref().unwrap())
                 .unwrap()
                 .flatten()
                 .collect();
 
-            let key_der = PrivateKeyDer::from_pem_file("key.pem")
+            let key_der = PrivateKeyDer::from_pem_file(self.key_path.as_ref().unwrap())
                 .expect("Could not locate PKCS 8 private keys.");
             Some(
                 rustls::ServerConfig::builder()

@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, instrument};
 
-#[instrument(name = "main_redirect", level = "warn", skip(data, payload))]
+#[instrument(name = "main_redirect", level = "warn", skip(req, data, payload))]
 pub async fn redirect(
     req: HttpRequest,
     data: web::Data<State>,
@@ -19,12 +19,18 @@ pub async fn redirect(
     let cluster: String = req.match_info().get("cluster").unwrap().parse().unwrap();
     let mut conn = match data.get_redis_conn().await {
         Ok(conn) => conn,
-        Err(e) => return HttpResponse::ServiceUnavailable().body(e.to_string()),
+        Err(e) => {
+            error!(error = %e, " couldn't get redis connection");
+            return HttpResponse::ServiceUnavailable().body(e.to_string());
+        }
     };
     let proxy_json = match conn.get(format!("proxyk8sauth:{}/{}", ns, cluster)).await {
         Ok(Some(proxy)) => proxy,
         Ok(None) => return HttpResponse::NotFound().finish(),
-        Err(e) => return HttpResponse::ServiceUnavailable().body(e.to_string()),
+        Err(e) => {
+            error!(error = %e, " couldn't get proxy from redis");
+            return HttpResponse::ServiceUnavailable().body(e.to_string());
+        }
     };
     // TODO: MTLS ? https://github.com/actix/examples/blob/master/https-tls/rustls-client-cert/src/main.rs
     let proxy = match ProxyKubeApi::from_json(&proxy_json) {
@@ -41,12 +47,20 @@ pub async fn redirect(
         .url_to_call(data.client.clone(), "default".to_string())
         .await
     {
-        Ok(url) => req
-            .uri()
-            .to_string()
-            .replace(&format!("/clusters/{}/{}", ns, cluster), &url),
+        Ok(url) => {
+            let base_url = req
+                .path()
+                .to_string()
+                .replace(&format!("/clusters/{}/{}", ns, cluster), &url);
+            let query_string = req.query_string();
+            if !query_string.is_empty() {
+                format!("{}?{}", base_url, query_string)
+            } else {
+                base_url
+            }
+        }
         Err(err) => {
-            error!(err);
+            error!(err, " couldn't get url to call");
             return HttpResponse::NotFound().finish();
         }
     };
@@ -56,16 +70,30 @@ pub async fn redirect(
         url_to_call,
         method.as_str()
     );
-    let (tx, rx) = mpsc::unbounded_channel();
+    // Stream the request payload into a tokio unbounded channel as raw bytes.
+    // Only forward successful chunks; on a payload error log and stop.
+    let (tx, rx) = mpsc::unbounded_channel::<web::Bytes>();
     actix_web::rt::spawn(async move {
-        while let Some(chunk) = payload.next().await {
-            tx.send(chunk).unwrap();
+        while let Some(item) = payload.next().await {
+            match item {
+                Ok(chunk) => {
+                    // send bytes, but stop if receiver was dropped
+                    if tx.send(chunk).is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    error!(%e, "error reading request payload");
+                    break;
+                }
+            }
         }
+        // tx is dropped here when the task ends which closes the stream for the receiver
     });
     let client = match proxy.get_client(data.into_inner()).await {
         Ok(c) => c,
         Err(err) => {
-            error!(err);
+            error!(err, " couldn't get client");
             return HttpResponse::ServiceUnavailable().body(err);
         }
     };
@@ -74,10 +102,29 @@ pub async fn redirect(
             reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap(),
             url_to_call.clone(),
         )
-        .body(reqwest::Body::wrap_stream(UnboundedReceiverStream::new(rx)));
+        // Convert the UnboundedReceiverStream<Bytes> into a stream of Result<Bytes, _>
+        // which reqwest::Body::wrap_stream expects.
+        .body(reqwest::Body::wrap_stream(
+            UnboundedReceiverStream::new(rx).map(|b| Ok::<web::Bytes, std::io::Error>(b)),
+        ));
+    // Forward headers but skip hop-by-hop headers and content-length/transfer-encoding
     for (h, v) in req.headers().iter() {
-        forwarded_req = forwarded_req.header(h.as_str(), v.clone().to_str().unwrap());
-        info!("Header: {}: {}", h.as_str(), v.clone().to_str().unwrap());
+        let name = h.as_str();
+        // Skip headers that must not be forwarded or are managed by reqwest when streaming
+        if name.eq_ignore_ascii_case("connection")
+            || name.eq_ignore_ascii_case("transfer-encoding")
+            || name.eq_ignore_ascii_case("content-length")
+            || name.eq_ignore_ascii_case("host")
+        {
+            continue;
+        }
+        // Only forward header values that are valid UTF-8 strings. If not valid, skip them.
+        if let Ok(value_str) = v.to_str() {
+            forwarded_req = forwarded_req.header(name, value_str);
+        } else {
+            // non-utf8 header; skip it to avoid conversion issues
+            info!(header = %name, "skipping non-utf8 header");
+        }
     }
     if let Some(PeerAddr(addr)) = peer_addr {
         forwarded_req = forwarded_req.header("x-forwarded-for", addr.ip().to_string());
@@ -86,7 +133,7 @@ pub async fn redirect(
     let res = match forwarded_req.send().await {
         Ok(res) => res,
         Err(e) => {
-            tracing::error!(error = %e);
+            tracing::error!(error = %e, " error forwarding request to cluster");
             return HttpResponse::ServiceUnavailable().body(e.to_string());
         }
     };
@@ -94,12 +141,28 @@ pub async fn redirect(
     let mut client_resp =
         HttpResponse::build(actix_web::http::StatusCode::from_u16(res.status().as_u16()).unwrap());
 
-    for (header_name, header_value) in res.headers().iter().filter(|(h, _)| *h != "connection") {
-        client_resp.insert_header((
-            actix_web::http::header::HeaderName::from_bytes(header_name.as_ref()).unwrap(),
-            actix_web::http::header::HeaderValue::from_bytes(header_value.as_ref()).unwrap(),
-        ));
+    for (header_name, header_value) in res.headers().iter() {
+        let name = header_name.as_str();
+        // Skip headers that must not be forwarded or are managed by reqwest when streaming
+        if name.eq_ignore_ascii_case("connection")
+            || name.eq_ignore_ascii_case("transfer-encoding")
+            || name.eq_ignore_ascii_case("content-length")
+            || name.eq_ignore_ascii_case("host")
+        {
+            continue;
+        }
+        // Only forward header values that are valid UTF-8 strings. If not valid, skip them.
+        if let Ok(value_str) = header_value.to_str() {
+            client_resp.insert_header((
+                actix_web::http::header::HeaderName::from_bytes(name.as_ref()).unwrap(),
+                actix_web::http::header::HeaderValue::from_bytes(value_str.as_ref()).unwrap(),
+            ));
+        } else {
+            // non-utf8 header; skip it to avoid conversion issues
+            info!(header = %name, "skipping non-utf8 header");
+        }
     }
+    // Copy the response body stream directly to the client response
 
     client_resp.streaming(res.bytes_stream())
     // https://github.com/actix/examples/blob/master/http-proxy/src/main.rs#L56
