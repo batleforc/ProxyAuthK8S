@@ -1,10 +1,33 @@
-version: '3'
+version: "3"
 
 tasks:
   up:
     desc: "Start Talos cluster"
+    vars:
+      TRAEFIK_IP:
+        sh: task talos:get-traefik-ip
     cmds:
-      - talosctl cluster create --workers 1 --config-patch-control-plane @.talos/patch_auth.yaml
+      - cp .talos/patch_host.yaml.tpl .talos/patch_host.yaml && sed -i 's/TRAEFIK_IP/{{ .TRAEFIK_IP }}/g' .talos/patch_host.yaml
+      - task talos:up:cert
+      - talosctl cluster create --workers 1 --config-patch-control-plane @.talos/patch_auth.yaml --config-patch @.talos/patch_host.yaml
+      - task talos:kubeconfig
+      - task talos:crd
+      - task talos:k -- apply -f ./deploy/exemple/min-local-talos.crd.yaml
+      - task talos:create-kubeconfig-proxy
+      - task talos:create-kubeconfig-oidc
+  up:cert:
+    cmds:
+      - cp .talos/patch_auth.yaml.tpl .talos/patch_auth.yaml
+      - |
+        awk '/CERTIFICATE/ {
+          while ((getline line < ".compose/traefik/certs/cert.pem") > 0) {
+          print "                " line
+          }
+          close(".compose/traefik/certs/cert.pem")
+          next
+          }
+        { print }' .talos/patch_auth.yaml > .talos/patch_auth.yaml.tmp
+      - mv .talos/patch_auth.yaml.tmp .talos/patch_auth.yaml
   down:
     desc: "Destroy Talos cluster"
     cmds:
@@ -12,6 +35,7 @@ tasks:
   kubeconfig:
     desc: "Get kubeconfig for Talos cluster"
     cmds:
+      - rm -f kubeconfig.local.yaml
       - talosctl kubeconfig 'kubeconfig.local.yaml' -n 10.5.0.2
   dashboard:
     desc: "Open Talos dashboard"
@@ -19,8 +43,23 @@ tasks:
       - talosctl dashboard -n 10.5.0.2
   k:
     desc: "Shortcut for kubectl"
+    silent: true
     env:
       KUBECONFIG: kubeconfig.local.yaml
+    cmds:
+      - kubectl {{ .CLI_ARGS }}
+  k-proxy:
+    desc: "Shortcut for kubectl using ProxyauthK8s"
+    silent: true
+    env:
+      KUBECONFIG: kubeconfig.local-proxy.yaml
+    cmds:
+      - kubectl {{ .CLI_ARGS }}
+  k-oidc:
+    desc: "Shortcut for kubectl using OIDC"
+    silent: true
+    env:
+      KUBECONFIG: kubeconfig.local-oidc.yaml
     cmds:
       - kubectl {{ .CLI_ARGS }}
   k9s:
@@ -36,12 +75,30 @@ tasks:
     cmds:
       - kubectl apply -f ./deploy/crds.yaml
   create-kubeconfig-oidc:
+    desc: "Create kubeconfig to use with OIDC and ProxyauthK8s"
+    silent: true
     vars:
-      server_url:
-        sh: cat kubeconfig.local.yaml | yq .clusters[0].cluster.server
-      server_ca:
-        sh: cat kubeconfig.local.yaml | yq .clusters[0].cluster."certificate-authority-data"
+      server_url: "https://localhost:5437/clusters/default/local"
     cmds:
-    - cp kubeconfig-template.oidc.yaml kubeconfig.local-oidc.yaml
-    - yq e -i '.clusters[0].cluster.server = "{{ .server_url }}"' kubeconfig.local-oidc.yaml
-    - yq e -i '.clusters[0].cluster."certificate-authority-data" = "{{ .server_ca }}"' kubeconfig.local-oidc.yaml
+      - cp kubeconfig-template.oidc.yaml kubeconfig.local-oidc.yaml
+      - yq e -i '.clusters[0].cluster.server = "{{ .server_url }}"' kubeconfig.local-oidc.yaml
+  create-kubeconfig-proxy:
+    desc: "Create kubeconfig to use with ProxyauthK8s"
+    silent: true
+    vars:
+      server_url: "https://localhost:5437/clusters/default/local"
+      token:
+        sh: task talos:k -- create token default
+    cmds:
+      - cp kubeconfig.local.yaml kubeconfig.local-proxy.yaml
+      - yq e -i '.clusters[0].cluster.server = "{{ .server_url }}"' kubeconfig.local-proxy.yaml
+      - yq e -i 'del(.clusters[0].cluster."certificate-authority-data")' kubeconfig.local-proxy.yaml
+      - yq e -i '.users[0].user.token = "{{ .token }}"' kubeconfig.local-proxy.yaml
+      - yq e -i 'del(.users[0].user."client-certificate-data")' kubeconfig.local-proxy.yaml
+      - yq e -i 'del(.users[0].user."client-key-data")' kubeconfig.local-proxy.yaml
+  get-traefik-ip:
+    desc: "Get Traefik Docker IP"
+    silent: true
+    cmds:
+      - docker inspect traefik | jq -r '.[0].NetworkSettings.Networks["talos-default"].IPAddress'
+      # https://docs.siderolabs.com/talos/v1.6/reference/configuration/v1alpha1/config#extrahostentries%5B%5D

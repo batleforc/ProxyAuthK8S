@@ -10,7 +10,7 @@ log:
   level: 'debug'
 
 totp:
-  issuer: 'authelia.com'
+  issuer: 'authelia.k8s.localhost'
 
 identity_validation:
   reset_password:
@@ -78,7 +78,7 @@ identity_providers:
     jwks:
       - key_id: "kube_login"
         key: |
-          {{ secret "/config/private.pem" | nindent 10 }}
+          {{- secret "/config/private.pem" | nindent 10 }}
 
 
 

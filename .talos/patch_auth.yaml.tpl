@@ -1,16 +1,14 @@
-- op: add
-  path: /cluster/apiServer/extraArgs
-  value:
-    authentication-config: /var/lib/apiserver/authentication.yaml
-- op: add
-  path: /cluster/apiServer/extraVolumes
-  value:
-    - hostPath: /var/lib/apiserver
-      mountPath: /var/lib/apiserver
-      readonly: true
-- op: add
-  path: /machine/files
-  value:
+cluster:
+  apiServer:
+    extraArgs:
+      authentication-config: /var/lib/apiserver/authentication.yaml
+    extraVolumes:
+      - hostPath: /var/lib/apiserver
+        mountPath: /var/lib/apiserver
+        readonly: true
+
+machine:
+  files:
     - content: |
         apiVersion: apiserver.config.k8s.io/v1beta1
         kind: AuthenticationConfiguration
@@ -20,6 +18,8 @@
               audiences:
                 - 'kube_login'
               audienceMatchPolicy: MatchAny
+              certificateAuthority: |
+                CERTIFICATE
             claimValidationRules:
               - expression: "claims.email_verified == true"
                 message: "email must be verified"

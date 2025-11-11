@@ -3,4 +3,9 @@ include:
   - .compose/compose.otel.yaml
   - .compose/compose.redis.yaml
   - .compose/compose.traefik.yaml
-  #- .compose/compose.authelia.yaml
+  - .compose/compose.authelia.yaml
+
+networks:
+  default:
+    name: talos-default
+    external: true

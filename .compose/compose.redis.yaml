@@ -2,6 +2,9 @@ services:
   redis:
     image: ghcr.io/dragonflydb/dragonfly
     container_name: redis
+    networks:
+      default:
+        ipv4_address: 10.5.0.11
     environment:
       REDIS_HOST_PASSWORD: "${REDIS_PASSWORD}"
       DFLY_requirepass: "${REDIS_PASSWORD}"
@@ -9,6 +12,9 @@ services:
       - "6379:6379"
   dbgate:
     image: dbgate/dbgate
+    networks:
+      default:
+        ipv4_address: 10.5.0.12
     restart: always
     environment:
       CONNECTIONS: redis

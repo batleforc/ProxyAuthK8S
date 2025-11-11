@@ -2,6 +2,9 @@ services:
   traefik:
     image: "traefik"
     container_name: "traefik"
+    networks:
+      default:
+        ipv4_address: 10.5.0.10
     volumes:
       - "./traefik:/etc/traefik"
       - "/var/run/docker.sock:/var/run/docker.sock"

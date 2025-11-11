@@ -5,6 +5,7 @@ dist
 tmp
 out-tsc
 .tls
+.compose/traefik/certs
 
 # dependencies
 node_modules
