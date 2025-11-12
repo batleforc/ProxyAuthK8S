@@ -2,3 +2,4 @@ patch_host.yaml
 patch_cert.yaml
 patch_cert.yaml.tmp
 patch_auth.yaml.tmp
+patch_auth.yaml

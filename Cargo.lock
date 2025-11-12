@@ -1782,6 +1782,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "mutually_exclusive_features"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e94e1e6445d314f972ff7395df2de295fe51b71821694f0b0e1e79c4f12c8577"
+
+[[package]]
 name = "native-tls"
 version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1950,20 +1956,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry-instrumentation-actix-web"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "936e41b4ed3365bae2a4a9216f52d3fb9ad30e848dde33ed229c8c454ccba31d"
-dependencies = [
- "actix-http",
- "actix-web",
- "futures-util",
- "opentelemetry",
- "opentelemetry-semantic-conventions",
- "serde",
-]
-
-[[package]]
 name = "opentelemetry-otlp"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1996,12 +1988,6 @@ dependencies = [
  "tonic",
  "tonic-prost",
 ]
-
-[[package]]
-name = "opentelemetry-semantic-conventions"
-version = "0.31.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e62e29dfe041afb8ed2a6c9737ab57db4907285d999ef8ad3a59092a36bdc846"
 
 [[package]]
 name = "opentelemetry_sdk"
@@ -2730,7 +2716,6 @@ dependencies = [
  "kube",
  "opentelemetry",
  "opentelemetry-appender-tracing",
- "opentelemetry-instrumentation-actix-web",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "reqwest",
@@ -2738,6 +2723,7 @@ dependencies = [
  "tokio",
  "trace",
  "tracing",
+ "tracing-actix-web",
  "tracing-subscriber",
  "utoipa",
  "utoipa-actix-web",
@@ -3209,6 +3195,20 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-actix-web"
+version = "0.7.20"
+source = "git+https://github.com/asonix/tracing-actix-web?branch=asonix%2Fopentelemetry-0-31#a4c56837c6a77d7a0323021e2a81871d1b366671"
+dependencies = [
+ "actix-web",
+ "mutually_exclusive_features",
+ "opentelemetry",
+ "pin-project",
+ "tracing",
+ "tracing-opentelemetry",
+ "uuid",
 ]
 
 [[package]]

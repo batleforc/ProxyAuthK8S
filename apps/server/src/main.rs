@@ -3,8 +3,8 @@ use std::net::Ipv4Addr;
 use actix_cors::Cors;
 use actix_web::{dev::Service, http::header, middleware::Compress, web::Data, App, HttpServer};
 use api::{api_doc::ApiDoc, init_api, init_cluster_api};
-use opentelemetry_instrumentation_actix_web::{RequestMetrics, RequestTracing};
 use trace::{shutdown_tracing, start_tracing};
+use tracing_actix_web::{RequestId, TracingLogger};
 use utoipa::OpenApi;
 use utoipa_actix_web::{scope, AppExt};
 use utoipa_scalar::{Scalar, Servable};
@@ -12,7 +12,7 @@ use utoipa_scalar::{Scalar, Servable};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     println!(include_str!("banner.art"));
-    let (logger, trace, meter) = start_tracing(&trace::Context {
+    let (trace, meter) = start_tracing(&trace::Context {
         pod_name: std::env::var("POD_NAME").unwrap_or_else(|_| "not_a_pod".to_string()),
     });
 
@@ -31,35 +31,25 @@ async fn main() -> anyhow::Result<()> {
             .into_utoipa_app()
             .openapi(api_doc.clone())
             .map(|app| {
-                app.wrap_fn(|req, srv| {
-                    // check if the request has a request id header
-                    let request_id = if let Some(request_id) = req.headers().get("x-request-id") {
-                        // if it has, set the request id in the span
-                        request_id
-                            .to_str()
-                            .unwrap_or("invalid_request_id")
-                            .to_string()
-                    }
-                    // if not, generate a new request id
-                    else {
-                        uuid::Uuid::new_v4().to_string()
-                    };
+                app.wrap_fn(|mut req, srv| {
+                    let request_id_asc = req.extract::<RequestId>();
                     let fut = srv.call(req);
                     async move {
                         let mut res = fut.await?;
-                        // set the request id in the response header
+                        let request_id: RequestId = request_id_asc.await.unwrap();
+                        let request_id_str = format!("{}", request_id);
                         let headers = res.headers_mut();
                         headers.insert(
                             header::HeaderName::from_static("x-request-id"),
-                            header::HeaderValue::from_str(request_id.as_str()).unwrap(),
+                            header::HeaderValue::from_str(request_id_str.as_str()).unwrap(),
                         );
-                        tracing::info!(request_id = %request_id);
                         Ok(res)
                     }
                 })
             })
-            .map(|app| app.wrap(RequestTracing::new()))
-            .map(|app| app.wrap(RequestMetrics::default()))
+            .map(|app| app.wrap(TracingLogger::default()))
+            // .map(|app| app.wrap(RequestTracing::new()))
+            // .map(|app| app.wrap(RequestMetrics::default()))
             .map(|app| app.wrap(Compress::default()))
             .map(|app| app.wrap(cors))
             .app_data(Data::new(state.clone()))
@@ -83,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     tokio::join!(controller, server.run()).1?;
-    if let Err(e) = shutdown_tracing(logger, trace, meter) {
+    if let Err(e) = shutdown_tracing(trace, meter) {
         eprintln!("Error during the shutdown of tracing: {e}");
     }
     Ok(())

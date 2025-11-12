@@ -61,21 +61,22 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
             return Ok(Action::requeue(std::time::Duration::from_secs(5 * 60)));
         }
     };
+
+    let mut redis_conn = ctx.get_redis_conn().await?;
+    let proxy_json = proxy.to_json();
+    match cmd("SET")
+        .arg(&id)
+        .arg(&proxy_json)
+        .query_async::<()>(&mut redis_conn)
+        .await
     {
-        let mut redis_conn = ctx.get_redis_conn().await?;
-        let proxy_json = proxy.to_json();
-        match cmd("SET")
-            .arg(&id)
-            .arg(&proxy_json)
-            .query_async::<()>(&mut redis_conn)
-            .await
-        {
-            Ok(_) => info!("Successfully upsert ProxyKubeApi: {}", id),
-            Err(err) => {
-                info!("Failed to upsert ProxyKubeApi: {}. Error: {}", id, err);
-            }
+        Ok(_) => info!("Successfully upsert ProxyKubeApi: {}", id),
+        Err(err) => {
+            info!("Failed to upsert ProxyKubeApi: {}. Error: {}", id, err);
         }
     }
+    drop(redis_conn);
+
     let new_status =
         ProxyKubeApiStatus::new(true, Some(format!("/clusters/{}", path)), None).get_patch();
     let _ = proxys

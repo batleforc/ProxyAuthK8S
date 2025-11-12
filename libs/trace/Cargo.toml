@@ -16,6 +16,6 @@ tracing-subscriber = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 
 [features]
-default = ["log"]
+default = []
 log = []
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

@@ -20,19 +20,14 @@ machine:
               audienceMatchPolicy: MatchAny
               certificateAuthority: |
                 CERTIFICATE
-            claimValidationRules:
-              - expression: "claims.email_verified == true"
-                message: "email must be verified"
             claimMappings:
               username:
-                expression: '"weebsso:" + claims.email'
+                expression: '"TestUser"'
               groups:
-                expression: "claims.groups"
+                expression: "'developers'"
               uid:
                 expression: "claims.sub"
             userValidationRules:
-              - expression: "!user.username.startsWith('system:')"
-                message: "username cannot used reserved system: prefix"
               - expression: "user.groups.all(group, !group.startsWith('system:'))"
                 message: "groups cannot used reserved system: prefix"
       permissions: 0o444

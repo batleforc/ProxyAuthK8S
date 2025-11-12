@@ -33,7 +33,10 @@ pub fn error_policy_proxy_kube_api(
 }
 
 #[instrument(skip(ctx, proxy), fields(trace_id))]
-pub async fn reconcile_proxy_kube_api(proxy: Arc<ProxyKubeApi>, ctx: Arc<State>) -> Result<Action> {
+pub async fn main_reconcile_proxy_kube_api(
+    proxy: Arc<ProxyKubeApi>,
+    ctx: Arc<State>,
+) -> Result<Action> {
     let trace_id = get_trace_id();
     if trace_id != TraceId::INVALID {
         tracing::Span::current().record("trace_id", &tracing::field::display(trace_id));

@@ -29,7 +29,7 @@ impl State {
         }
     }
 
-    #[instrument(name = "GetRedisConn", skip(self))]
+    #[instrument(skip(self))]
     pub async fn get_redis_conn(
         &self,
     ) -> Result<deadpool_redis::Connection, deadpool_redis::PoolError> {

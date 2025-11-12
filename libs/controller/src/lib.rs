@@ -7,14 +7,12 @@ use kube::{
     runtime::{watcher::Config, Controller},
     Api,
 };
-use tracing::instrument;
 
-use crate::proxy_kube_api::{error_policy_proxy_kube_api, reconcile_proxy_kube_api};
+use crate::proxy_kube_api::{error_policy_proxy_kube_api, main_reconcile_proxy_kube_api};
 
 pub mod error;
 pub mod proxy_kube_api;
 
-#[instrument(skip(state))]
 pub async fn run(state: State) {
     let client = state.client.clone();
     let proxy_kube_apis = Api::<ProxyKubeApi>::all(client.clone());
@@ -30,7 +28,7 @@ pub async fn run(state: State) {
     Controller::new(proxy_kube_apis, Config::default().any_semantic())
         .shutdown_on_signal()
         .run(
-            reconcile_proxy_kube_api,
+            main_reconcile_proxy_kube_api,
             error_policy_proxy_kube_api,
             controller_state,
         )
