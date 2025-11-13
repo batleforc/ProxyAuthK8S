@@ -18,6 +18,6 @@ The base specification of the [project can be found here](https://batleforc.gith
 
 Move back to [Tracing Actix Web](https://github.com/LukeMathWalker/tracing-actix-web/pull/144) has it handle the tracing framework THAT I LOVE SO MUCH! (and the old lib does nothing that i want)
 
-## ADD TLS
+## API Endpoints
 
-[Rustls](https://github.com/actix/examples/tree/main/https-tls/rustls)
+[More info about the api here](libs/api/readme.md)
