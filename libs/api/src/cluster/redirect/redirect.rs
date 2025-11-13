@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, instrument};
 
-#[instrument(name = "main_redirect", level = "warn", skip(req, data, payload))]
+#[instrument(name = "main_redirect",fields(http.method= ?method, http.response.status_code) ,skip(req, data, payload))]
 pub async fn redirect(
     req: HttpRequest,
     data: web::Data<State>,
@@ -64,7 +64,7 @@ pub async fn redirect(
             return HttpResponse::NotFound().finish();
         }
     };
-    info!(
+    info!(from = %req.uri().to_string(), to = %url_to_call, method = %method.as_str(),
         "Forwarding request from {} to {} with method {}",
         req.uri().to_string(),
         url_to_call,
@@ -137,7 +137,7 @@ pub async fn redirect(
             return HttpResponse::ServiceUnavailable().body(e.to_string());
         }
     };
-
+    tracing::Span::current().record("http.response.status_code", &res.status().as_u16());
     let mut client_resp =
         HttpResponse::build(actix_web::http::StatusCode::from_u16(res.status().as_u16()).unwrap());
 
