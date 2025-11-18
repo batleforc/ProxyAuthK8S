@@ -49,3 +49,5 @@ ec_key.pem
 kubeconfig.*.yaml
 
 target
+vite.config.*.timestamp*
+vitest.config.*.timestamp*

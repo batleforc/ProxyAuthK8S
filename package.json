@@ -8,11 +8,30 @@
   "private": true,
   "dependencies": {
     "@monodon/rust": "2.3.0",
-    "vue": "^3.5.13"
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
   },
   "devDependencies": {
-    "@nx/vue": "^21.5.3",
+    "@nx/js": "21.6.9",
+    "@nx/vite": "21.6.9",
+    "@nx/vue": "21.6.9",
+    "@nx/web": "21.6.9",
     "@nx/workspace": "21.5.3",
-    "nx": "21.5.3"
+    "@swc-node/register": "~1.9.1",
+    "@swc/core": "~1.5.7",
+    "@swc/helpers": "~0.5.11",
+    "@vitejs/plugin-vue": "^5.2.3",
+    "@vitest/ui": "^3.0.0",
+    "@vue/test-utils": "^2.4.6",
+    "jiti": "2.4.2",
+    "jsdom": "~22.1.0",
+    "nx": "21.5.3",
+    "prettier": "^2.6.2",
+    "sass": "^1.94.1",
+    "tslib": "^2.3.0",
+    "typescript": "~5.9.2",
+    "vite": "^7.0.0",
+    "vitest": "^3.0.0",
+    "vue-tsc": "^2.2.8"
   }
 }

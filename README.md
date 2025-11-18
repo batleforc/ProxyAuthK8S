@@ -21,3 +21,7 @@ Move back to [Tracing Actix Web](https://github.com/LukeMathWalker/tracing-actix
 ## API Endpoints
 
 [More info about the api here](libs/api/readme.md)
+
+## Frontend
+
+- [UI LIB](https://maz-ui.com/guide/vue)
