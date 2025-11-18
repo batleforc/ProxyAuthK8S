@@ -7,9 +7,11 @@
   },
   "private": true,
   "dependencies": {
-    "@monodon/rust": "2.3.0"
+    "@monodon/rust": "2.3.0",
+    "vue": "^3.5.13"
   },
   "devDependencies": {
+    "@nx/vue": "^21.5.3",
     "@nx/workspace": "21.5.3",
     "nx": "21.5.3"
   }
