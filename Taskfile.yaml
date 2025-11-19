@@ -1,4 +1,4 @@
-version: '3'
+version: "3"
 
 includes:
   talos: .taskfile/talos.yaml
@@ -61,6 +61,12 @@ tasks:
     silent: true
     cmds:
       - cargo run --bin swaggergen
+  gen:api-client:
+    desc: "Generate API client from OpenAPI specification"
+    silent: true
+    cmds:
+      - echo "Generating API client from OpenAPI specification"
+      - yarn openapi-ts
   run:service:
     desc: "Run the service task"
     silent: true

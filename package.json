@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "nx": "nx"
+    "nx": "nx",
+    "openapi-ts": "openapi-ts"
   },
   "private": true,
   "dependencies": {
@@ -12,7 +13,8 @@
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
-    "@nx/js": "21.6.9",
+    "@hey-api/openapi-ts": "0.87.5",
+    "@nx/js": "21.5.3",
     "@nx/vite": "21.6.9",
     "@nx/vue": "21.6.9",
     "@nx/web": "21.6.9",
@@ -20,6 +22,7 @@
     "@swc-node/register": "~1.9.1",
     "@swc/core": "~1.5.7",
     "@swc/helpers": "~0.5.11",
+    "@types/node": "20.19.9",
     "@vitejs/plugin-vue": "^5.2.3",
     "@vitest/ui": "^3.0.0",
     "@vue/test-utils": "^2.4.6",

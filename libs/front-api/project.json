@@ -1,0 +1,19 @@
+{
+  "name": "front-api",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/front-api/src",
+  "projectType": "library",
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "outputPath": "dist/libs/front-api",
+        "main": "libs/front-api/src/index.ts",
+        "tsConfig": "libs/front-api/tsconfig.lib.json",
+        "assets": ["libs/front-api/*.md"]
+      }
+    }
+  },
+  "tags": []
+}
