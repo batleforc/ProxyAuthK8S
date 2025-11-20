@@ -37,6 +37,12 @@ tasks:
     cmds:
       - echo "Running the backend"
       - cargo run --bin server
+  run:dev:
+    desc: "Run the frontend in development mode"
+    silent: true
+    cmds:
+      - echo "Running the frontend in development mode"
+      - yarn nx run front:dev
   gen:tls:
     desc: "Generate self-signed TLS certificates for local development"
     silent: true
@@ -95,3 +101,4 @@ tasks:
     cmds:
       - task gen:crds > deploy/crds.yaml
       - task gen:swagger > swagger.json
+      - task gen:api-client

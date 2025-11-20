@@ -4,7 +4,11 @@ import type { Router } from 'vue-router';
 import { createPinia } from 'pinia';
 import { createApp, markRaw } from 'vue';
 import App from './app/App.vue';
-import {} from '@proxy-auth-k8s/front-api';
+import { client } from '@proxy-auth-k8s/front-api';
+
+client.setConfig({
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+});
 
 const pinia = createPinia();
 const app = createApp(App);

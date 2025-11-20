@@ -10,6 +10,12 @@ export default defineConfig(() => ({
   server: {
     port: 4200,
     host: 'localhost',
+    allowedHosts: [
+      '.k8s.local',
+      '.local',
+      'localhost',
+      '.che-cluster.4.weebo.fr',
+    ],
   },
   preview: {
     port: 4300,

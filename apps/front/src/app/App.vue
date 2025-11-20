@@ -1,5 +1,12 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router';
+import { useAuthStore } from '../store/auth';
+const authStore = useAuthStore();
+
+if (!authStore.inited){
+  authStore.init();
+}
+
 </script>
 
 <template>
