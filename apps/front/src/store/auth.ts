@@ -18,16 +18,39 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     async init() {
       this.inited = true;
+      this.router.beforeEach(async (to, from) => {
+        if (to.meta.requiresAuth && (!this.user || this.user.expired)) {
+          console.log('Route requires auth, redirecting to login');
+          this.logIn();
+        }
+      });
+      await this.router.isReady();
       let user = await this.getUser().then((user) => {
         if (user && !user.expired) {
           console.log('User is logged in', user);
-        } else if (user && user.expired) {
-          userManager.signinSilent();
+          return user;
+        } else if (
+          user &&
+          user.expired &&
+          userManager.settings.automaticSilentRenew
+        ) {
+          return userManager
+            .signinSilent()
+            .then((silentUser) => {
+              console.log('Silent renew successful', silentUser);
+              return silentUser;
+            })
+            .catch((err) => {
+              console.error('Silent renew failed, redirecting to login', err);
+              this.logIn();
+              return null;
+            });
         } else if (
           window.location.pathname !== '/auth/callback' &&
           this.router.currentRoute.value.meta.requiresAuth
         ) {
           this.logIn();
+          return null;
         } else if (window.location.pathname === '/auth/callback') {
           console.log('On callback route, not redirecting to login');
           return this.callback().then((user) => {
@@ -36,16 +59,13 @@ export const useAuthStore = defineStore('auth', {
             return user;
           });
         }
-        return user;
+        console.log('No valid user session found', {
+          path: window.location.pathname,
+          requiresAuth: this.router.currentRoute.value,
+        });
+        return null;
       });
       this.user = user;
-
-      this.router.beforeEach(async (to, from) => {
-        if (to.meta.requiresAuth && (!this.user || this.user.expired)) {
-          console.log('Route requires auth, redirecting to login');
-          this.logIn();
-        }
-      });
     },
     logIn() {
       try {

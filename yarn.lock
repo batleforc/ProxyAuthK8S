@@ -1170,7 +1170,7 @@
     figlet "^1.9.3"
     tinycolor2 "^1.6.0"
 
-"@maz-ui/icons@4.3.0":
+"@maz-ui/icons@4.3.0", "@maz-ui/icons@^4.3.0":
   version "4.3.0"
   resolved "https://registry.yarnpkg.com/@maz-ui/icons/-/icons-4.3.0.tgz#267a00f19f3d916449521b3a5b8782e23101aa96"
   integrity sha512-VTH9PHKOEZlP1EOZQCMShOjNKMWqVj6iYfr6i7CGZ1xcZmP39SaoL3QSprtCpupVlTG1BBkflNhgZBg2yDYRVQ==

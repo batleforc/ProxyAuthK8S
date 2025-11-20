@@ -1,4 +1,3 @@
-import './styles.scss';
 import router from './router/index.ts';
 import type { Router } from 'vue-router';
 import { createPinia } from 'pinia';
@@ -11,6 +10,7 @@ import { fr } from '@maz-ui/translations';
 import { MazUi } from 'maz-ui/plugins/maz-ui';
 
 import 'maz-ui/styles';
+import './styles.scss';
 
 client.setConfig({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',

@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import NxWelcome from '../app/NxWelcome.vue';
 </script>
 
 <template>
   <main>
-    <NxWelcome title="front" />
+    <h1>Welcome to Proxy Auth K8s Frontend</h1>
   </main>
 </template>
