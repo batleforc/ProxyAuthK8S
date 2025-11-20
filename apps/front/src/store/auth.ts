@@ -32,7 +32,11 @@ export const useAuthStore = defineStore('auth', {
       });
       await this.router.isReady();
       let user = await this.getUser().then((user) => {
-        if (user && !user.expired) {
+        if (
+          user &&
+          !user.expired &&
+          window.location.pathname !== '/auth/callback'
+        ) {
           console.log('User is logged in', user);
           return user;
         } else if (
@@ -59,11 +63,20 @@ export const useAuthStore = defineStore('auth', {
           return null;
         } else if (window.location.pathname === '/auth/callback') {
           console.log('On callback route, not redirecting to login');
-          return this.callback().then((user) => {
-            this.router.push('/');
-            console.log('User logged in after callback', user);
-            return user;
-          });
+          return this.callback()
+            .then((user) => {
+              this.router.push('/');
+              console.log('User logged in after callback', user);
+              return user;
+            })
+            .catch((err) => {
+              console.error(
+                'Error handling callback (you should not be here):',
+                err
+              );
+              this.router.push('/');
+              return null;
+            });
         }
         console.log('No valid user session found', {
           path: window.location.pathname,
