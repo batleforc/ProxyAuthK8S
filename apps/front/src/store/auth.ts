@@ -14,6 +14,12 @@ export const useAuthStore = defineStore('auth', {
     getUserProfile(): User | null {
       return this.user;
     },
+    isLogoutPossible(): boolean {
+      return (
+        this.user !== null &&
+        userManager.metadataService.getEndSessionEndpoint() !== undefined
+      );
+    },
   },
   actions: {
     async init() {
@@ -82,6 +88,9 @@ export const useAuthStore = defineStore('auth', {
         console.error('Error during sign out:', error);
         // Handle error appropriately, e.g., show notification to user
       }
+      this.router.push('/').then(() => {
+        window.location.reload();
+      });
     },
     callback() {
       return userManager.signinRedirectCallback();

@@ -45,15 +45,17 @@ const userMenuItems = computed(() => [
   {
     label: 'Profile',
     onClick: () => console.log('Profile clicked'),
+    class: 'dropdown-menu-item',
   },
   {
     label: 'Settings',
     onClick: () => console.log('Settings clicked'),
+    class: 'dropdown-menu-item',
   },
   {
     label: 'Logout',
     onClick: handleLogout,
-    class: 'text-red-500',
+    class: 'dropdown-menu-item dropdown-menu-item-destructive',
   },
 ]);
 
@@ -126,6 +128,8 @@ const userInitials = computed(() => {
             color="transparent"
             :chevron="false"
             class="user-dropdown"
+            menu-panel-class="dropdown-panel"
+            menu-panel-style="background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1); min-width: 200px; padding: 8px;"
           >
             <template #trigger>
               <div class="user-trigger" tabindex="-1">
@@ -138,6 +142,32 @@ const userInitials = computed(() => {
                 />
                 <span class="user-name desktop-only">{{ userDisplayName }}</span>
                 <MazIcon :icon="MazChevronDown" size="sm" class="chevron-icon desktop-only" />
+              </div>
+            </template>
+            
+            <template #menuitem-label="{ item }">
+              <div class="dropdown-item-content">
+                <MazIcon 
+                  v-if="item.label === 'Profile'"
+                  :icon="MazUser" 
+                  size="sm" 
+                  class="dropdown-item-icon"
+                />
+                <MazIcon 
+                  v-else-if="item.label === 'Settings'"
+                  :icon="MazCog6Tooth" 
+                  size="sm" 
+                  class="dropdown-item-icon"
+                />
+                <MazIcon 
+                  v-else-if="item.label === 'Logout'"
+                  :icon="MazArrowLeftOnRectangle" 
+                  size="sm" 
+                  class="dropdown-item-icon dropdown-item-icon-destructive"
+                />
+                <span :class="{ 'dropdown-item-text-destructive': item.label === 'Logout' }">
+                  {{ item.label }}
+                </span>
               </div>
             </template>
           </MazDropdown>
@@ -322,7 +352,8 @@ const userInitials = computed(() => {
 }
 
 .brand-text {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-family-sans);
+  font-weight: 700;
   letter-spacing: -0.025em;
   background: linear-gradient(45deg, #fff, #e0e7ff);
   -webkit-background-clip: text;
@@ -618,6 +649,75 @@ const userInitials = computed(() => {
 
 .navbar {
   animation: slideIn 0.4s ease-out;
+}
+
+/* Dropdown Menu Styles */
+.dropdown-panel {
+  background: rgba(30, 41, 59, 0.95) !important;
+  backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1) !important;
+  min-width: 200px !important;
+  padding: 8px !important;
+  margin-top: 8px !important;
+}
+
+.dropdown-menu-item {
+  color: rgba(255, 255, 255, 0.9) !important;
+  font-weight: 500 !important;
+  border-radius: 8px !important;
+  transition: all 0.2s ease !important;
+  padding: 12px 16px !important;
+  margin: 2px 0 !important;
+}
+
+.dropdown-menu-item:hover {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.8), rgba(147, 51, 234, 0.8)) !important;
+  color: white !important;
+  transform: translateX(2px) !important;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+}
+
+.dropdown-menu-item-destructive {
+  color: #ef4444 !important;
+}
+
+.dropdown-menu-item-destructive:hover {
+  background: rgba(239, 68, 68, 0.15) !important;
+  color: #f87171 !important;
+}
+
+.dropdown-item-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.dropdown-menu-item:hover .dropdown-item-content {
+  color: white;
+}
+
+.dropdown-item-icon {
+  transition: color 0.2s ease;
+}
+
+.dropdown-item-icon-destructive {
+  color: #ef4444;
+}
+
+.dropdown-item-text-destructive {
+  color: #ef4444;
+  font-weight: 500;
+}
+
+.dropdown-menu-item:hover .dropdown-item-icon {
+  color: white;
+}
+
+.dropdown-menu-item-destructive:hover .dropdown-item-icon-destructive {
+  color: #f87171;
 }
 
 /* Dark mode compatible colors */

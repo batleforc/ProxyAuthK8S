@@ -5,7 +5,7 @@ import { createApp, markRaw } from 'vue';
 import App from './app/App.vue';
 import { client } from '@proxy-auth-k8s/front-api';
 
-import { mazUi } from '@maz-ui/themes/presets/mazUi';
+import { obsidian } from '@maz-ui/themes/presets/obsidian';
 import { fr } from '@maz-ui/translations';
 import { MazUi } from 'maz-ui/plugins/maz-ui';
 
@@ -33,7 +33,7 @@ pinia.use(({ store }) => {
 
 app.use(MazUi, {
   theme: {
-    preset: mazUi,
+    preset: obsidian,
   },
   translations: {
     messages: { fr },
