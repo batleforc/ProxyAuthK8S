@@ -8,7 +8,9 @@
   },
   "private": true,
   "dependencies": {
+    "@maz-ui/themes": "^4.3.0",
     "@monodon/rust": "2.3.0",
+    "maz-ui": "^4.3.1",
     "oidc-client-ts": "^3.4.1",
     "pinia": "^3.0.4",
     "vue": "^3.5.13",

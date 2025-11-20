@@ -7,7 +7,7 @@ const oidcConfig = {
   post_logout_redirect_uri: `${window.location.origin}/`,
   response_type: 'code',
   scope: import.meta.env.VITE_OIDC_SCOPE,
-  automaticSilentRenew: true,
+  automaticSilentRenew: import.meta.env.VITE_OIDC_SILENT_REFRESH === 'true',
   loadUserInfo: true,
 };
 

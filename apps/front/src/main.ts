@@ -1,10 +1,16 @@
 import './styles.scss';
-import router from './router';
+import router from './router/index.ts';
 import type { Router } from 'vue-router';
 import { createPinia } from 'pinia';
 import { createApp, markRaw } from 'vue';
 import App from './app/App.vue';
 import { client } from '@proxy-auth-k8s/front-api';
+
+import { mazUi } from '@maz-ui/themes/presets/mazUi';
+import { fr } from '@maz-ui/translations';
+import { MazUi } from 'maz-ui/plugins/maz-ui';
+
+import 'maz-ui/styles';
 
 client.setConfig({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
@@ -23,6 +29,15 @@ declare module 'pinia' {
 }
 pinia.use(({ store }) => {
   store.router = markRaw(router);
+});
+
+app.use(MazUi, {
+  theme: {
+    preset: mazUi,
+  },
+  translations: {
+    messages: { fr },
+  },
 });
 
 app.use(pinia);

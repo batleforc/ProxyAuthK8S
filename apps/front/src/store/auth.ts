@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { userManager } from '../oidc/config';
+import { userManager } from '../oidc/config.ts';
 import { User } from 'oidc-client-ts';
 
 export const useAuthStore = defineStore('auth', {
