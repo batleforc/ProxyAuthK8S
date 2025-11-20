@@ -1,14 +1,24 @@
 import { defineStore } from 'pinia';
 import { userManager } from '../oidc/config';
+import { User } from 'oidc-client-ts';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     inited: false,
+    user: null as User | null,
   }),
+  getters: {
+    isAuthenticated(): boolean {
+      return this.user !== null && !this.user.expired;
+    },
+    getUserProfile(): User | null {
+      return this.user;
+    },
+  },
   actions: {
     async init() {
       this.inited = true;
-      let user = await userManager.getUser().then((user) => {
+      let user = await this.getUser().then((user) => {
         if (user && !user.expired) {
           console.log('User is logged in', user);
         } else if (user && user.expired) {
@@ -28,9 +38,10 @@ export const useAuthStore = defineStore('auth', {
         }
         return user;
       });
+      this.user = user;
 
       this.router.beforeEach(async (to, from) => {
-        if (to.meta.requiresAuth && (!user || user.expired)) {
+        if (to.meta.requiresAuth && (!this.user || this.user.expired)) {
           console.log('Route requires auth, redirecting to login');
           this.logIn();
         }
