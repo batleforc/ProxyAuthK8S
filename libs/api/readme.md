@@ -2,6 +2,8 @@
 
 - /api
   - Internal api of the reverse proxy
+  - /cluster
+    - GET / => List clusters
 - /cluster/{ns}/{name}
   - /auth
     - /login => Authenticate user against api if enabled

@@ -54,6 +54,7 @@ tracing-subscriber = { version = '0.3', features = [
 ] }
 tracing-opentelemetry = { version = '0.32.0' }
 rustls = { version = "0.23", features = ["ring"], default-features = false }
+openidconnect = "4.0.1"
 
 [profile.release]
 lto = true

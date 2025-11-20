@@ -10,6 +10,7 @@ use deadpool_redis::{Config, Pool, Runtime};
 pub struct State {
     pub client: Client,
     redis: Pool,
+    // TODO: add oidcclient here
 }
 
 impl State {

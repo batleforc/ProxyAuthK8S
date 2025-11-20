@@ -7,9 +7,11 @@ use actix_web::App;
 use utoipa::{openapi::OpenApi as OpenApiType, OpenApi};
 use utoipa_actix_web::{scope, service_config::ServiceConfig, AppExt};
 
+pub mod api;
 pub mod api_doc;
 pub mod base;
 pub mod cluster;
+pub mod model;
 
 pub fn init_api() -> impl FnOnce(&mut ServiceConfig) {
     |cfg: &mut ServiceConfig| {
