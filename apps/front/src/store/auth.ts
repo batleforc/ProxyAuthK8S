@@ -20,8 +20,10 @@ export const useAuthStore = defineStore('auth', {
           this.logIn();
         } else if (window.location.pathname === '/auth/callback') {
           console.log('On callback route, not redirecting to login');
-          this.callback().then(() => {
+          return this.callback().then((user) => {
             this.router.push('/');
+            console.log('User logged in after callback', user);
+            return user;
           });
         }
         return user;

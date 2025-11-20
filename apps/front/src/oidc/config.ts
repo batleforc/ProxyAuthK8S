@@ -8,6 +8,7 @@ const oidcConfig = {
   response_type: 'code',
   scope: import.meta.env.VITE_OIDC_SCOPE,
   automaticSilentRenew: true,
+  loadUserInfo: true,
 };
 
 export const userManager = new UserManager(oidcConfig);
