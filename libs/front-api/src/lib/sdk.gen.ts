@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { BaseClusterData, BaseClusterErrors, BaseClusterResponses, DeleteRedirectData, DeleteRedirectErrors, DeleteRedirectResponses, GetAllVisibleClusterData, GetAllVisibleClusterErrors, GetAllVisibleClusterResponses, GetRedirectData, GetRedirectErrors, GetRedirectResponses, HealthData, HealthErrors, HealthResponses, PatchRedirectData, PatchRedirectErrors, PatchRedirectResponses, PostRedirectData, PostRedirectErrors, PostRedirectResponses, PutRedirectData, PutRedirectErrors, PutRedirectResponses } from './types.gen';
+import type { GetAllVisibleClusterData, GetAllVisibleClusterErrors, GetAllVisibleClusterResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -26,90 +26,6 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 export const getAllVisibleCluster = <ThrowOnError extends boolean = false>(options?: Options<GetAllVisibleClusterData, ThrowOnError>) => {
     return (options?.client ?? client).get<GetAllVisibleClusterResponses, GetAllVisibleClusterErrors, ThrowOnError>({
         url: '/api/v1/clusters',
-        ...options
-    });
-};
-
-/**
- * Base path just to answer if the server is up and running.
- *
- * This is also used for health checks.
- */
-export const health = <ThrowOnError extends boolean = false>(options?: Options<HealthData, ThrowOnError>) => {
-    return (options?.client ?? client).get<HealthResponses, HealthErrors, ThrowOnError>({
-        url: '/api/v1/health',
-        ...options
-    });
-};
-
-/**
- * Cluster base path
- *
- * ATM only allow to know if cluster exist
- */
-export const baseCluster = <ThrowOnError extends boolean = false>(options?: Options<BaseClusterData, ThrowOnError>) => {
-    return (options?.client ?? client).get<BaseClusterResponses, BaseClusterErrors, ThrowOnError>({
-        url: '/clusters/{ns}/{cluster}',
-        ...options
-    });
-};
-
-/**
- * Cluster redirect
- *
- * Redirect to the cluster if exists
- */
-export const deleteRedirect = <ThrowOnError extends boolean = false>(options?: Options<DeleteRedirectData, ThrowOnError>) => {
-    return (options?.client ?? client).delete<DeleteRedirectResponses, DeleteRedirectErrors, ThrowOnError>({
-        url: '/clusters/{ns}/{cluster}/{path}',
-        ...options
-    });
-};
-
-/**
- * Cluster redirect
- *
- * Redirect to the cluster if exists
- */
-export const getRedirect = <ThrowOnError extends boolean = false>(options?: Options<GetRedirectData, ThrowOnError>) => {
-    return (options?.client ?? client).get<GetRedirectResponses, GetRedirectErrors, ThrowOnError>({
-        url: '/clusters/{ns}/{cluster}/{path}',
-        ...options
-    });
-};
-
-/**
- * Cluster redirect
- *
- * Redirect to the cluster if exists
- */
-export const patchRedirect = <ThrowOnError extends boolean = false>(options?: Options<PatchRedirectData, ThrowOnError>) => {
-    return (options?.client ?? client).patch<PatchRedirectResponses, PatchRedirectErrors, ThrowOnError>({
-        url: '/clusters/{ns}/{cluster}/{path}',
-        ...options
-    });
-};
-
-/**
- * Cluster redirect
- *
- * Redirect to the cluster if exists
- */
-export const postRedirect = <ThrowOnError extends boolean = false>(options?: Options<PostRedirectData, ThrowOnError>) => {
-    return (options?.client ?? client).post<PostRedirectResponses, PostRedirectErrors, ThrowOnError>({
-        url: '/clusters/{ns}/{cluster}/{path}',
-        ...options
-    });
-};
-
-/**
- * Cluster redirect
- *
- * Redirect to the cluster if exists
- */
-export const putRedirect = <ThrowOnError extends boolean = false>(options?: Options<PutRedirectData, ThrowOnError>) => {
-    return (options?.client ?? client).put<PutRedirectResponses, PutRedirectErrors, ThrowOnError>({
-        url: '/clusters/{ns}/{cluster}/{path}',
         ...options
     });
 };

@@ -12,7 +12,7 @@
     "/api/v1/clusters": {
       "get": {
         "tags": [
-          "front"
+          "api_clusters"
         ],
         "summary": "Get all cluster visible to the user",
         "description": "if none return an empty array",
@@ -48,7 +48,7 @@
     "/clusters/{ns}/{cluster}": {
       "get": {
         "tags": [
-          "clusters"
+          "proxy_clusters"
         ],
         "summary": "Cluster base path",
         "description": "ATM only allow to know if cluster exist",
@@ -66,7 +66,7 @@
     "/clusters/{ns}/{cluster}/{path}": {
       "get": {
         "tags": [
-          "clusters"
+          "proxy_clusters"
         ],
         "summary": "Cluster redirect",
         "description": "Redirect to the cluster if exists",
@@ -82,7 +82,7 @@
       },
       "put": {
         "tags": [
-          "clusters"
+          "proxy_clusters"
         ],
         "summary": "Cluster redirect",
         "description": "Redirect to the cluster if exists",
@@ -98,7 +98,7 @@
       },
       "post": {
         "tags": [
-          "clusters"
+          "proxy_clusters"
         ],
         "summary": "Cluster redirect",
         "description": "Redirect to the cluster if exists",
@@ -114,7 +114,7 @@
       },
       "delete": {
         "tags": [
-          "clusters"
+          "proxy_clusters"
         ],
         "summary": "Cluster redirect",
         "description": "Redirect to the cluster if exists",
@@ -130,7 +130,7 @@
       },
       "patch": {
         "tags": [
-          "clusters"
+          "proxy_clusters"
         ],
         "summary": "Cluster redirect",
         "description": "Redirect to the cluster if exists",

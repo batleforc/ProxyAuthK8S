@@ -7,7 +7,7 @@ use tracing::instrument;
 ///
 /// ATM only allow to know if cluster exist
 #[utoipa::path(
-    tag = "clusters",
+    tag = "proxy_clusters",
     responses(
         (status = 200, description = "ATM nothing real"),
         (status = 500, description = "Internal server error."),

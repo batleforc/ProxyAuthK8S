@@ -7,7 +7,7 @@ use crate::model::user::User;
 ///
 /// if none return an empty array
 #[utoipa::path(
-    tag = "front",
+    tag = "api_clusters",
     responses(
         (status = 200, description = "ATM nothing real"),
         (status = 500, description = "Internal server error."),
