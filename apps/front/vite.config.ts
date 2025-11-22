@@ -3,6 +3,16 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 import { nxCopyAssetsPlugin } from '@nx/vite/plugins/nx-copy-assets.plugin';
+import fs from 'fs';
+
+let tls = undefined;
+
+if (process.env.VITE_TLS_ENABLE === 'true') {
+  tls = {
+    key: fs.readFileSync(`../../.tls/key.pem`),
+    cert: fs.readFileSync(`../../.tls/cert.pem`),
+  };
+}
 
 export default defineConfig(() => ({
   root: __dirname,
@@ -10,6 +20,7 @@ export default defineConfig(() => ({
   server: {
     port: 4200,
     host: 'localhost',
+    https: tls,
     allowedHosts: [
       '.k8s.local',
       '.local',

@@ -9,5 +9,8 @@ deadpool-redis = { workspace = true }
 tracing = { workspace = true }
 rustls = { workspace = true }
 openidconnect = { workspace = true }
+serde = { workspace = true }
+reqwest = { workspace = true }
+thiserror = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

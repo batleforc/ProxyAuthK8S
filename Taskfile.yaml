@@ -43,6 +43,12 @@ tasks:
     cmds:
       - echo "Running the frontend in development mode"
       - yarn nx run front:dev
+  run:dev:tls:
+    desc: "Run the frontend in development mode with TLS"
+    silent: true
+    cmds:
+      - echo "Running the frontend in development mode with TLS"
+      - VITE_TLS_ENABLE=true yarn nx run front:dev
   gen:tls:
     desc: "Generate self-signed TLS certificates for local development"
     silent: true

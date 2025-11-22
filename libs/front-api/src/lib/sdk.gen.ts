@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { BaseClusterData, BaseClusterErrors, BaseClusterResponses, DeleteRedirectData, DeleteRedirectErrors, DeleteRedirectResponses, GetRedirectData, GetRedirectErrors, GetRedirectResponses, HealthData, HealthErrors, HealthResponses, PatchRedirectData, PatchRedirectErrors, PatchRedirectResponses, PostRedirectData, PostRedirectErrors, PostRedirectResponses, PutRedirectData, PutRedirectErrors, PutRedirectResponses } from './types.gen';
+import type { BaseClusterData, BaseClusterErrors, BaseClusterResponses, DeleteRedirectData, DeleteRedirectErrors, DeleteRedirectResponses, GetAllVisibleClusterData, GetAllVisibleClusterErrors, GetAllVisibleClusterResponses, GetRedirectData, GetRedirectErrors, GetRedirectResponses, HealthData, HealthErrors, HealthResponses, PatchRedirectData, PatchRedirectErrors, PatchRedirectResponses, PostRedirectData, PostRedirectErrors, PostRedirectResponses, PutRedirectData, PutRedirectErrors, PutRedirectResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -16,6 +16,18 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
      * used to access values that aren't defined as part of the SDK function.
      */
     meta?: Record<string, unknown>;
+};
+
+/**
+ * Get all cluster visible to the user
+ *
+ * if none return an empty array
+ */
+export const getAllVisibleCluster = <ThrowOnError extends boolean = false>(options?: Options<GetAllVisibleClusterData, ThrowOnError>) => {
+    return (options?.client ?? client).get<GetAllVisibleClusterResponses, GetAllVisibleClusterErrors, ThrowOnError>({
+        url: '/api/v1/clusters',
+        ...options
+    });
 };
 
 /**

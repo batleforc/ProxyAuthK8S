@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { userManager } from '../oidc/config.ts';
 import { User } from 'oidc-client-ts';
+import { getAllVisibleCluster } from '@proxy-auth-k8s/front-api';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -85,6 +86,17 @@ export const useAuthStore = defineStore('auth', {
         return null;
       });
       this.user = user;
+      if (user !== undefined && user !== null) {
+        getAllVisibleCluster({
+          headers: { Authorization: `Bearer ${user.access_token}` },
+        })
+          .then((clusters) => {
+            console.log('Fetched visible clusters:', clusters);
+          })
+          .catch((err) => {
+            console.error('Error fetching visible clusters:', err);
+          });
+      }
     },
     logIn() {
       try {

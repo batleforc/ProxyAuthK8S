@@ -1,4 +1,5 @@
 use crate::{
+    api::get_all_visible_cluster::get_all_visible_cluster,
     api_doc::ApiDoc,
     base::health,
     cluster::{base::base_cluster, redirect},
@@ -11,11 +12,12 @@ pub mod api;
 pub mod api_doc;
 pub mod base;
 pub mod cluster;
+pub mod helper;
 pub mod model;
 
 pub fn init_api() -> impl FnOnce(&mut ServiceConfig) {
     |cfg: &mut ServiceConfig| {
-        cfg.service(health);
+        cfg.service(health).service(get_all_visible_cluster);
     }
 }
 

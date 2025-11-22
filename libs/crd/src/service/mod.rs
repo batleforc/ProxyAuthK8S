@@ -109,8 +109,9 @@ impl Service {
                     } else {
                         return Err(format!("No ports found in service {}", name));
                     }
+                } else {
+                    return Err(format!("No spec found for service {}", name));
                 }
-                todo!()
             }
             Service::ExternalService { url } => Ok(url.clone()),
         }

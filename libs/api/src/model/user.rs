@@ -1,9 +1,17 @@
-use actix_web::FromRequest;
+use actix_web::{
+    error::{ErrorInternalServerError, ErrorUnauthorized},
+    web, FromRequest,
+};
+use common::State;
+use openidconnect::{AccessToken, UserInfoError};
 use serde::{Deserialize, Serialize};
+
+use crate::{helper::extract_authorization_header, model::user_claim::GroupsUserInfoClaims};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct User {
     pub username: String,
+    pub email: String,
     pub groups: Vec<String>,
 }
 
@@ -19,30 +27,65 @@ impl FromRequest for User {
         let req = req.clone();
         tracing::info!("Start auth middleware");
         Box::pin(async move {
-            // Get authorization header from request
-            let auth_header = req.headers().get("Authorization").cloned();
-            if auth_header.is_none() {
-                tracing::warn!("No Authorization header found");
-                return Err(actix_web::error::ErrorUnauthorized(
-                    "No Authorization header",
-                ));
-            }
-            let auth_header = auth_header.unwrap();
-            let auth_str = auth_header
-                .to_str()
-                .map_err(|_| actix_web::error::ErrorUnauthorized("Invalid Authorization header"))?;
-            if !auth_str.starts_with("Bearer ") {
-                tracing::warn!("Invalid Authorization header format");
-                return Err(actix_web::error::ErrorUnauthorized(
-                    "Invalid Authorization header",
-                ));
-            }
-            let token = auth_str.trim_start_matches("Bearer ").to_string();
+            let token = match extract_authorization_header(&req) {
+                Ok(token) => token,
+                Err(e) => {
+                    tracing::warn!("Authorization header extraction failed: {}", e);
+                    return Err(e.into_actix_error());
+                }
+            };
+            let oidc_handler = match req.app_data::<web::Data<State>>() {
+                Some(handler) => handler.clone(),
+                None => {
+                    tracing::error!("Error while getting oidc handler");
+                    return Err(ErrorInternalServerError("Invalid OIDC handler"));
+                }
+            };
+
+            let oidc_conf = match oidc_handler.oidc_client.get_oidc_core().await {
+                Ok(conf) => conf,
+                Err(e) => {
+                    tracing::error!("Error while getting OIDC config: {}", e);
+                    return Err(ErrorInternalServerError("Invalid OIDC config"));
+                }
+            };
+            let http_client = oidc_handler.oidc_client.get_reqwest_client();
+
+            let user_claim_req = match oidc_conf.user_info(AccessToken::new(token.to_owned()), None)
+            {
+                Ok(req) => req,
+                Err(e) => {
+                    tracing::warn!("Error while getting user info: {}", e);
+                    return Err(ErrorInternalServerError("Invalid user info request"));
+                }
+            };
+            let user_info: GroupsUserInfoClaims =
+                match user_claim_req.request_async(&http_client).await {
+                    Ok(info) => info,
+                    Err(UserInfoError::Other(err)) => {
+                        tracing::warn!("Error while executing user info request: {}", err);
+                        return Err(ErrorInternalServerError("Invalid user info response"));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Error while executing user info request: {}", e);
+                        return Err(ErrorUnauthorized("Invalid user info response"));
+                    }
+                };
+            let email = match user_info.email() {
+                Some(email) => email.to_string(),
+                None => "".to_string(),
+            };
+            let username = match user_info.preferred_username() {
+                Some(username) => username.to_string(),
+                None => "".to_string(),
+            };
+            let groups = user_info.additional_claims().groups.clone();
             // In a real implementation, extract user info from request (e.g., headers, tokens)
             // Here we return a dummy user for illustration
             let user = User {
-                username: "dummy_user".to_string(),
-                groups: vec!["group1".to_string(), "group2".to_string()],
+                username: username,
+                email: email,
+                groups: groups,
             };
             Ok(user)
         })

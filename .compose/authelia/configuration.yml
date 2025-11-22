@@ -84,6 +84,7 @@ identity_providers:
         authorization_policy: "two_factor"
         redirect_uris:
           - "http://localhost:4200/auth/callback"
+          - "https://localhost:4200/auth/callback"
           - "http://localhost:18000"
         scopes:
           - "openid"
@@ -101,6 +102,7 @@ identity_providers:
         - "introspection"
       allowed_origins:
         - "http://localhost:4200"
+        - "https://localhost:4200"
       allowed_origins_from_client_redirect_uris: true
     jwks:
       - key_id: "kube_login"

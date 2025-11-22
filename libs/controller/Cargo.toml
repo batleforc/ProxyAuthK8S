@@ -19,7 +19,7 @@ tokio = { workspace = true }
 deadpool-redis = { workspace = true }
 opentelemetry = { workspace = true }
 
-thiserror = { version = "2" }
+thiserror = { workspace = true }
 
 crd = { path = "../crd" }
 common = { path = "../common" }

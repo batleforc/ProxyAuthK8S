@@ -6,11 +6,14 @@ use tracing::{info, instrument};
 
 use deadpool_redis::{Config, Pool, Runtime};
 
+pub mod oidc_conf;
+pub mod oidc_error;
+
 #[derive(Clone)]
 pub struct State {
     pub client: Client,
     redis: Pool,
-    // TODO: add oidcclient here
+    pub oidc_client: oidc_conf::OidcConf,
 }
 
 impl State {
@@ -24,9 +27,15 @@ impl State {
             .await
             .expect("failed to create kube Client");
         info!("Connected to Kubernetes");
+        let oidc_client = oidc_conf::OidcConf::new();
+        match oidc_client.get_oidc_core().await {
+            Ok(_) => info!("OIDC discovery successful"),
+            Err(e) => panic!("OIDC discovery failed: {}", e),
+        }
         Self {
             client,
             redis: pool,
+            oidc_client,
         }
     }
 

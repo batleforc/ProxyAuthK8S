@@ -4,6 +4,27 @@ export type ClientOptions = {
     baseURL: `${string}://${string}` | (string & {});
 };
 
+export type GetAllVisibleClusterData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/clusters';
+};
+
+export type GetAllVisibleClusterErrors = {
+    /**
+     * Internal server error.
+     */
+    500: unknown;
+};
+
+export type GetAllVisibleClusterResponses = {
+    /**
+     * ATM nothing real
+     */
+    200: unknown;
+};
+
 export type HealthData = {
     body?: never;
     path?: never;

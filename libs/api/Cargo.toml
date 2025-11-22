@@ -15,6 +15,7 @@ tokio = { workspace = true }
 tokio-stream = { workspace = true }
 futures-util = { workspace = true }
 openidconnect = { workspace = true }
+thiserror = { workspace = true }
 
 common = { path = "../common" }
 crd = { path = "../crd" }

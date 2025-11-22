@@ -9,6 +9,24 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/v1/clusters": {
+      "get": {
+        "tags": [
+          "front"
+        ],
+        "summary": "Get all cluster visible to the user",
+        "description": "if none return an empty array",
+        "operationId": "get_all_visible_cluster",
+        "responses": {
+          "200": {
+            "description": "ATM nothing real"
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "tags": [
