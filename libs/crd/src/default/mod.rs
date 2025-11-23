@@ -16,3 +16,11 @@ pub fn default_ban_duration() -> u32 {
 pub fn default_max_requests_per_minute() -> u32 {
     60
 }
+
+pub fn default_empty_array<T>() -> Vec<T> {
+    Vec::new()
+}
+
+pub fn default_empty_string() -> String {
+    String::new()
+}

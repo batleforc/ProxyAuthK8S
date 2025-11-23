@@ -2,7 +2,7 @@ pub mod claim_mappings;
 pub mod claim_validation_rules;
 pub mod issuer;
 pub mod user_validation_rule;
-use crate::default::default_disabled;
+use crate::default::{default_disabled, default_empty_array, default_empty_string};
 
 use claim_mappings::ClaimMappings;
 use claim_validation_rules::ClaimValidationRule;
@@ -13,6 +13,7 @@ use user_validation_rule::UserValidationRule;
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub struct AuthenticationConfiguration {
+    #[serde(default = "default_empty_array::<JWTAuthenticator>")]
     pub jwt: Vec<JWTAuthenticator>,
     pub oidc_provider: OidcProvider,
 }
@@ -32,5 +33,6 @@ pub struct OidcProvider {
     pub issuer_url: String,
     pub client_id: String,
     pub client_secret: Option<String>,
+    #[serde(default = "default_empty_string")]
     pub extra_scope: String,
 }

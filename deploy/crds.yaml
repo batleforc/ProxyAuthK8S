@@ -25,6 +25,7 @@ spec:
                 nullable: true
                 properties:
                   jwt:
+                    default: []
                     items:
                       properties:
                         claim_mappings:
@@ -159,16 +160,15 @@ spec:
                         default: false
                         type: boolean
                       extra_scope:
+                        default: ''
                         type: string
                       issuer_url:
                         type: string
                     required:
                     - client_id
-                    - extra_scope
                     - issuer_url
                     type: object
                 required:
-                - jwt
                 - oidc_provider
                 type: object
               cert:

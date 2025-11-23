@@ -14,7 +14,44 @@ spec:
 apiVersion: weebo.si.rs/v1
 kind: ProxyKubeApi
 metadata:
+  name: local-unreachable
+  namespace: default
+spec:
+  cert:
+    Insecure: true
+  service:
+    ExternalService:
+      url: "https://10.5.0.2:6444"
+---
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+metadata:
   name: local-bistrot
+  namespace: default
+spec:
+  enabled: false
+  cert:
+    Insecure: true
+  service:
+    ExternalService:
+      url: "https://10.5.0.2:6443"
+---
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+metadata:
+  name: local-secure-without-cert
+  namespace: default
+spec:
+  cert:
+    Insecure: false
+  service:
+    ExternalService:
+      url: "https://10.5.0.2:6443"
+---
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+metadata:
+  name: local-sso
   namespace: default
 spec:
   cert:
@@ -22,3 +59,9 @@ spec:
   service:
     ExternalService:
       url: "https://10.5.0.2:6443"
+  auth_config:
+    oidc_provider:
+      enabled: true
+      issuer_url: "https://authelia.k8s.localhost"
+      client_id: "kube_login"
+      extra_scope: "groups email profile"
