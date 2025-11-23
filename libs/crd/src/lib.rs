@@ -30,6 +30,9 @@ pub static PROXY_KUBE_FINALIZER: &str = "weebo.si.rs";
 )]
 #[kube(status = "ProxyKubeApiStatus")]
 pub struct ProxyKubeApiSpec {
+    /// Enable or disable the proxy
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
     /// Certificate for the Kubernetes API
     pub cert: CertSource,
     /// Service to expose the proxy

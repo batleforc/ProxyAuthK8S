@@ -13,29 +13,24 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
     let id = proxy.to_identifier();
     let path = proxy.to_path();
     let ps: PatchParams = PatchParams::apply("proxy-kube-api-controller").force();
-    let proxy_cloned = proxy.clone();
+    let mut proxy_cloned = proxy.clone();
     let metadata = proxy_cloned.clone().metadata;
     let ns = metadata.namespace.as_deref().unwrap_or("default");
     let name = metadata.name.as_deref().unwrap_or("unknown");
     let proxys: Api<ProxyKubeApi> = Api::namespaced(ctx.client.clone(), &ns);
 
-    match proxy.clone().is_reachable(ctx.clone()).await {
+    let new_status = match proxy.clone().is_reachable(ctx.clone()).await {
         Ok(reachable) => {
             if reachable {
                 tracing::info!("ProxyKubeApi {} is reachable", proxy.to_identifier());
+                ProxyKubeApiStatus::new(true, Some(format!("/clusters/{}", path)), None)
             } else {
                 tracing::warn!("ProxyKubeApi {} is not reachable", proxy.to_identifier());
-                let new_status = ProxyKubeApiStatus::new(
+                ProxyKubeApiStatus::new(
                     false,
                     None,
                     Some("Target service is not reachable".to_string()),
                 )
-                .get_patch();
-                let _ = proxys
-                    .patch_status(name, &ps, &new_status)
-                    .await
-                    .map_err(ControllerError::Kube)?;
-                return Ok(Action::requeue(std::time::Duration::from_secs(5 * 60)));
             }
         }
         Err(e) => {
@@ -44,8 +39,7 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
                 proxy.to_identifier(),
                 e
             );
-
-            let new_status = ProxyKubeApiStatus::new(
+            ProxyKubeApiStatus::new(
                 false,
                 None,
                 Some(format!(
@@ -53,17 +47,11 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
                     e
                 )),
             )
-            .get_patch();
-            let _ = proxys
-                .patch_status(name, &ps, &new_status)
-                .await
-                .map_err(ControllerError::Kube)?;
-            return Ok(Action::requeue(std::time::Duration::from_secs(5 * 60)));
         }
     };
-
     let mut redis_conn = ctx.get_redis_conn().await?;
-    let proxy_json = proxy.to_json();
+    proxy_cloned.status = Some(new_status.clone());
+    let proxy_json = proxy_cloned.to_json();
     match cmd("SET")
         .arg(&id)
         .arg(&proxy_json)
@@ -77,11 +65,14 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
     }
     drop(redis_conn);
 
-    let new_status =
-        ProxyKubeApiStatus::new(true, Some(format!("/clusters/{}", path)), None).get_patch();
+    let patch = new_status.get_patch();
     let _ = proxys
-        .patch_status(name, &ps, &new_status)
+        .patch_status(name, &ps, &patch)
         .await
         .map_err(ControllerError::Kube)?;
-    Ok(Action::requeue(std::time::Duration::from_secs(60 * 60)))
+    if new_status.error.is_some() {
+        Ok(Action::requeue(std::time::Duration::from_secs(5 * 60)))
+    } else {
+        Ok(Action::requeue(std::time::Duration::from_secs(60 * 60)))
+    }
 }

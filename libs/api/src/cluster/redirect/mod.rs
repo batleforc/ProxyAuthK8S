@@ -13,7 +13,8 @@ pub mod redirect;
 #[utoipa::path(
     tag = "proxy_clusters",
     responses(
-        (status = 200, description = "ATM nothing real"),
+        (status = 200, description = "Response from remote cluster"),
+        (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     )
 )]
@@ -35,7 +36,8 @@ pub async fn get_redirect(
 #[utoipa::path(
     tag = "proxy_clusters",
     responses(
-        (status = 200, description = "ATM nothing real"),
+        (status = 200, description = "Response from remote cluster"),
+        (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     )
 )]
@@ -57,7 +59,8 @@ pub async fn post_redirect(
 #[utoipa::path(
     tag = "proxy_clusters",
     responses(
-        (status = 200, description = "ATM nothing real"),
+        (status = 200, description = "Response from remote cluster"),
+        (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     )
 )]
@@ -79,7 +82,8 @@ pub async fn put_redirect(
 #[utoipa::path(
     tag = "proxy_clusters",
     responses(
-        (status = 200, description = "ATM nothing real"),
+        (status = 200, description = "Response from remote cluster"),
+        (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     )
 )]
@@ -101,7 +105,8 @@ pub async fn patch_redirect(
 #[utoipa::path(
     tag = "proxy_clusters",
     responses(
-        (status = 200, description = "ATM nothing real"),
+        (status = 200, description = "Response from remote cluster"),
+        (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     )
 )]

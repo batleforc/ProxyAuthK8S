@@ -55,24 +55,6 @@
         }
       }
     },
-    "/clusters/{ns}/{cluster}": {
-      "get": {
-        "tags": [
-          "proxy_clusters"
-        ],
-        "summary": "Cluster base path",
-        "description": "ATM only allow to know if cluster exist",
-        "operationId": "base_cluster",
-        "responses": {
-          "200": {
-            "description": "ATM nothing real"
-          },
-          "500": {
-            "description": "Internal server error."
-          }
-        }
-      }
-    },
     "/clusters/{ns}/{cluster}/{path}": {
       "get": {
         "tags": [
@@ -83,7 +65,10 @@
         "operationId": "get_redirect",
         "responses": {
           "200": {
-            "description": "ATM nothing real"
+            "description": "Response from remote cluster"
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
           },
           "500": {
             "description": "Internal server error."
@@ -99,7 +84,10 @@
         "operationId": "put_redirect",
         "responses": {
           "200": {
-            "description": "ATM nothing real"
+            "description": "Response from remote cluster"
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
           },
           "500": {
             "description": "Internal server error."
@@ -115,7 +103,10 @@
         "operationId": "post_redirect",
         "responses": {
           "200": {
-            "description": "ATM nothing real"
+            "description": "Response from remote cluster"
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
           },
           "500": {
             "description": "Internal server error."
@@ -131,7 +122,10 @@
         "operationId": "delete_redirect",
         "responses": {
           "200": {
-            "description": "ATM nothing real"
+            "description": "Response from remote cluster"
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
           },
           "500": {
             "description": "Internal server error."
@@ -147,7 +141,10 @@
         "operationId": "patch_redirect",
         "responses": {
           "200": {
-            "description": "ATM nothing real"
+            "description": "Response from remote cluster"
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
           },
           "500": {
             "description": "Internal server error."
@@ -176,11 +173,21 @@
         "type": "object",
         "description": "Model representing a cluster visible to the user",
         "required": [
+          "enabled",
           "namespace",
           "name",
           "sso_enabled"
         ],
         "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "is_reachable": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "name": {
             "type": "string"
           },

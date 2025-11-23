@@ -41,6 +41,10 @@ pub async fn redirect(
         }
     };
 
+    if !proxy.spec.enabled {
+        return HttpResponse::NotFound().finish();
+    }
+
     let url_to_call = match proxy
         .spec
         .service

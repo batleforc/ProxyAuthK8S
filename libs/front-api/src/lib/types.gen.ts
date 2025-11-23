@@ -8,6 +8,8 @@ export type ClientOptions = {
  * Model representing a cluster visible to the user
  */
 export type VisibleCluster = {
+    enabled: boolean;
+    is_reachable?: boolean | null;
     name: string;
     namespace: string;
     sso_enabled: boolean;

@@ -209,6 +209,10 @@ spec:
                   Default: to the resource namespace + resource name
                 nullable: true
                 type: string
+              enabled:
+                default: true
+                description: Enable or disable the proxy
+                type: boolean
               expose_via_dashboard:
                 default: true
                 description: |-
