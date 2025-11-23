@@ -25,6 +25,7 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
  */
 export const getAllVisibleCluster = <ThrowOnError extends boolean = false>(options?: Options<GetAllVisibleClusterData, ThrowOnError>) => {
     return (options?.client ?? client).get<GetAllVisibleClusterResponses, GetAllVisibleClusterErrors, ThrowOnError>({
+        responseType: 'json',
         url: '/api/v1/clusters',
         ...options
     });

@@ -7,11 +7,12 @@
 
 # List of users
 users:
-  'proxyauthk8s':
+  "proxyauthk8s":
     disabled: false
-    displayname: 'ProxyAuthK8S'
-    password: '$argon2id$v=19$m=65536,t=3,p=4$DjuQZ1CwKrfFsOLdWFoWmA$BsnyuCLeLKypIDZoM+37czEgTtD+Z2jEqhkrkGXgUYM' # plop
-    email: 'proxyauthk8s@k8s.localhost'
+    displayname: "ProxyAuthK8S"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$DjuQZ1CwKrfFsOLdWFoWmA$BsnyuCLeLKypIDZoM+37czEgTtD+Z2jEqhkrkGXgUYM" # plop
+    email: "proxyauthk8s@k8s.localhost"
     groups:
-      - 'admins'
-      - 'dev'
+      - "admins"
+      - "dev"
+      - "dashboard-default-local"

@@ -19,7 +19,17 @@
         "operationId": "get_all_visible_cluster",
         "responses": {
           "200": {
-            "description": "ATM nothing real"
+            "description": "ATM nothing real",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAllVisibleClusterBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
           },
           "500": {
             "description": "Internal server error."
@@ -146,7 +156,44 @@
       }
     }
   },
-  "components": {},
+  "components": {
+    "schemas": {
+      "GetAllVisibleClusterBody": {
+        "type": "object",
+        "required": [
+          "clusters"
+        ],
+        "properties": {
+          "clusters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisibleCluster"
+            }
+          }
+        }
+      },
+      "VisibleCluster": {
+        "type": "object",
+        "description": "Model representing a cluster visible to the user",
+        "required": [
+          "namespace",
+          "name",
+          "sso_enabled"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "sso_enabled": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
   "tags": [
     {
       "name": "health",

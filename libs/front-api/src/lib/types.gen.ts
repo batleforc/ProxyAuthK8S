@@ -4,6 +4,19 @@ export type ClientOptions = {
     baseURL: `${string}://${string}` | (string & {});
 };
 
+/**
+ * Model representing a cluster visible to the user
+ */
+export type VisibleCluster = {
+    name: string;
+    namespace: string;
+    sso_enabled: boolean;
+};
+
+export type GetAllVisibleClusterBody = {
+    clusters: Array<VisibleCluster>;
+};
+
 export type GetAllVisibleClusterData = {
     body?: never;
     path?: never;
@@ -12,6 +25,10 @@ export type GetAllVisibleClusterData = {
 };
 
 export type GetAllVisibleClusterErrors = {
+    /**
+     * Unauthorized
+     */
+    401: unknown;
     /**
      * Internal server error.
      */
@@ -22,5 +39,7 @@ export type GetAllVisibleClusterResponses = {
     /**
      * ATM nothing real
      */
-    200: unknown;
+    200: GetAllVisibleClusterBody;
 };
+
+export type GetAllVisibleClusterResponse = GetAllVisibleClusterResponses[keyof GetAllVisibleClusterResponses];

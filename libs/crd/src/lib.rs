@@ -63,6 +63,23 @@ impl ProxyKubeApi {
             self.name_any()
         )
     }
+    pub fn get_dashboard_group(&self) -> String {
+        match &self.spec.dashboard_group {
+            Some(group) => group.clone(),
+            None => format!(
+                "dashboard-{}-{}",
+                self.namespace().unwrap_or_default(),
+                self.name_any()
+            ),
+        }
+    }
+    pub fn is_user_allowed(&self, user_groups: &Vec<String>) -> bool {
+        let dashboard_group = self.get_dashboard_group();
+        if self.spec.expose_via_dashboard == false {
+            return false;
+        }
+        user_groups.iter().any(|g| g == &dashboard_group)
+    }
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_default()
     }

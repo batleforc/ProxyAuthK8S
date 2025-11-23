@@ -5,6 +5,7 @@ use actix_web::{
 use common::State;
 use openidconnect::{AccessToken, UserInfoError};
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use crate::{helper::extract_authorization_header, model::user_claim::GroupsUserInfoClaims};
 
@@ -20,6 +21,7 @@ impl FromRequest for User {
     type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self, Self::Error>>>>;
 
     // https://github.com/batleforc/rust-template/blob/main/src/model/user.rs
+    #[instrument(skip(_payload, req))]
     fn from_request(
         req: &actix_web::HttpRequest,
         _payload: &mut actix_web::dev::Payload,
@@ -73,13 +75,20 @@ impl FromRequest for User {
                 };
             let email = match user_info.email() {
                 Some(email) => email.to_string(),
-                None => "".to_string(),
+                None => {
+                    tracing::warn!("No email found in user info");
+                    "".to_string()
+                }
             };
             let username = match user_info.preferred_username() {
                 Some(username) => username.to_string(),
-                None => "".to_string(),
+                None => {
+                    tracing::warn!("No preferred username found in user info");
+                    "".to_string()
+                }
             };
             let groups = user_info.additional_claims().groups.clone();
+            tracing::info!("User groups: {:?}", groups);
             // In a real implementation, extract user info from request (e.g., headers, tokens)
             // Here we return a dummy user for illustration
             let user = User {
