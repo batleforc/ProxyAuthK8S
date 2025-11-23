@@ -14,6 +14,7 @@ pub struct State {
     pub client: Client,
     redis: Pool,
     pub oidc_client: oidc_conf::OidcConf,
+    pub oidc_cluster_redirect_base_url: String,
 }
 
 impl State {
@@ -31,11 +32,14 @@ impl State {
         match oidc_client.get_oidc_core().await {
             Ok(_) => info!("OIDC discovery successful"),
             Err(e) => panic!("OIDC discovery failed: {}", e),
-        }
+        };
+        let oidc_cluster_redirect_base_url = env::var("API_CLUSTER_OIDC_BASE_REDIRECT_URL")
+            .unwrap_or("https://localhost:5437".to_string());
         Self {
             client,
             redis: pool,
             oidc_client,
+            oidc_cluster_redirect_base_url,
         }
     }
 
