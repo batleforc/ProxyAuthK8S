@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia';
 import { userManager } from '../oidc/config.ts';
 import { User } from 'oidc-client-ts';
-import { getAllVisibleCluster } from '@proxy-auth-k8s/front-api';
 import { useToast } from 'maz-ui/composables/useToast';
 
 export const useAuthStore = defineStore('auth', {
@@ -27,13 +26,6 @@ export const useAuthStore = defineStore('auth', {
     async init() {
       const toast = useToast();
       this.inited = true;
-      this.router.beforeEach(async (to, from) => {
-        if (to.meta.requiresAuth && (!this.user || this.user.expired)) {
-          console.log('Route requires auth, redirecting to login');
-          toast.info('Please log in to access this page');
-          this.logIn();
-        }
-      });
       await this.router.isReady();
       let user = await this.getUser().then((user) => {
         if (
@@ -93,17 +85,14 @@ export const useAuthStore = defineStore('auth', {
         return null;
       });
       this.user = user;
-      if (user !== undefined && user !== null) {
-        getAllVisibleCluster({
-          headers: { Authorization: `Bearer ${user.access_token}` },
-        })
-          .then((clusters) => {
-            console.log('Fetched visible clusters:', clusters);
-          })
-          .catch((err) => {
-            console.error('Error fetching visible clusters:', err);
-          });
-      }
+      this.router.beforeEach(async (to, from) => {
+        if (to.meta.requiresAuth && (!this.user || this.user.expired)) {
+          console.log('Route requires auth, redirecting to login');
+          toast.info('Please log in to access this page');
+          this.logIn();
+        }
+      });
+      return user;
     },
     logIn() {
       try {

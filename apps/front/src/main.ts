@@ -40,7 +40,9 @@ const toastOptions: ToastOptions = {
 
 app.use(MazUi, {
   theme: {
+    colorMode: 'dark',
     preset: obsidian,
+    mode: 'dark',
   },
   translations: {
     messages: { fr },

@@ -8,9 +8,11 @@ import fs from 'fs';
 let tls = undefined;
 
 if (process.env.VITE_TLS_ENABLE === 'true') {
+  // get current path
+  const currentPath = __dirname;
   tls = {
-    key: fs.readFileSync(`../../.tls/key.pem`),
-    cert: fs.readFileSync(`../../.tls/cert.pem`),
+    key: fs.readFileSync(`${currentPath}/../../.tls/key.pem`),
+    cert: fs.readFileSync(`${currentPath}/../../.tls/cert.pem`),
   };
 }
 

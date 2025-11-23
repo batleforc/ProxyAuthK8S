@@ -16,3 +16,4 @@ users:
       - "admins"
       - "dev"
       - "dashboard-default-local"
+      - "dashboard-default-local-bistrot"

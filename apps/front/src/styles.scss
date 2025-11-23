@@ -44,6 +44,13 @@ html {
   font-kerning: normal;
 }
 
+html {
+  font-size: var(--maz-base-font-size);
+  font-family: var(--maz-font-family);
+  background-color: hsl(var(--maz-background));
+  color: hsl(var(--maz-foreground));
+}
+
 body {
   margin: 0;
   padding: 0;

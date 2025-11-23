@@ -6,8 +6,6 @@ import {
 import { useAuthStore } from './auth.ts';
 import { useToast } from 'maz-ui/composables/useToast';
 
-const toast = useToast();
-
 export const useClustersStore = defineStore('clusters', {
   state: () => ({
     clusters: [] as Array<VisibleCluster>,
@@ -22,11 +20,11 @@ export const useClustersStore = defineStore('clusters', {
     },
   },
   actions: {
-    fetchClusters() {
-      const authSore = useAuthStore();
-      return getAllVisibleCluster({
+    async fetchClusters(toast = useToast()) {
+      const authStore = useAuthStore();
+      return await getAllVisibleCluster({
         headers: {
-          Authorization: `Bearer ${authSore.user?.access_token}`,
+          Authorization: `Bearer ${authStore.user?.access_token}`,
         },
       }).then((response) => {
         if (response.status === 200 && response.data) {
@@ -43,11 +41,16 @@ export const useClustersStore = defineStore('clusters', {
             duration: 2000,
           });
           setTimeout(() => {
-            authSore.logIn();
+            //authSore.logIn();
           }, 2000);
           this.clusters = [];
+        } else {
+          toast.warning(`Unexpected response: ${response.status}`, {
+            duration: 5000,
+          });
+          console.error(`Unexpected response status: ${response.status}`);
+          this.clusters = [];
         }
-        this.clusters = [];
         this.inited = true;
       });
     },
