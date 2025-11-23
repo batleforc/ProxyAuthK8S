@@ -5,6 +5,7 @@ import { createApp, markRaw } from 'vue';
 import App from './app/App.vue';
 import { client } from '@proxy-auth-k8s/front-api';
 
+import { ToastOptions, ToastPlugin } from 'maz-ui/plugins/toast';
 import { obsidian } from '@maz-ui/themes/presets/obsidian';
 import { fr } from '@maz-ui/translations';
 import { MazUi } from 'maz-ui/plugins/maz-ui';
@@ -31,6 +32,12 @@ pinia.use(({ store }) => {
   store.router = markRaw(router);
 });
 
+const toastOptions: ToastOptions = {
+  position: 'bottom-right',
+  timeout: 1000,
+  persistent: false,
+};
+
 app.use(MazUi, {
   theme: {
     preset: obsidian,
@@ -39,6 +46,8 @@ app.use(MazUi, {
     messages: { fr },
   },
 });
+
+app.use(ToastPlugin, toastOptions);
 
 app.use(pinia);
 app.use(router);

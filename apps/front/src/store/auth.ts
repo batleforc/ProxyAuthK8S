@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { userManager } from '../oidc/config.ts';
 import { User } from 'oidc-client-ts';
 import { getAllVisibleCluster } from '@proxy-auth-k8s/front-api';
+import { useToast } from 'maz-ui/composables/useToast';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -24,10 +25,12 @@ export const useAuthStore = defineStore('auth', {
   },
   actions: {
     async init() {
+      const toast = useToast();
       this.inited = true;
       this.router.beforeEach(async (to, from) => {
         if (to.meta.requiresAuth && (!this.user || this.user.expired)) {
           console.log('Route requires auth, redirecting to login');
+          toast.info('Please log in to access this page');
           this.logIn();
         }
       });
@@ -39,6 +42,7 @@ export const useAuthStore = defineStore('auth', {
           window.location.pathname !== '/auth/callback'
         ) {
           console.log('User is logged in', user);
+          toast.success('Successfully logged in');
           return user;
         } else if (
           user &&
@@ -60,6 +64,7 @@ export const useAuthStore = defineStore('auth', {
           window.location.pathname !== '/auth/callback' &&
           this.router.currentRoute.value.meta.requiresAuth
         ) {
+          toast.info('Please log in to access this page');
           this.logIn();
           return null;
         } else if (window.location.pathname === '/auth/callback') {
@@ -68,9 +73,11 @@ export const useAuthStore = defineStore('auth', {
             .then((user) => {
               this.router.push('/');
               console.log('User logged in after callback', user);
+              toast.success('Successfully logged in');
               return user;
             })
             .catch((err) => {
+              toast.error('Error during login callback. Please try again.');
               console.error(
                 'Error handling callback (you should not be here):',
                 err

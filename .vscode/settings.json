@@ -41,7 +41,9 @@
     "editor.tabSize": 2
   },
   "[vue]": {
-    "editor.tabSize": 2
+    "editor.tabSize": 2,
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "Vue.volar"
   },
   "[scss]": {
     "editor.tabSize": 2
