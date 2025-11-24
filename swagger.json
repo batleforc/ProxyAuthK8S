@@ -60,6 +60,32 @@
         }
       }
     },
+    "/clusters/{ns}/{cluster}/auth/login": {
+      "get": {
+        "tags": [
+          "auth_clusters"
+        ],
+        "summary": "Redirect to the cluster's login page",
+        "description": "If the cluster is not found or disabled, return 404",
+        "operationId": "cluster_login",
+        "responses": {
+          "200": {
+            "description": "Response from remote cluster"
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        },
+        "security": [
+          {
+            "oauth2": []
+          }
+        ]
+      }
+    },
     "/clusters/{ns}/{cluster}/{path}": {
       "get": {
         "tags": [
@@ -210,6 +236,18 @@
     {
       "name": "health",
       "description": "Health check endpoints."
+    },
+    {
+      "name": "api_clusters",
+      "description": "API endpoints used by the front."
+    },
+    {
+      "name": "proxy_clusters",
+      "description": "Proxy cluster endpoints."
+    },
+    {
+      "name": "auth_clusters",
+      "description": "Authentication endpoints for clusters."
     }
   ]
 }

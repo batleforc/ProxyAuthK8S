@@ -45,3 +45,28 @@ export type GetAllVisibleClusterResponses = {
 };
 
 export type GetAllVisibleClusterResponse = GetAllVisibleClusterResponses[keyof GetAllVisibleClusterResponses];
+
+export type ClusterLoginData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/clusters/{ns}/{cluster}/auth/login';
+};
+
+export type ClusterLoginErrors = {
+    /**
+     * Cluster not found or disabled.
+     */
+    404: unknown;
+    /**
+     * Internal server error.
+     */
+    500: unknown;
+};
+
+export type ClusterLoginResponses = {
+    /**
+     * Response from remote cluster
+     */
+    200: unknown;
+};

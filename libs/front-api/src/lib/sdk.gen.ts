@@ -2,7 +2,7 @@
 
 import type { Client, Options as Options2, TDataShape } from './client';
 import { client } from './client.gen';
-import type { GetAllVisibleClusterData, GetAllVisibleClusterErrors, GetAllVisibleClusterResponses } from './types.gen';
+import type { ClusterLoginData, ClusterLoginErrors, ClusterLoginResponses, GetAllVisibleClusterData, GetAllVisibleClusterErrors, GetAllVisibleClusterResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -27,6 +27,18 @@ export const getAllVisibleCluster = <ThrowOnError extends boolean = false>(optio
     return (options?.client ?? client).get<GetAllVisibleClusterResponses, GetAllVisibleClusterErrors, ThrowOnError>({
         responseType: 'json',
         url: '/api/v1/clusters',
+        ...options
+    });
+};
+
+/**
+ * Redirect to the cluster's login page
+ *
+ * If the cluster is not found or disabled, return 404
+ */
+export const clusterLogin = <ThrowOnError extends boolean = false>(options?: Options<ClusterLoginData, ThrowOnError>) => {
+    return (options?.client ?? client).get<ClusterLoginResponses, ClusterLoginErrors, ThrowOnError>({
+        url: '/clusters/{ns}/{cluster}/auth/login',
         ...options
     });
 };
