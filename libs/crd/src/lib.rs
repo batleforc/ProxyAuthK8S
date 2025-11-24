@@ -66,6 +66,13 @@ impl ProxyKubeApi {
             self.name_any()
         )
     }
+    pub fn to_full_path(&self, state: Arc<State>) -> String {
+        format!(
+            "{}/clusters/{}",
+            state.oidc_cluster_redirect_base_url,
+            self.to_path()
+        )
+    }
     pub fn get_dashboard_group(&self) -> String {
         match &self.spec.dashboard_group {
             Some(group) => group.clone(),

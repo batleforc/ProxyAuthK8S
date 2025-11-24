@@ -24,6 +24,7 @@ pub fn init_api() -> impl FnOnce(&mut ServiceConfig) {
 pub fn init_cluster_api() -> impl FnOnce(&mut ServiceConfig) {
     |cfg: &mut ServiceConfig| {
         cfg.service(auth::login::cluster_login)
+            .service(auth::callback::callback_login)
             .service(redirect::get_redirect)
             .service(redirect::post_redirect)
             .service(redirect::put_redirect)

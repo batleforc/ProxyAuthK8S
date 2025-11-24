@@ -70,6 +70,7 @@ identity_providers:
         redirect_uris:
           - "http://localhost:8000"
           - "http://localhost:18000"
+          - "https://localhost:5437/clusters/default/local-sso/auth/callback"
         scopes:
           - "openid"
           - "groups"
@@ -103,6 +104,7 @@ identity_providers:
       allowed_origins:
         - "http://localhost:4200"
         - "https://localhost:4200"
+        - "https://localhost:5437"
       allowed_origins_from_client_redirect_uris: true
     jwks:
       - key_id: "kube_login"

@@ -64,4 +64,5 @@ spec:
       enabled: true
       issuer_url: "https://authelia.k8s.localhost"
       client_id: "kube_login"
+      client_secret: "insecure_secret"
       extra_scope: "groups email profile"

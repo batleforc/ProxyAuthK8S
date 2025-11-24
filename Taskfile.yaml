@@ -33,6 +33,7 @@ tasks:
       SERVER_HTTPS: "true"
       SERVER_CERT_PATH: ".tls/cert.pem"
       SERVER_KEY_PATH: ".tls/key.pem"
+      ENV: "development"
     silent: true
     cmds:
       - echo "Running the backend"

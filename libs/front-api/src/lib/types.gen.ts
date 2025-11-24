@@ -19,6 +19,14 @@ export type GetAllVisibleClusterBody = {
     clusters: Array<VisibleCluster>;
 };
 
+export type CallbackModel = {
+    access_token: string;
+    cluster_url: string;
+    id_token: string;
+    refresh_token: string;
+    subject: string;
+};
+
 export type GetAllVisibleClusterData = {
     body?: never;
     path?: never;
@@ -46,9 +54,54 @@ export type GetAllVisibleClusterResponses = {
 
 export type GetAllVisibleClusterResponse = GetAllVisibleClusterResponses[keyof GetAllVisibleClusterResponses];
 
+export type CallbackLoginData = {
+    body?: never;
+    path: {
+        /**
+         * Namespace
+         */
+        ns: unknown;
+        /**
+         * Cluster name
+         */
+        cluster: unknown;
+    };
+    query?: never;
+    url: '/clusters/{ns}/{cluster}/auth/callback';
+};
+
+export type CallbackLoginErrors = {
+    /**
+     * Cluster not found or disabled.
+     */
+    404: unknown;
+    /**
+     * Internal server error.
+     */
+    500: unknown;
+};
+
+export type CallbackLoginResponses = {
+    /**
+     * Response from remote cluster
+     */
+    200: CallbackModel;
+};
+
+export type CallbackLoginResponse = CallbackLoginResponses[keyof CallbackLoginResponses];
+
 export type ClusterLoginData = {
     body?: never;
-    path?: never;
+    path: {
+        /**
+         * Namespace
+         */
+        ns: unknown;
+        /**
+         * Cluster name
+         */
+        cluster: unknown;
+    };
     query?: never;
     url: '/clusters/{ns}/{cluster}/auth/login';
 };
@@ -68,5 +121,7 @@ export type ClusterLoginResponses = {
     /**
      * Response from remote cluster
      */
-    200: unknown;
+    200: string;
 };
+
+export type ClusterLoginResponse = ClusterLoginResponses[keyof ClusterLoginResponses];

@@ -60,6 +60,48 @@
         }
       }
     },
+    "/clusters/{ns}/{cluster}/auth/callback": {
+      "get": {
+        "tags": [
+          "auth_clusters"
+        ],
+        "summary": "Redirect to the cluster's login page",
+        "description": "If the cluster is not found or disabled, return 404",
+        "operationId": "callback_login",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace",
+            "required": true
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from remote cluster",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallbackModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
     "/clusters/{ns}/{cluster}/auth/login": {
       "get": {
         "tags": [
@@ -68,9 +110,30 @@
         "summary": "Redirect to the cluster's login page",
         "description": "If the cluster is not found or disabled, return 404",
         "operationId": "cluster_login",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace",
+            "required": true
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name",
+            "required": true
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Response from remote cluster"
+            "description": "Response from remote cluster",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "404": {
             "description": "Cluster not found or disabled."
@@ -186,6 +249,33 @@
   },
   "components": {
     "schemas": {
+      "CallbackModel": {
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token",
+          "cluster_url",
+          "subject",
+          "id_token"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "cluster_url": {
+            "type": "string"
+          },
+          "id_token": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        }
+      },
       "GetAllVisibleClusterBody": {
         "type": "object",
         "required": [

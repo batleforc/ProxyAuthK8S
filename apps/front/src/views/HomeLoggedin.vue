@@ -56,6 +56,7 @@ const handleClusterAccess = (cluster: VisibleCluster) => {
   // TODO: Implement cluster access logic
   console.log('Accessing cluster:', cluster.name);
   toast.warning(`Accès au cluster ${cluster.name} (fonctionnalité à implémenter)`);
+  clustersStore.redirectToLogin(cluster.namespace, cluster.name);
 };
 
 const getClusterURL = (cluster: VisibleCluster) => {

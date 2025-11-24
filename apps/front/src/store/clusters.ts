@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import {
+  clusterLogin,
   getAllVisibleCluster,
   VisibleCluster,
 } from '@proxy-auth-k8s/front-api';
@@ -52,6 +53,29 @@ export const useClustersStore = defineStore('clusters', {
           this.clusters = [];
         }
         this.inited = true;
+      });
+    },
+    async redirectToLogin(ns: string, cluster: string) {
+      const authStore = useAuthStore();
+      return await clusterLogin({
+        path: { ns, cluster },
+        headers: {
+          Authorization: `Bearer ${authStore.user?.access_token}`,
+        },
+      }).then((response) => {
+        if (response.status === 200 && response.data) {
+          // Validate that response.data is a URL
+          try {
+            console.log('Redirecting to cluster login URL:', response.data);
+            window.location.href = response.data;
+          } catch (e) {
+            console.error('Invalid URL received for cluster login redirect');
+          }
+        } else if (response.status === 401) {
+          console.error(
+            'Unauthorized access when redirecting to cluster login'
+          );
+        }
       });
     },
   },
