@@ -156,4 +156,29 @@ impl ProxyKubeApi {
             Err(err) => Err(err.to_string()),
         }
     }
+    pub fn get_redirect_oidc_url(&self, state: Arc<State>) -> String {
+        format!(
+            "{}/clusters/{}/auth/callback",
+            state.oidc_cluster_redirect_base_url,
+            self.to_path()
+        )
+    }
+    pub fn get_oidc_conf(&self, state: Arc<State>) -> Option<common::oidc_conf::OidcConf> {
+        match &self.spec.auth_config {
+            Some(auth_config) => {
+                if auth_config.oidc_provider.enabled {
+                    return Some(common::oidc_conf::OidcConf {
+                        client_id: auth_config.oidc_provider.client_id.clone(),
+                        client_secret: auth_config.oidc_provider.client_secret.clone(),
+                        issuer_url: auth_config.oidc_provider.issuer_url.clone(),
+                        scopes: auth_config.oidc_provider.extra_scope.clone(),
+                        audience: auth_config.oidc_provider.client_id.clone(),
+                        redirect_url: Some(self.get_redirect_oidc_url(state)),
+                    });
+                }
+                None
+            }
+            None => None,
+        }
+    }
 }

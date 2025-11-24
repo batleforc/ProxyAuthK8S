@@ -18,7 +18,10 @@ use crate::{
         (status = 200, description = "ATM nothing real", body = GetAllVisibleClusterBody),
         (status = 401, description = "Unauthorized"),
         (status = 500, description = "Internal server error."),
-    )
+    ),
+    security(
+        ("oauth2" = [])
+    ),
 )]
 #[get("/clusters")]
 #[instrument(name = "get_all_visible_cluster", skip(state))]

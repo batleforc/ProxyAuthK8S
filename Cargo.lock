@@ -648,6 +648,7 @@ dependencies = [
  "futures",
  "k8s-openapi",
  "kube",
+ "openidconnect",
  "reqwest",
  "schemars 1.0.4",
  "serde",
