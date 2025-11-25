@@ -23,6 +23,7 @@ use crate::{cluster::auth::auth_model::LoginToCallBackModel, model::user::User};
     params(
         ("ns", description = "Namespace"),
         ("cluster", description = "Cluster name"),
+        ("x-front-callback" = String, Header, nullable, description = "If it's from the frontend, this header will be set."),
     )
 )]
 #[get("/{ns}/{cluster}/auth/login")]
@@ -64,7 +65,8 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>, user: User)
     {
         return HttpResponse::NotFound().finish();
     }
-    let oidc_conf = match proxy.get_oidc_conf(data.into_inner()) {
+    let redirect_front = req.headers().contains_key("x-front-callback");
+    let oidc_conf = match proxy.get_oidc_conf(data.into_inner(), redirect_front) {
         Some(conf) => conf,
         None => {
             error!("OIDC config not found");

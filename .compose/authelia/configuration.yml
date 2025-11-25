@@ -71,6 +71,7 @@ identity_providers:
           - "http://localhost:8000"
           - "http://localhost:18000"
           - "https://localhost:5437/clusters/default/local-sso/auth/callback"
+          - "https://localhost:4200/auth/callback/default/local-sso"
         scopes:
           - "openid"
           - "groups"

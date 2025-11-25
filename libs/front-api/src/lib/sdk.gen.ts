@@ -32,7 +32,7 @@ export const getAllVisibleCluster = <ThrowOnError extends boolean = false>(optio
 };
 
 /**
- * Redirect to the cluster's login page
+ * Callback from the cluster's OIDC provider
  *
  * If the cluster is not found or disabled, return 404
  */

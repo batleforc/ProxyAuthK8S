@@ -65,7 +65,7 @@
         "tags": [
           "auth_clusters"
         ],
-        "summary": "Redirect to the cluster's login page",
+        "summary": "Callback from the cluster's OIDC provider",
         "description": "If the cluster is not found or disabled, return 404",
         "operationId": "callback_login",
         "parameters": [
@@ -80,6 +80,36 @@
             "in": "path",
             "description": "Cluster name",
             "required": true
+          },
+          {
+            "name": "x-front-callback",
+            "in": "header",
+            "description": "If it's from the frontend, this header will be set.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Authorization code from the OIDC provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "State parameter to prevent CSRF",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -122,6 +152,18 @@
             "in": "path",
             "description": "Cluster name",
             "required": true
+          },
+          {
+            "name": "x-front-callback",
+            "in": "header",
+            "description": "If it's from the frontend, this header will be set.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {

@@ -56,6 +56,12 @@ export type GetAllVisibleClusterResponse = GetAllVisibleClusterResponses[keyof G
 
 export type CallbackLoginData = {
     body?: never;
+    headers: {
+        /**
+         * If it's from the frontend, this header will be set.
+         */
+        'x-front-callback': string | null;
+    };
     path: {
         /**
          * Namespace
@@ -66,7 +72,16 @@ export type CallbackLoginData = {
          */
         cluster: unknown;
     };
-    query?: never;
+    query: {
+        /**
+         * Authorization code from the OIDC provider
+         */
+        code: string;
+        /**
+         * State parameter to prevent CSRF
+         */
+        state: string;
+    };
     url: '/clusters/{ns}/{cluster}/auth/callback';
 };
 
@@ -92,6 +107,12 @@ export type CallbackLoginResponse = CallbackLoginResponses[keyof CallbackLoginRe
 
 export type ClusterLoginData = {
     body?: never;
+    headers: {
+        /**
+         * If it's from the frontend, this header will be set.
+         */
+        'x-front-callback': string | null;
+    };
     path: {
         /**
          * Namespace

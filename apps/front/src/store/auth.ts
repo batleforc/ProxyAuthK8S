@@ -21,6 +21,9 @@ export const useAuthStore = defineStore('auth', {
         userManager.metadataService.getEndSessionEndpoint() !== undefined
       );
     },
+    isInited(): boolean {
+      return this.inited;
+    },
   },
   actions: {
     async init() {

@@ -20,9 +20,20 @@ const router = createRouter({
     },
     {
       path: '/auth/callback',
-      name: 'callback',
-      component: () => import('../views/CallbackView.vue'),
-      meta: { name: 'Callback' },
+      children: [
+        {
+          path: '',
+          name: 'callback',
+          component: () => import('../views/CallbackView.vue'),
+          meta: { name: 'Callback' },
+        },
+        {
+          path: ':ns/:cluster',
+          name: 'cluster-callback',
+          component: () => import('../views/ClusterCallbackView.vue'),
+          meta: { name: 'Cluster Callback' },
+        },
+      ],
     },
   ],
 });

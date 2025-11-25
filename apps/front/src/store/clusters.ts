@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia';
 import {
+  callbackLogin,
+  CallbackModel,
   clusterLogin,
   getAllVisibleCluster,
   VisibleCluster,
@@ -11,6 +13,11 @@ export const useClustersStore = defineStore('clusters', {
   state: () => ({
     clusters: [] as Array<VisibleCluster>,
     inited: false,
+    callBack: {
+      ns: '',
+      cluster: '',
+      retour: {} as CallbackModel,
+    },
   }),
   getters: {
     getClusters(): Array<VisibleCluster> {
@@ -61,6 +68,7 @@ export const useClustersStore = defineStore('clusters', {
         path: { ns, cluster },
         headers: {
           Authorization: `Bearer ${authStore.user?.access_token}`,
+          'x-front-callback': 'true',
         },
       }).then((response) => {
         if (response.status === 200 && response.data) {
@@ -77,6 +85,61 @@ export const useClustersStore = defineStore('clusters', {
           );
         }
       });
+    },
+    async callBackFromCluster(toast = useToast()) {
+      await this.router.isReady();
+      let ns = this.router.currentRoute.value.params.ns as string;
+      let cluster = this.router.currentRoute.value.params.cluster as string;
+      let code = this.router.currentRoute.value.query.code as string;
+      let state = this.router.currentRoute.value.query.state as string;
+      if (!ns || !cluster || !code || !state) {
+        toast.error('Missing parameters in callback URL', { duration: 5000 });
+        console.error('Missing parameters in callback URL');
+        setTimeout(() => {
+          this.router.push({ name: 'home' });
+        }, 2000);
+        return;
+      }
+      this.callBack.ns = ns;
+      this.callBack.cluster = cluster;
+      return await callbackLogin({
+        headers: {
+          'x-front-callback': 'true',
+        },
+        path: {
+          ns,
+          cluster,
+        },
+        query: {
+          code,
+          state,
+        },
+      })
+        .then((response) => {
+          if (response.status === 200 && response.data) {
+            this.callBack.retour = response.data;
+            toast.success('Successfully authenticated with the cluster', {
+              duration: 3000,
+            });
+          } else if (response.status === 401) {
+            toast.error('Unauthorized access during callback login', {
+              duration: 5000,
+            });
+            console.error('Unauthorized access during callback login');
+            setTimeout(() => {
+              this.router.push({ name: 'home' });
+            }, 2000);
+          }
+        })
+        .catch((error) => {
+          toast.error(`Error during callback login: ${error}`, {
+            duration: 5000,
+          });
+          console.error('Error during callback login:', error);
+          setTimeout(() => {
+            this.router.push({ name: 'home' });
+          }, 2000);
+        });
     },
   },
 });

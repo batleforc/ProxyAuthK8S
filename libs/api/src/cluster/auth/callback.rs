@@ -5,17 +5,19 @@ use deadpool_redis::redis::AsyncTypedCommands;
 use openidconnect::{AccessTokenHash, AuthorizationCode, OAuth2TokenResponse, TokenResponse};
 use serde::Deserialize;
 use tracing::{error, info, instrument};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::cluster::auth::{auth_model::LoginToCallBackModel, callback_model::CallbackModel};
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema, IntoParams)]
 pub struct CallbackQuery {
+    /// Authorization code from the OIDC provider
     pub code: String,
+    /// State parameter to prevent CSRF
     pub state: String,
 }
 
-/// Redirect to the cluster's login page
+/// Callback from the cluster's OIDC provider
 ///
 /// If the cluster is not found or disabled, return 404
 #[utoipa::path(
@@ -28,6 +30,8 @@ pub struct CallbackQuery {
     params(
         ("ns", description = "Namespace"),
         ("cluster", description = "Cluster name"),
+        ("x-front-callback" = String, Header, nullable, description = "If it's from the frontend, this header will be set."),
+        CallbackQuery,
     )
 )]
 #[get("/{ns}/{cluster}/auth/callback")]
@@ -73,7 +77,8 @@ pub async fn callback_login(
     {
         return HttpResponse::NotFound().finish();
     }
-    let oidc_conf = match proxy.get_oidc_conf(data.clone().into_inner()) {
+    let redirect_front = req.headers().contains_key("x-front-callback");
+    let oidc_conf = match proxy.get_oidc_conf(data.clone().into_inner(), redirect_front) {
         Some(conf) => conf,
         None => {
             error!("OIDC config not found");
