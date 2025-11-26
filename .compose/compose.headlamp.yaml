@@ -1,0 +1,27 @@
+services:
+  headlamp:
+    image: "ghcr.io/headlamp-k8s/headlamp:v0.38.0"
+    networks:
+      default:
+        ipv4_address: 10.5.0.17
+    command: ["-enable-dynamic-clusters", "-plugins-dir=/app/plugins"]
+    container_name: headlamp
+    user: "${PUID}:${PGID}"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.headlamp.rule: "Host(`headlamp.k8s.localhost`)"
+      traefik.http.routers.headlamp.entrypoints: "https"
+      traefik.http.routers.headlamp.tls: "true"
+      traefik.http.routers.headlamp.tls.options: "default"
+    restart: "unless-stopped"
+    healthcheck:
+      ## In production the healthcheck section should be commented.
+      disable: true
+    environment:
+      TZ: "Europe/Paris"
+      PUID: "${PUID}"
+      PGID: "${PGID}"
+      USER: "${PUID}"
+      HOME: "/app/config"
+    volumes:
+      - ./headlamp:/app

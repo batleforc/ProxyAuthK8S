@@ -3,6 +3,7 @@ version: "3"
 includes:
   talos: .taskfile/talos.yaml
   lab: .taskfile/lab.yaml
+  gen: .taskfile/gen.yaml
 
 dotenv:
   - .env
@@ -14,7 +15,7 @@ tasks:
     cmds:
       - echo "Initializing the project"
       - cog install-hook -a -o
-  run:
+  back:
     desc: "Run the backend"
     env:
       KUBECONFIG: ./kubeconfig.local.yaml
@@ -25,7 +26,7 @@ tasks:
     cmds:
       - echo "Running the backend"
       - cargo run --bin server
-  run:tls:
+  back:tls:
     desc: "Run the TLS terminator"
     env:
       KUBECONFIG: ./kubeconfig.local.yaml
@@ -38,49 +39,19 @@ tasks:
     cmds:
       - echo "Running the backend"
       - cargo run --bin server
-  run:dev:
+  front:
     desc: "Run the frontend in development mode"
     silent: true
     cmds:
       - echo "Running the frontend in development mode"
       - yarn nx run front:dev
-  run:dev:tls:
+  front:tls:
     desc: "Run the frontend in development mode with TLS"
     silent: true
     cmds:
       - echo "Running the frontend in development mode with TLS"
       - VITE_TLS_ENABLE=true yarn nx run front:dev
-  gen:tls:
-    desc: "Generate self-signed TLS certificates for local development"
-    silent: true
-    cmds:
-      - echo "Generating self-signed TLS certificates for local development"
-      - mkdir -p .tls
-      - mkcert -key-file .tls/key.pem -cert-file .tls/cert.pem 127.0.0.1 localhost
-  gen:tls-wildcard:
-    desc: "Generate self-signed wildcard TLS certificates for local development"
-    silent: true
-    cmds:
-      - echo "Generating self-signed wildcard TLS certificates for local development"
-      - mkdir -p .compose/traefik/certs
-      - mkcert -key-file .compose/traefik/certs/key.pem -cert-file .compose/traefik/certs/cert.pem '*.k8s.localhost' k8s.localhost
-  gen:crds:
-    desc: "Generate Custom Resource Definitions"
-    silent: true
-    cmds:
-      - cargo run --bin crdgen
-  gen:swagger:
-    desc: "Generate Swagger documentation"
-    silent: true
-    cmds:
-      - cargo run --bin swaggergen
-  gen:api-client:
-    desc: "Generate API client from OpenAPI specification"
-    silent: true
-    cmds:
-      - echo "Generating API client from OpenAPI specification"
-      - yarn openapi-ts
-  run:service:
+  service:
     desc: "Run the service task"
     silent: true
     cmds:
@@ -94,6 +65,20 @@ tasks:
         fi
       - command -v docker && PUID="$(id -u)" PGID="$(id -g)" docker compose up || true
       - command -v podman && PUID="$(id -u)" PGID="$(id -g)"  podman compose up || true
+  service:recette:
+    desc: "Run the service task in recette mode"
+    silent: true
+    cmds:
+      - echo "Running the service task in recette mode"
+      - echo "Traefik Dashboard https://traefik.k8s.localhost/dashboard/"
+      # check if neither docker nor podman is installed
+      - |
+        if ! command -v docker >/dev/null && ! command -v podman >/dev/null; then
+          echo "Neither docker nor podman is installed. Please install one of them to run the service."
+          exit 1
+        fi
+      - command -v docker && PUID="$(id -u)" PGID="$(id -g)" MODE="recette" docker compose -f compose.recette.yaml up  || true
+      - command -v podman && PUID="$(id -u)" PGID="$(id -g)" MODE="recette" podman compose -f compose.recette.yaml up || true
   init:service:
     desc: "Initialize the service task"
     silent: true

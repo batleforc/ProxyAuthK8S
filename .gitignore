@@ -6,7 +6,7 @@ tmp
 out-tsc
 .tls
 .compose/traefik/certs
-
+.compose/headlamp
 # dependencies
 node_modules
 

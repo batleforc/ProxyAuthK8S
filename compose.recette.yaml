@@ -18,7 +18,8 @@ services:
     env_file:
       - .env
     networks:
-      - default
+      default:
+        ipv4_address: 10.5.0.18
   back:
     image: proxyauthk8s/back:recette
     build:
@@ -26,5 +27,11 @@ services:
       dockerfile: ./deploy/build/back/Containerfile
     env_file:
       - .env
+    environment:
+      KUBECONFIG: "/kubeconfig.yaml"
     networks:
-      - default
+      default:
+        ipv4_address: 10.5.0.19
+    # mount kubeconfig.local.yaml as /kubeconfig.yaml
+    volumes:
+      - ./kubeconfig.local.yaml:/kubeconfig.yaml:ro

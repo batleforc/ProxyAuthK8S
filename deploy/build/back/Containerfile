@@ -37,21 +37,25 @@ RUN echo "fn main() {}" > libs/api/src/lib.rs && \
   echo "fn main() {}" > apps/swaggergen/src/main.rs
 
 ## Build dependencies
-RUN cargo build --release --workspace --target x86_64-unknown-linux-musl
+RUN cargo build --release --workspace
 
 COPY . .
 
 # Build the actual binary
 FROM build_base AS build_back
 
+ENV RUSTFLAGS="-C target-feature=-crt-static"
+
 RUN touch apps/server/src/main.rs && \
-  cargo build --release --workspace --target x86_64-unknown-linux-musl && \
+  cargo build --release --workspace && \
   strip dist/target/release/server && \
   strip dist/target/release/crdgen && \
   strip dist/target/release/swaggergen
 
 # Final stage
 FROM registry.hub.docker.com/library/alpine:3.22
+
+RUN apk add --no-cache libgcc
 
 WORKDIR /app
 

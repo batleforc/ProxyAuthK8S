@@ -1,0 +1,33 @@
+version: "3"
+
+tasks:
+  tls:
+    desc: "Generate self-signed TLS certificates for local development"
+    silent: true
+    cmds:
+      - echo "Generating self-signed TLS certificates for local development"
+      - mkdir -p .tls
+      - mkcert -key-file .tls/key.pem -cert-file .tls/cert.pem 127.0.0.1 localhost
+  tls-wildcard:
+    desc: "Generate self-signed wildcard TLS certificates for local development"
+    silent: true
+    cmds:
+      - echo "Generating self-signed wildcard TLS certificates for local development"
+      - mkdir -p .compose/traefik/certs
+      - mkcert -key-file .compose/traefik/certs/key.pem -cert-file .compose/traefik/certs/cert.pem '*.k8s.localhost' k8s.localhost
+  crds:
+    desc: "Generate Custom Resource Definitions"
+    silent: true
+    cmds:
+      - cargo run --bin crdgen
+  swagger:
+    desc: "Generate Swagger documentation"
+    silent: true
+    cmds:
+      - cargo run --bin swaggergen
+  api-client:
+    desc: "Generate API client from OpenAPI specification"
+    silent: true
+    cmds:
+      - echo "Generating API client from OpenAPI specification"
+      - yarn openapi-ts
