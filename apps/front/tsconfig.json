@@ -3,11 +3,14 @@
     "allowJs": true,
     "esModuleInterop": false,
     "allowSyntheticDefaultImports": true,
+    "allowImportingTsExtensions": true,
     "strict": true,
     "jsx": "preserve",
     "jsxImportSource": "vue",
     "moduleResolution": "nodenext",
-    "resolveJsonModule": true
+    "module": "nodenext",
+    "resolveJsonModule": true,
+    "noEmit": true
   },
   "files": [],
   "include": [],

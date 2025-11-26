@@ -1,0 +1,19 @@
+FROM registry.hub.docker.com/library/node:24 AS build
+WORKDIR /app
+ENV ENV production
+COPY package.json ./
+COPY yarn.lock ./
+RUN yarn
+COPY . ./
+ENV ENV production
+RUN npx nx build front
+
+FROM registry.hub.docker.com/nginxinc/nginx-unprivileged:1.29-alpine-slim AS deploy
+WORKDIR /app
+
+RUN rm -rf ./*
+COPY ./deploy/build/front/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist/apps/front .
+COPY --chmod=755 ./deploy/build/front/env.sh /docker-entrypoint.d/99-env.sh
+
+EXPOSE 8080

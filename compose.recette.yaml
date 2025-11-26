@@ -1,0 +1,30 @@
+include:
+  - .compose/compose.otel.yaml
+  - .compose/compose.redis.yaml
+  - .compose/compose.traefik.yaml
+  - .compose/compose.authelia.yaml
+
+networks:
+  default:
+    name: talos-default
+    external: true
+
+services:
+  front:
+    image: proxyauthk8s/front:recette
+    build:
+      context: .
+      dockerfile: ./deploy/build/front/Containerfile
+    env_file:
+      - .env
+    networks:
+      - default
+  back:
+    image: proxyauthk8s/back:recette
+    build:
+      context: .
+      dockerfile: ./deploy/build/back/Containerfile
+    env_file:
+      - .env
+    networks:
+      - default

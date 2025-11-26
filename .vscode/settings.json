@@ -50,5 +50,11 @@
   },
   "[scss]": {
     "editor.tabSize": 2
+  },
+  "[dockerfile]": {
+    "editor.tabSize": 2
+  },
+  "[properties]": {
+    "editor.tabSize": 2
   }
 }

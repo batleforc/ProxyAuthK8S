@@ -1,0 +1,15 @@
+.nx
+/.compose
+/.talos
+/.taskfile
+/.tls
+dist
+node_modules
+tmp
+/.github
+/.vscode
+/.git
+/target
+.env
+/kubeconfig.*.yaml
+/deploy
