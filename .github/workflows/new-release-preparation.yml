@@ -1,0 +1,714 @@
+name: 🚀 New Release Preparation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Type de release"
+        required: true
+        default: "minor"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      pre_release:
+        description: "Pre-release (alpha, beta, rc)"
+        required: false
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_SERVER: ${{ github.repository }}/server
+  IMAGE_NAME_FRONT: ${{ github.repository }}/front
+  NODE_VERSION: "24"
+  RUST_VERSION: "1.91"
+
+jobs:
+  prepare-release:
+    name: 📋 Prepare Release Information
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.version.outputs.new_version }}
+      branch_name: ${{ steps.branch.outputs.branch_name }}
+      release_name: ${{ steps.release_info.outputs.release_name }}
+    steps:
+      - name: 🔍 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: 🔧 Install dependencies
+        run: npm ci
+
+      - name: 📈 Calculate new version
+        id: version
+        run: |
+          current_version=$(node -p "require('./package.json').version")
+          echo "Current version: $current_version"
+
+          # Increment version based on input
+          case "${{ github.event.inputs.release_type }}" in
+            "major")
+              new_version=$(npm version major --no-git-tag-version | sed 's/v//')
+              ;;
+            "minor")
+              new_version=$(npm version minor --no-git-tag-version | sed 's/v//')
+              ;;
+            "patch")
+              new_version=$(npm version patch --no-git-tag-version | sed 's/v//')
+              ;;
+          esac
+
+          # Add pre-release suffix if specified
+          if [ -n "${{ github.event.inputs.pre_release }}" ]; then
+            new_version="${new_version}-${{ github.event.inputs.pre_release }}"
+          fi
+
+          echo "New version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+
+          # Reset package.json to avoid commit issues
+          git checkout -- package.json
+
+      - name: 🌿 Create branch name
+        id: branch
+        run: |
+          branch_name="NR/release-v${{ steps.version.outputs.new_version }}"
+          echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+
+      - name: 📝 Generate release name
+        id: release_info
+        run: |
+          release_name="Release v${{ steps.version.outputs.new_version }}"
+          echo "release_name=$release_name" >> $GITHUB_OUTPUT
+
+  create-release-branch:
+    name: 🌿 Create Release Branch
+    runs-on: ubuntu-latest
+    needs: prepare-release
+    steps:
+      - name: 🔍 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔧 Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: 🌿 Create and push release branch
+        run: |
+          git checkout -b "${{ needs.prepare-release.outputs.branch_name }}"
+          git push -u origin "${{ needs.prepare-release.outputs.branch_name }}"
+
+  version-increment:
+    name: 📈 Increment Package Versions
+    runs-on: ubuntu-latest
+    needs: [prepare-release, create-release-branch]
+    steps:
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.branch_name }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: 🔧 Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: 📈 Update package versions
+        run: |
+          NEW_VERSION="${{ needs.prepare-release.outputs.new_version }}"
+
+          # Update root package.json
+          npm version $NEW_VERSION --no-git-tag-version
+
+          # Update Rust packages
+          find . -name "Cargo.toml" -not -path "./target/*" | while read -r cargo_file; do
+            echo "Updating $cargo_file"
+            sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" "$cargo_file"
+          done
+
+          # Update front-end packages
+          find apps libs -name "package.json" | while read -r pkg_file; do
+            echo "Updating $pkg_file"
+            jq --arg version "$NEW_VERSION" '.version = $version' "$pkg_file" > tmp.$$ && mv tmp.$$ "$pkg_file"
+          done
+
+          # Commit changes
+          git add .
+          git commit -m "chore: bump version to v$NEW_VERSION"
+          git push origin "${{ needs.prepare-release.outputs.branch_name }}"
+
+  code-quality-validation:
+    name: 🔍 Code Quality Validation
+    runs-on: ubuntu-latest
+    needs: [prepare-release, version-increment]
+    outputs:
+      backend_quality: ${{ steps.backend_check.outputs.status }}
+      frontend_quality: ${{ steps.frontend_check.outputs.status }}
+    steps:
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.branch_name }}
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: 🦀 Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy, rustfmt
+
+      - name: 🔧 Install dependencies
+        run: npm ci
+
+      - name: 🔍 Backend Quality Check
+        id: backend_check
+        run: |
+          echo "## 🦀 Backend Quality Report" >> quality_report.md
+
+          # Rust formatting check
+          if cargo fmt -- --check; then
+            echo "✅ Rust code formatting is correct" >> quality_report.md
+          else
+            echo "❌ Rust code formatting issues found" >> quality_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Rust clippy check
+          if cargo clippy --all-targets --all-features -- -D warnings; then
+            echo "✅ Rust clippy checks passed" >> quality_report.md
+          else
+            echo "❌ Rust clippy issues found" >> quality_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Rust tests
+          if cargo test; then
+            echo "✅ Rust tests passed" >> quality_report.md
+          else
+            echo "❌ Rust tests failed" >> quality_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: 🔍 Frontend Quality Check
+        id: frontend_check
+        run: |
+          echo "## 🌐 Frontend Quality Report" >> quality_report.md
+
+          # TypeScript compilation
+          if npm run build; then
+            echo "✅ TypeScript compilation successful" >> quality_report.md
+          else
+            echo "❌ TypeScript compilation failed" >> quality_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Linting
+          if npm run lint; then
+            echo "✅ Frontend linting passed" >> quality_report.md
+          else
+            echo "❌ Frontend linting issues found" >> quality_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Tests
+          if npm run test; then
+            echo "✅ Frontend tests passed" >> quality_report.md
+          else
+            echo "❌ Frontend tests failed" >> quality_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: 📤 Upload Quality Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-report
+          path: quality_report.md
+
+  changelog-generation:
+    name: 📝 Generate Changelog
+    runs-on: ubuntu-latest
+    needs: [prepare-release, version-increment]
+    steps:
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.branch_name }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 🔧 Install changelog generator
+        run: npm install -g conventional-changelog-cli
+
+      - name: 📝 Generate changelog
+        run: |
+          NEW_VERSION="${{ needs.prepare-release.outputs.new_version }}"
+
+          # Generate changelog for this version
+          conventional-changelog -p angular -i CHANGELOG.md -s -r 0
+
+          # Create version-specific changelog
+          echo "# Changelog for v$NEW_VERSION" > "CHANGELOG-v$NEW_VERSION.md"
+          echo "" >> "CHANGELOG-v$NEW_VERSION.md"
+          conventional-changelog -p angular -r 1 >> "CHANGELOG-v$NEW_VERSION.md"
+
+      - name: 🔧 Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: 💾 Commit changelog
+        run: |
+          git add CHANGELOG.md CHANGELOG-v*.md
+          git commit -m "docs: update changelog for v${{ needs.prepare-release.outputs.new_version }}"
+          git push origin "${{ needs.prepare-release.outputs.branch_name }}"
+
+      - name: 📤 Upload Changelog
+        uses: actions/upload-artifact@v4
+        with:
+          name: changelog
+          path: CHANGELOG-v*.md
+
+  security-audit:
+    name: 🔒 Security & Dependencies Audit
+    runs-on: ubuntu-latest
+    needs: [prepare-release, version-increment]
+    outputs:
+      audit_status: ${{ steps.audit.outputs.status }}
+    steps:
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.branch_name }}
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: 🦀 Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: 🔧 Install audit tools
+        run: |
+          npm install -g npm-audit-resolver
+          cargo install cargo-audit
+
+      - name: 🔍 NPM Security Audit
+        id: audit
+        run: |
+          echo "## 🔒 Security Audit Report" > security_report.md
+          echo "" >> security_report.md
+
+          # NPM Audit
+          echo "### 📦 NPM Dependencies" >> security_report.md
+          if npm audit --audit-level=moderate; then
+            echo "✅ No moderate or high severity vulnerabilities found in NPM packages" >> security_report.md
+          else
+            echo "❌ Security vulnerabilities found in NPM packages" >> security_report.md
+            npm audit --json >> security_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Cargo Audit
+          echo "### 🦀 Rust Dependencies" >> security_report.md
+          if cargo audit; then
+            echo "✅ No security vulnerabilities found in Rust packages" >> security_report.md
+          else
+            echo "❌ Security vulnerabilities found in Rust packages" >> security_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: 📤 Upload Security Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-report
+          path: security_report.md
+
+  commit-validation:
+    name: ✅ Commit Validation
+    runs-on: ubuntu-latest
+    needs: [prepare-release, version-increment]
+    outputs:
+      commit_status: ${{ steps.validate.outputs.status }}
+    steps:
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.branch_name }}
+          fetch-depth: 0
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 🔧 Install commitlint
+        run: |
+          npm install -g @commitlint/cli @commitlint/config-conventional
+
+      - name: ✅ Validate Conventional Commits
+        id: validate
+        run: |
+          echo "## ✅ Commit Validation Report" > commit_report.md
+          echo "" >> commit_report.md
+
+          # Get commits from main to current branch
+          commits=$(git rev-list origin/main..HEAD --reverse)
+
+          echo "### 📝 Conventional Commit Validation" >> commit_report.md
+          failed=false
+
+          for commit in $commits; do
+            message=$(git log --format=%B -n 1 $commit | head -n 1)
+            echo "Checking commit: $commit - $message"
+
+            if echo "$message" | commitlint; then
+              echo "✅ $commit: $message" >> commit_report.md
+            else
+              echo "❌ $commit: $message" >> commit_report.md
+              failed=true
+            fi
+          done
+
+          # Validate commit signatures
+          echo "### ✍️ Commit Signature Validation" >> commit_report.md
+          for commit in $commits; do
+            if git verify-commit $commit 2>/dev/null; then
+              echo "✅ Commit $commit is signed" >> commit_report.md
+            else
+              echo "❌ Commit $commit is not signed" >> commit_report.md
+              failed=true
+            fi
+          done
+
+          if [ "$failed" = true ]; then
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "status=success" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 📤 Upload Commit Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: commit-report
+          path: commit_report.md
+
+  docker-build:
+    name: 🐳 Docker Build & SBOM Generation
+    runs-on: ubuntu-latest
+    needs:
+      [
+        prepare-release,
+        code-quality-validation,
+        security-audit,
+        commit-validation,
+      ]
+    if: needs.code-quality-validation.outputs.backend_quality == 'success' && needs.code-quality-validation.outputs.frontend_quality == 'success'
+    outputs:
+      server_image: ${{ steps.build_server.outputs.image }}
+      front_image: ${{ steps.build_front.outputs.image }}
+    steps:
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.branch_name }}
+
+      - name: 🔧 Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔧 Install Syft for SBOM generation
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: 🏗️ Build Server Image
+        id: build_server
+        run: |
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_SERVER }}:v${{ needs.prepare-release.outputs.new_version }}"
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --tag $IMAGE_TAG \
+            --file deploy/build/back/Containerfile \
+            --push .
+
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: 🏗️ Build Front Image
+        id: build_front
+        run: |
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONT }}:v${{ needs.prepare-release.outputs.new_version }}"
+
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --tag $IMAGE_TAG \
+            --file deploy/build/front/Containerfile \
+            --push .
+
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: 📋 Generate SBOM for Server
+        run: |
+          syft ${{ steps.build_server.outputs.image }} -o spdx-json=server-sbom.json
+          syft ${{ steps.build_server.outputs.image }} -o table=server-sbom.txt
+
+      - name: 📋 Generate SBOM for Front
+        run: |
+          syft ${{ steps.build_front.outputs.image }} -o spdx-json=front-sbom.json
+          syft ${{ steps.build_front.outputs.image }} -o table=front-sbom.txt
+
+      - name: 📤 Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-reports
+          path: |
+            *-sbom.json
+            *-sbom.txt
+
+  docker-security-scan:
+    name: 🔍 Docker Security Scan
+    runs-on: ubuntu-latest
+    needs: [prepare-release, docker-build]
+    steps:
+      - name: 🔧 Install Grype for vulnerability scanning
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: 🔍 Scan Server Image for vulnerabilities
+        run: |
+          echo "## 🐳 Docker Security Scan Report" > docker_security_report.md
+          echo "" >> docker_security_report.md
+
+          echo "### 🖥️ Server Image Vulnerabilities" >> docker_security_report.md
+          grype ${{ needs.docker-build.outputs.server_image }} -o table >> docker_security_report.md
+
+          echo "" >> docker_security_report.md
+          echo "### 🌐 Frontend Image Vulnerabilities" >> docker_security_report.md
+          grype ${{ needs.docker-build.outputs.front_image }} -o table >> docker_security_report.md
+
+      - name: 📤 Upload Docker Security Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-security-report
+          path: docker_security_report.md
+
+  swagger-validation:
+    name: 📋 Swagger Generation & Validation
+    runs-on: ubuntu-latest
+    needs: [prepare-release, code-quality-validation]
+    if: needs.code-quality-validation.outputs.backend_quality == 'success'
+    steps:
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.branch_name }}
+
+      - name: 🦀 Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 🔧 Install Swagger tools
+        run: |
+          npm install -g swagger-jsdoc swagger2openapi @apidevtools/swagger-cli
+
+      - name: 📋 Generate and validate Swagger
+        run: |
+          echo "## 📋 Swagger Validation Report" > swagger_report.md
+          echo "" >> swagger_report.md
+
+          # Generate swagger (assuming you have a generation script)
+          if [ -f "scripts/generate-swagger.sh" ]; then
+            ./scripts/generate-swagger.sh
+            echo "✅ Swagger generated successfully" >> swagger_report.md
+          else
+            cargo run --bin swaggergen
+            echo "✅ Swagger generated via Rust binary" >> swagger_report.md
+          fi
+
+          # Validate swagger file
+          if swagger-cli validate swagger.json; then
+            echo "✅ Swagger validation passed" >> swagger_report.md
+          else
+            echo "❌ Swagger validation failed" >> swagger_report.md
+            exit 1
+          fi
+
+          # Lint swagger
+          if swagger-cli lint swagger.json; then
+            echo "✅ Swagger linting passed" >> swagger_report.md
+          else
+            echo "❌ Swagger linting issues found" >> swagger_report.md
+            exit 1
+          fi
+
+      - name: 📤 Upload Swagger Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: swagger-report
+          path: swagger_report.md
+
+  create-pull-request:
+    name: 🔀 Create Release Pull Request
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-release
+      - code-quality-validation
+      - changelog-generation
+      - security-audit
+      - commit-validation
+      - docker-build
+      - docker-security-scan
+      - swagger-validation
+    if: always() && needs.prepare-release.result == 'success'
+    steps:
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.branch_name }}
+
+      - name: 📥 Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: 📝 Create comprehensive PR body
+        run: |
+          echo "# 🚀 ${{ needs.prepare-release.outputs.release_name }}" > pr_body.md
+          echo "" >> pr_body.md
+          echo "This pull request prepares the release for version \`v${{ needs.prepare-release.outputs.new_version }}\`." >> pr_body.md
+          echo "" >> pr_body.md
+
+          echo "## 📊 Release Preparation Summary" >> pr_body.md
+          echo "" >> pr_body.md
+          echo "| Check | Status |" >> pr_body.md
+          echo "|-------|--------|" >> pr_body.md
+          echo "| 📈 Version Increment | ✅ Completed |" >> pr_body.md
+          echo "| 🔍 Code Quality (Backend) | ${{ needs.code-quality-validation.outputs.backend_quality == 'success' && '✅ Passed' || '❌ Failed' }} |" >> pr_body.md
+          echo "| 🔍 Code Quality (Frontend) | ${{ needs.code-quality-validation.outputs.frontend_quality == 'success' && '✅ Passed' || '❌ Failed' }} |" >> pr_body.md
+          echo "| 📝 Changelog | ${{ needs.changelog-generation.result == 'success' && '✅ Generated' || '❌ Failed' }} |" >> pr_body.md
+          echo "| 🔒 Security Audit | ${{ needs.security-audit.outputs.audit_status == 'success' && '✅ Passed' || '❌ Failed' }} |" >> pr_body.md
+          echo "| ✅ Commit Validation | ${{ needs.commit-validation.outputs.commit_status == 'success' && '✅ Passed' || '❌ Failed' }} |" >> pr_body.md
+          echo "| 🐳 Docker Build | ${{ needs.docker-build.result == 'success' && '✅ Built' || '❌ Failed' }} |" >> pr_body.md
+          echo "| 🔍 Docker Security | ${{ needs.docker-security-scan.result == 'success' && '✅ Scanned' || '❌ Failed' }} |" >> pr_body.md
+          echo "| 📋 Swagger Validation | ${{ needs.swagger-validation.result == 'success' && '✅ Validated' || '❌ Failed' }} |" >> pr_body.md
+          echo "" >> pr_body.md
+
+          echo "## 📋 Detailed Reports" >> pr_body.md
+          echo "" >> pr_body.md
+
+          # Add detailed reports from artifacts
+          if [ -f "quality-report/quality_report.md" ]; then
+            cat quality-report/quality_report.md >> pr_body.md
+            echo "" >> pr_body.md
+          fi
+
+          if [ -f "security-report/security_report.md" ]; then
+            cat security-report/security_report.md >> pr_body.md
+            echo "" >> pr_body.md
+          fi
+
+          if [ -f "commit-report/commit_report.md" ]; then
+            cat commit-report/commit_report.md >> pr_body.md
+            echo "" >> pr_body.md
+          fi
+
+          if [ -f "docker-security-report/docker_security_report.md" ]; then
+            cat docker-security-report/docker_security_report.md >> pr_body.md
+            echo "" >> pr_body.md
+          fi
+
+          if [ -f "swagger-report/swagger_report.md" ]; then
+            cat swagger-report/swagger_report.md >> pr_body.md
+            echo "" >> pr_body.md
+          fi
+
+          echo "## 🏗️ Built Artifacts" >> pr_body.md
+          echo "" >> pr_body.md
+          echo "### Docker Images" >> pr_body.md
+          echo "- 🖥️ Server: \`${{ needs.docker-build.outputs.server_image }}\`" >> pr_body.md
+          echo "- 🌐 Frontend: \`${{ needs.docker-build.outputs.front_image }}\`" >> pr_body.md
+          echo "" >> pr_body.md
+
+          echo "### 📋 SBOM Reports" >> pr_body.md
+          echo "- Server SBOM available in artifacts" >> pr_body.md
+          echo "- Frontend SBOM available in artifacts" >> pr_body.md
+          echo "" >> pr_body.md
+
+          if [ -f "changelog/CHANGELOG-v${{ needs.prepare-release.outputs.new_version }}.md" ]; then
+            echo "## 📝 Changelog" >> pr_body.md
+            echo "" >> pr_body.md
+            cat "changelog/CHANGELOG-v${{ needs.prepare-release.outputs.new_version }}.md" >> pr_body.md
+          fi
+
+      - name: 🔀 Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ needs.prepare-release.outputs.branch_name }}
+          base: main
+          title: "NR: ${{ needs.prepare-release.outputs.release_name }}"
+          body-path: pr_body.md
+          labels: |
+            release
+            automated
+          assignees: ${{ github.actor }}
+          reviewers: ${{ github.actor }}

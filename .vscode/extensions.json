@@ -10,6 +10,7 @@
     "redhat.vscode-yaml",
     "task.vscode-task",
     "gruntfuggly.todo-tree",
-    "editorconfig.editorconfig"
+    "editorconfig.editorconfig",
+    "ms-cst-e.vscode-devskim"
   ]
 }
