@@ -92,5 +92,6 @@ tasks:
     silent: true
     cmds:
       - task gen:crds > deploy/crds.yaml
+      - task gen:crds > deploy/chart-crd/templates/crds.yaml
       - task gen:swagger > swagger.json
       - task gen:api-client

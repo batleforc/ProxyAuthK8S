@@ -1,0 +1,361 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: proxykubeapis.weebo.si.rs
+spec:
+  group: weebo.si.rs
+  names:
+    categories: []
+    kind: ProxyKubeApi
+    plural: proxykubeapis
+    shortNames: []
+    singular: proxykubeapi
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns: []
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for ProxyKubeApiSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              auth_config:
+                description: Main configuration for authentication
+                nullable: true
+                properties:
+                  jwt:
+                    default: []
+                    items:
+                      properties:
+                        claim_mappings:
+                          properties:
+                            extra:
+                              items:
+                                properties:
+                                  key:
+                                    type: string
+                                  value_expression:
+                                    type: string
+                                required:
+                                - key
+                                - value_expression
+                                type: object
+                              type: array
+                            groups:
+                              nullable: true
+                              properties:
+                                claim:
+                                  type: string
+                                expression:
+                                  type: string
+                                prefix:
+                                  nullable: true
+                                  type: string
+                              required:
+                              - claim
+                              - expression
+                              type: object
+                            uid:
+                              nullable: true
+                              properties:
+                                claim:
+                                  nullable: true
+                                  type: string
+                                expression:
+                                  nullable: true
+                                  type: string
+                              type: object
+                            username:
+                              nullable: true
+                              properties:
+                                claim:
+                                  type: string
+                                expression:
+                                  type: string
+                                prefix:
+                                  nullable: true
+                                  type: string
+                              required:
+                              - claim
+                              - expression
+                              type: object
+                          required:
+                          - extra
+                          type: object
+                        claim_validation_rules:
+                          items:
+                            properties:
+                              claim:
+                                type: string
+                              expression:
+                                type: string
+                              message:
+                                type: string
+                              required_value:
+                                type: string
+                            required:
+                            - claim
+                            - expression
+                            - message
+                            - required_value
+                            type: object
+                          type: array
+                        issuer:
+                          properties:
+                            audience_match_policy:
+                              enum:
+                              - MatchAny
+                              type: string
+                            audiences:
+                              items:
+                                type: string
+                              type: array
+                            certificate_authority:
+                              nullable: true
+                              type: string
+                            discovery_url:
+                              nullable: true
+                              type: string
+                            egress_selector:
+                              enum:
+                              - controlplane
+                              - cluster
+                              type: string
+                            url:
+                              type: string
+                          required:
+                          - audience_match_policy
+                          - audiences
+                          - egress_selector
+                          - url
+                          type: object
+                        user_validation_rules:
+                          items:
+                            properties:
+                              expression:
+                                type: string
+                              message:
+                                type: string
+                            required:
+                            - expression
+                            - message
+                            type: object
+                          type: array
+                      required:
+                      - claim_mappings
+                      - claim_validation_rules
+                      - issuer
+                      - user_validation_rules
+                      type: object
+                    type: array
+                  oidc_provider:
+                    properties:
+                      client_id:
+                        type: string
+                      client_secret:
+                        nullable: true
+                        type: string
+                      enabled:
+                        default: false
+                        type: boolean
+                      extra_scope:
+                        default: ''
+                        type: string
+                      issuer_url:
+                        type: string
+                    required:
+                    - client_id
+                    - issuer_url
+                    type: object
+                required:
+                - oidc_provider
+                type: object
+              cert:
+                description: Certificate for the Kubernetes API
+                oneOf:
+                - required:
+                  - Secret
+                - required:
+                  - Cert
+                - required:
+                  - Insecure
+                properties:
+                  Cert:
+                    description: Base64 encoded cert
+                    type: string
+                  Insecure:
+                    description: Insecure, do not use TLS
+                    type: boolean
+                  Secret:
+                    description: Use a cert from a secret
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        nullable: true
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
+                type: object
+              dashboard_group:
+                description: |-
+                  If the proxy exposition is accessible via the dashboard
+                  the oidc group that allow access to the dashboard, should be unique
+                  Default: to the resource namespace + resource name
+                nullable: true
+                type: string
+              enabled:
+                default: true
+                description: Enable or disable the proxy
+                type: boolean
+              expose_via_dashboard:
+                default: true
+                description: |-
+                  If the proxy exposition should be accessible via the Dashboard
+                  Default: false
+                type: boolean
+              security_config:
+                description: Security configuration
+                nullable: true
+                properties:
+                  enabled:
+                    default: true
+                    description: Whether the token is validated beforehand
+                    type: boolean
+                  fail2login_equal_ban:
+                    description: Configuration for banning users after multiple failed login attempts
+                    properties:
+                      ban_duration:
+                        default: 300
+                        description: |-
+                          The duration of the ban in seconds
+                          default: 300 (5 minutes)
+                          0 means permanent ban
+                        format: uint32
+                        minimum: 0.0
+                        type: integer
+                      enabled:
+                        default: false
+                        description: |-
+                          If the feature is enabled
+                          default: false
+                        type: boolean
+                      exponential_backoff:
+                        default: false
+                        description: |-
+                          If the time is exponentially increased with each failed login attempt
+                          default: false
+                        type: boolean
+                      max_failed_logins:
+                        default: 5
+                        description: |-
+                          The number of failed login attempts before the user is banned
+                          default: 5
+                        format: uint32
+                        minimum: 0.0
+                        type: integer
+                    type: object
+                  per_user_group_rate_limiting:
+                    description: |-
+                      Per group rate limiting configuration
+                      This take precedence over the global rate limiting configuration
+                    items:
+                      description: Per-user group rate limiting configuration
+                      properties:
+                        claim:
+                          description: Claim to identify the user group, used in conjunction with claim_mappings in the JWTAuthenticator
+                          type: string
+                        group:
+                          description: Group name
+                          type: string
+                        max_requests_per_minute:
+                          description: |-
+                            The maximum number of requests per minute for this group
+                            This setting overrides the global rate limiting setting
+                            0 disables the rate limiting for this group
+                          format: uint32
+                          minimum: 0.0
+                          type: integer
+                      required:
+                      - claim
+                      - group
+                      - max_requests_per_minute
+                      type: object
+                    type: array
+                required:
+                - fail2login_equal_ban
+                - per_user_group_rate_limiting
+                type: object
+              service:
+                description: Service to expose the proxy
+                oneOf:
+                - required:
+                  - KubernetesService
+                - required:
+                  - ExternalService
+                properties:
+                  ExternalService:
+                    description: External service
+                    properties:
+                      url:
+                        description: URL of the external service (e.g. https://example.com)
+                        type: string
+                    required:
+                    - url
+                    type: object
+                  KubernetesService:
+                    description: Kubernetes service
+                    properties:
+                      name:
+                        description: Name of the service
+                        type: string
+                      namespace:
+                        description: If not set, will use the resource namespace
+                        nullable: true
+                        type: string
+                      port:
+                        description: Port of the service
+                        format: uint16
+                        maximum: 65535.0
+                        minimum: 0.0
+                        nullable: true
+                        type: integer
+                      port_name:
+                        description: Port name of the service
+                        nullable: true
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+            required:
+            - cert
+            - service
+            type: object
+          status:
+            nullable: true
+            properties:
+              error:
+                nullable: true
+                type: string
+              exposed:
+                type: boolean
+              path:
+                nullable: true
+                type: string
+            required:
+            - exposed
+            type: object
+        required:
+        - spec
+        title: ProxyKubeApi
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

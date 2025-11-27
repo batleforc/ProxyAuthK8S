@@ -10,6 +10,9 @@ registry:
       tag: v0.0.1
       pullPolicy: IfNotPresent
 
+crds:
+  enabled: true
+
 ingress:
   enabled: true
   className: ""
