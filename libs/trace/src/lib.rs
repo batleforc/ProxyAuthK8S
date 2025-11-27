@@ -154,8 +154,7 @@ pub fn shutdown_tracing(
         return Err(format!(
             "Failed to shutdown providers:{}",
             shutdown_errors.join("\n")
-        )
-        .into());
+        ));
     }
     Ok(())
 }

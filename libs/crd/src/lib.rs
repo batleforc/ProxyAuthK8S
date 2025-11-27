@@ -83,9 +83,9 @@ impl ProxyKubeApi {
             ),
         }
     }
-    pub fn is_user_allowed(&self, user_groups: &Vec<String>) -> bool {
+    pub fn is_user_allowed(&self, user_groups: &[String]) -> bool {
         let dashboard_group = self.get_dashboard_group();
-        if self.spec.expose_via_dashboard == false {
+        if !self.spec.expose_via_dashboard {
             return false;
         }
         user_groups.iter().any(|g| g == &dashboard_group)
@@ -120,23 +120,20 @@ impl ProxyKubeApi {
                 if resp.status().is_success() {
                     return Ok(true);
                 }
-                return Ok(false);
+                Ok(false)
             }
             Err(err) => {
-                match err.status() {
-                    Some(status) => {
-                        if status.as_u16() >= 400 && status.as_u16() < 500 {
-                            // client error, the service is reachable but the request is not authorized
-                            return Ok(true);
-                        }
-                        if status.is_success() {
-                            return Ok(true);
-                        }
-                        return Ok(false);
+                if let Some(status) = err.status() {
+                    if status.as_u16() >= 400 && status.as_u16() < 500 {
+                        // client error, the service is reachable but the request is not authorized
+                        return Ok(true);
                     }
-                    None => {}
+                    if status.is_success() {
+                        return Ok(true);
+                    }
+                    return Ok(false);
                 }
-                return Err(err.to_string());
+                Err(err.to_string())
             }
         }
     }

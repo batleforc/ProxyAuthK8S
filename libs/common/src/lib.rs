@@ -63,6 +63,12 @@ pub struct ServerConfig {
     pub key_path: Option<String>,
 }
 
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ServerConfig {
     pub fn new() -> Self {
         let port = env::var("SERVER_PORT")

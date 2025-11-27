@@ -109,7 +109,7 @@ pub async fn redirect(
         // Convert the UnboundedReceiverStream<Bytes> into a stream of Result<Bytes, _>
         // which reqwest::Body::wrap_stream expects.
         .body(reqwest::Body::wrap_stream(
-            UnboundedReceiverStream::new(rx).map(|b| Ok::<web::Bytes, std::io::Error>(b)),
+            UnboundedReceiverStream::new(rx).map(Ok::<web::Bytes, std::io::Error>),
         ));
     // Forward headers but skip hop-by-hop headers and content-length/transfer-encoding
     for (h, v) in req.headers().iter() {
@@ -141,7 +141,7 @@ pub async fn redirect(
             return HttpResponse::ServiceUnavailable().body(e.to_string());
         }
     };
-    tracing::Span::current().record("http.response.status_code", &res.status().as_u16());
+    tracing::Span::current().record("http.response.status_code", res.status().as_u16());
     let mut client_resp =
         HttpResponse::build(actix_web::http::StatusCode::from_u16(res.status().as_u16()).unwrap());
 

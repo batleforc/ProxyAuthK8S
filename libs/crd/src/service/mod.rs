@@ -43,25 +43,25 @@ impl Service {
                                 ports.iter().find(|p| p.port == *target_port as i32)
                             {
                                 if let Some(node_port) = svc_port.node_port {
-                                    return Ok(format!(
+                                    Ok(format!(
                                         "https://{}:{}",
                                         spec.cluster_ip
                                             .unwrap_or(format!("{}:{}", name, target_ns)),
                                         node_port
-                                    ));
+                                    ))
                                 } else {
-                                    return Ok(format!(
+                                    Ok(format!(
                                         "https://{}:{}",
                                         spec.cluster_ip
                                             .unwrap_or(format!("{}:{}", name, target_ns)),
                                         svc_port.port
-                                    ));
+                                    ))
                                 }
                             } else {
-                                return Err(format!(
+                                Err(format!(
                                     "Port {} not found in service {}",
                                     target_port, name
-                                ));
+                                ))
                             }
                         } else if let Some(port_name) = port_name {
                             if let Some(svc_port) = ports
@@ -69,48 +69,48 @@ impl Service {
                                 .find(|svc_port| svc_port.name.as_deref() == Some(port_name))
                             {
                                 if let Some(node_port) = svc_port.node_port {
-                                    return Ok(format!(
+                                    Ok(format!(
                                         "https://{}:{}",
                                         spec.cluster_ip
                                             .unwrap_or(format!("{}:{}", name, target_ns)),
                                         node_port
-                                    ));
+                                    ))
                                 } else {
-                                    return Ok(format!(
+                                    Ok(format!(
                                         "https://{}:{}",
                                         spec.cluster_ip
                                             .unwrap_or(format!("{}:{}", name, target_ns)),
                                         svc_port.port
-                                    ));
+                                    ))
                                 }
                             } else {
-                                return Err(format!(
+                                Err(format!(
                                     "Port name {} not found in service {}",
                                     port_name, name
-                                ));
+                                ))
                             }
                         } else if let Some(p) = ports.first() {
                             if let Some(node_port) = p.node_port {
-                                return Ok(format!(
+                                Ok(format!(
                                     "https://{}:{}",
                                     spec.cluster_ip.unwrap_or(format!("{}:{}", name, target_ns)),
                                     node_port
-                                ));
+                                ))
                             } else {
-                                return Ok(format!(
+                                Ok(format!(
                                     "https://{}:{}",
                                     spec.cluster_ip.unwrap_or(format!("{}:{}", name, target_ns)),
                                     p.port
-                                ));
+                                ))
                             }
                         } else {
-                            return Err(format!("No ports found in service {}", name));
+                            Err(format!("No ports found in service {}", name))
                         }
                     } else {
-                        return Err(format!("No ports found in service {}", name));
+                        Err(format!("No ports found in service {}", name))
                     }
                 } else {
-                    return Err(format!("No spec found for service {}", name));
+                    Err(format!("No spec found for service {}", name))
                 }
             }
             Service::ExternalService { url } => Ok(url.clone()),

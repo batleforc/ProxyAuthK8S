@@ -92,9 +92,9 @@ impl FromRequest for User {
             // In a real implementation, extract user info from request (e.g., headers, tokens)
             // Here we return a dummy user for illustration
             let user = User {
-                username: username,
-                email: email,
-                groups: groups,
+                username,
+                email,
+                groups,
             };
             Ok(user)
         })

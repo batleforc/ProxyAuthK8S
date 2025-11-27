@@ -42,7 +42,7 @@ pub async fn get_all_visible_cluster(
         .into_iter()
         .filter_map(|v| ProxyKubeApi::from_json(&v))
         .filter(|kube_api| kube_api.is_user_allowed(&user.groups))
-        .map(|kube_api| VisibleCluster::from(kube_api))
+        .map(VisibleCluster::from)
         .collect();
     let body = GetAllVisibleClusterBody { clusters: proxies };
     HttpResponse::Ok().json(body)

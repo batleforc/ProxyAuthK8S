@@ -25,6 +25,12 @@ pub struct OidcConf {
     pub redirect_url: Option<String>,
 }
 
+impl Default for OidcConf {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OidcConf {
     pub fn new() -> Self {
         let client_id = std::env::var("OIDC_CLIENT_ID").unwrap_or("proxy-auth-k8s".to_string());
@@ -57,10 +63,10 @@ impl OidcConf {
             &self.get_reqwest_client(),
         )
         .await?;
-        let client_secret = match &self.client_secret {
-            Some(secret) => Some(ClientSecret::new(secret.clone())),
-            None => None,
-        };
+        let client_secret = self
+            .client_secret
+            .as_ref()
+            .map(|secret| ClientSecret::new(secret.clone()));
         let mut core_client = CoreClient::from_provider_metadata(
             provider_metadata,
             ClientId::new(self.client_id.clone()),

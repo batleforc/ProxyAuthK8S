@@ -17,7 +17,7 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
     let metadata = proxy_cloned.clone().metadata;
     let ns = metadata.namespace.as_deref().unwrap_or("default");
     let name = metadata.name.as_deref().unwrap_or("unknown");
-    let proxys: Api<ProxyKubeApi> = Api::namespaced(ctx.client.clone(), &ns);
+    let proxys: Api<ProxyKubeApi> = Api::namespaced(ctx.client.clone(), ns);
 
     let new_status = match proxy.clone().is_reachable(ctx.clone()).await {
         Ok(reachable) => {

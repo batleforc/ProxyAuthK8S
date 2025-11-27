@@ -1,9 +1,9 @@
 use actix_web::{delete, dev::PeerAddr, get, http, patch, post, put, web, HttpRequest, Responder};
 use common::State;
-use redirect::redirect;
+use kube_redirect::redirect;
 use tracing::instrument;
 
-pub mod redirect;
+pub mod kube_redirect;
 
 // https://kubernetes.io/docs/reference/using-api/api-concepts/#api-verbs
 

@@ -39,7 +39,7 @@ pub async fn main_reconcile_proxy_kube_api(
 ) -> Result<Action> {
     let trace_id = get_trace_id();
     if trace_id != TraceId::INVALID {
-        tracing::Span::current().record("trace_id", &tracing::field::display(trace_id));
+        tracing::Span::current().record("trace_id", tracing::field::display(trace_id));
     }
     let ns = match proxy.namespace() {
         Some(ns) => ns,
@@ -47,8 +47,7 @@ pub async fn main_reconcile_proxy_kube_api(
             tracing::error!(name = proxy.metadata.name, "ProxyKubeApi has no namespace");
             return Err(ControllerError::InvalidResource(
                 "ProxyKubeApi has no namespace".to_string(),
-            )
-            .into());
+            ));
         }
     };
     let proxys: Api<ProxyKubeApi> = Api::namespaced(ctx.client.clone(), &ns);
