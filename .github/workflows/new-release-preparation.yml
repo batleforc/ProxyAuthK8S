@@ -44,9 +44,20 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: 🔍 Debug npm environment
+        run: |
+          echo "Node version: $(node --version)"
+          echo "NPM version: $(npm --version)"
+          echo "Package-lock exists: $(test -f package-lock.json && echo 'yes' || echo 'no')"
+          ls -la package*.json
 
       - name: 🔧 Install dependencies
-        run: npm ci
+        run: |
+          npm ci --verbose
+        env:
+          NODE_ENV: production
 
       - name: 📈 Calculate new version
         id: version
@@ -176,6 +187,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
+          cache-dependency-path: package-lock.json
 
       - name: 🦀 Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -184,7 +196,10 @@ jobs:
           components: clippy, rustfmt
 
       - name: 🔧 Install dependencies
-        run: npm ci
+        run: |
+          npm ci --verbose
+        env:
+          NODE_ENV: production
 
       - name: 🔍 Backend Quality Check
         id: backend_check
