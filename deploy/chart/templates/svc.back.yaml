@@ -1,0 +1,13 @@
+# Service for Backend Application
+kind: Service
+metadata:
+  name: "{{ .Release.Name }}-proxyauthk8s-back"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  selector:
+    app: "{{ .Release.Name }}-proxyauthk8s-back"
+  ports:
+    - protocol: TCP
+      port: {{ .Values.back.port }}
+      targetPort: {{ .Values.back.port }}
+  type: ClusterIP

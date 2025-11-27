@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use actix_cors::Cors;
 use actix_web::{dev::Service, http::header, middleware::Compress, web::Data, App, HttpServer};
-use api::{api_doc::ApiDoc, init_api, init_cluster_api};
+use api::{api_doc::ApiDoc, init_api, init_base_api, init_cluster_api};
 use trace::{shutdown_tracing, start_tracing};
 use tracing_actix_web::{RequestId, TracingLogger};
 use utoipa::OpenApi;
@@ -48,11 +48,10 @@ async fn main() -> anyhow::Result<()> {
                 })
             })
             .map(|app| app.wrap(TracingLogger::default()))
-            // .map(|app| app.wrap(RequestTracing::new()))
-            // .map(|app| app.wrap(RequestMetrics::default()))
             .map(|app| app.wrap(Compress::default()))
             .map(|app| app.wrap(cors))
             .app_data(Data::new(state.clone()))
+            .service(scope("/management").configure(init_base_api()))
             .service(scope("/api/v1").configure(init_api()))
             .service(scope("/clusters").configure(init_cluster_api()))
             .split_for_parts();

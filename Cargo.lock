@@ -3691,7 +3691,7 @@ dependencies = [
 [[package]]
 name = "tracing-actix-web"
 version = "0.7.20"
-source = "git+https://github.com/asonix/tracing-actix-web?branch=asonix%2Fopentelemetry-0-31#a4c56837c6a77d7a0323021e2a81871d1b366671"
+source = "git+https://github.com/LukeMathWalker/tracing-actix-web#a420f8c82e5c18d4b61257edf287d1b59e8881ef"
 dependencies = [
  "actix-web",
  "mutually_exclusive_features",

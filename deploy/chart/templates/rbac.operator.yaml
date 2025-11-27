@@ -1,0 +1,66 @@
+# Role for Operator
+---
+kind: ClusterRole
+metadata:
+  name: "{{ .Release.Name }}-proxyauthk8s-operator-role"
+  namespace: "{{ .Release.Namespace }}"
+  labels:
+    app: "{{ .Release.Name }}-proxyauthk8s-operator"
+rules:
+  # Permissions to read CRDs, allow Operator to make sure they exist
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - get
+      - list
+      - watch
+  # Permissions to manage ProxyKubeAPI custom resources
+  - apiGroups:
+      - "weebo.si.rs"
+    resources:
+      - "proxykubeapis"
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  # Permissions to manage Secrets (Needed for OIDC / TLS certs)
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
+      - list
+      - watch
+  # Permissions to manage Service (Needed to get Service info for direct access)
+  - apiGroups:
+      - ""
+    resources:
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+---
+# RoleBinding for Operator Service Account
+kind: ClusterRoleBinding
+metadata:
+  name: "{{ .Release.Name }}-proxyauthk8s-operator-rolebinding"
+  labels:
+    app: "{{ .Release.Name }}-proxyauthk8s-operator"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: "{{ .Release.Name }}-proxyauthk8s-operator-role"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ .Release.Name }}-proxyauthk8s-operator"
+    namespace: "{{ .Release.Namespace }}"
+
+# TODO: Check if we can limit the permissions to one namespace only

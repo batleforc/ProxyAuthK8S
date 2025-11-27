@@ -25,7 +25,7 @@ tracing-subscriber = { workspace = true }
 
 utoipa-scalar = { version = "0.3", features = ["actix-web"] }
 actix-cors = { version = "0.7" }
-tracing-actix-web = { git = "https://github.com/asonix/tracing-actix-web", branch = "asonix/opentelemetry-0-31", features = [
+tracing-actix-web = { git = "https://github.com/LukeMathWalker/tracing-actix-web", features = [
     "opentelemetry_0_31",
 ] }
 

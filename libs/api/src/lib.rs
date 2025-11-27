@@ -15,9 +15,15 @@ pub mod cluster;
 pub mod helper;
 pub mod model;
 
+pub fn init_base_api() -> impl FnOnce(&mut ServiceConfig) {
+    |cfg: &mut ServiceConfig| {
+        cfg.service(health);
+    }
+}
+
 pub fn init_api() -> impl FnOnce(&mut ServiceConfig) {
     |cfg: &mut ServiceConfig| {
-        cfg.service(health).service(get_all_visible_cluster);
+        cfg.service(get_all_visible_cluster);
     }
 }
 
@@ -39,6 +45,7 @@ pub fn gen_openapi() -> OpenApiType {
     let (_, api) = App::new()
         .into_utoipa_app()
         .openapi(api_doc.clone())
+        .service(scope("/").configure(init_base_api()))
         .service(scope("/api/v1").configure(init_api()))
         .service(scope("/clusters").configure(init_cluster_api()))
         .split_for_parts();

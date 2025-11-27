@@ -90,7 +90,6 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>, user: User)
         .map(|s| Scope::new(s.to_string()))
         .collect();
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-    // TODO : Finish implementing the login redirect.
     let (auth_url, csrf_token, nonce) = client
         .authorize_url(
             CoreAuthenticationFlow::AuthorizationCode,

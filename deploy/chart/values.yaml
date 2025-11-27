@@ -1,0 +1,56 @@
+registry:
+  front:
+    image:
+      repository: ghcr.io/batleforc/proxyauthk8s-front
+      tag: v0.0.1
+      pullPolicy: IfNotPresent
+  back:
+    image:
+      repository: ghcr.io/batleforc/proxyauthk8s-back
+      tag: v0.0.1
+      pullPolicy: IfNotPresent
+
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+  host: proxyauthk8s.local
+  tls:
+    enabled: true
+    secretName: proxyauthk8s-tls
+
+oidc:
+  source: secret # options: secret, env
+  objectName: proxyauthk8s-back-oidc
+  value:
+    issuer_url: https://keycloak.local/auth/realms/proxyauthk8s
+    client_id: proxyauthk8s-back
+    client_secret: ""
+    scopes: openid profile email groups
+    audience: proxyauthk8s-back
+    silent_refresh: "false"
+
+back:
+  replicas: 1
+  port: 5437
+  redis:
+    url: redis://:proxyauthk8spassword@redis:6379
+  env: []
+  resources:
+    limits:
+      cpu: 100m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+front:
+  replicas: 1
+  resources:
+    limits:
+      cpu: 100m
+      memory: 512Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
+  env: []

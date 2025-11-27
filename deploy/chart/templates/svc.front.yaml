@@ -1,0 +1,13 @@
+# Service for Frontend Application
+kind: Service
+metadata:
+  name: "{{ .Release.Name }}-proxyauthk8s-front"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  selector:
+    app: "{{ .Release.Name }}-proxyauthk8s-front"
+  ports:
+    - protocol: TCP
+      port: 4200
+      targetPort: 4200
+  type: ClusterIP

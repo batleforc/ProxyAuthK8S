@@ -1,0 +1,8 @@
+# Service Account for Operator
+kind: ServiceAccount
+metadata:
+  name: "{{ .Release.Name }}-proxyauthk8s-operator"
+  namespace: "{{ .Release.Namespace }}"
+  labels:
+    app: "{{ .Release.Name }}-proxyauthk8s-operator"
+automountServiceAccountToken: true

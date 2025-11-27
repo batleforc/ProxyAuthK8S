@@ -8,6 +8,7 @@
     "ms-kubernetes-tools.vscode-kubernetes-tools",
     "pflannery.vscode-versionlens",
     "redhat.vscode-yaml",
-    "task.vscode-task"
+    "task.vscode-task",
+    "gruntfuggly.todo-tree"
   ]
 }

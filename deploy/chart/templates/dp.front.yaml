@@ -1,0 +1,65 @@
+# Deployment for Frontend Service
+kind: Deployment
+metadata:
+  name: "{{ .Release.Name }}-proxyauthk8s-front"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: "{{ .Release.Name }}-proxyauthk8s-front"
+  template:
+    metadata:
+      labels:
+        app: "{{ .Release.Name }}-proxyauthk8s-front"
+    spec:
+      containers:
+        - name: proxyauthk8s-front
+          image: '{{ .Values.registry.front.image.repository }}:{{ .Values.registry.front.image.tag }}'
+          imagePullPolicy: '{{ .Values.registry.front.image.pullPolicy }}'
+          ports:
+            - containerPort: 4200
+          env:
+            - name: ENV
+              value: "production"
+            - name: PROXYAUTHK8S_FRONT_API_BASE_URL
+              value: '{{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}'
+            {{- if eq .Values.oidc.source "env" }}
+            - name: PROXYAUTHK8S_FRONT_OIDC_ISSUER_URL
+              value: '{{ .Values.oidc.value.issuer_url }}'
+            - name: PROXYAUTHK8S_FRONT_OIDC_CLIENT_ID
+              value: '{{ .Values.oidc.value.client_id }}'
+            - name: PROXYAUTHK8S_FRONT_OIDC_SCOPE
+              value: '{{ .Values.oidc.value.scopes }}'
+            - name: "PROXYAUTHK8S_FRONT_OIDC_SILENT_REFRESH"
+              value: "{{ .Values.oidc.value.silent_refresh }}"
+            {{- end }}
+            {{- range .Values.front.env }}
+            - name: {{ .name }}
+              value: {{ .value }}
+            {{- end }}
+          resources:
+            {{- with .Values.front.resources }}
+            limits:
+              {{- with .limits }}
+              cpu: {{ .cpu }}
+              memory: {{ .memory }}
+              {{- end }}
+            requests:
+              {{- with .requests }}
+              cpu: {{ .cpu }}
+              memory: {{ .memory }}
+              {{- end }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 4200
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 4200
+            initialDelaySeconds: 10
+            periodSeconds: 20

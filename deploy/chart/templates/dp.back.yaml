@@ -1,0 +1,81 @@
+# Make a deployment for the back application
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ .Release.Name }}-proxyauthk8s-back"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  replicas: {{ .Values.back.replicas }}
+  selector:
+    matchLabels:
+      app: "{{ .Release.Name }}-proxyauthk8s-back"
+  template:
+    metadata:
+      labels:
+        app: "{{ .Release.Name }}-proxyauthk8s-back"
+    spec:
+      serviceAccountName: "{{ .Release.Name }}-proxyauthk8s-back-sa"
+      automountServiceAccountToken: true
+      containers:
+        - name: proxyauthk8s-back
+          image: '{{ .Values.registry.back.image.repository }}:{{ .Values.registry.back.image.tag }}'
+          imagePullPolicy: '{{ .Values.registry.back.image.pullPolicy }}'
+          ports:
+            - containerPort: {{ .Values.back.port }}
+          env:
+            - name: SERVER_PORT
+              value: "{{ .Values.back.port }}"
+            - name: ENV
+              value: "production"
+            - name: API_CLUSTER_OIDC_FRONT_REDIRECT_URL
+              value: '{{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}'
+            - name: API_CLUSTER_OIDC_BASE_REDIRECT_URL
+              value: '{{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}'
+            - name: REDIS_URL
+              value: '{{ .Values.back.redis.url }}'
+            {{- if eq .Values.oidc.source "env" }}
+            - name: OIDC_ISSUER_URL
+              value: '{{ .Values.oidc.value.issuer_url }}'
+            - name: OIDC_CLIENT_ID
+              value: '{{ .Values.oidc.value.client_id }}'
+            - name: OIDC_CLIENT_SECRET
+              value: '{{ .Values.oidc.value.client_secret }}'
+            - name: OIDC_SCOPES
+              value: '{{ .Values.oidc.value.scopes }}'
+            - name: OIDC_AUDIENCE
+              value: '{{ .Values.oidc.value.audience }}'
+            {{- end }}
+            {{- range .Values.back.env }}
+            - name: {{ .name }}
+              value: {{ .value }}
+            {{- end }}
+          envFrom:
+            {{- if eq .Values.oidc.source "secret" }}
+            - secretRef:
+                name: '{{ .Values.oidc.objectName }}'
+            {{- end }}
+          resources:
+            {{- with .Values.back.resources }}
+            limits:
+              {{- with .limits }}
+              cpu: {{ .cpu }}
+              memory: {{ .memory }}
+              {{- end }}
+            requests:
+              {{- with .requests }}
+              cpu: {{ .cpu }}
+              memory: {{ .memory }}
+              {{- end }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /management/health
+              port: {{ .Values.back.port }}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /management/health
+              port: {{ .Values.back.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 20

@@ -40,6 +40,11 @@
   "[jsonc]": {
     "editor.tabSize": 2
   },
+  "[yaml]": {
+    "editor.insertSpaces": true,
+    "editor.tabSize": 2,
+    "editor.autoIndent": "keep"
+  },
   "[html]": {
     "editor.tabSize": 2
   },
@@ -56,5 +61,9 @@
   },
   "[properties]": {
     "editor.tabSize": 2
+  },
+  "[helm]": {
+    "editor.tabSize": 2,
+    "editor.defaultFormatter": "tim-koehler.helm-intellisense"
   }
 }

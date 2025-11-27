@@ -9,6 +9,24 @@
     "version": "0.1.0"
   },
   "paths": {
+    "//health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Base path just to answer if the server is up and running.",
+        "description": "This is also used for health checks.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Nothing"
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
     "/api/v1/clusters": {
       "get": {
         "tags": [
@@ -40,24 +58,6 @@
             "oauth2": []
           }
         ]
-      }
-    },
-    "/api/v1/health": {
-      "get": {
-        "tags": [
-          "health"
-        ],
-        "summary": "Base path just to answer if the server is up and running.",
-        "description": "This is also used for health checks.",
-        "operationId": "health",
-        "responses": {
-          "200": {
-            "description": "Nothing"
-          },
-          "500": {
-            "description": "Internal server error."
-          }
-        }
       }
     },
     "/clusters/{ns}/{cluster}/auth/callback": {
