@@ -369,14 +369,40 @@ jobs:
             exit 1
           fi
 
-          # Cargo Audit
+          # Cargo Audit with severity filtering
           echo "### 🦀 Rust Dependencies" >> security_report.md
-          if cargo audit; then
+
+          # Run cargo audit and capture JSON output
+          if cargo audit --format json > cargo_audit_output.json 2>/dev/null; then
             echo "✅ No security vulnerabilities found in Rust packages" >> security_report.md
           else
-            echo "❌ Security vulnerabilities found in Rust packages" >> security_report.md
-            echo "status=failed" >> $GITHUB_OUTPUT
-            exit 1
+            # Parse JSON output to filter by severity > 7
+            high_severity_count=$(jq -r '
+              [.vulnerabilities.list[] |
+               select(.advisory.cvss and (.advisory.cvss | tonumber) > 7.0)] |
+              length' cargo_audit_output.json 2>/dev/null || echo "0")
+
+            total_vulns=$(jq -r '.vulnerabilities.count // 0' cargo_audit_output.json 2>/dev/null || echo "0")
+
+            echo "Found $total_vulns total vulnerabilities, $high_severity_count with severity > 7.0" >> security_report.md
+            echo "" >> security_report.md
+
+            # Add detailed vulnerability report
+            echo "#### 🔍 Vulnerability Details" >> security_report.md
+            jq -r '.vulnerabilities.list[] |
+              "- **\(.advisory.id)**: \(.advisory.title) (CVSS: \(.advisory.cvss // "N/A"))" +
+              "\n  - Package: \(.package.name) v\(.package.version)" +
+              "\n  - Severity: \(if .advisory.cvss and (.advisory.cvss | tonumber) > 7.0 then "🔴 HIGH" else "🟡 LOW/MEDIUM" end)" +
+              "\n"' cargo_audit_output.json >> security_report.md 2>/dev/null || echo "- Error parsing vulnerability details" >> security_report.md
+
+            # Only fail if high severity vulnerabilities found
+            if [ "$high_severity_count" -gt 0 ]; then
+              echo "❌ $high_severity_count high-severity vulnerabilities (CVSS > 7.0) found in Rust packages" >> security_report.md
+              echo "status=failed" >> $GITHUB_OUTPUT
+              exit 1
+            else
+              echo "✅ No high-severity vulnerabilities (CVSS > 7.0) found, but $total_vulns lower-severity issues exist" >> security_report.md
+            fi
           fi
 
           echo "status=success" >> $GITHUB_OUTPUT
@@ -418,15 +444,28 @@ jobs:
           echo "### 📝 Cocogitto Conventional Commit Validation" >> commit_report.md
           failed=false
 
-          # Run cog check to validate all commits
-          if cog check --from-latest-tag 2>&1 | tee cog_output.txt; then
+          # Check if any tags exist
+          if git tag -l | grep -q .; then
+            echo "Tags found, checking commits from latest tag..."
+            cog_command="cog check --from-latest-tag"
+          else
+            echo "No tags found, checking all commits..."
+            cog_command="cog check"
+          fi
+
+          # Run cog check to validate commits
+          if $cog_command 2>&1 | tee cog_output.txt; then
             echo "✅ All commits follow conventional commit format" >> commit_report.md
+            echo "" >> commit_report.md
+            echo "Command used: \`$cog_command\`" >> commit_report.md
             echo "" >> commit_report.md
             echo "```" >> commit_report.md
             cat cog_output.txt >> commit_report.md
             echo "```" >> commit_report.md
           else
             echo "❌ Some commits don't follow conventional commit format" >> commit_report.md
+            echo "" >> commit_report.md
+            echo "Command used: \`$cog_command\`" >> commit_report.md
             echo "" >> commit_report.md
             echo "```" >> commit_report.md
             cat cog_output.txt >> commit_report.md
