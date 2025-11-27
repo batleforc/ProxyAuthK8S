@@ -55,7 +55,7 @@ jobs:
 
       - name: 🔧 Install dependencies
         run: |
-          npm ci --verbose
+          yarn install --frozen-lockfile
         env:
           NODE_ENV: production
 
@@ -197,7 +197,7 @@ jobs:
 
       - name: 🔧 Install dependencies
         run: |
-          npm ci --verbose
+          yarn install --frozen-lockfile
         env:
           NODE_ENV: production
 
