@@ -4,11 +4,7 @@ use std::sync::OnceLock;
 
 use opentelemetry::trace::TracerProvider;
 use opentelemetry::{global, InstrumentationScope, KeyValue};
-#[cfg(feature = "log")]
-use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::tonic_types::metadata;
-#[cfg(feature = "log")]
-use opentelemetry_otlp::LogExporter;
 use opentelemetry_otlp::WithTonicConfig;
 use opentelemetry_otlp::{MetricExporter, SpanExporter};
 use opentelemetry_sdk::metrics::{Instrument, Stream};

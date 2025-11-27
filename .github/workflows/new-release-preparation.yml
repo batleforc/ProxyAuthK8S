@@ -400,32 +400,52 @@ jobs:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
           fetch-depth: 0
 
-      - name: 📦 Setup Node.js
-        uses: actions/setup-node@v6
+      - name: 🦀 Setup Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          toolchain: ${{ env.RUST_VERSION }}
 
-      - name: 🔧 Install commitlint
+      - name: 🔧 Install Cocogitto
         run: |
-          npm install -g @commitlint/cli @commitlint/config-conventional
+          cargo install --locked cocogitto
 
-      - name: ✅ Validate Conventional Commits
+      - name: ✅ Validate Conventional Commits with Cocogitto
         id: validate
         run: |
           echo "## ✅ Commit Validation Report" > commit_report.md
           echo "" >> commit_report.md
 
-          # Get commits from main to current branch
+          echo "### 📝 Cocogitto Conventional Commit Validation" >> commit_report.md
+          failed=false
+
+          # Run cog check to validate all commits
+          if cog check --from-latest-tag 2>&1 | tee cog_output.txt; then
+            echo "✅ All commits follow conventional commit format" >> commit_report.md
+            echo "" >> commit_report.md
+            echo "```" >> commit_report.md
+            cat cog_output.txt >> commit_report.md
+            echo "```" >> commit_report.md
+          else
+            echo "❌ Some commits don't follow conventional commit format" >> commit_report.md
+            echo "" >> commit_report.md
+            echo "```" >> commit_report.md
+            cat cog_output.txt >> commit_report.md
+            echo "```" >> commit_report.md
+            failed=true
+          fi
+
+          # Get individual commits for detailed validation
           commits=$(git rev-list origin/main..HEAD --reverse)
 
-          echo "### 📝 Conventional Commit Validation" >> commit_report.md
-          failed=false
+          echo "" >> commit_report.md
+          echo "### 📋 Individual Commit Details" >> commit_report.md
 
           for commit in $commits; do
             message=$(git log --format=%B -n 1 $commit | head -n 1)
             echo "Checking commit: $commit - $message"
 
-            if echo "$message" | commitlint; then
+            # Use cog verify to check individual commits
+            if git show --format="%B" --no-patch $commit | cog verify --stdin 2>/dev/null; then
               echo "✅ $commit: $message" >> commit_report.md
             else
               echo "❌ $commit: $message" >> commit_report.md
@@ -434,6 +454,7 @@ jobs:
           done
 
           # Validate commit signatures
+          echo "" >> commit_report.md
           echo "### ✍️ Commit Signature Validation" >> commit_report.md
           for commit in $commits; do
             if git verify-commit $commit 2>/dev/null; then
