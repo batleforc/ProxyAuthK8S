@@ -37,7 +37,10 @@ back:
   replicas: 1
   port: 5437
   redis:
-    url: redis://:proxyauthk8spassword@redis:6379
+    source: env # options: secret, env
+    secretName: proxyauthk8s-back-redis
+    value:
+      url: redis://:proxyauthk8spassword@redis:6379
   env: []
   resources:
     limits:

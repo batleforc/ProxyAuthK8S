@@ -31,8 +31,10 @@ spec:
               value: '{{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}'
             - name: API_CLUSTER_OIDC_BASE_REDIRECT_URL
               value: '{{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}'
+            {{- if eq .Values.back.redis.source "env" }}
             - name: REDIS_URL
-              value: '{{ .Values.back.redis.url }}'
+              value: '{{ .Values.back.redis.value.url }}'
+            {{- end }}
             {{- if eq .Values.oidc.source "env" }}
             - name: OIDC_ISSUER_URL
               value: '{{ .Values.oidc.value.issuer_url }}'
@@ -53,6 +55,10 @@ spec:
             {{- if eq .Values.oidc.source "secret" }}
             - secretRef:
                 name: '{{ .Values.oidc.objectName }}'
+            {{- end }}
+            {{- if eq .Values.back.redis.source "secret" }}
+            - secretRef:
+                name: '{{ .Values.back.redis.secretName }}'
             {{- end }}
           resources:
             {{- with .Values.back.resources }}

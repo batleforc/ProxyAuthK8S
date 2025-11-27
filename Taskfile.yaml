@@ -77,8 +77,8 @@ tasks:
           echo "Neither docker nor podman is installed. Please install one of them to run the service."
           exit 1
         fi
-      - command -v docker && PUID="$(id -u)" PGID="$(id -g)" MODE="recette" docker compose -f compose.recette.yaml up  || true
-      - command -v podman && PUID="$(id -u)" PGID="$(id -g)" MODE="recette" podman compose -f compose.recette.yaml up || true
+      - command -v docker && PUID="$(id -u)" PGID="$(id -g)" MODE="recette" docker compose -f .compose/compose.recette.yaml up  || true
+      - command -v podman && PUID="$(id -u)" PGID="$(id -g)" MODE="recette" podman compose -f .compose/compose.recette.yaml up || true
   init:service:
     desc: "Initialize the service task"
     silent: true
