@@ -1,47 +1,56 @@
-name: Front lint
+name: 🌐 Frontend ESLint Analysis
 
+# 🔍 This workflow runs ESLint static analysis on Vue.js and TypeScript files
+# to ensure code quality, consistency, and catch potential issues early.
+# Integrates with GitHub Security for centralized reporting.
 on:
   push:
     branches: ["main"]
     paths:
-      - "**/*.vue"
-      - "**/*.ts"
+      - "**/*.vue" # 🎨 Vue.js components
+      - "**/*.ts" # 📘 TypeScript files
   pull_request:
     branches: ["main"]
     paths:
-      - "**/*.vue"
-      - "**/*.ts"
+      - "**/*.vue" # 🎨 Vue.js components
+      - "**/*.ts" # 📘 TypeScript files
   schedule:
-    - cron: "50 23 * * *"
-  workflow_dispatch:
+    - cron: "50 23 * * *" # 🕚 Daily at 23:50 UTC for security scanning
+  workflow_dispatch: # 🚀 Allow manual triggering
 
 jobs:
   eslint:
-    name: Run eslint scanning
+    name: 🔍 Run ESLint Scanning
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      security-events: write
-      actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
+      contents: read # 📖 Read repository contents
+      security-events: write # 🔒 Write security analysis results
+      actions: read # ⚡ Read action status (required for private repos)
     steps:
-      - uses: actions/checkout@v4
-      - name: Use Node.js 22
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22.x
-          cache: "yarn"
-      - name: Install ESLint
+          cache: "yarn" # 🚀 Speed up builds with yarn cache
+
+      - name: 🛠️ Install ESLint SARIF Formatter
         run: |
           yarn add @microsoft/eslint-formatter-sarif -D
+        # 📋 Add SARIF formatter for GitHub Security integration
 
-      - name: Run ESLint
+      - name: 🔍 Run ESLint Analysis
         run: npx nx run front:lint --
           --format @microsoft/eslint-formatter-sarif
           --output-file eslint-results.sarif
         continue-on-error: true
+        # 🎯 Lint frontend code using NX, output in SARIF format for GitHub
 
-      - name: Upload analysis results to GitHub
+      - name: 📤 Upload Results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: apps/front/eslint-results.sarif
           wait-for-processing: true
+        # 🔒 Upload linting results to GitHub Security tab for visibility

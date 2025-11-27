@@ -241,7 +241,7 @@ jobs:
           echo "## 🌐 Frontend Quality Report" >> quality_report.md
 
           # TypeScript compilation
-          if npm run build; then
+          if yarn build; then
             echo "✅ TypeScript compilation successful" >> quality_report.md
           else
             echo "❌ TypeScript compilation failed" >> quality_report.md
@@ -459,17 +459,17 @@ jobs:
             echo "" >> commit_report.md
             echo "Command used: \`$cog_command\`" >> commit_report.md
             echo "" >> commit_report.md
-            echo "```" >> commit_report.md
+            echo "\`\`\`" >> commit_report.md
             cat cog_output.txt >> commit_report.md
-            echo "```" >> commit_report.md
+            echo "\`\`\`" >> commit_report.md
           else
             echo "❌ Some commits don't follow conventional commit format" >> commit_report.md
             echo "" >> commit_report.md
             echo "Command used: \`$cog_command\`" >> commit_report.md
             echo "" >> commit_report.md
-            echo "```" >> commit_report.md
+            echo "\`\`\`" >> commit_report.md
             cat cog_output.txt >> commit_report.md
-            echo "```" >> commit_report.md
+            echo "\`\`\`" >> commit_report.md
             failed=true
           fi
 
