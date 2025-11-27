@@ -29,6 +29,19 @@ spec:
               subPath: otel-collector-config.yaml
           args:
             - "--config=/otel/otel-collector-config.yaml"
+          resources:
+            {{ with .Values.otel.resources }}
+            limits:
+              {{ with .limits }}
+              cpu: {{ .cpu }}
+              memory: {{ .memory }}
+              {{ end }}
+            requests:
+              {{ with .requests }}
+              cpu: {{ .cpu }}
+              memory: {{ .memory }}
+              {{ end }}
+            {{ end }}
       volumes:
         - name: otel-collector-config
           configMap:

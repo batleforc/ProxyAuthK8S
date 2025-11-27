@@ -20,6 +20,13 @@ otel:
     repository: otel/opentelemetry-collector-contrib
     tag: latest
     pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
   config:
     receivers:
       otlp:
