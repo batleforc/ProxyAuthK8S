@@ -1,0 +1,16 @@
+{{- if .Values.otel.enabled -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-otel-collector
+  labels:
+    app: {{ .Release.Name }}-otel-collector
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+  selector:
+    app: {{ .Release.Name }}-otel-collector
+{{- end -}}

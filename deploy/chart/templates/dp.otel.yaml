@@ -1,0 +1,36 @@
+{{- if .Values.otel.enabled -}}
+apiVersion: v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-otel-collector
+  labels:
+    app: {{ .Release.Name }}-otel-collector
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.otel.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-otel-collector
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-otel-collector
+    spec:
+      containers:
+        - name: otel-collector
+          image: "{{ .Values.otel.image.repository }}:{{ .Values.otel.image.tag }}"
+          imagePullPolicy: {{ .Values.otel.image.pullPolicy }}
+          ports:
+            - containerPort: 4317
+              name: otlp-grpc
+          volumeMounts:
+            - name: otel-collector-config
+              mountPath: /otel/otel-collector-config.yaml
+              subPath: otel-collector-config.yaml
+          args:
+            - "--config=/otel/otel-collector-config.yaml"
+      volumes:
+        - name: otel-collector-config
+          configMap:
+            name: {{ .Release.Name }}-otel-collector-config
+{{- end -}}

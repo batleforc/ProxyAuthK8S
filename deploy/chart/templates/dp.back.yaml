@@ -31,6 +31,10 @@ spec:
               value: '{{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}'
             - name: API_CLUSTER_OIDC_BASE_REDIRECT_URL
               value: '{{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}'
+            {{- if .Values.otel.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: '{{ .Release.Name }}-otel-collector:4317'
+            {{- end }}
             {{- if eq .Values.back.redis.source "env" }}
             - name: REDIS_URL
               value: '{{ .Values.back.redis.value.url }}'
