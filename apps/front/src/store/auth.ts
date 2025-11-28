@@ -30,7 +30,7 @@ export const useAuthStore = defineStore('auth', {
       const toast = useToast();
       this.inited = true;
       await this.router.isReady();
-      let user = await this.getUser().then((user) => {
+      const user = await this.getUser().then((user) => {
         if (
           user &&
           !user.expired &&
@@ -88,7 +88,7 @@ export const useAuthStore = defineStore('auth', {
         return null;
       });
       this.user = user;
-      this.router.beforeEach(async (to, from) => {
+      this.router.beforeEach(async (to) => {
         if (to.meta.requiresAuth && (!this.user || this.user.expired)) {
           console.log('Route requires auth, redirecting to login');
           toast.info('Please log in to access this page');

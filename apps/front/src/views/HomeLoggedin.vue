@@ -68,7 +68,8 @@ const copyUrlToClipboard = async (cluster: VisibleCluster) => {
     await navigator.clipboard.writeText(getClusterURL(cluster));
     toast.info("URL du cluster copiée dans le presse-papiers !");
   } catch (error) {
-    toast.error("Échec de la copie de l\'URL du cluster.");
+    toast.error("Échec de la copie de l'URL du cluster.");
+    console.error('Clipboard copy failed:', error);
   }
 }
 </script>

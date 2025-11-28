@@ -6,16 +6,13 @@ import { RouterLink } from 'vue-router';
 import {
   MazArrowRightOnRectangle,
   MazInformationCircle,
-  MazServer,
   MazShieldCheck,
-  MazUser,
   MazRectangleGroup,
   MazBolt,
   MazUsers,
   MazChartBar,
   MazCog6Tooth,
   MazArrowRight,
-  MazPlay
 } from '@maz-ui/icons';
 
 const authStore = useAuthStore();

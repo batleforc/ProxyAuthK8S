@@ -12,12 +12,10 @@ import MazTextarea from 'maz-ui/components/MazTextarea';
 import {
   MazServer,
   MazShieldCheck,
-  MazCheckCircle,
   MazArrowTopRightOnSquare,
   MazClipboardDocument,
   MazCloudArrowDown,
   MazKey,
-  MazUser,
   MazGlobeAlt,
   MazClock
 } from '@maz-ui/icons';
@@ -93,6 +91,7 @@ const copyToClipboard = async (text: string, label: string) => {
     toast.success(`${label} copié dans le presse-papiers !`);
   } catch (error) {
     toast.error(`Échec de la copie du ${label.toLowerCase()}.`);
+    console.error('Clipboard copy failed:', error);
   }
 };
 

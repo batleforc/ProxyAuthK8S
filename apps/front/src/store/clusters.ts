@@ -77,7 +77,7 @@ export const useClustersStore = defineStore('clusters', {
             console.log('Redirecting to cluster login URL:', response.data);
             window.location.href = response.data;
           } catch (e) {
-            console.error('Invalid URL received for cluster login redirect');
+            console.error('Invalid URL received for cluster login redirect', e);
           }
         } else if (response.status === 401) {
           console.error(
@@ -88,10 +88,10 @@ export const useClustersStore = defineStore('clusters', {
     },
     async callBackFromCluster(toast = useToast()) {
       await this.router.isReady();
-      let ns = this.router.currentRoute.value.params.ns as string;
-      let cluster = this.router.currentRoute.value.params.cluster as string;
-      let code = this.router.currentRoute.value.query.code as string;
-      let state = this.router.currentRoute.value.query.state as string;
+      const ns = this.router.currentRoute.value.params.ns as string;
+      const cluster = this.router.currentRoute.value.params.cluster as string;
+      const code = this.router.currentRoute.value.query.code as string;
+      const state = this.router.currentRoute.value.query.state as string;
       if (!ns || !cluster || !code || !state) {
         toast.error('Missing parameters in callback URL', { duration: 5000 });
         console.error('Missing parameters in callback URL');

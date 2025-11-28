@@ -11,6 +11,7 @@
     "task.vscode-task",
     "gruntfuggly.todo-tree",
     "editorconfig.editorconfig",
-    "ms-cst-e.vscode-devskim"
+    "ms-cst-e.vscode-devskim",
+    "dbaeumer.vscode-eslint"
   ]
 }
