@@ -16,6 +16,10 @@ pub mod kube_redirect;
         (status = 200, description = "Response from remote cluster"),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
+    ),
+    params(
+        ("ns" = String, description = "Namespace"),
+        ("cluster" = String, description = "Cluster name"),
     )
 )]
 #[get("/{ns}/{cluster}/{path:.*}")]
@@ -39,6 +43,10 @@ pub async fn get_redirect(
         (status = 200, description = "Response from remote cluster"),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
+    ),
+    params(
+        ("ns" = String, description = "Namespace"),
+        ("cluster" = String, description = "Cluster name"),
     )
 )]
 #[post("/{ns}/{cluster}/{path:.*}")]
@@ -62,6 +70,10 @@ pub async fn post_redirect(
         (status = 200, description = "Response from remote cluster"),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
+    ),
+    params(
+        ("ns" = String, description = "Namespace"),
+        ("cluster" = String, description = "Cluster name"),
     )
 )]
 #[put("/{ns}/{cluster}/{path:.*}")]
@@ -85,6 +97,10 @@ pub async fn put_redirect(
         (status = 200, description = "Response from remote cluster"),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
+    ),
+    params(
+        ("ns" = String, description = "Namespace"),
+        ("cluster" = String, description = "Cluster name"),
     )
 )]
 #[patch("/{ns}/{cluster}/{path:.*}")]
@@ -108,6 +124,10 @@ pub async fn patch_redirect(
         (status = 200, description = "Response from remote cluster"),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
+    ),
+    params(
+        ("ns" = String, description = "Namespace"),
+        ("cluster" = String, description = "Cluster name"),
     )
 )]
 #[delete("/{ns}/{cluster}/{path:.*}")]

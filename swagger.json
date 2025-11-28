@@ -1,8 +1,13 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "api",
+    "title": "ProxyAuthK8S",
     "description": "Reverse Proxy K8s Api",
+    "contact": {
+      "name": "Batleforc",
+      "url": "https://maxleriche.net",
+      "email": "maxleriche.60@gmail.com"
+    },
     "license": {
       "name": ""
     },
@@ -73,13 +78,19 @@
             "name": "ns",
             "in": "path",
             "description": "Namespace",
-            "required": true
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "cluster",
             "in": "path",
             "description": "Cluster name",
-            "required": true
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "x-front-callback",
@@ -145,13 +156,19 @@
             "name": "ns",
             "in": "path",
             "description": "Namespace",
-            "required": true
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "cluster",
             "in": "path",
             "description": "Cluster name",
-            "required": true
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "x-front-callback",
@@ -199,6 +216,26 @@
         "summary": "Cluster redirect",
         "description": "Redirect to the cluster if exists",
         "operationId": "get_redirect",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Response from remote cluster"
@@ -218,6 +255,26 @@
         "summary": "Cluster redirect",
         "description": "Redirect to the cluster if exists",
         "operationId": "put_redirect",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Response from remote cluster"
@@ -237,6 +294,26 @@
         "summary": "Cluster redirect",
         "description": "Redirect to the cluster if exists",
         "operationId": "post_redirect",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Response from remote cluster"
@@ -256,6 +333,26 @@
         "summary": "Cluster redirect",
         "description": "Redirect to the cluster if exists",
         "operationId": "delete_redirect",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Response from remote cluster"
@@ -275,6 +372,26 @@
         "summary": "Cluster redirect",
         "description": "Redirect to the cluster if exists",
         "operationId": "patch_redirect",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Response from remote cluster"

@@ -2,7 +2,14 @@ use utoipa::OpenApi;
 
 #[derive(OpenApi)]
 #[openapi(
-    info(description = "Reverse Proxy K8s Api"),
+    info(
+      title = "ProxyAuthK8S",
+      description = "Reverse Proxy K8s Api",
+      contact(
+            name = "Batleforc",
+            email = "maxleriche.60@gmail.com",
+            url = "https://maxleriche.net"
+        )),
     tags(
             (name = "health", description = "Health check endpoints."),
             (name = "api_clusters", description = "API endpoints used by the front."),

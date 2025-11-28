@@ -21,8 +21,8 @@ use crate::{cluster::auth::auth_model::LoginToCallBackModel, model::user::User};
         ("oauth2" = [])
     ),
     params(
-        ("ns", description = "Namespace"),
-        ("cluster", description = "Cluster name"),
+        ("ns" = String, description = "Namespace"),
+        ("cluster" = String, description = "Cluster name"),
         ("x-front-callback" = String, Header, nullable, description = "If it's from the frontend, this header will be set."),
     )
 )]

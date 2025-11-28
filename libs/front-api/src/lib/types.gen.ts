@@ -66,11 +66,11 @@ export type CallbackLoginData = {
         /**
          * Namespace
          */
-        ns: unknown;
+        ns: string;
         /**
          * Cluster name
          */
-        cluster: unknown;
+        cluster: string;
     };
     query: {
         /**
@@ -117,11 +117,11 @@ export type ClusterLoginData = {
         /**
          * Namespace
          */
-        ns: unknown;
+        ns: string;
         /**
          * Cluster name
          */
-        cluster: unknown;
+        cluster: string;
     };
     query?: never;
     url: '/clusters/{ns}/{cluster}/auth/login';
