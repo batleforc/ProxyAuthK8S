@@ -19,8 +19,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME_SERVER: ${{ github.repository }}/server
-  IMAGE_NAME_FRONT: ${{ github.repository }}/front
+  IMAGE_NAME_SERVER: ${{ github.repository_owner }}/${{ github.event.repository.name }}/server
+  IMAGE_NAME_FRONT: ${{ github.repository_owner }}/${{ github.event.repository.name }}/front
   NODE_VERSION: "24"
   RUST_VERSION: "1.91"
 
