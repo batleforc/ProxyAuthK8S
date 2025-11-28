@@ -485,7 +485,7 @@ jobs:
 
             # Write commit message to temp file and use cog verify
             git show --format="%B" --no-patch $commit > temp_commit_message.txt
-            if cog verify temp_commit_message.txt 2>/dev/null; then
+            if cog verify -f temp_commit_message.txt 2>/dev/null; then
               echo "✅ $commit: $message" >> commit_report.md
             else
               echo "❌ $commit: $message" >> commit_report.md
