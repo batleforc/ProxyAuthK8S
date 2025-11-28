@@ -9,7 +9,12 @@ use utoipa::OpenApi;
             name = "Batleforc",
             email = "maxleriche.60@gmail.com",
             url = "https://maxleriche.net"
-        )),
+        ),
+      license(
+            name = "MIT",
+            url = "https://opensource.org/license/mit/"
+        ),
+      ),
     tags(
             (name = "health", description = "Health check endpoints."),
             (name = "api_clusters", description = "API endpoints used by the front."),
