@@ -251,7 +251,7 @@ jobs:
           fi
 
           # Linting
-          if npm run lint; then
+          if yarn nx lint front; then
             echo "✅ Frontend linting passed" >> quality_report.md
           else
             echo "❌ Frontend linting issues found" >> quality_report.md
@@ -464,27 +464,6 @@ jobs:
             echo "\`\`\`" >> commit_report.md
             failed=true
           fi
-
-          # Get individual commits for detailed validation
-          commits=$(git rev-list origin/main..HEAD --reverse)
-
-          echo "" >> commit_report.md
-          echo "### 📋 Individual Commit Details" >> commit_report.md
-
-          for commit in $commits; do
-            message=$(git log --format=%B -n 1 $commit | head -n 1)
-            echo "Checking commit: $commit - $message"
-
-            # Write commit message to temp file and use cog verify
-            git show --format="%B" --no-patch $commit > temp_commit_message.txt
-            if cog verify -f temp_commit_message.txt 2>/dev/null; then
-              echo "✅ $commit: $message" >> commit_report.md
-            else
-              echo "❌ $commit: $message" >> commit_report.md
-              failed=true
-            fi
-            rm -f temp_commit_message.txt
-          done
 
           # Validate commit signatures
           echo "" >> commit_report.md
