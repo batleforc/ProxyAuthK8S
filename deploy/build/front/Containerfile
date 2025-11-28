@@ -11,7 +11,7 @@ RUN npx nx build front
 FROM registry.hub.docker.com/nginxinc/nginx-unprivileged:1.29-alpine-slim AS deploy
 WORKDIR /app
 
-RUN rm -rf ./*
+RUN rm -rf ./* && apk upgrade --no-cache
 COPY ./deploy/build/front/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist/apps/front .
 COPY --chmod=755 ./deploy/build/front/env.sh /docker-entrypoint.d/99-env.sh
