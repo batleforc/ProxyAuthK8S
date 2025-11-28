@@ -55,7 +55,7 @@ RUN touch apps/server/src/main.rs && \
 # Final stage
 FROM registry.hub.docker.com/library/alpine:3.22
 
-RUN apk add --no-cache libgcc
+RUN apk add --no-cache libgcc && apk upgrade --no-cache
 
 WORKDIR /app
 

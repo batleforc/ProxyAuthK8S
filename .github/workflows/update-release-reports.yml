@@ -1,0 +1,614 @@
+name: 🔄 Update Release Reports
+
+on:
+  push:
+    branches:
+      - "NR/release-*" # Se déclenche sur toutes les branches de release
+  workflow_dispatch:
+    inputs:
+      branch_name:
+        description: "Nom de la branche release à mettre à jour"
+        required: true
+        type: string
+
+# 📊 Ce workflow met à jour automatiquement les rapports de release
+# quand des changements sont poussés sur une branche de release
+env:
+  REGISTRY: ghcr.io
+  REPO_NAME_LOWER: ${{ format('{0}', github.event.repository.name) }}
+  IMAGE_NAME_SERVER: ${{ github.repository_owner }}/proxyauthk8s/server
+  IMAGE_NAME_FRONT: ${{ github.repository_owner }}/proxyauthk8s/front
+  NODE_VERSION: "24"
+  RUST_VERSION: "1.91"
+
+jobs:
+  detect-release-info:
+    name: 🔍 Détection des Infos de Release
+    runs-on: ubuntu-latest
+    outputs:
+      branch_name: ${{ steps.branch_info.outputs.branch_name }}
+      version: ${{ steps.branch_info.outputs.version }}
+      is_release_branch: ${{ steps.branch_info.outputs.is_release_branch }}
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔍 Analyser la Branche
+        id: branch_info
+        run: |
+          # Déterminer le nom de la branche
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BRANCH_NAME="${{ github.event.inputs.branch_name }}"
+          else
+            BRANCH_NAME="${{ github.ref_name }}"
+          fi
+
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "🔍 Branche analysée: $BRANCH_NAME"
+
+          # Vérifier si c'est une branche de release
+          if [[ "$BRANCH_NAME" =~ ^NR/release-v.*$ ]]; then
+            echo "is_release_branch=true" >> $GITHUB_OUTPUT
+
+            # Extraire la version depuis le nom de branche
+            VERSION=$(echo "$BRANCH_NAME" | sed 's/^NR\/release-v//')
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "📋 Version détectée: $VERSION"
+          else
+            echo "is_release_branch=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Cette branche n'est pas une branche de release"
+          fi
+
+  update-quality-reports:
+    name: 🔍 Mise à Jour des Rapports de Qualité
+    runs-on: ubuntu-latest
+    needs: detect-release-info
+    if: needs.detect-release-info.outputs.is_release_branch == 'true'
+    outputs:
+      backend_quality: ${{ steps.backend_check.outputs.status }}
+      frontend_quality: ${{ steps.frontend_check.outputs.status }}
+    steps:
+      - name: 📥 Checkout Release Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.detect-release-info.outputs.branch_name }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: 🦀 Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy, rustfmt
+
+      - name: 🔧 Install Dependencies
+        run: |
+          yarn install --frozen-lockfile
+        env:
+          NODE_ENV: production
+
+      - name: 🔍 Backend Quality Check
+        id: backend_check
+        run: |
+          echo "## 🦀 Backend Quality Report (Updated)" > quality_report.md
+          echo "**Branch:** \`${{ needs.detect-release-info.outputs.branch_name }}\`" >> quality_report.md
+          echo "**Version:** \`v${{ needs.detect-release-info.outputs.version }}\`" >> quality_report.md
+          echo "**Updated:** \`$(date -u '+%Y-%m-%d %H:%M:%S UTC')\`" >> quality_report.md
+          echo "" >> quality_report.md
+
+          # Rust formatting check
+          if cargo fmt -- --check; then
+            echo "✅ Rust code formatting is correct" >> quality_report.md
+          else
+            echo "❌ Rust code formatting issues found" >> quality_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Rust clippy check
+          if cargo clippy --all-targets --all-features -- -D warnings; then
+            echo "✅ Rust clippy checks passed" >> quality_report.md
+          else
+            echo "❌ Rust clippy issues found" >> quality_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Rust tests
+          if cargo test; then
+            echo "✅ Rust tests passed" >> quality_report.md
+          else
+            echo "❌ Rust tests failed" >> quality_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: 🔍 Frontend Quality Check
+        id: frontend_check
+        run: |
+          echo "" >> quality_report.md
+          echo "## 🌐 Frontend Quality Report (Updated)" >> quality_report.md
+          yarn install
+
+          # TypeScript compilation
+          if yarn build; then
+            echo "✅ TypeScript compilation successful" >> quality_report.md
+          else
+            echo "❌ TypeScript compilation failed" >> quality_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Linting
+          if yarn nx lint front; then
+            echo "✅ Frontend linting passed" >> quality_report.md
+          else
+            echo "❌ Frontend linting issues found" >> quality_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: 📤 Upload Updated Quality Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: updated-quality-report
+          path: quality_report.md
+
+  update-security-audit:
+    name: 🔒 Mise à Jour de l'Audit de Sécurité
+    runs-on: ubuntu-latest
+    needs: detect-release-info
+    if: needs.detect-release-info.outputs.is_release_branch == 'true'
+    outputs:
+      audit_status: ${{ steps.audit.outputs.status }}
+    steps:
+      - name: 📥 Checkout Release Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.detect-release-info.outputs.branch_name }}
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: 🦀 Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: 🔧 Install Audit Tools
+        run: |
+          npm install -g npm-audit-resolver
+          cargo install cargo-audit
+
+      - name: 🔍 Security Audit
+        id: audit
+        run: |
+          echo "## 🔒 Security Audit Report (Updated)" > security_report.md
+          echo "**Branch:** \`${{ needs.detect-release-info.outputs.branch_name }}\`" >> security_report.md
+          echo "**Version:** \`v${{ needs.detect-release-info.outputs.version }}\`" >> security_report.md
+          echo "**Updated:** \`$(date -u '+%Y-%m-%d %H:%M:%S UTC')\`" >> security_report.md
+          echo "" >> security_report.md
+
+          # NPM Audit
+          echo "### 📦 NPM Dependencies" >> security_report.md
+          if npm audit --audit-level=moderate; then
+            echo "✅ No moderate or high severity vulnerabilities found in NPM packages" >> security_report.md
+          else
+            echo "❌ Security vulnerabilities found in NPM packages" >> security_report.md
+            npm audit --json >> security_report.md
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Cargo Audit with severity filtering
+          echo "" >> security_report.md
+          echo "### 🦀 Rust Dependencies" >> security_report.md
+
+          if cargo audit --format json > cargo_audit_output.json 2>/dev/null; then
+            echo "✅ No security vulnerabilities found in Rust packages" >> security_report.md
+          else
+            # Parse JSON output to filter by severity > 7
+            high_severity_count=$(jq -r '
+              [.vulnerabilities.list[] |
+               select(.advisory.cvss and (.advisory.cvss | tonumber) > 7.0)] |
+              length' cargo_audit_output.json 2>/dev/null || echo "0")
+
+            total_vulns=$(jq -r '.vulnerabilities.count // 0' cargo_audit_output.json 2>/dev/null || echo "0")
+
+            echo "Found $total_vulns total vulnerabilities, $high_severity_count with severity > 7.0" >> security_report.md
+            echo "" >> security_report.md
+
+            # Add detailed vulnerability report
+            echo "#### 🔍 Vulnerability Details" >> security_report.md
+            jq -r '.vulnerabilities.list[] |
+              "- **\(.advisory.id)**: \(.advisory.title) (CVSS: \(.advisory.cvss // "N/A"))" +
+              "\n  - Package: \(.package.name) v\(.package.version)" +
+              "\n  - Severity: \(if .advisory.cvss and (.advisory.cvss | tonumber) > 7.0 then "🔴 HIGH" else "🟡 LOW/MEDIUM" end)" +
+              "\n"' cargo_audit_output.json >> security_report.md 2>/dev/null || echo "- Error parsing vulnerability details" >> security_report.md
+
+            # Only fail if high severity vulnerabilities found
+            if [ "$high_severity_count" -gt 0 ]; then
+              echo "❌ $high_severity_count high-severity vulnerabilities (CVSS > 7.0) found in Rust packages" >> security_report.md
+              echo "status=failed" >> $GITHUB_OUTPUT
+              exit 1
+            else
+              echo "✅ No high-severity vulnerabilities (CVSS > 7.0) found, but $total_vulns lower-severity issues exist" >> security_report.md
+            fi
+          fi
+
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: 📤 Upload Updated Security Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: updated-security-report
+          path: security_report.md
+
+  validate-commits:
+    name: ✅ Validation des Commits
+    runs-on: ubuntu-latest
+    needs: detect-release-info
+    if: needs.detect-release-info.outputs.is_release_branch == 'true'
+    outputs:
+      commit_status: ${{ steps.validate.outputs.status }}
+    steps:
+      - name: 📥 Checkout Release Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.detect-release-info.outputs.branch_name }}
+          fetch-depth: 0
+
+      - name: 🦀 Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: 🔧 Install Cocogitto
+        run: |
+          cargo install --locked cocogitto
+
+      - name: ✅ Validate Commits
+        id: validate
+        run: |
+          echo "## ✅ Commit Validation Report (Updated)" > commit_report.md
+          echo "**Branch:** \`${{ needs.detect-release-info.outputs.branch_name }}\`" >> commit_report.md
+          echo "**Version:** \`v${{ needs.detect-release-info.outputs.version }}\`" >> commit_report.md
+          echo "**Updated:** \`$(date -u '+%Y-%m-%d %H:%M:%S UTC')\`" >> commit_report.md
+          echo "" >> commit_report.md
+
+          echo "### 📝 Cocogitto Conventional Commit Validation" >> commit_report.md
+          failed=false
+
+          # Check if any tags exist
+          if git tag -l | grep -q .; then
+            echo "Tags found, checking commits from latest tag..."
+            cog_command="cog check --from-latest-tag"
+          else
+            echo "No tags found, checking all commits..."
+            cog_command="cog check"
+          fi
+
+          # Run cog check to validate commits
+          if $cog_command 2>&1 | tee cog_output.txt; then
+            echo "✅ All commits follow conventional commit format" >> commit_report.md
+            echo "" >> commit_report.md
+            echo "Command used: \`$cog_command\`" >> commit_report.md
+            echo "" >> commit_report.md
+            echo "\`\`\`" >> commit_report.md
+            cat cog_output.txt >> commit_report.md
+            echo "\`\`\`" >> commit_report.md
+          else
+            echo "❌ Some commits don't follow conventional commit format" >> commit_report.md
+            echo "" >> commit_report.md
+            echo "Command used: \`$cog_command\`" >> commit_report.md
+            echo "" >> commit_report.md
+            echo "\`\`\`" >> commit_report.md
+            cat cog_output.txt >> commit_report.md
+            echo "\`\`\`" >> commit_report.md
+            failed=true
+          fi
+
+          if [ "$failed" = true ]; then
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "status=success" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 📤 Upload Updated Commit Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: updated-commit-report
+          path: commit_report.md
+
+  rebuild-docker-images:
+    name: 🐳 Rebuild Docker Images
+    runs-on: ubuntu-latest
+    needs: detect-release-info
+    if: needs.detect-release-info.outputs.is_release_branch == 'true'
+    outputs:
+      server_image: ${{ steps.build_server.outputs.image }}
+      front_image: ${{ steps.build_front.outputs.image }}
+      build_status: ${{ steps.build_status.outputs.status }}
+    steps:
+      - name: 📥 Checkout Release Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.detect-release-info.outputs.branch_name }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔧 Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔧 Install Syft for SBOM generation
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: 🏗️ Build Server Image
+        id: build_server
+        run: |
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_SERVER }}:v${{ needs.detect-release-info.outputs.version }}"
+
+          echo "🏗️ Building server image: $IMAGE_TAG"
+
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag $IMAGE_TAG \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_SERVER }}:latest \
+            --file deploy/build/back/Containerfile \
+            --push .
+
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "✅ Server image built and pushed: $IMAGE_TAG"
+
+      - name: 🏗️ Build Front Image
+        id: build_front
+        run: |
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONT }}:v${{ needs.detect-release-info.outputs.version }}"
+
+          echo "🏗️ Building frontend image: $IMAGE_TAG"
+
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag $IMAGE_TAG \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONT }}:latest \
+            --file deploy/build/front/Containerfile \
+            --push .
+
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "✅ Frontend image built and pushed: $IMAGE_TAG"
+
+      - name: 📋 Generate Updated SBOM for Server
+        run: |
+          echo "📋 Generating SBOM for server image..."
+          syft ${{ steps.build_server.outputs.image }} -o spdx-json=server-sbom-updated.json
+          syft ${{ steps.build_server.outputs.image }} -o table=server-sbom-updated.txt
+
+      - name: 📋 Generate Updated SBOM for Front
+        run: |
+          echo "📋 Generating SBOM for frontend image..."
+          syft ${{ steps.build_front.outputs.image }} -o spdx-json=front-sbom-updated.json
+          syft ${{ steps.build_front.outputs.image }} -o table=front-sbom-updated.txt
+
+      - name: 🔍 Quick Vulnerability Scan
+        run: |
+          echo "🔍 Running quick vulnerability scan..."
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+          echo "## 🐳 Docker Images Rebuild Report" > docker_rebuild_report.md
+          echo "**Branch:** \`${{ needs.detect-release-info.outputs.branch_name }}\`" >> docker_rebuild_report.md
+          echo "**Version:** \`v${{ needs.detect-release-info.outputs.version }}\`" >> docker_rebuild_report.md
+          echo "**Updated:** \`$(date -u '+%Y-%m-%d %H:%M:%S UTC')\`" >> docker_rebuild_report.md
+          echo "" >> docker_rebuild_report.md
+
+          echo "### 🏗️ Built Images" >> docker_rebuild_report.md
+          echo "- 🖥️ **Server:** \`${{ steps.build_server.outputs.image }}\`" >> docker_rebuild_report.md
+          echo "- 🌐 **Frontend:** \`${{ steps.build_front.outputs.image }}\`" >> docker_rebuild_report.md
+          echo "" >> docker_rebuild_report.md
+
+          echo "### 🔍 Vulnerability Summary" >> docker_rebuild_report.md
+          echo "#### Server Image" >> docker_rebuild_report.md
+          grype ${{ steps.build_server.outputs.image }} -o table --only-fixed >> docker_rebuild_report.md || echo "No vulnerabilities found or scan failed" >> docker_rebuild_report.md
+
+          echo "" >> docker_rebuild_report.md
+          echo "#### Frontend Image" >> docker_rebuild_report.md
+          grype ${{ steps.build_front.outputs.image }} -o table --only-fixed >> docker_rebuild_report.md || echo "No vulnerabilities found or scan failed" >> docker_rebuild_report.md
+
+      - name: ✅ Set Build Status
+        id: build_status
+        run: |
+          echo "status=success" >> $GITHUB_OUTPUT
+          echo "✅ Docker images rebuild completed successfully"
+
+      - name: 📤 Upload Docker Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: updated-docker-artifacts
+          path: |
+            *-sbom-updated.json
+            *-sbom-updated.txt
+            docker_rebuild_report.md
+
+  update-pr-comment:
+    name: 💬 Mise à Jour du Commentaire PR
+    runs-on: ubuntu-latest
+    needs:
+      - detect-release-info
+      - update-quality-reports
+      - update-security-audit
+      - validate-commits
+      - rebuild-docker-images
+    if: always() && needs.detect-release-info.outputs.is_release_branch == 'true'
+    steps:
+      - name: 📥 Download Updated Reports
+        uses: actions/download-artifact@v4
+
+      - name: 💬 Update PR Comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branchName = "${{ needs.detect-release-info.outputs.branch_name }}";
+            const version = "${{ needs.detect-release-info.outputs.version }}";
+
+            // Find PR for this release branch
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${branchName}`,
+              state: 'open'
+            });
+
+            if (prs.length === 0) {
+              console.log('No open PR found for this branch');
+              return;
+            }
+
+            const pr = prs[0];
+            const timestamp = new Date().toISOString();
+
+            // Create updated status report
+            let commentBody = `## 🔄 Release Reports Updated\n\n`;
+            commentBody += `**Version:** \`v${version}\`\n`;
+            commentBody += `**Branch:** \`${branchName}\`\n`;
+            commentBody += `**Last Updated:** \`${timestamp}\`\n\n`;
+
+            commentBody += `### 📊 Status Summary\n\n`;
+            commentBody += `| Check | Status | Last Run |\n`;
+            commentBody += `|-------|--------|----------|\n`;
+
+            const backendStatus = "${{ needs.update-quality-reports.outputs.backend_quality }}";
+            const frontendStatus = "${{ needs.update-quality-reports.outputs.frontend_quality }}";
+            const securityStatus = "${{ needs.update-security-audit.outputs.audit_status }}";
+            const commitStatus = "${{ needs.validate-commits.outputs.commit_status }}";
+            const dockerStatus = "${{ needs.rebuild-docker-images.outputs.build_status }}";
+
+            commentBody += `| 🦀 Backend Quality | ${backendStatus === 'success' ? '✅ Passed' : '❌ Failed'} | ${timestamp} |\n`;
+            commentBody += `| 🌐 Frontend Quality | ${frontendStatus === 'success' ? '✅ Passed' : '❌ Failed'} | ${timestamp} |\n`;
+            commentBody += `| 🔒 Security Audit | ${securityStatus === 'success' ? '✅ Passed' : '❌ Failed'} | ${timestamp} |\n`;
+            commentBody += `| ✅ Commit Validation | ${commitStatus === 'success' ? '✅ Passed' : '❌ Failed'} | ${timestamp} |\n`;
+            commentBody += `| 🐳 Docker Rebuild | ${dockerStatus === 'success' ? '✅ Completed' : '❌ Failed'} | ${timestamp} |\n`;
+
+            // Add Docker images info if build was successful
+            if (dockerStatus === 'success') {
+              const serverImage = "${{ needs.rebuild-docker-images.outputs.server_image }}";
+              const frontImage = "${{ needs.rebuild-docker-images.outputs.front_image }}";
+
+              commentBody += `\n### 🐳 Updated Docker Images\n`;
+              commentBody += `- 🖥️ **Server:** \`${serverImage}\`\n`;
+              commentBody += `- 🌐 **Frontend:** \`${frontImage}\`\n`;
+            }
+
+            commentBody += `\n*Reports are automatically updated when changes are pushed to this release branch.*\n`;
+
+            // Check for existing update comments
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number
+            });
+
+            const existingComment = comments.find(comment =>
+              comment.body.includes('🔄 Release Reports Updated') &&
+              comment.user.type === 'Bot'
+            );
+
+            if (existingComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: commentBody
+              });
+              console.log(`Updated existing comment ${existingComment.id}`);
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: commentBody
+              });
+              console.log('Created new update comment');
+            }
+
+  summary:
+    name: 📊 Résumé de la Mise à Jour
+    runs-on: ubuntu-latest
+    needs:
+      - detect-release-info
+      - update-quality-reports
+      - update-security-audit
+      - validate-commits
+      - rebuild-docker-images
+    if: always()
+    steps:
+      - name: 📊 Generate Summary
+        run: |
+          echo "## 🔄 Release Reports Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.detect-release-info.outputs.is_release_branch }}" != "true" ]; then
+            echo "⚠️ **Not a release branch**" >> $GITHUB_STEP_SUMMARY
+            echo "- Branch: \`${{ needs.detect-release-info.outputs.branch_name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Only branches matching \`NR/release-*\` pattern are processed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "🎯 **Release Branch Detected**" >> $GITHUB_STEP_SUMMARY
+            echo "- **Branch:** \`${{ needs.detect-release-info.outputs.branch_name }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- **Version:** \`v${{ needs.detect-release-info.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            echo "### 📊 Updated Reports Status" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Report | Status |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
+
+            backend_status="${{ needs.update-quality-reports.outputs.backend_quality }}"
+            frontend_status="${{ needs.update-quality-reports.outputs.frontend_quality }}"
+            security_status="${{ needs.update-security-audit.outputs.audit_status }}"
+            commit_status="${{ needs.validate-commits.outputs.commit_status }}"
+            docker_status="${{ needs.rebuild-docker-images.outputs.build_status }}"
+
+            echo "| 🦀 Backend Quality | ${backend_status:-'⚠️ Skipped'} |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🌐 Frontend Quality | ${frontend_status:-'⚠️ Skipped'} |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔒 Security Audit | ${security_status:-'⚠️ Skipped'} |" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Commit Validation | ${commit_status:-'⚠️ Skipped'} |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🐳 Docker Rebuild | ${docker_status:-'⚠️ Skipped'} |" >> $GITHUB_STEP_SUMMARY
+
+            # Add Docker images info if build was successful
+            if [ "$docker_status" = "success" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "### 🐳 Rebuilt Docker Images" >> $GITHUB_STEP_SUMMARY
+              echo "- 🖥️ **Server:** \`${{ needs.rebuild-docker-images.outputs.server_image }}\`" >> $GITHUB_STEP_SUMMARY
+              echo "- 🌐 **Frontend:** \`${{ needs.rebuild-docker-images.outputs.front_image }}\`" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "*Auto-triggered on: $(date -u '+%Y-%m-%d %H:%M:%S UTC')*" >> $GITHUB_STEP_SUMMARY
