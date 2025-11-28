@@ -483,13 +483,15 @@ jobs:
             message=$(git log --format=%B -n 1 $commit | head -n 1)
             echo "Checking commit: $commit - $message"
 
-            # Use cog verify to check individual commits
-            if git show --format="%B" --no-patch $commit | cog verify --stdin 2>/dev/null; then
+            # Write commit message to temp file and use cog verify
+            git show --format="%B" --no-patch $commit > temp_commit_message.txt
+            if cog verify temp_commit_message.txt 2>/dev/null; then
               echo "✅ $commit: $message" >> commit_report.md
             else
               echo "❌ $commit: $message" >> commit_report.md
               failed=true
             fi
+            rm -f temp_commit_message.txt
           done
 
           # Validate commit signatures

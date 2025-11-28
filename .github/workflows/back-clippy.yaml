@@ -54,7 +54,7 @@ jobs:
         # 🎯 Analyze all code with full features, convert to SARIF, and format output
 
       - name: 📤 Upload Results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: rust-clippy-results.sarif
           wait-for-processing: true

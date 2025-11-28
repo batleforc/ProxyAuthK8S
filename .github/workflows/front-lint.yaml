@@ -49,7 +49,7 @@ jobs:
         # 🎯 Lint frontend code using NX, output in SARIF format for GitHub
 
       - name: 📤 Upload Results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: apps/front/eslint-results.sarif
           wait-for-processing: true
