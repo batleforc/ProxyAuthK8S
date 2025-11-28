@@ -474,10 +474,6 @@ jobs:
           6. 📢 Announce release to stakeholders
           EOF
 
-          # Replace placeholder variables in the generated file
-          sed -i "s/\$NEW_VERSION/$NEW_VERSION/g" "RELEASE-GUIDE-v$NEW_VERSION.md"
-          sed -i "s/\$BRANCH_NAME/$BRANCH_NAME/g" "RELEASE-GUIDE-v$NEW_VERSION.md"
-
       - name: 💾 Commit release guide
         run: |
           git add RELEASE-GUIDE-v*.md
