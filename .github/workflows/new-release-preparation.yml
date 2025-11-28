@@ -746,6 +746,10 @@ jobs:
           base: main
           title: "NR: ${{ needs.prepare-release.outputs.release_name }}"
           body-path: pr_body.md
+          commit-message: "chore: prepare release ${{ needs.prepare-release.outputs.new_version }}"
+          committer: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+          author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+          signoff: true
           labels: |
             release
             automated
