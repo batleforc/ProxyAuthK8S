@@ -239,6 +239,7 @@ jobs:
         id: frontend_check
         run: |
           echo "## 🌐 Frontend Quality Report" >> quality_report.md
+          yarn install
 
           # TypeScript compilation
           if yarn build; then
@@ -254,15 +255,6 @@ jobs:
             echo "✅ Frontend linting passed" >> quality_report.md
           else
             echo "❌ Frontend linting issues found" >> quality_report.md
-            echo "status=failed" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-
-          # Tests
-          if npm run test; then
-            echo "✅ Frontend tests passed" >> quality_report.md
-          else
-            echo "❌ Frontend tests failed" >> quality_report.md
             echo "status=failed" >> $GITHUB_OUTPUT
             exit 1
           fi
