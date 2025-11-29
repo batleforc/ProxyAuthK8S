@@ -305,24 +305,19 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: 💾 Commit changelog
-        run: |
-          git add CHANGELOG.md CHANGELOG-v*.md
-          git commit -m "docs: update changelog for v${{ needs.prepare-release.outputs.new_version }}"
-          git push origin "${{ needs.prepare-release.outputs.branch_name }}"
-
-      - name: 📝 Generate Release Guide
+      - name: 📝 Generate Release Guide and Commit
         run: |
           NEW_VERSION="${{ needs.prepare-release.outputs.new_version }}"
           BRANCH_NAME="${{ needs.prepare-release.outputs.branch_name }}"
 
-          cat > "RELEASE-GUIDE-v$NEW_VERSION.md" << 'EOF'
+          # Generate release guide
+          cat > "RELEASE-GUIDE-v$NEW_VERSION.md" << EOF
           # 🚀 Release Guide for v$NEW_VERSION
 
           ## 📋 How to Upgrade the Release Branch
 
           ### 🔄 Sync with Latest Changes
-          ```bash
+          \`\`\`bash
           # Switch to the release branch
           git checkout $BRANCH_NAME
 
@@ -334,29 +329,29 @@ jobs:
 
           # Push updated branch
           git push origin $BRANCH_NAME
-          ```
+          \`\`\`
 
           ### 🔧 Manual Version Updates (if needed)
-          ```bash
+          \`\`\`bash
           # Update package.json version manually
           npm version $NEW_VERSION --no-git-tag-version
 
           # Update all Cargo.toml files
-          find . -name "Cargo.toml" -not -path "./target/*" -exec sed -i 's/^version = ".*"/version = "$NEW_VERSION"/' {} \;
+          find . -name "Cargo.toml" -not -path "./target/*" -exec sed -i 's/^version = ".*"/version = "$NEW_VERSION"/' {} \\;
 
           # Update frontend package.json files
-          find apps libs -name "package.json" -exec jq '.version = "$NEW_VERSION"' {} \; > tmp && mv tmp {}
+          find apps libs -name "package.json" -exec jq '.version = "$NEW_VERSION"' {} \\; > tmp && mv tmp {}
 
           # Commit version changes
           git add .
           git commit -m "chore: manual version bump to v$NEW_VERSION"
           git push origin $BRANCH_NAME
-          ```
+          \`\`\`
 
           ## ✍️ How to Sign All Commits in the Branch
 
           ### 🔑 Setup GPG Signing (First Time)
-          ```bash
+          \`\`\`bash
           # Generate a new GPG key (if you don't have one)
           gpg --full-generate-key
 
@@ -369,10 +364,10 @@ jobs:
 
           # Export your public key and add it to GitHub
           gpg --armor --export YOUR_KEY_ID
-          ```
+          \`\`\`
 
           ### 📝 Sign Commits Retroactively
-          ```bash
+          \`\`\`bash
           # Switch to release branch
           git checkout $BRANCH_NAME
 
@@ -384,10 +379,10 @@ jobs:
 
           # Force push the signed commits (⚠️ Use with caution)
           git push --force-with-lease origin $BRANCH_NAME
-          ```
+          \`\`\`
 
           ### 🔒 Sign Individual New Commits
-          ```bash
+          \`\`\`bash
           # Enable signing for current repository
           git config commit.gpgsign true
 
@@ -396,14 +391,14 @@ jobs:
 
           # Verify commit is signed
           git log --show-signature -1
-          ```
+          \`\`\`
 
           ## 🛠️ Troubleshooting
 
           ### 🔍 Common Issues
 
           #### GPG Key Not Found
-          ```bash
+          \`\`\`bash
           # Check if GPG is working
           gpg --version
 
@@ -412,10 +407,10 @@ jobs:
 
           # Test GPG signing
           echo "test" | gpg --clearsign
-          ```
+          \`\`\`
 
           #### Merge Conflicts During Upgrade
-          ```bash
+          \`\`\`bash
           # Abort current merge
           git merge --abort
 
@@ -427,21 +422,21 @@ jobs:
           # Manual conflict resolution
           git mergetool
           git commit -m "resolve: merge conflicts with main"
-          ```
+          \`\`\`
 
           #### Force Push Safety
-          ```bash
+          \`\`\`bash
           # Always use force-with-lease instead of force
           git push --force-with-lease origin $BRANCH_NAME
 
           # Check what will be pushed before forcing
           git log origin/$BRANCH_NAME..HEAD --oneline
-          ```
+          \`\`\`
 
           ## 📊 Quality Checks
 
           ### ✅ Pre-Push Validation
-          ```bash
+          \`\`\`bash
           # Run local quality checks
           cargo fmt --check
           cargo clippy --all-targets --all-features
@@ -455,10 +450,10 @@ jobs:
           # Verify all commits are signed
           git log --pretty="format:%h %G? %s" origin/main..HEAD
           # Look for 'G' (good signature) or 'U' (unknown signature)
-          ```
+          \`\`\`
 
           ### 🔄 Update Reports
-          After making changes to the release branch, the `update-release-reports.yml` workflow will automatically:
+          After making changes to the release branch, the \`update-release-reports.yml\` workflow will automatically:
           - 🔍 Re-run quality checks
           - 🔒 Update security audits
           - 🐳 Rebuild Docker images
@@ -474,11 +469,12 @@ jobs:
           6. 📢 Announce release to stakeholders
           EOF
 
-      - name: 💾 Commit release guide
-        run: |
-          git add RELEASE-GUIDE-v*.md
-          git commit -m "docs: add release guide for v${{ needs.prepare-release.outputs.new_version }}"
+          # Only commit the main CHANGELOG.md to repository
+          git add CHANGELOG.md
+          git commit -m "docs: update changelog for v${{ needs.prepare-release.outputs.new_version }}"
           git push origin "${{ needs.prepare-release.outputs.branch_name }}"
+
+          echo "📋 Changelog and release guide generated for artifacts only - not committed to repository"
 
       - name: 📤 Upload Changelog and Guide
         uses: actions/upload-artifact@v4
@@ -865,7 +861,7 @@ jobs:
           echo "## 📋 Detailed Reports" >> pr_body.md
           echo "" >> pr_body.md
 
-          # Add detailed reports from artifacts
+          # Add detailed reports from downloaded artifacts
           if [ -f "quality-report/quality_report.md" ]; then
             cat quality-report/quality_report.md >> pr_body.md
             echo "" >> pr_body.md
@@ -899,10 +895,11 @@ jobs:
           echo "" >> pr_body.md
 
           echo "### 📋 SBOM Reports" >> pr_body.md
-          echo "- Server SBOM available in artifacts" >> pr_body.md
-          echo "- Frontend SBOM available in artifacts" >> pr_body.md
+          echo "- Server and Frontend SBOM available in workflow artifacts" >> pr_body.md
+          echo "- Download artifacts from the Actions tab to access SBOM files" >> pr_body.md
           echo "" >> pr_body.md
 
+          # Add changelog from downloaded artifacts (not committed files)
           if [ -f "changelog/CHANGELOG-v${{ needs.prepare-release.outputs.new_version }}.md" ]; then
             echo "## 📝 Changelog" >> pr_body.md
             echo "" >> pr_body.md
@@ -910,6 +907,7 @@ jobs:
             echo "" >> pr_body.md
           fi
 
+          # Add release guide from downloaded artifacts (not committed files)
           if [ -f "changelog/RELEASE-GUIDE-v${{ needs.prepare-release.outputs.new_version }}.md" ]; then
             echo "## 📋 Release Management Guide" >> pr_body.md
             echo "" >> pr_body.md
@@ -921,6 +919,18 @@ jobs:
             echo "</details>" >> pr_body.md
             echo "" >> pr_body.md
           fi
+
+          echo "## 📎 Workflow Artifacts" >> pr_body.md
+          echo "" >> pr_body.md
+          echo "All detailed reports and SBOM files are available as downloadable artifacts:" >> pr_body.md
+          echo "- 📊 **Quality Report**: Code quality analysis results" >> pr_body.md
+          echo "- 🔒 **Security Report**: Vulnerability audit findings" >> pr_body.md
+          echo "- ✅ **Commit Report**: Conventional commit validation" >> pr_body.md
+          echo "- 📋 **SBOM Reports**: Software Bill of Materials for Docker images" >> pr_body.md
+          echo "- 🐳 **Docker Security Report**: Container vulnerability scan results" >> pr_body.md
+          echo "- 📝 **Swagger Report**: API documentation validation" >> pr_body.md
+          echo "- 📚 **Changelog**: Generated changelog and release guide" >> pr_body.md
+          echo "" >> pr_body.md
 
       - name: 🔀 Create Pull Request
         uses: peter-evans/create-pull-request@v5
