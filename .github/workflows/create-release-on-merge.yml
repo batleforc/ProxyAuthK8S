@@ -33,8 +33,8 @@ jobs:
           echo "PR Branch: $PR_BRANCH"
           echo "PR Title: $PR_TITLE"
 
-          # Check if branch name starts with NR/ or if title contains "Release" or "NR:"
-          if [[ "$PR_BRANCH" =~ ^NR/ ]] || [[ "$PR_TITLE" =~ ^NR: ]] || [[ "$PR_TITLE" =~ Release.*v[0-9] ]]; then
+          # Check if branch name starts with NR/ and if title contains "Release" or "NR:"
+          if [[ "$PR_BRANCH" =~ ^NR/ ]] && [[ "$PR_TITLE" =~ ^NR: ]]; then
             echo "is_release=true" >> $GITHUB_OUTPUT
             echo "🎯 Detected release PR merge"
           else
@@ -205,7 +205,7 @@ jobs:
 
           This release has been automatically built and tested through our CI/CD pipeline:
           - ✅ Code quality checks passed
-          - ✅ Security audits completed  
+          - ✅ Security audits completed
           - ✅ All tests passed
           - ✅ Docker images built and scanned
           - ✅ Helm charts validated
@@ -245,10 +245,10 @@ jobs:
 
           if [ -n "$WORKFLOW_RUN_ID" ]; then
             echo "📦 Found workflow run: $WORKFLOW_RUN_ID"
-            
+
             # Download artifacts
             mkdir -p release-assets
-            
+
             # List and download available artifacts
             gh api repos/${{ github.repository }}/actions/runs/$WORKFLOW_RUN_ID/artifacts --jq '.artifacts[].name' | while read artifact_name; do
               echo "📥 Downloading artifact: $artifact_name"
@@ -256,7 +256,7 @@ jobs:
                 --jq ".artifacts[] | select(.name == \"$artifact_name\") | .archive_download_url" | \
                 xargs -I {} gh api {} > "release-assets/${artifact_name}.zip" || true
             done
-            
+
             echo "artifacts_downloaded=true" >> $GITHUB_OUTPUT
             echo "workflow_run_id=$WORKFLOW_RUN_ID" >> $GITHUB_OUTPUT
           else
@@ -318,32 +318,32 @@ jobs:
             let body;
             if (success) {
               body = `## 🎉 Release Created Successfully!
-              
+
               **Release v${version}** has been automatically created and published.
-              
+
               ### 🔗 Quick Links:
               - 📋 **[Release Notes](${releaseUrl})**
               - 🏷️ **Tag**: \`v${version}\`
               - 🐳 **[Docker Images](https://github.com/${{ github.repository_owner }}/proxyauthk8s/pkgs/container/proxyauthk8s%2Fserver)**
               - ⎈ **[Helm Charts](https://github.com/orgs/${{ github.repository_owner }}/packages?repo_name=proxyauthk8s)**
-              
+
               ### 📦 Installation:
               \`\`\`bash
               # Docker
               docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_SERVER }}:v${version}
-              
+
               # Helm (OCI)
               helm install proxyauthk8s oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/proxyauthk8s/helm-proxyauthk8s:v${version}
               \`\`\`
-              
+
               Thank you for contributing to this release! 🚀`;
             } else {
               body = `## ❌ Release Creation Failed
-              
+
               There was an issue creating the release for v${version}.
-              
+
               Please check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for more details.
-              
+
               You may need to create the release manually or re-run the workflow.`;
             }
 

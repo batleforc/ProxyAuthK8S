@@ -133,6 +133,19 @@ pub async fn redirect(
     if let Some(PeerAddr(addr)) = peer_addr {
         forwarded_req = forwarded_req.header("x-forwarded-for", addr.ip().to_string());
     }
+    if req.query_string().contains("timeout=") {
+        if let Some(timeout_val) = req.query_string().split('&').find_map(|param| {
+            if param.starts_with("timeout=") {
+                Some(param.replace("timeout=", ""))
+            } else {
+                None
+            }
+        }) {
+            if let Ok(timeout_secs) = timeout_val.parse::<u64>() {
+                forwarded_req = forwarded_req.timeout(std::time::Duration::from_secs(timeout_secs));
+            }
+        }
+    }
 
     let res = match forwarded_req.send().await {
         Ok(res) => res,

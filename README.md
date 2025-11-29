@@ -21,3 +21,20 @@ The base specification of the [project can be found here](https://batleforc.gith
 ## Frontend
 
 - [UI LIB](https://maz-ui.com/guide/vue)
+
+## Left to do
+
+### v0.1.0
+
+- [ ] Add Oidc token validation
+
+### v0.2.0
+
+- [ ] Create Krew plugin for easier usage
+  - <https://github.com/davidB/kubectl-view-allocations/tree/master>
+  - <https://github.com/kubernetes-sigs/krew-index/blob/master/plugins/view-allocations.yaml>
+  - name: `proxyauthk8s`
+  - <https://docs.rs/clap/latest/clap/>
+- [ ] Add more tests
+- [ ] Add documentation
+- [ ] Add security features (details later)
