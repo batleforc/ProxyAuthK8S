@@ -51,3 +51,12 @@ kubeconfig.*.yaml
 target
 vite.config.*.timestamp*
 vitest.config.*.timestamp*
+
+## Pre release workflow files
+/commit-report
+/docker-security-report
+/quality-report
+/sbom-reports
+/security-report
+/swagger-report
+/pr_body.md
