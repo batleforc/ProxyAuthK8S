@@ -142,7 +142,8 @@ pub async fn redirect(
             }
         }) {
             if let Ok(timeout_secs) = timeout_val.parse::<u64>() {
-                forwarded_req = forwarded_req.timeout(std::time::Duration::from_secs(timeout_secs));
+                forwarded_req =
+                    forwarded_req.timeout(std::time::Duration::from_secs(timeout_secs + 1));
             }
         }
     }
