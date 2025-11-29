@@ -767,6 +767,194 @@ jobs:
           name: swagger-report
           path: swagger_report.md
 
+  helm-build:
+    name: ⎈ Helm Chart Build & OCI Package
+    runs-on: ubuntu-latest
+    needs: [prepare-release, code-quality-validation]
+    if: needs.code-quality-validation.outputs.backend_quality == 'success'
+    outputs:
+      main_chart_version: ${{ steps.build_charts.outputs.main_chart_version }}
+      crd_chart_version: ${{ steps.build_charts.outputs.crd_chart_version }}
+      main_chart_oci: ${{ steps.build_charts.outputs.main_chart_oci }}
+      crd_chart_oci: ${{ steps.build_charts.outputs.crd_chart_oci }}
+    steps:
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.branch_name }}
+
+      - name: ⎈ Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "latest"
+
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔧 Install Helm plugins
+        run: |
+          helm plugin install https://github.com/chartmuseum/helm-push || true
+          helm plugin install https://github.com/databus23/helm-diff || true
+
+      - name: ⎈ Build, validate and push Helm charts as OCI artifacts
+        id: build_charts
+        run: |
+          echo "## ⎈ Helm Chart Build & OCI Package Report" > helm_report.md
+          echo "" >> helm_report.md
+
+          # Create directory for packaged charts
+          mkdir -p helm-packages
+
+          NEW_VERSION="${{ needs.prepare-release.outputs.new_version }}"
+          REGISTRY="${{ env.REGISTRY }}"
+          REPO_OWNER="${{ github.repository_owner }}"
+
+          # OCI registry paths
+          MAIN_CHART_OCI_PATH="oci://${REGISTRY}/${REPO_OWNER}/proxyauthk8s/helm-proxyauthk8s"
+          CRD_CHART_OCI_PATH="oci://${REGISTRY}/${REPO_OWNER}/proxyauthk8s/helm-proxyauthk8s-crd"
+
+          # Update chart versions
+          echo "### 📈 Version Updates" >> helm_report.md
+
+          # Update main chart version
+          sed -i "s/^version: .*/version: $NEW_VERSION/" deploy/chart/Chart.yaml
+          sed -i "s/^appVersion: .*/appVersion: $NEW_VERSION/" deploy/chart/Chart.yaml
+
+          # Update CRD chart version
+          sed -i "s/^version: .*/version: $NEW_VERSION/" deploy/chart-crd/Chart.yaml
+          sed -i "s/^appVersion: .*/appVersion: $NEW_VERSION/" deploy/chart-crd/Chart.yaml
+
+          echo "✅ Updated chart versions to v$NEW_VERSION" >> helm_report.md
+          echo "" >> helm_report.md
+
+          # Validate and build main chart
+          echo "### 📦 Main Chart (proxyauthk8s)" >> helm_report.md
+
+          # Lint main chart
+          if helm lint deploy/chart/; then
+            echo "✅ Main chart linting passed" >> helm_report.md
+          else
+            echo "❌ Main chart linting failed" >> helm_report.md
+            exit 1
+          fi
+
+          # Template main chart to validate
+          if helm template proxyauthk8s deploy/chart/ > /dev/null; then
+            echo "✅ Main chart templating successful" >> helm_report.md
+          else
+            echo "❌ Main chart templating failed" >> helm_report.md
+            exit 1
+          fi
+
+          # Push main chart as OCI artifact
+          if helm push "$MAIN_CHART_FILE" "$MAIN_CHART_OCI_PATH"; then
+            echo "🚀 Main chart pushed as OCI artifact: ${MAIN_CHART_OCI_PATH}:${NEW_VERSION}" >> helm_report.md
+          else
+            echo "❌ Main chart OCI push failed" >> helm_report.md
+            exit 1
+          fi
+
+          echo "" >> helm_report.md
+
+          # Validate and build CRD chart
+          echo "### 📦 CRD Chart (proxyauthk8s-crd)" >> helm_report.md
+
+          # Lint CRD chart
+          if helm lint deploy/chart-crd/; then
+            echo "✅ CRD chart linting passed" >> helm_report.md
+          else
+            echo "❌ CRD chart linting failed" >> helm_report.md
+            exit 1
+          fi
+
+          # Template CRD chart to validate
+          if helm template proxyauthk8s-crd deploy/chart-crd/ > /dev/null; then
+            echo "✅ CRD chart templating successful" >> helm_report.md
+          else
+            echo "❌ CRD chart templating failed" >> helm_report.md
+            exit 1
+          fi
+
+          # Push CRD chart as OCI artifact
+          if helm push "$CRD_CHART_FILE" "$CRD_CHART_OCI_PATH"; then
+            echo "🚀 CRD chart pushed as OCI artifact: ${CRD_CHART_OCI_PATH}:${NEW_VERSION}" >> helm_report.md
+          else
+            echo "❌ CRD chart OCI push failed" >> helm_report.md
+            exit 1
+          fi
+
+          echo "" >> helm_report.md
+
+          # Generate chart documentation
+          echo "### 📋 Chart Information" >> helm_report.md
+          echo "" >> helm_report.md
+          echo "#### Main Chart Details" >> helm_report.md
+          echo "\`\`\`yaml" >> helm_report.md
+          helm show chart deploy/chart/ >> helm_report.md
+          echo "\`\`\`" >> helm_report.md
+          echo "" >> helm_report.md
+
+          echo "#### CRD Chart Details" >> helm_report.md
+          echo "\`\`\`yaml" >> helm_report.md
+          helm show chart deploy/chart-crd/ >> helm_report.md
+          echo "\`\`\`" >> helm_report.md
+          echo "" >> helm_report.md
+
+          # OCI Artifact information
+          echo "### 🐳 OCI Artifact Information" >> helm_report.md
+          echo "" >> helm_report.md
+          echo "#### Installation Commands" >> helm_report.md
+          echo "\`\`\`bash" >> helm_report.md
+          echo "# Install CRD chart first" >> helm_report.md
+          echo "helm install proxyauthk8s-crd ${CRD_CHART_OCI_PATH}:${NEW_VERSION}" >> helm_report.md
+          echo "" >> helm_report.md
+          echo "# Install main chart" >> helm_report.md
+          echo "helm install proxyauthk8s ${MAIN_CHART_OCI_PATH}:${NEW_VERSION}" >> helm_report.md
+          echo "\`\`\`" >> helm_report.md
+          echo "" >> helm_report.md
+
+          echo "#### Upgrade Commands" >> helm_report.md
+          echo "\`\`\`bash" >> helm_report.md
+          echo "# Upgrade CRD chart" >> helm_report.md
+          echo "helm upgrade proxyauthk8s-crd ${CRD_CHART_OCI_PATH}:${NEW_VERSION}" >> helm_report.md
+          echo "" >> helm_report.md
+          echo "# Upgrade main chart" >> helm_report.md
+          echo "helm upgrade proxyauthk8s ${MAIN_CHART_OCI_PATH}:${NEW_VERSION}" >> helm_report.md
+          echo "\`\`\`" >> helm_report.md
+          echo "" >> helm_report.md
+
+          # Set outputs
+          echo "main_chart_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "crd_chart_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "main_chart_oci=${MAIN_CHART_OCI_PATH}:${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "crd_chart_oci=${CRD_CHART_OCI_PATH}:${NEW_VERSION}" >> $GITHUB_OUTPUT
+
+          # List packaged charts
+          echo "### 📦 Local Packaged Charts" >> helm_report.md
+          echo "" >> helm_report.md
+          for chart in helm-packages/*.tgz; do
+            if [ -f "$chart" ]; then
+              chart_size=$(du -h "$chart" | cut -f1)
+              echo "- 📦 \`$(basename "$chart")\` (${chart_size})" >> helm_report.md
+            fi
+          done
+
+          echo "" >> helm_report.md
+          echo "### 🌐 Published OCI Artifacts" >> helm_report.md
+          echo "" >> helm_report.md
+          echo "- 🎯 **Main Chart**: \`${MAIN_CHART_OCI_PATH}:${NEW_VERSION}\`" >> helm_report.md
+          echo "- 🎯 **CRD Chart**: \`${CRD_CHART_OCI_PATH}:${NEW_VERSION}\`" >> helm_report.md
+
+      - name: 📤 Upload Helm report
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-report
+          path: helm_report.md
+
   version-increment:
     name: 📈 Increment Package Versions
     runs-on: ubuntu-latest
@@ -780,6 +968,7 @@ jobs:
       - docker-build
       - docker-security-scan
       - swagger-validation
+      - helm-build
       - create-pull-request
     if: always() && needs.prepare-release.result == 'success'
     steps:
@@ -838,6 +1027,7 @@ jobs:
       - docker-build
       - docker-security-scan
       - swagger-validation
+      - helm-build
     if: always() && needs.prepare-release.result == 'success'
     steps:
       - name: 🔍 Checkout release branch
@@ -868,6 +1058,7 @@ jobs:
           echo "| 🐳 Docker Build | ${{ needs.docker-build.result == 'success' && '✅ Built' || '❌ Failed' }} |" >> pr_body.md
           echo "| 🔍 Docker Security | ${{ needs.docker-security-scan.result == 'success' && '✅ Scanned' || '❌ Failed' }} |" >> pr_body.md
           echo "| 📋 Swagger Validation | ${{ needs.swagger-validation.result == 'success' && '✅ Validated' || '❌ Failed' }} |" >> pr_body.md
+          echo "| ⎈ Helm Charts | ${{ needs.helm-build.result == 'success' && '✅ Built & Published as OCI' || '❌ Failed' }} |" >> pr_body.md
           echo "" >> pr_body.md
 
           echo "## 📋 Detailed Reports" >> pr_body.md
@@ -899,11 +1090,31 @@ jobs:
             echo "" >> pr_body.md
           fi
 
+          if [ -f "helm-report/helm_report.md" ]; then
+            cat helm-report/helm_report.md >> pr_body.md
+            echo "" >> pr_body.md
+          fi
+
           echo "## 🏗️ Built Artifacts" >> pr_body.md
           echo "" >> pr_body.md
           echo "### Docker Images" >> pr_body.md
           echo "- 🖥️ Server: \`${{ needs.docker-build.outputs.server_image }}\`" >> pr_body.md
           echo "- 🌐 Frontend: \`${{ needs.docker-build.outputs.front_image }}\`" >> pr_body.md
+          echo "" >> pr_body.md
+
+          echo "### ⎈ Helm Charts (OCI Artifacts)" >> pr_body.md
+          echo "- 🎯 Main Chart: \`${{ needs.helm-build.outputs.main_chart_oci }}\`" >> pr_body.md
+          echo "- 🎯 CRD Chart: \`${{ needs.helm-build.outputs.crd_chart_oci }}\`" >> pr_body.md
+          echo "- 📦 Traditional packages available in workflow artifacts" >> pr_body.md
+          echo "" >> pr_body.md
+          echo "#### Installation Commands" >> pr_body.md
+          echo "\`\`\`bash" >> pr_body.md
+          echo "# Install CRD chart first" >> pr_body.md
+          echo "helm install proxyauthk8s-crd ${{ needs.helm-build.outputs.crd_chart_oci }}" >> pr_body.md
+          echo "" >> pr_body.md
+          echo "# Install main chart" >> pr_body.md
+          echo "helm install proxyauthk8s ${{ needs.helm-build.outputs.main_chart_oci }}" >> pr_body.md
+          echo "\`\`\`" >> pr_body.md
           echo "" >> pr_body.md
 
           echo "### 📋 SBOM Reports" >> pr_body.md
@@ -941,6 +1152,7 @@ jobs:
           echo "- 📋 **SBOM Reports**: Software Bill of Materials for Docker images" >> pr_body.md
           echo "- 🐳 **Docker Security Report**: Container vulnerability scan results" >> pr_body.md
           echo "- 📝 **Swagger Report**: API documentation validation" >> pr_body.md
+          echo "- ⎈ **Helm Packages**: Traditional Helm chart packages (.tgz files)" >> pr_body.md
           echo "- 📚 **Changelog**: Generated changelog and release guide" >> pr_body.md
           echo "" >> pr_body.md
 
