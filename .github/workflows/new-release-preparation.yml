@@ -1109,7 +1109,6 @@ jobs:
           echo "### ⎈ Helm Charts (OCI Artifacts)" >> pr_body.md
           echo "- 🎯 Main Chart: \`${{ needs.helm-build.outputs.main_chart_oci }}\`" >> pr_body.md
           echo "- 🎯 CRD Chart: \`${{ needs.helm-build.outputs.crd_chart_oci }}\`" >> pr_body.md
-          echo "- 📦 Traditional packages available in workflow artifacts" >> pr_body.md
           echo "" >> pr_body.md
           echo "#### Installation Commands" >> pr_body.md
           echo "\`\`\`bash" >> pr_body.md
