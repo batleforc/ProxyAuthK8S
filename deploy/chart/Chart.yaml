@@ -1,6 +1,7 @@
 apiVersion: v2
 name: chart
 description: A chart to govern them all
+icon: https://raw.githubusercontent.com/batleforc/ProxyAuthK8S/refs/heads/main/art.png
 
 # A chart can be either an 'application' or a 'library' chart.
 #

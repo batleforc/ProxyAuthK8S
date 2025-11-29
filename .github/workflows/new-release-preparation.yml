@@ -834,6 +834,8 @@ jobs:
           # Validate and build main chart
           echo "### 📦 Main Chart (proxyauthk8s)" >> helm_report.md
 
+          helm dependency build deploy/chart/
+
           # Lint main chart
           if helm lint deploy/chart/; then
             echo "✅ Main chart linting passed" >> helm_report.md
@@ -862,6 +864,8 @@ jobs:
 
           # Validate and build CRD chart
           echo "### 📦 CRD Chart (proxyauthk8s-crd)" >> helm_report.md
+
+          helm dependency build deploy/chart-crd/
 
           # Lint CRD chart
           if helm lint deploy/chart-crd/; then
