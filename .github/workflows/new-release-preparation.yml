@@ -834,8 +834,6 @@ jobs:
           # Validate and build main chart
           echo "### 📦 Main Chart (proxyauthk8s)" >> helm_report.md
 
-          helm dependency build deploy/chart/
-
           # Lint main chart
           if helm lint deploy/chart/; then
             echo "✅ Main chart linting passed" >> helm_report.md
@@ -852,6 +850,15 @@ jobs:
             exit 1
           fi
 
+          # Package main chart
+          if helm package deploy/chart/ -d helm-packages/; then
+            MAIN_CHART_FILE=$(ls helm-packages/chart-*.tgz | head -1)
+            echo "✅ Main chart packaged: $(basename $MAIN_CHART_FILE)" >> helm_report.md
+          else
+            echo "❌ Main chart packaging failed" >> helm_report.md
+            exit 1
+          fi
+
           # Push main chart as OCI artifact
           if helm push "$MAIN_CHART_FILE" "$MAIN_CHART_OCI_PATH"; then
             echo "🚀 Main chart pushed as OCI artifact: ${MAIN_CHART_OCI_PATH}:${NEW_VERSION}" >> helm_report.md
@@ -864,8 +871,6 @@ jobs:
 
           # Validate and build CRD chart
           echo "### 📦 CRD Chart (proxyauthk8s-crd)" >> helm_report.md
-
-          helm dependency build deploy/chart-crd/
 
           # Lint CRD chart
           if helm lint deploy/chart-crd/; then
@@ -880,6 +885,15 @@ jobs:
             echo "✅ CRD chart templating successful" >> helm_report.md
           else
             echo "❌ CRD chart templating failed" >> helm_report.md
+            exit 1
+          fi
+
+          # Package CRD chart
+          if helm package deploy/chart-crd/ -d helm-packages/; then
+            CRD_CHART_FILE=$(ls helm-packages/chart-crd-*.tgz | head -1)
+            echo "✅ CRD chart packaged: $(basename $CRD_CHART_FILE)" >> helm_report.md
+          else
+            echo "❌ CRD chart packaging failed" >> helm_report.md
             exit 1
           fi
 
@@ -952,6 +966,12 @@ jobs:
           echo "" >> helm_report.md
           echo "- 🎯 **Main Chart**: \`${MAIN_CHART_OCI_PATH}:${NEW_VERSION}\`" >> helm_report.md
           echo "- 🎯 **CRD Chart**: \`${CRD_CHART_OCI_PATH}:${NEW_VERSION}\`" >> helm_report.md
+
+      - name: 📤 Upload Helm packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-packages
+          path: helm-packages/*.tgz
 
       - name: 📤 Upload Helm report
         uses: actions/upload-artifact@v4
@@ -1109,6 +1129,7 @@ jobs:
           echo "### ⎈ Helm Charts (OCI Artifacts)" >> pr_body.md
           echo "- 🎯 Main Chart: \`${{ needs.helm-build.outputs.main_chart_oci }}\`" >> pr_body.md
           echo "- 🎯 CRD Chart: \`${{ needs.helm-build.outputs.crd_chart_oci }}\`" >> pr_body.md
+          echo "- 📦 Traditional packages available in workflow artifacts" >> pr_body.md
           echo "" >> pr_body.md
           echo "#### Installation Commands" >> pr_body.md
           echo "\`\`\`bash" >> pr_body.md
