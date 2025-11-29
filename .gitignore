@@ -60,3 +60,5 @@ vitest.config.*.timestamp*
 /security-report
 /swagger-report
 /pr_body.md
+/helm-report
+/helm-packages
