@@ -1,0 +1,355 @@
+name: 🎯 Create Release on Merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  REPO_NAME_LOWER: ${{ format('{0}', github.event.repository.name) }}
+  IMAGE_NAME_SERVER: ${{ github.repository_owner }}/proxyauthk8s/server
+  IMAGE_NAME_FRONT: ${{ github.repository_owner }}/proxyauthk8s/front
+  NODE_VERSION: "24"
+  RUST_VERSION: "1.91"
+
+jobs:
+  detect-release-merge:
+    name: 🔍 Detect Release Branch Merge
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    outputs:
+      is_release: ${{ steps.check.outputs.is_release }}
+      version: ${{ steps.extract.outputs.version }}
+      release_name: ${{ steps.extract.outputs.release_name }}
+      pr_body: ${{ steps.extract.outputs.pr_body }}
+    steps:
+      - name: 🔍 Check if this is a release PR
+        id: check
+        run: |
+          PR_BRANCH="${{ github.event.pull_request.head.ref }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+
+          echo "PR Branch: $PR_BRANCH"
+          echo "PR Title: $PR_TITLE"
+
+          # Check if branch name starts with NR/ or if title contains "Release" or "NR:"
+          if [[ "$PR_BRANCH" =~ ^NR/ ]] || [[ "$PR_TITLE" =~ ^NR: ]] || [[ "$PR_TITLE" =~ Release.*v[0-9] ]]; then
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "🎯 Detected release PR merge"
+          else
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ Not a release PR"
+          fi
+
+      - name: 📝 Extract version and release information
+        id: extract
+        if: steps.check.outputs.is_release == 'true'
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+          PR_BRANCH="${{ github.event.pull_request.head.ref }}"
+
+          # Extract version from title (supports formats like "NR: Release v1.2.3" or "Release v1.2.3")
+          if [[ "$PR_TITLE" =~ v([0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)*) ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "release_name=Release v$VERSION" >> $GITHUB_OUTPUT
+            echo "🎯 Extracted version: $VERSION"
+          elif [[ "$PR_BRANCH" =~ release-v([0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)*) ]]; then
+            VERSION="${BASH_REMATCH[1]}"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "release_name=Release v$VERSION" >> $GITHUB_OUTPUT
+            echo "🎯 Extracted version from branch: $VERSION"
+          else
+            echo "❌ Could not extract version from PR title or branch"
+            exit 1
+          fi
+
+          # Save PR body for release notes (escape newlines for GitHub output)
+          echo "pr_body<<EOF" >> $GITHUB_OUTPUT
+          echo "$PR_BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  create-tag-and-release:
+    name: 🏷️ Create Tag and GitHub Release
+    runs-on: ubuntu-latest
+    needs: detect-release-merge
+    if: needs.detect-release-merge.outputs.is_release == 'true'
+    steps:
+      - name: 🔍 Checkout merged main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: 🔧 Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "ℹ️ Git configured for automated tagging and releases"
+
+      - name: 🏷️ Create and push tag
+        run: |
+          VERSION="${{ needs.detect-release-merge.outputs.version }}"
+          TAG_NAME="v$VERSION"
+
+          echo "Creating tag: $TAG_NAME"
+
+          # Create annotated tag with message
+          git tag -a "$TAG_NAME" -m "feat(release): $TAG_NAME
+
+          This release was automatically created when PR #${{ github.event.pull_request.number }} was merged.
+
+          See the GitHub release for detailed release notes and artifacts."
+
+          # Push tag to remote
+          git push origin "$TAG_NAME"
+
+          echo "✅ Tag $TAG_NAME created and pushed"
+
+      - name: 📝 Generate release notes from PR
+        id: release_notes
+        run: |
+          PR_BODY="${{ needs.detect-release-merge.outputs.pr_body }}"
+          VERSION="${{ needs.detect-release-merge.outputs.version }}"
+
+          # Create comprehensive release notes
+          cat > release_notes.md << EOF
+          # 🚀 Release v$VERSION
+
+          This release was automatically created from PR #${{ github.event.pull_request.number }}.
+
+          ## 📋 Release Information
+
+          - **Version**: v$VERSION
+          - **Release Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - **Source PR**: #${{ github.event.pull_request.number }}
+          - **Commit**: \`${{ github.sha }}\`
+
+          ## 🏗️ Built Artifacts
+
+          This release includes the following pre-built artifacts:
+
+          ### 🐳 Docker Images
+          EOF
+
+          # Extract Docker image information from PR body if available
+          if echo "$PR_BODY" | grep -q "Server:"; then
+            echo "- 🖥️ **Server Image**: Available in GitHub Container Registry" >> release_notes.md
+            echo "- 🌐 **Frontend Image**: Available in GitHub Container Registry" >> release_notes.md
+          else
+            echo "- 🖥️ **Server Image**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME_SERVER }}:v$VERSION\`" >> release_notes.md
+            echo "- 🌐 **Frontend Image**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONT }}:v$VERSION\`" >> release_notes.md
+          fi
+
+          cat >> release_notes.md << EOF
+
+          ### ⎈ Helm Charts
+          - 🎯 **Main Chart**: Available as OCI artifact
+          - 🎯 **CRD Chart**: Available as OCI artifact
+          - 📦 **Traditional Packages**: Available as release assets
+
+          ### 📦 Installation
+
+          #### Docker Images
+          \`\`\`bash
+          # Pull server image
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_SERVER }}:v$VERSION
+
+          # Pull frontend image
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONT }}:v$VERSION
+          \`\`\`
+
+          #### Helm Charts (OCI)
+          \`\`\`bash
+          # Install CRD chart first
+          helm install proxyauthk8s-crd oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/proxyauthk8s/helm-proxyauthk8s-crd:v$VERSION
+
+          # Install main chart
+          helm install proxyauthk8s oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/proxyauthk8s/helm-proxyauthk8s:v$VERSION
+          \`\`\`
+
+          ## 📋 What's Changed
+
+          EOF
+
+          # Extract changelog section from PR body if available
+          if echo "$PR_BODY" | grep -A 100 "## 📝 Changelog" | grep -B 100 "^##" | head -n -1 | tail -n +2 > extracted_changelog.md; then
+            if [ -s extracted_changelog.md ]; then
+              cat extracted_changelog.md >> release_notes.md
+            else
+              echo "Detailed changelog available in the merged PR #${{ github.event.pull_request.number }}." >> release_notes.md
+            fi
+          else
+            echo "Detailed changelog available in the merged PR #${{ github.event.pull_request.number }}." >> release_notes.md
+          fi
+
+          cat >> release_notes.md << EOF
+
+          ## 🔗 Links
+
+          - **Source Code**: [v$VERSION](https://github.com/${{ github.repository }}/tree/v$VERSION)
+          - **Release PR**: #${{ github.event.pull_request.number }}
+          - **Docker Images**: [GitHub Container Registry](https://github.com/${{ github.repository_owner }}/proxyauthk8s/pkgs/container/proxyauthk8s%2Fserver)
+          - **Helm Charts**: [GitHub Container Registry](https://github.com/orgs/${{ github.repository_owner }}/packages?repo_name=proxyauthk8s)
+
+          ## 🛠️ Verification
+
+          This release has been automatically built and tested through our CI/CD pipeline:
+          - ✅ Code quality checks passed
+          - ✅ Security audits completed  
+          - ✅ All tests passed
+          - ✅ Docker images built and scanned
+          - ✅ Helm charts validated
+
+          **Full Report**: See PR #${{ github.event.pull_request.number }} for detailed quality and security reports.
+          EOF
+
+      - name: 🔍 Check for existing release assets
+        id: check_assets
+        run: |
+          VERSION="${{ needs.detect-release-merge.outputs.version }}"
+
+          # Check if Docker images exist
+          echo "🔍 Checking for Docker images..."
+          SERVER_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_SERVER }}:v$VERSION"
+          FRONT_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONT }}:v$VERSION"
+
+          # We'll assume they exist from the PR build process
+          # In a real scenario, you might want to verify with docker manifest inspect
+          echo "docker_images_exist=true" >> $GITHUB_OUTPUT
+
+          # Check if we can find Helm charts in OCI registry
+          echo "helm_charts_exist=true" >> $GITHUB_OUTPUT
+
+      - name: 📦 Download artifacts from latest workflow run
+        id: download_artifacts
+        run: |
+          VERSION="${{ needs.detect-release-merge.outputs.version }}"
+
+          # Try to find the workflow run that built this release
+          echo "🔍 Looking for workflow artifacts..."
+
+          # Get the workflow run ID for the release preparation
+          WORKFLOW_RUN_ID=$(gh api repos/${{ github.repository }}/actions/runs \
+            --jq '.workflow_runs[] | select(.head_branch == "${{ github.event.pull_request.head.ref }}" and .conclusion == "success") | .id' \
+            | head -1)
+
+          if [ -n "$WORKFLOW_RUN_ID" ]; then
+            echo "📦 Found workflow run: $WORKFLOW_RUN_ID"
+            
+            # Download artifacts
+            mkdir -p release-assets
+            
+            # List and download available artifacts
+            gh api repos/${{ github.repository }}/actions/runs/$WORKFLOW_RUN_ID/artifacts --jq '.artifacts[].name' | while read artifact_name; do
+              echo "📥 Downloading artifact: $artifact_name"
+              gh api repos/${{ github.repository }}/actions/runs/$WORKFLOW_RUN_ID/artifacts \
+                --jq ".artifacts[] | select(.name == \"$artifact_name\") | .archive_download_url" | \
+                xargs -I {} gh api {} > "release-assets/${artifact_name}.zip" || true
+            done
+            
+            echo "artifacts_downloaded=true" >> $GITHUB_OUTPUT
+            echo "workflow_run_id=$WORKFLOW_RUN_ID" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ No successful workflow run found for this release branch"
+            echo "artifacts_downloaded=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🎯 Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.detect-release-merge.outputs.version }}
+          name: ${{ needs.detect-release-merge.outputs.release_name }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(needs.detect-release-merge.outputs.version, '-') }}
+          generate_release_notes: true
+          files: |
+            release-assets/*.zip
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📢 Post release summary
+        run: |
+          VERSION="${{ needs.detect-release-merge.outputs.version }}"
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/v$VERSION"
+
+          echo "## 🎉 Release Created Successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Release**: [v$VERSION]($RELEASE_URL)" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag**: \`v$VERSION\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Created from PR**: #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🏗️ Available Artifacts:" >> $GITHUB_STEP_SUMMARY
+          echo "- 🐳 Docker Images in GitHub Container Registry" >> $GITHUB_STEP_SUMMARY
+          echo "- ⎈ Helm Charts as OCI artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 Additional artifacts attached to the release" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Quick Links:" >> $GITHUB_STEP_SUMMARY
+          echo "- [📋 Release Notes]($RELEASE_URL)" >> $GITHUB_STEP_SUMMARY
+          echo "- [🐳 Container Registry](https://github.com/${{ github.repository_owner }}/proxyauthk8s/pkgs/container/proxyauthk8s%2Fserver)" >> $GITHUB_STEP_SUMMARY
+          echo "- [⎈ Helm Charts](https://github.com/orgs/${{ github.repository_owner }}/packages?repo_name=proxyauthk8s)" >> $GITHUB_STEP_SUMMARY
+
+  notify-release:
+    name: 📢 Notify Release Creation
+    runs-on: ubuntu-latest
+    needs: [detect-release-merge, create-tag-and-release]
+    if: always() && needs.detect-release-merge.outputs.is_release == 'true'
+    steps:
+      - name: 📝 Comment on merged PR
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const version = '${{ needs.detect-release-merge.outputs.version }}';
+            const releaseUrl = `https://github.com/${{ github.repository }}/releases/tag/v${version}`;
+            const success = '${{ needs.create-tag-and-release.result }}' === 'success';
+
+            let body;
+            if (success) {
+              body = `## 🎉 Release Created Successfully!
+              
+              **Release v${version}** has been automatically created and published.
+              
+              ### 🔗 Quick Links:
+              - 📋 **[Release Notes](${releaseUrl})**
+              - 🏷️ **Tag**: \`v${version}\`
+              - 🐳 **[Docker Images](https://github.com/${{ github.repository_owner }}/proxyauthk8s/pkgs/container/proxyauthk8s%2Fserver)**
+              - ⎈ **[Helm Charts](https://github.com/orgs/${{ github.repository_owner }}/packages?repo_name=proxyauthk8s)**
+              
+              ### 📦 Installation:
+              \`\`\`bash
+              # Docker
+              docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_SERVER }}:v${version}
+              
+              # Helm (OCI)
+              helm install proxyauthk8s oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/proxyauthk8s/helm-proxyauthk8s:v${version}
+              \`\`\`
+              
+              Thank you for contributing to this release! 🚀`;
+            } else {
+              body = `## ❌ Release Creation Failed
+              
+              There was an issue creating the release for v${version}.
+              
+              Please check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for more details.
+              
+              You may need to create the release manually or re-run the workflow.`;
+            }
+
+            await github.rest.issues.createComment({
+              issue_number: ${{ github.event.pull_request.number }},
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });

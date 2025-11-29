@@ -418,8 +418,20 @@ jobs:
           2. 🔍 Review PR description and reports
           3. 👥 Request code review from team
           4. 🚀 Merge PR when approved
-          5. 🏷️ Create GitHub release from merged commit
+          5. 🤖 **Automatic**: Tag and GitHub release will be created automatically
           6. 📢 Announce release to stakeholders
+
+          ## 🤖 Automatic Release Creation
+
+          When this PR is merged to main:
+          - 🏷️ A git tag \`vX.Y.Z\` will be automatically created
+          - 📋 A GitHub release will be published with:
+            - 📝 Release notes generated from this PR
+            - 🔗 Links to Docker images and Helm charts
+            - 📦 Downloadable artifacts (SBOM, reports, etc.)
+          - 💬 A comment will be added to this PR confirming the release
+
+          **No manual intervention required** - the \`create-release-on-merge.yml\` workflow handles everything!
           EOF
 
           # Only commit the main CHANGELOG.md to repository
@@ -1167,6 +1179,16 @@ jobs:
             echo "" >> pr_body.md
           fi
 
+          echo "## 🤖 Automatic Release Creation" >> pr_body.md
+          echo "" >> pr_body.md
+          echo "When this PR is merged, the following will happen automatically:" >> pr_body.md
+          echo "- 🏷️ **Git Tag**: A tag \`v${{ needs.prepare-release.outputs.new_version }}\` will be created" >> pr_body.md
+          echo "- 📋 **GitHub Release**: A release will be published with comprehensive notes" >> pr_body.md
+          echo "- 💬 **PR Comment**: A confirmation comment will be added to this PR" >> pr_body.md
+          echo "- 🔗 **Asset Links**: Direct links to Docker images and Helm charts" >> pr_body.md
+          echo "" >> pr_body.md
+          echo "**No manual intervention required!** The \`create-release-on-merge.yml\` workflow handles everything." >> pr_body.md
+          echo "" >> pr_body.md
           echo "## 📎 Workflow Artifacts" >> pr_body.md
           echo "" >> pr_body.md
           echo "All detailed reports and SBOM files are available as downloadable artifacts:" >> pr_body.md
