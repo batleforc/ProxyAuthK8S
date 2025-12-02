@@ -15,24 +15,6 @@
     "version": "0.1.0"
   },
   "paths": {
-    "//health": {
-      "get": {
-        "tags": [
-          "health"
-        ],
-        "summary": "Base path just to answer if the server is up and running.",
-        "description": "This is also used for health checks.",
-        "operationId": "health",
-        "responses": {
-          "200": {
-            "description": "Nothing"
-          },
-          "500": {
-            "description": "Internal server error."
-          }
-        }
-      }
-    },
     "/api/v1/clusters": {
       "get": {
         "tags": [
@@ -399,6 +381,24 @@
           },
           "404": {
             "description": "Cluster not found or disabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
+    "/management/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Base path just to answer if the server is up and running.",
+        "description": "This is also used for health checks.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Nothing"
           },
           "500": {
             "description": "Internal server error."

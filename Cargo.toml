@@ -10,6 +10,7 @@ members = [
 	'libs/api',
 	'libs/controller',
 	'libs/common',
+	'apps/kubectl_proxyauth',
 ]
 
 [workspace.dependencies]
@@ -26,12 +27,12 @@ serde_json = '1'
 serde_yaml = '0.9'
 tracing = { version = '0.1', features = ['std'] }
 kube = { version = '2', features = ['derive', 'runtime', 'client'] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = '0.12', features = ['json', 'rustls-tls', 'stream'] }
 schemars = { version = '1' }
 futures = '0.3'
-futures-util = "0.3"
+futures-util = '0.3'
 chrono = { version = '0.4', features = ['serde'] }
-deadpool-redis = { version = "0.22", features = ["serde"] }
+deadpool-redis = { version = '0.22', features = ['serde'] }
 opentelemetry = { version = '0.31', features = ['trace', 'metrics', 'logs'] }
 opentelemetry_sdk = { version = '0.31', features = [
 	'trace',
@@ -53,9 +54,9 @@ tracing-subscriber = { version = '0.3', features = [
 	'fmt',
 ] }
 tracing-opentelemetry = { version = '0.32.0' }
-rustls = { version = "0.23", features = ["ring"], default-features = false }
-openidconnect = "4.0.1"
-thiserror = { version = "2" }
+rustls = { version = '0.23', features = ['ring'], default-features = false }
+openidconnect = '4.0.1'
+thiserror = { version = '2' }
 
 [profile.release]
 lto = true

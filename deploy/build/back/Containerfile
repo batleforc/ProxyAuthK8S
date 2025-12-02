@@ -12,7 +12,8 @@ RUN mkdir -p libs/api/src && \
   mkdir -p libs/controller/src && \
   mkdir -p apps/server/src && \
   mkdir -p apps/crdgen/src && \
-  mkdir -p apps/swaggergen/src
+  mkdir -p apps/swaggergen/src && \
+  mkdir -p apps/kubectl_proxyauth/src
 
 # Copy Cargo.toml files
 COPY Cargo.toml .
@@ -24,6 +25,7 @@ COPY libs/controller/Cargo.toml libs/controller/Cargo.toml
 COPY apps/server/Cargo.toml apps/server/Cargo.toml
 COPY apps/crdgen/Cargo.toml apps/crdgen/Cargo.toml
 COPY apps/swaggergen/Cargo.toml apps/swaggergen/Cargo.toml
+COPY apps/kubectl_proxyauth/Cargo.toml apps/kubectl_proxyauth/Cargo.toml
 COPY .cargo .
 
 # Create dummy file.rs files to allow cargo to make cache
@@ -34,7 +36,8 @@ RUN echo "fn main() {}" > libs/api/src/lib.rs && \
   echo "fn main() {}" > libs/controller/src/lib.rs && \
   echo "fn main() {}" > apps/server/src/main.rs && \
   echo "fn main() {}" > apps/crdgen/src/main.rs && \
-  echo "fn main() {}" > apps/swaggergen/src/main.rs
+  echo "fn main() {}" > apps/swaggergen/src/main.rs && \
+  echo "fn main() {}" > apps/kubectl_proxyauth/src/main.rs
 
 ## Build dependencies
 RUN cargo build --release --workspace
@@ -50,7 +53,8 @@ RUN touch apps/server/src/main.rs && \
   cargo build --release --workspace && \
   strip dist/target/release/server && \
   strip dist/target/release/crdgen && \
-  strip dist/target/release/swaggergen
+  strip dist/target/release/swaggergen && \
+  strip dist/target/release/kubectl_proxyauth
 
 # Final stage
 FROM registry.hub.docker.com/library/alpine:3.22
@@ -62,6 +66,7 @@ WORKDIR /app
 COPY --from=build_back /app/dist/target/release/server /app/server
 COPY --from=build_back /app/dist/target/release/crdgen /app/crdgen
 COPY --from=build_back /app/dist/target/release/swaggergen /app/swaggergen
+COPY --from=build_back /app/dist/target/release/kubectl_proxyauth /app/kubectl-proxyauth
 
 EXPOSE 5437
 

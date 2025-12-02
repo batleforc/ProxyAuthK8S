@@ -37,4 +37,16 @@ The base specification of the [project can be found here](https://batleforc.gith
   - <https://docs.rs/clap/latest/clap/>
 - [ ] Add more tests
 - [ ] Add documentation
+  - [ ] How to Deploy ProxyAuthK8s
+  - [ ] How to use Kubectl ProxyAuth plugin
+  - [ ] How to use the UI
+  - [ ] How to add new Kubernetes API to ProxyAuthK8S
+  - [ ] Architecture overview
+  - [ ] API documentation
+  - [ ] How to contribute
+  - [ ] How to setup development environment
 - [ ] Add security features (details later)
+
+### v0.3.0
+
+- [ ] Setup Exchange token between IdP and ProxyAuthK8S main auth server

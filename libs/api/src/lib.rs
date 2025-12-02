@@ -45,7 +45,7 @@ pub fn gen_openapi() -> OpenApiType {
     let (_, api) = App::new()
         .into_utoipa_app()
         .openapi(api_doc.clone())
-        .service(scope("/").configure(init_base_api()))
+        .service(scope("/management").configure(init_base_api()))
         .service(scope("/api/v1").configure(init_api()))
         .service(scope("/clusters").configure(init_cluster_api()))
         .split_for_parts();
