@@ -5,7 +5,19 @@ edition = "2021"
 
 
 [dependencies]
-clap = "4.5.53"
+clap = { version = "4.5.53", features = ["derive"] }
 
+k8s-openapi = { workspace = true }
+kube = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+serde_json = { workspace = true }
+keyring = { version = "3", features = [
+  "linux-native",
+  "apple-native",
+  "windows-native",
+  "sync-secret-service",
+] }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

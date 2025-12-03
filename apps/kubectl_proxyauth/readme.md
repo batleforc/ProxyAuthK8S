@@ -15,6 +15,7 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
   - `--kubeconfig (-k) <path>` : Optionally specify a kubeconfig file to use for authentication.
   - `--verbose (-v)` : Enable verbose logging for debugging purposes.
   - `--proxyauth-url <url>` : Optionally specify the ProxyAuthK8s service URL, if not provided will use the value from the config file or default to `http://localhost:8080`.
+  - `--format (-f) <format>` : Specify the output format (e.g., json, yaml, table). Default is `table`.
 - **Cluster Management**:
   - `get`
     - `<cluster-name>` : Retrieves details of the specified cluster.
@@ -32,7 +33,7 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
   - `ctx`
     - `<cluster-name>` : Switches the current context to the specified cluster.
     - Output the current context if no cluster name is provided.
-  - `list` : Lists all available contexts, and which one come from ProxyAuthK8s or are active.
+    - `list` : Lists all available contexts, and which one come from ProxyAuthK8s or are active.
 - **Help Command**: A `--help` flag will be available to provide users with information about the plugin's commands and usage.
 - **Error Handling**: The plugin will handle errors gracefully, providing meaningful messages to the user in case of authentication failures or other issues.
   - Each error needs to have a unique ID for easier troubleshooting

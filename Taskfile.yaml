@@ -95,3 +95,9 @@ tasks:
       - task gen:crds > deploy/chart-crd/templates/crds.yaml
       - task gen:swagger > swagger.json
       - task gen:api-client
+
+  cli:
+    desc: "Run kubectl_proxyauth with args"
+    silent: true
+    cmds:
+      - cargo run --bin kubectl_proxyauth -- {{ .CLI_ARGS }}

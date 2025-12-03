@@ -7,9 +7,11 @@
     "finalizer",
     "forwardauth",
     "healthcheck",
+    "kubeconfig",
     "openidconnect",
     "PGID",
     "Pkce",
+    "proxyk8sauth",
     "proxykubeapis",
     "proxys",
     "PUID",
@@ -19,8 +21,7 @@
     "thiserror",
     "traefik",
     "utoipa",
-    "weebo",
-    "proxyk8sauth"
+    "weebo"
   ],
   "task": {
     "outputTo": "terminal"
