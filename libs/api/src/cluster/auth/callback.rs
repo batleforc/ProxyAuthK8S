@@ -31,6 +31,7 @@ pub struct CallbackQuery {
         ("ns" = String, description = "Namespace"),
         ("cluster" = String, description = "Cluster name"),
         ("x-front-callback" = String, Header, nullable, description = "If it's from the frontend, this header will be set."),
+        ("x-kubectl-callback" = String, Header, nullable, description = "If it's from kubectl plugin, this header will be set."),
         CallbackQuery,
     )
 )]
@@ -78,13 +79,19 @@ pub async fn callback_login(
         return HttpResponse::NotFound().finish();
     }
     let redirect_front = req.headers().contains_key("x-front-callback");
-    let oidc_conf = match proxy.get_oidc_conf(data.clone().into_inner(), redirect_front) {
-        Some(conf) => conf,
-        None => {
-            error!("OIDC config not found");
-            return HttpResponse::InternalServerError().finish();
-        }
-    };
+    let redirect_kubectl = req
+        .headers()
+        .get("x-kubectl-callback")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let oidc_conf =
+        match proxy.get_oidc_conf(data.clone().into_inner(), redirect_front, redirect_kubectl) {
+            Some(conf) => conf,
+            None => {
+                error!("OIDC config not found or invalid");
+                return HttpResponse::InternalServerError().finish();
+            }
+        };
     let client_reqwest = oidc_conf.get_reqwest_client();
     let client_oidc = match oidc_conf.get_oidc_core().await {
         Ok(client) => client,

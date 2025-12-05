@@ -61,6 +61,10 @@ export type CallbackLoginData = {
          * If it's from the frontend, this header will be set.
          */
         'x-front-callback': string | null;
+        /**
+         * If it's from kubectl plugin, this header will be set.
+         */
+        'x-kubectl-callback': string | null;
     };
     path: {
         /**
@@ -112,6 +116,10 @@ export type ClusterLoginData = {
          * If it's from the frontend, this header will be set.
          */
         'x-front-callback': string | null;
+        /**
+         * If it's from kubectl plugin, this header will be set.
+         */
+        'x-kubectl-callback': string | null;
     };
     path: {
         /**

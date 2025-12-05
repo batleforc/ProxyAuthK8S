@@ -1,6 +1,6 @@
 # Kubectl ProxyAuth
 
-A `Kubectl` plugin to easen the burden of authenticating against multiple Kubernetes Cluster Apis through the ProxyAuthK8s service.
+A `Kubectl` plugin to ease the burden of authenticating against multiple Kubernetes Cluster Apis through the ProxyAuthK8s service.
 
 This document is only meant to describe the functionality of the plugin that needs to be developed.
 
@@ -11,7 +11,7 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
 ## Features
 
 - **Default Parameters**: The plugin will use default parameters for the ProxyAuthK8s service, which can be overridden by user-provided configurations or environment variables.
-  - `--namespace (-n) <namespace>` : Optionally specify a namespace to filter clusters, if none see only default ns one, if none readable in ns, send a no ressource allowed in this ns.
+  - `--namespace (-n) <namespace>` : Optionally specify a namespace to filter clusters, if none see only default ns one, if none readable in ns, send a no resource allowed in this ns.
   - `--kubeconfig (-k) <path>` : Optionally specify a kubeconfig file to use for authentication.
   - `--verbose (-v)` : Enable verbose logging for debugging purposes.
   - `--proxyauth-url <url>` : Optionally specify the ProxyAuthK8s service URL, if not provided will use the value from the config file or default to `http://localhost:8080`.
@@ -42,3 +42,13 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
   - Works with existing kubeconfig files or targeted ones.
   - The token cache will be handled like [Kubelogin](https://github.com/int128/kubelogin/blob/master/docs/usage.md#token-cache) has much as possible. [Rust keyring](https://crates.io/crates/keyring) can be used to store tokens in the keyring like kubelogin.
   - Another config file will be used to store where the ProxyAuthK8s service is located, and other plugin specific settings.
+
+## Useful Links
+
+- [Kubectl Plugin Development Guide](https://kubernetes.io/docs/tasks/extend-kubectl/kubectl-plugins/)
+- [Krew example manifest in rust - view allocations](https://github.com/kubernetes-sigs/krew-index/blob/master/plugins/view-allocations.yaml)
+- [Krew - Developer Guide](https://krew.sigs.k8s.io/docs/developer-guide/develop/plugin-development/)
+- [Kubeconfig - Exec Config](https://kubernetes.io/docs/reference/config-api/kubeconfig.v1/#ExecConfig)
+- [Kubectl - Exec Credential Spec v1](https://kubernetes.io/docs/reference/config-api/client-authentication.v1/#client-authentication-k8s-io-v1-ExecCredentialSpec)
+- [Kubelogin - Best oidc plugin](https://github.com/int128/kubelogin)
+- [Kubelogin - Token Cache](https://github.com/int128/kubelogin/blob/master/docs/usage.md#token-cache)

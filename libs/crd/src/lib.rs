@@ -5,6 +5,7 @@ use certificate::CertSource;
 use common::State;
 use default::default_enabled;
 use kube::{CustomResource, ResourceExt};
+use reqwest::Url;
 use schemars::JsonSchema;
 use security::SecurityConfiguration;
 use serde::{Deserialize, Serialize};
@@ -160,13 +161,21 @@ impl ProxyKubeApi {
             Err(err) => Err(err.to_string()),
         }
     }
-    pub fn get_redirect_oidc_url(&self, state: Arc<State>, redirect_front: bool) -> String {
+    pub fn get_redirect_oidc_url(
+        &self,
+        state: Arc<State>,
+        redirect_front: bool,
+        redirect_kubectl: Option<String>,
+    ) -> String {
         if redirect_front {
             return format!(
                 "{}/auth/callback/{}",
                 state.oidc_front_redirect_base_url,
                 self.to_path()
             );
+        }
+        if let Some(kubectl_redirect) = redirect_kubectl {
+            return format!("{}/auth/callback/{}", kubectl_redirect, self.to_path());
         }
         format!(
             "{}/clusters/{}/auth/callback",
@@ -178,7 +187,27 @@ impl ProxyKubeApi {
         &self,
         state: Arc<State>,
         redirect_front: bool,
+        redirect_kubectl: Option<String>,
     ) -> Option<common::oidc_conf::OidcConf> {
+        if let Some(redirect_kubectl_uri) = redirect_kubectl.clone() {
+            // Validate the redirect uri
+            // The uri need to be have no path, no query and no fragment
+            let parsed_uri = match Url::parse(&redirect_kubectl_uri) {
+                Ok(uri) => uri,
+                Err(_) => {
+                    tracing::error!("Invalid redirect uri: {}", redirect_kubectl_uri);
+                    return None;
+                }
+            };
+            if parsed_uri.path() != "/"
+                || parsed_uri.query().is_some()
+                || parsed_uri.fragment().is_some()
+            {
+                tracing::error!("Invalid redirect uri: {}", redirect_kubectl_uri);
+                return None;
+            }
+            tracing::info!("Valid redirect uri: {}", redirect_kubectl_uri);
+        }
         match &self.spec.auth_config {
             Some(auth_config) => {
                 if auth_config.oidc_provider.enabled {
@@ -188,7 +217,11 @@ impl ProxyKubeApi {
                         issuer_url: auth_config.oidc_provider.issuer_url.clone(),
                         scopes: auth_config.oidc_provider.extra_scope.clone(),
                         audience: auth_config.oidc_provider.client_id.clone(),
-                        redirect_url: Some(self.get_redirect_oidc_url(state, redirect_front)),
+                        redirect_url: Some(self.get_redirect_oidc_url(
+                            state,
+                            redirect_front,
+                            redirect_kubectl,
+                        )),
                     });
                 }
                 None

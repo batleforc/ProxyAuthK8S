@@ -88,6 +88,18 @@
             }
           },
           {
+            "name": "x-kubectl-callback",
+            "in": "header",
+            "description": "If it's from kubectl plugin, this header will be set.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
             "name": "code",
             "in": "query",
             "description": "Authorization code from the OIDC provider",
@@ -157,6 +169,18 @@
             "name": "x-front-callback",
             "in": "header",
             "description": "If it's from the frontend, this header will be set.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "x-kubectl-callback",
+            "in": "header",
+            "description": "If it's from kubectl plugin, this header will be set.",
             "required": true,
             "schema": {
               "type": [

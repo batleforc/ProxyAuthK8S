@@ -2,13 +2,16 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
+pub mod ctx;
+pub mod error;
+
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Cli {
     /// Namespace to search within
     /// If not provided, uses the default namespace
-    #[arg(short, long, value_name = "NAMESPACE")]
-    namespace: Option<String>,
+    #[arg(short, long, value_name = "NAMESPACE", default_value = "default")]
+    namespace: String,
 
     /// Path to the kubeconfig file
     /// If not provided, uses the default kubeconfig location
@@ -88,5 +91,16 @@ fn main() {
         2 => println!("Debug mode is on"),
         _ => println!("Don't be crazy"),
     }
-    println!("Hello, world! {:?}", cli);
+    // Detect if command is summoned through kubectl or not
+    let is_kubectl = std::env::args().next().map_or(false, |arg0| {
+        PathBuf::from(arg0)
+            .file_stem()
+            .map_or(false, |stem| stem == "kubectl")
+    });
+    if is_kubectl {
+        println!("Running as kubectl plugin");
+    } else {
+        println!("Running as standalone application");
+    }
+    println!("{:#?}", cli);
 }

@@ -24,6 +24,7 @@ use crate::{cluster::auth::auth_model::LoginToCallBackModel, model::user::User};
         ("ns" = String, description = "Namespace"),
         ("cluster" = String, description = "Cluster name"),
         ("x-front-callback" = String, Header, nullable, description = "If it's from the frontend, this header will be set."),
+        ("x-kubectl-callback" = String, Header, nullable, description = "If it's from kubectl plugin, this header will be set."),
     )
 )]
 #[get("/{ns}/{cluster}/auth/login")]
@@ -66,7 +67,11 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>, user: User)
         return HttpResponse::NotFound().finish();
     }
     let redirect_front = req.headers().contains_key("x-front-callback");
-    let oidc_conf = match proxy.get_oidc_conf(data.into_inner(), redirect_front) {
+    let redirect_kubectl = req
+        .headers()
+        .get("x-kubectl-callback")
+        .map(|v| v.to_str().unwrap_or_default().to_string());
+    let oidc_conf = match proxy.get_oidc_conf(data.into_inner(), redirect_front, redirect_kubectl) {
         Some(conf) => conf,
         None => {
             error!("OIDC config not found");
