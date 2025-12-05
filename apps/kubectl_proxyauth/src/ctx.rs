@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use cli_trace::level::VerboseLevel;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ProxyAuthK8sError;
@@ -8,9 +9,11 @@ use crate::error::ProxyAuthK8sError;
 pub struct CliCtx {
     pub namespace: String,
     pub kubeconfig: PathBuf,
+    pub context: Option<String>,
     pub verbose: Option<u8>,
     pub server_url: String,
     pub format: String,
+    pub invoked_from_kubectl: bool,
 }
 
 impl From<super::Cli> for CliCtx {
@@ -32,12 +35,19 @@ impl From<super::Cli> for CliCtx {
                 ))
             );
         }
+        let invoked_from_kubectl = std::env::args().next().map_or(false, |arg0| {
+            PathBuf::from(arg0)
+                .file_stem()
+                .map_or(false, |stem| stem == "kubectl")
+        });
         CliCtx {
             namespace: cli.namespace,
             kubeconfig: kubeconfig_path,
+            context: cli.context,
             verbose: cli.verbose,
             server_url: cli.server_url,
             format: cli.format,
+            invoked_from_kubectl,
         }
     }
 }
@@ -55,6 +65,15 @@ impl CliCtx {
             } else {
                 None
             }
+        }
+    }
+
+    pub fn to_tracing_verbose_level(&self) -> VerboseLevel {
+        match self.verbose.unwrap_or(0) {
+            0 => VerboseLevel::INFO,
+            1 => VerboseLevel::DEBUG,
+            2 => VerboseLevel::TRACE,
+            _ => VerboseLevel::TRACE,
         }
     }
 }

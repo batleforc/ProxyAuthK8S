@@ -2,15 +2,16 @@
 [workspace]
 resolver = '2'
 members = [
-	'libs/crd',
-	'apps/server',
-	'libs/trace',
-	'apps/crdgen',
-	'apps/swaggergen',
-	'libs/api',
-	'libs/controller',
-	'libs/common',
-	'apps/kubectl_proxyauth',
+  'libs/crd',
+  'apps/server',
+  'libs/trace',
+  'apps/crdgen',
+  'apps/swaggergen',
+  'libs/api',
+  'libs/controller',
+  'libs/common',
+  'apps/kubectl_proxyauth',
+  'libs/cli_trace',
 ]
 
 [workspace.dependencies]
@@ -35,23 +36,23 @@ chrono = { version = '0.4', features = ['serde'] }
 deadpool-redis = { version = '0.22', features = ['serde'] }
 opentelemetry = { version = '0.31', features = ['trace', 'metrics', 'logs'] }
 opentelemetry_sdk = { version = '0.31', features = [
-	'trace',
-	'metrics',
-	'rt-tokio',
+  'trace',
+  'metrics',
+  'rt-tokio',
 ] }
 opentelemetry-otlp = { version = '0.31', features = [
-	'grpc-tonic',
-	'trace',
-	'metrics',
-	'internal-logs',
-	'serialize',
+  'grpc-tonic',
+  'trace',
+  'metrics',
+  'internal-logs',
+  'serialize',
 ] }
 opentelemetry-appender-tracing = { version = '0.31' }
 tracing-subscriber = { version = '0.3', features = [
-	'env-filter',
-	'registry',
-	'std',
-	'fmt',
+  'env-filter',
+  'registry',
+  'std',
+  'fmt',
 ] }
 tracing-opentelemetry = { version = '0.32.0' }
 rustls = { version = '0.23', features = ['ring'], default-features = false }

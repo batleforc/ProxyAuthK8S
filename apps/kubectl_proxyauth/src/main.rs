@@ -1,11 +1,15 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use cli_trace::init_tracing;
+use tracing::info;
+
+use crate::ctx::CliCtx;
 
 pub mod ctx;
 pub mod error;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 struct Cli {
     /// Namespace to search within
@@ -17,6 +21,10 @@ struct Cli {
     /// If not provided, uses the default kubeconfig location
     #[arg(short, long, value_name = "FILE")]
     kubeconfig: Option<PathBuf>,
+
+    /// Context to use/override from kubeconfig
+    #[arg(short, long, value_name = "CONTEXT")]
+    context: Option<String>,
 
     /// Verbosity level
     /// By default, logging is set to 'info'
@@ -47,7 +55,7 @@ struct Cli {
     command: Option<Commands>,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 enum Commands {
     /// Get auth clusters
     /// If no flags are provided, lists all clusters
@@ -85,22 +93,12 @@ fn main() {
     let cli = Cli::parse();
     // You can see how many times a particular flag or argument occurred
     // Note, only flags can have multiple occurrences
-    match cli.verbose.unwrap_or(0) {
-        0 => println!("Debug mode is off"),
-        1 => println!("Debug mode is kind of on"),
-        2 => println!("Debug mode is on"),
-        _ => println!("Don't be crazy"),
-    }
-    // Detect if command is summoned through kubectl or not
-    let is_kubectl = std::env::args().next().map_or(false, |arg0| {
-        PathBuf::from(arg0)
-            .file_stem()
-            .map_or(false, |stem| stem == "kubectl")
-    });
-    if is_kubectl {
-        println!("Running as kubectl plugin");
-    } else {
-        println!("Running as standalone application");
-    }
-    println!("{:#?}", cli);
+    let ctx = CliCtx::from(cli.clone());
+
+    init_tracing(
+        ctx.to_tracing_verbose_level(),
+        "kubectl_proxyauth".to_string(),
+    );
+    info!("CLI : {:#?}", cli);
+    info!("CTX : {:#?}", ctx);
 }

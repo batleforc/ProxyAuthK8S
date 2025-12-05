@@ -1,0 +1,22 @@
+[package]
+name = "cli_trace"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_repr = "0.1"
+serde_json = { workspace = true }
+time = { version = "0.3" }
+
+tracing-subscriber = { workspace = true, features = [
+  "registry",
+  "env-filter",
+  "time",
+] }
+
+tracing-bunyan-formatter = "0.3"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
