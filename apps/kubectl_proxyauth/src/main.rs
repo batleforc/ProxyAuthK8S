@@ -2,15 +2,22 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use cli_trace::init_tracing;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 use crate::ctx::CliCtx;
 
 pub mod ctx;
 pub mod error;
 
+/// Kubectl ProxyAuth CLI
 #[derive(Parser, Debug, Clone)]
-#[command(version, about, long_about = None)]
+#[command(
+    name = "Kubectl_ProxyAuthK8S",
+    version,
+    about,
+    long_about = "A command-line tool to interact with ProxyAuthK8S for managing authentication to Kubernetes clusters.",
+    arg_required_else_help = true
+)]
 struct Cli {
     /// Namespace to search within
     /// If not provided, uses the default namespace
@@ -99,6 +106,37 @@ fn main() {
         ctx.to_tracing_verbose_level(),
         "kubectl_proxyauth".to_string(),
     );
-    info!("CLI : {:#?}", cli);
-    info!("CTX : {:#?}", ctx);
+    debug!("CLI : {:#?}", cli);
+    debug!("CTX : {:#?}", ctx);
+
+    // Match and execute the appropriate command
+    match &cli.command {
+        Some(Commands::Get { cluster_name }) => {
+            //ctx.handle_get_clusters(cluster_name.clone());
+            info!("Getting cluster info for: {:?}", cluster_name);
+        }
+        Some(Commands::Login { cluster_name }) => {
+            //ctx.handle_login(cluster_name.clone());
+            info!("Logging in to cluster: {:?}", cluster_name);
+        }
+        Some(Commands::Logout { cluster_name }) => {
+            //ctx.handle_logout(cluster_name.clone());
+            info!("Logging out from cluster: {:?}", cluster_name);
+        }
+        Some(Commands::Cache { clear }) => {
+            //ctx.handle_cache(*clear);
+            info!("Handling cache clear: {}", clear);
+        }
+        Some(Commands::Context { cluster_name, list }) => {
+            //ctx.handle_context(cluster_name.clone(), *list);
+            info!(
+                "Handling context for cluster: {:?}, list: {}",
+                cluster_name, list
+            );
+        }
+        None => {
+            // If no subcommand is provided, you can show help or a default action
+            warn!("No command provided. Use --help for more information.");
+        }
+    }
 }

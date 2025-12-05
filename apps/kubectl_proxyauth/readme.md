@@ -52,3 +52,5 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
 - [Kubectl - Exec Credential Spec v1](https://kubernetes.io/docs/reference/config-api/client-authentication.v1/#client-authentication-k8s-io-v1-ExecCredentialSpec)
 - [Kubelogin - Best oidc plugin](https://github.com/int128/kubelogin)
 - [Kubelogin - Token Cache](https://github.com/int128/kubelogin/blob/master/docs/usage.md#token-cache)
+- [Prettytable-rs - Table formatting](https://github.com/phsym/prettytable-rs)
+- [KV-RS - Key Value storage](https://docs.rs/kv/latest/kv/)
