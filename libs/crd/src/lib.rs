@@ -191,7 +191,7 @@ impl ProxyKubeApi {
     ) -> Option<common::oidc_conf::OidcConf> {
         if let Some(redirect_kubectl_uri) = redirect_kubectl.clone() {
             // Validate the redirect uri
-            // The uri need to be have no path, no query and no fragment
+            // The uri need to be have no path, no query and no fragment and uri shoud be localhost
             let parsed_uri = match Url::parse(&redirect_kubectl_uri) {
                 Ok(uri) => uri,
                 Err(_) => {
@@ -202,6 +202,8 @@ impl ProxyKubeApi {
             if parsed_uri.path() != "/"
                 || parsed_uri.query().is_some()
                 || parsed_uri.fragment().is_some()
+                || parsed_uri.host_str().is_none()
+                || parsed_uri.host_str().unwrap() != "localhost"
             {
                 tracing::error!("Invalid redirect uri: {}", redirect_kubectl_uri);
                 return None;
