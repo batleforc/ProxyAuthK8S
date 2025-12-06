@@ -6,6 +6,7 @@ use tracing::{debug, info, warn};
 
 use crate::ctx::CliCtx;
 
+pub mod cli_config;
 pub mod ctx;
 pub mod error;
 
@@ -26,8 +27,15 @@ struct Cli {
 
     /// Path to the kubeconfig file
     /// If not provided, uses the default kubeconfig location
+    /// Default location is `$KUBECONFIG` env var or `$HOME/.kube/config`
     #[arg(short, long, value_name = "FILE")]
     kubeconfig: Option<PathBuf>,
+
+    /// CLI configuration file path
+    /// If not provided, uses the default configuration location
+    /// Default location is `$HOME/.kube/proxyauth_config.yaml
+    #[arg(short, long, value_name = "FILE")]
+    proxy_auth_config: Option<PathBuf>,
 
     /// Context to use/override from kubeconfig
     #[arg(short, long, value_name = "CONTEXT")]
@@ -91,7 +99,7 @@ enum Commands {
     /// Retrieve the current authentication token for a specific cluster
     GetToken {
         /// Cluster name to retrieve the token for
-        cluster_name: String,
+        cluster_name: Option<String>,
     },
     /// Handle Kubectl contexts
     Context {
@@ -101,6 +109,20 @@ enum Commands {
         /// List all available contexts
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         list: bool,
+    },
+    /// Configuration management
+    Config {
+        /// Set the ProxyAuthK8S server URL in the configuration
+        #[arg(short, long, value_name = "URL")]
+        server_url: Option<String>,
+
+        /// Set the default namespace in the configuration
+        #[arg(short, long, value_name = "NAMESPACE")]
+        namespace: Option<String>,
+
+        /// Clear the configuration file, resetting all settings to defaults
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        clear: bool,
     },
 }
 
@@ -143,6 +165,7 @@ fn main() {
         }
         Some(Commands::GetToken { cluster_name }) => {
             //ctx.handle_get_token(cluster_name.clone());
+            // Detect if env var KUBERNETES_EXEC_INFO is set, change context accordingly
             info!("Getting token for cluster: {:?}", cluster_name);
         }
         Some(Commands::Context { cluster_name, list }) => {
@@ -150,6 +173,17 @@ fn main() {
             info!(
                 "Handling context for cluster: {:?}, list: {}",
                 cluster_name, list
+            );
+        }
+        Some(Commands::Config {
+            server_url,
+            namespace,
+            clear,
+        }) => {
+            //ctx.handle_config(server_url.clone(), namespace.clone(), *clear);
+            info!(
+                "Handling config with server_url: {:?}, namespace: {:?}, clear: {}",
+                server_url, namespace, clear
             );
         }
         None => {

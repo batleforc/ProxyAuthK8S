@@ -47,6 +47,7 @@ ec_key.pem
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 kubeconfig.*.yaml
+proxyauth_config.*.yaml
 
 target
 vite.config.*.timestamp*

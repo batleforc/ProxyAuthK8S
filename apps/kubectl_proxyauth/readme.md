@@ -37,6 +37,11 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
     - `<cluster-name>` : Switches the current context to the specified cluster.
     - Output the current context if no cluster name is provided.
     - `list` : Lists all available contexts, and which one come from ProxyAuthK8s or are active.
+- **Configuration Management**: The plugin will support configuration files to store settings such as the ProxyAuthK8s service URL and default namespace.
+  - `config` : If no flags provided, shows current config
+    - `--server-url (-s) <url>` : Sets the default ProxyAuthK8s service URL in the configuration file.
+    - `--namespace (-n) <namespace>` : Sets the default namespace in the configuration file.
+    - `clear` : Clears the configuration file, resetting all settings to defaults.
 - **Help Command**: A `--help` flag will be available to provide users with information about the plugin's commands and usage.
 - **Error Handling**: The plugin will handle errors gracefully, providing meaningful messages to the user in case of authentication failures or other issues.
   - Each error needs to have a unique ID for easier troubleshooting
@@ -44,7 +49,7 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
 - **Configuration**:
   - Works with existing kubeconfig files or targeted ones.
   - The token cache will be handled like [Kubelogin](https://github.com/int128/kubelogin/blob/master/docs/usage.md#token-cache) has much as possible. [Rust keyring](https://crates.io/crates/keyring) can be used to store tokens in the keyring like kubelogin.
-  - Another config file will be used to store where the ProxyAuthK8s service is located, and other plugin specific settings.
+  - Another config file will be used to store where the ProxyAuthK8s service is located, and other plugin specific settings. (Ex: ~/.kube/proxyauth_config.yaml)
 
 ### Example Kubeconfig Exec Section
 
@@ -62,6 +67,51 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
         command: kubectl
         env: null
         provideClusterInfo: false
+  - name: admin@talos-default
+    user:
+      exec:
+        apiVersion: client.authentication.k8s.io/v1beta1
+        args:
+          - proxyauth
+          - get-token
+          - local-sso
+        command: kubectl
+        env: null
+        provideClusterInfo: false
+  - name: admin@talos-default # This one should be the one used by default, config should be load from the env var KUBERNETES_EXEC_INFO if set, either fallback to the config passed in arg.
+    user:
+      exec:
+        apiVersion: client.authentication.k8s.io/v1
+        args:
+          - proxyauth
+          - get-token
+        command: bash
+        env: null
+        provideClusterInfo: true
+        interactiveMode: Never
+```
+
+### Example config file (~/.kube/proxyauth_config.yaml)
+
+```yaml
+default_server_name: "localhost-5437" # Set on first run or via config command
+
+servers:
+  localhost-5437:                               # Cluster HORS PROD
+    url: "http://localhost:5437"                # Server URL
+    namespace: "default"                        # Default namespace for this server
+    clusters:
+      local-sso:
+        token_exist: true                       # Means that a token exist, can be invalid or valid
+      team-b/local-pas-sso:                     # NS == team-b and NAME == local-pas-sso
+        token_exist: false
+  proxyauthk8s-prod-localhost:                  # Cluster PROD
+    url: "https://proxyauthk8s.prod.localhost"
+    namespace: "WEEBO_EU_WEST"
+    clusters:
+      prod-cluster:                             # NS == WEEBO_EU_WEST and NAME == prod-cluster and url == https://proxyauthk8s.prod.localhost
+        token_exist: false
+
 ```
 
 ## Useful Links
@@ -74,4 +124,3 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
 - [Kubelogin - Best oidc plugin](https://github.com/int128/kubelogin)
 - [Kubelogin - Token Cache](https://github.com/int128/kubelogin/blob/master/docs/usage.md#token-cache)
 - [Prettytable-rs - Table formatting](https://github.com/phsym/prettytable-rs)
-- [KV-RS - Key Value storage](https://docs.rs/kv/latest/kv/)

@@ -100,4 +100,4 @@ tasks:
     desc: "Run kubectl_proxyauth with args"
     silent: true
     cmds:
-      - cargo run --bin kubectl_proxyauth -- {{ .CLI_ARGS }}
+      - cargo run --bin kubectl_proxyauth -- --proxy-auth-config="proxyauth_config.dev.yaml" {{ .CLI_ARGS }}
