@@ -74,6 +74,9 @@ enum Commands {
     Login {
         /// Cluster name to login to
         cluster_name: Option<String>,
+        /// Optional token for authentication
+        #[arg(short, long, value_name = "TOKEN")]
+        token: Option<String>,
     },
     /// Logout either from ProxyAuthK8S server or from a specific cluster
     Logout {
@@ -84,6 +87,11 @@ enum Commands {
     Cache {
         /// Clear all cached tokens
         clear: bool,
+    },
+    /// Retrieve the current authentication token for a specific cluster
+    GetToken {
+        /// Cluster name to retrieve the token for
+        cluster_name: String,
     },
     /// Handle Kubectl contexts
     Context {
@@ -115,9 +123,15 @@ fn main() {
             //ctx.handle_get_clusters(cluster_name.clone());
             info!("Getting cluster info for: {:?}", cluster_name);
         }
-        Some(Commands::Login { cluster_name }) => {
+        Some(Commands::Login {
+            cluster_name,
+            token,
+        }) => {
             //ctx.handle_login(cluster_name.clone());
-            info!("Logging in to cluster: {:?}", cluster_name);
+            info!(
+                "Logging in to cluster: {:?} with token: {:?}",
+                cluster_name, token
+            );
         }
         Some(Commands::Logout { cluster_name }) => {
             //ctx.handle_logout(cluster_name.clone());
@@ -126,6 +140,10 @@ fn main() {
         Some(Commands::Cache { clear }) => {
             //ctx.handle_cache(*clear);
             info!("Handling cache clear: {}", clear);
+        }
+        Some(Commands::GetToken { cluster_name }) => {
+            //ctx.handle_get_token(cluster_name.clone());
+            info!("Getting token for cluster: {:?}", cluster_name);
         }
         Some(Commands::Context { cluster_name, list }) => {
             //ctx.handle_context(cluster_name.clone(), *list);

@@ -24,10 +24,6 @@ The base specification of the [project can be found here](https://batleforc.gith
 
 ## Left to do
 
-### v0.1.0
-
-- [ ] Add Oidc token validation
-
 ### v0.2.0
 
 - [ ] Create Krew plugin for easier usage
@@ -35,6 +31,9 @@ The base specification of the [project can be found here](https://batleforc.gith
   - <https://github.com/kubernetes-sigs/krew-index/blob/master/plugins/view-allocations.yaml>
   - name: `proxyauthk8s`
   - <https://docs.rs/clap/latest/clap/>
+
+### v0.3.0
+
 - [ ] Add more tests
 - [ ] Add documentation
   - [ ] How to Deploy ProxyAuthK8s
@@ -46,7 +45,8 @@ The base specification of the [project can be found here](https://batleforc.gith
   - [ ] How to contribute
   - [ ] How to setup development environment
 - [ ] Add security features (details later)
+- [ ] Add Oidc token validation
 
-### v0.3.0
+### v0.4.0
 
 - [ ] Setup Exchange token between IdP and ProxyAuthK8S main auth server
