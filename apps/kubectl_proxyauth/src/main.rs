@@ -144,12 +144,6 @@ fn main() {
     debug!("CLI : {:#?}", cli);
     debug!("CTX : {:#?}", ctx);
 
-    if cli.command.is_none() {
-        // If no subcommand is provided, you can show help or a default action
-        warn!("No command provided. Use --help for more information.");
-        return;
-    }
-
     // Match and execute the appropriate command
     match &cli.command {
         Some(Commands::Get { cluster_name }) => {
