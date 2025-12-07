@@ -18,7 +18,9 @@ pub mod error;
     version,
     about,
     long_about = "A command-line tool to interact with ProxyAuthK8S for managing authentication to Kubernetes clusters.",
-    arg_required_else_help = true
+    arg_required_else_help = true,
+    after_help = "Made with ❤️  and too much ☕ by Batleforc",
+    before_help = include_str!("../../../banner.art"),
 )]
 struct Cli {
     /// Namespace to search within
@@ -141,6 +143,12 @@ fn main() {
     );
     debug!("CLI : {:#?}", cli);
     debug!("CTX : {:#?}", ctx);
+
+    if cli.command.is_none() {
+        // If no subcommand is provided, you can show help or a default action
+        warn!("No command provided. Use --help for more information.");
+        return;
+    }
 
     // Match and execute the appropriate command
     match &cli.command {
