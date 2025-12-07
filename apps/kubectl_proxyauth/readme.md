@@ -33,10 +33,11 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
   - `get-token`
     - `<cluster-name>` : Retrieves the current authentication token for the specified cluster.
 - **Context Handling**: The plugin will manage Kubernetes contexts to ensure that users are authenticated against the correct cluster.
-  - `ctx`
-    - `<cluster-name>` : Switches the current context to the specified cluster.
+  - [DONE] `ctx`
+    - `<cluster-name>` : Get the specified context.
     - Output the current context if no cluster name is provided.
-    - `list` : Lists all available contexts, and which one come from ProxyAuthK8s or are active.
+    - `--list (-l)` : Lists all available contexts, and which one come from ProxyAuthK8s or are active.
+    - `--set (-s)` : Sets the current context to the specified cluster.
 - **Configuration Management**: The plugin will support configuration files to store settings such as the ProxyAuthK8s service URL and default namespace.
   - `config` : If no flags provided, shows current config
     - `--server-url (-s) <url>` : Sets the default ProxyAuthK8s service URL in the configuration file.

@@ -1,11 +1,19 @@
-use std::{env, fs, path::PathBuf};
-
+use clap::ValueEnum;
 use cli_trace::level::VerboseLevel;
 use kube::config::Kubeconfig;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use std::{env, fs, path::PathBuf};
 
 use crate::{cli_config::CliConfig, error::ProxyAuthK8sError};
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default, ValueEnum)]
+pub enum ContextFormat {
+    #[default]
+    Table,
+    Json,
+    Yaml,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CliCtx {
@@ -15,7 +23,7 @@ pub struct CliCtx {
     pub context: Option<String>,
     pub verbose: Option<u8>,
     pub server_url: String,
-    pub format: String,
+    pub format: ContextFormat,
     pub invoked_from_kubectl: bool,
     pub config: CliConfig,
 }
@@ -149,6 +157,13 @@ impl CliCtx {
                 None
             }
         }
+    }
+
+    pub fn write_kubeconfig(&self) -> Result<(), ProxyAuthK8sError> {
+        let yaml_content = serde_yaml::to_string(&self.kubeconfig)
+            .map_err(|e| ProxyAuthK8sError::YamlSerializeError(e.to_string()))?;
+        fs::write(&self.kubeconfig_path, yaml_content)
+            .map_err(|e| ProxyAuthK8sError::KubeconfigWriteError(e.to_string()))
     }
 
     pub fn to_tracing_verbose_level(&self) -> VerboseLevel {

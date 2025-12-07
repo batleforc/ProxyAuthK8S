@@ -23,6 +23,13 @@ impl Default for CliConfig {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct UrlInfo {
+    pub server_name: String,
+    pub namespace: String,
+    pub cluster_name: String,
+}
+
 impl CliConfig {
     pub fn new() -> Self {
         let server = CliServerConfig {
@@ -62,49 +69,61 @@ impl CliConfig {
             .and_then(|server| server.get_clusters_from_name_ns(cluster_name, ns))
     }
 
-    pub fn get_cluster_config_by_url(
-        &self,
-        cluster_url: String,
-    ) -> Result<&CliClusterConfig, CliConfigError> {
-        // Cluster url should look like "https://localhost:5437/clusters/default/local-sso"
-        let url = match Url::parse(&cluster_url) {
+    pub fn proxy_url_to_tuple(url: &str) -> Result<UrlInfo, CliConfigError> {
+        let parsed_url = match Url::parse(url) {
             Ok(u) => u,
             Err(err) => {
                 return Err(CliConfigError::InvalidServerUrl(
-                    cluster_url,
+                    url.to_string(),
                     err.to_string(),
                 ))
             }
         };
 
-        let host = match url.host_str() {
+        let host = match parsed_url.host_str() {
             Some(h) => h,
             None => {
                 return Err(CliConfigError::InvalidServerUrl(
-                    cluster_url,
+                    url.to_string(),
                     "No host found in URL".to_string(),
                 ))
             }
         };
         let server_name = host.replace(".", "-").replace(":", "-");
-        let ns = url
+        let ns = parsed_url
             .path_segments()
             .and_then(|mut segments| segments.nth(1))
             .map(|s| s.to_string());
-        let cluster_name = url
+        let cluster_name = parsed_url
             .path_segments()
             .and_then(|mut segments| segments.nth(2))
             .map(|s| s.to_string());
         if ns.is_none() || cluster_name.is_none() {
             return Err(CliConfigError::InvalidServerUrl(
-                cluster_url,
+                url.to_string(),
                 "Namespace or cluster name not found in URL path".to_string(),
             ));
         }
 
+        Ok(UrlInfo {
+            server_name,
+            namespace: ns.unwrap(),
+            cluster_name: cluster_name.unwrap(),
+        })
+    }
+
+    pub fn get_cluster_config_by_url(
+        &self,
+        cluster_url: String,
+    ) -> Result<&CliClusterConfig, CliConfigError> {
+        // Cluster url should look like "https://localhost:5437/clusters/default/local-sso"
+        let url_info = Self::proxy_url_to_tuple(&cluster_url)?;
+
         self.servers
-            .get(&server_name)
-            .and_then(|server| server.get_clusters_from_name_ns(cluster_name.unwrap(), ns))
+            .get(&url_info.server_name)
+            .and_then(|server| {
+                server.get_clusters_from_name_ns(url_info.cluster_name, Some(url_info.namespace))
+            })
             .ok_or_else(|| CliConfigError::ServerNotFound(cluster_url))
     }
 }

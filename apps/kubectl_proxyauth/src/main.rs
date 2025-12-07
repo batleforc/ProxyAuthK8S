@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 use cli_trace::init_tracing;
 use tracing::{debug, info, warn};
 
-use crate::ctx::CliCtx;
+use crate::ctx::{CliCtx, ContextFormat};
 
 pub mod cli_config;
 pub mod context;
@@ -65,7 +65,7 @@ struct Cli {
     /// Specify the output format (e.g., json, yaml, table)
     /// Default is `table`
     #[arg(short, long, value_name = "FORMAT", default_value = "table")]
-    format: String,
+    format: ContextFormat,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -104,12 +104,14 @@ enum Commands {
     },
     /// Handle Kubectl contexts
     Context {
-        /// Set the current context to the specified cluster
-        /// If no cluster name is provided, outputs the current context
-        cluster_name: Option<String>,
+        /// Get the context for a specific cluster
+        context_name: Option<String>,
         /// List all available contexts
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         list: bool,
+        /// Set the current context to the specified cluster
+        #[arg(short, long, action = clap::ArgAction::SetTrue)]
+        set: bool,
     },
     /// Configuration management
     Config {
@@ -131,7 +133,7 @@ fn main() {
     let cli = Cli::parse();
     // You can see how many times a particular flag or argument occurred
     // Note, only flags can have multiple occurrences
-    let ctx = CliCtx::from(cli.clone());
+    let mut ctx = CliCtx::from(cli.clone());
 
     init_tracing(
         ctx.to_tracing_verbose_level(),
@@ -169,12 +171,16 @@ fn main() {
             // Detect if env var KUBERNETES_EXEC_INFO is set, change context accordingly
             info!("Getting token for cluster: {:?}", cluster_name);
         }
-        Some(Commands::Context { cluster_name, list }) => {
-            //ctx.handle_context(cluster_name.clone(), *list);
-            info!(
-                "Handling context for cluster: {:?}, list: {}",
-                cluster_name, list
+        Some(Commands::Context {
+            context_name,
+            list,
+            set,
+        }) => {
+            debug!(
+                "Handling context for cluster: {:?}, list: {}, set: {}",
+                context_name, list, set
             );
+            ctx.handle_context(context_name.clone(), *list, *set);
         }
         Some(Commands::Config {
             server_url,

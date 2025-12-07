@@ -20,6 +20,8 @@ pub enum ProxyAuthK8sError {
     YamlSerializeError(String),
     #[error("ERR000008: Configuration path could not be calculated, either provide via --proxy-auth-config flag or set the HOME environment variable")]
     ConfigPathCouldNotBeCalculated,
+    #[error("ERR000009: Failed to write kubeconfig file: {0}")]
+    KubeconfigWriteError(String),
 }
 
 impl From<CliConfigError> for ProxyAuthK8sError {
