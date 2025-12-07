@@ -1,6 +1,7 @@
 use std::{env, fs, path::PathBuf};
 
 use cli_trace::level::VerboseLevel;
+use kube::config::Kubeconfig;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 
@@ -9,7 +10,8 @@ use crate::{cli_config::CliConfig, error::ProxyAuthK8sError};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CliCtx {
     pub namespace: String,
-    pub kubeconfig: PathBuf,
+    pub kubeconfig_path: PathBuf,
+    pub kubeconfig: Kubeconfig,
     pub context: Option<String>,
     pub verbose: Option<u8>,
     pub server_url: String,
@@ -37,6 +39,28 @@ impl From<super::Cli> for CliCtx {
                 ))
             );
         }
+        let kubeconfig = match fs::read_to_string(kubeconfig_path.clone()) {
+            Ok(content) => Kubeconfig::from_yaml(&content).unwrap_or_else(|e| {
+                panic!(
+                    "{}",
+                    ProxyAuthK8sError::KubeconfigReadError(format!(
+                        "Failed to parse kubeconfig file at {}: {}",
+                        kubeconfig_path.to_string_lossy(),
+                        e
+                    ))
+                )
+            }),
+            Err(e) => {
+                panic!(
+                    "{}",
+                    ProxyAuthK8sError::KubeconfigReadError(format!(
+                        "Failed to read kubeconfig file at {}: {}",
+                        kubeconfig_path.to_string_lossy(),
+                        e
+                    ))
+                )
+            }
+        };
         let invoked_from_kubectl = env::args().next().map_or(false, |arg0| {
             PathBuf::from(arg0)
                 .file_stem()
@@ -99,7 +123,8 @@ impl From<super::Cli> for CliCtx {
 
         CliCtx {
             namespace: cli.namespace,
-            kubeconfig: kubeconfig_path,
+            kubeconfig,
+            kubeconfig_path,
             context: cli.context,
             verbose: cli.verbose,
             server_url: cli.server_url,

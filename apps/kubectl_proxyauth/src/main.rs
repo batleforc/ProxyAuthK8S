@@ -7,6 +7,7 @@ use tracing::{debug, info, warn};
 use crate::ctx::CliCtx;
 
 pub mod cli_config;
+pub mod context;
 pub mod ctx;
 pub mod error;
 
