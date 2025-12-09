@@ -29,23 +29,29 @@ pub mod error;
 struct Cli {
     /// Namespace to search within
     /// If not provided, uses the default namespace
-    #[arg(short, long, value_name = "NAMESPACE", default_value = "default")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        value_name = "NAMESPACE",
+        default_value = "default"
+    )]
     namespace: String,
 
     /// Path to the kubeconfig file
     /// If not provided, uses the default kubeconfig location
     /// Default location is `$KUBECONFIG` env var or `$HOME/.kube/config`
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(short, global = true, long, value_name = "FILE")]
     kubeconfig: Option<PathBuf>,
 
     /// CLI configuration file path
     /// If not provided, uses the default configuration location
     /// Default location is `$HOME/.kube/proxyauth_config.yaml
-    #[arg(short, long, value_name = "FILE")]
+    #[arg(short, global = true, long, value_name = "FILE")]
     proxy_auth_config: Option<PathBuf>,
 
     /// Context to use/override from kubeconfig
-    #[arg(short, long, value_name = "CONTEXT")]
+    #[arg(short, global = true, long, value_name = "CONTEXT")]
     context: Option<String>,
 
     /// Verbosity level
@@ -54,7 +60,7 @@ struct Cli {
     /// -v : debug
     /// -vv : trace
     /// -vvv : all logs including very verbose logs
-    #[arg(short, long, action = clap::ArgAction::Count)]
+    #[arg(short,global = true, long, action = clap::ArgAction::Count)]
     verbose: Option<u8>,
 
     /// ProxyAuthK8S server URL
@@ -62,6 +68,7 @@ struct Cli {
     #[arg(
         short,
         long,
+        global = true,
         value_name = "URL",
         default_value = "http://localhost:8080"
     )]
@@ -70,7 +77,13 @@ struct Cli {
     /// Output format
     /// Specify the output format (e.g., json, yaml, table)
     /// Default is `table`
-    #[arg(short, long, value_name = "FORMAT", default_value = "table")]
+    #[arg(
+        short,
+        global = true,
+        long,
+        value_name = "FORMAT",
+        default_value = "table"
+    )]
     format: ContextFormat,
 
     #[command(subcommand)]

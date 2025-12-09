@@ -1,7 +1,8 @@
 use clap::Subcommand;
-use tracing::error;
 
 pub mod clear;
+pub mod get;
+pub mod get_output;
 pub mod set_def;
 
 #[derive(Subcommand, Debug, Clone)]
@@ -33,7 +34,7 @@ pub enum ConfigCommands {
     /// If no flags are provided, shows the current configuration
     Get {
         /// Filter by server URL
-        #[arg(long, value_name = "URL")]
+        #[arg(short, long, value_name = "URL")]
         server_url: Option<String>,
         /// Filter by namespace
         #[arg(short, long, value_name = "NAMESPACE")]
@@ -53,8 +54,8 @@ impl ConfigCommands {
             ConfigCommands::Clear { .. } => {
                 self.handle_clear(ctx);
             }
-            _ => {
-                error!("Config command not implemented yet.");
+            ConfigCommands::Get { .. } => {
+                self.handle_get(ctx);
             }
         }
     }

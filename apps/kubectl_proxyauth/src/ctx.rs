@@ -1,7 +1,6 @@
 use clap::ValueEnum;
 use cli_trace::level::VerboseLevel;
 use kube::config::Kubeconfig;
-use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::{env, fs, path::PathBuf};
 
@@ -75,13 +74,6 @@ impl From<super::Cli> for CliCtx {
                 .file_stem()
                 .map_or(false, |stem| stem == "kubectl")
         });
-        // Validate that server_url is a valid URL
-        if let Err(err) = Url::parse(&cli.server_url) {
-            panic!(
-                "{}",
-                ProxyAuthK8sError::InvalidServerUrl(cli.server_url.clone(), err.to_string())
-            );
-        }
         // Load CLI configuration
         let config_path = if let Some(path) = cli.proxy_auth_config {
             path
