@@ -39,7 +39,7 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
     - `--list (-l)` : Lists all available contexts, and which one come from ProxyAuthK8s or are active.
     - `--set (-s)` : Sets the current context to the specified cluster.
 - **Configuration Management**: The plugin will support configuration files to store settings such as the ProxyAuthK8s service URL and default namespace.
-  - `config` : If no flags provided, shows current config
+  - [DONE] `config` : If no flags provided, shows current config
     - `get` : Displays the current configuration settings.
       - `--server-url (-s) <url>` : Filters the output by server URL.
       - `--namespace (-n) <namespace>` : Filters the output by namespace (by default show default ns settings).
