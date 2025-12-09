@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,10 @@ pub mod error;
 
 use cli_server_config::CliServerConfig;
 
-use crate::cli_config::{cli_cluster_config::CliClusterConfig, error::CliConfigError};
+use crate::{
+    cli_config::{cli_cluster_config::CliClusterConfig, error::CliConfigError},
+    error::ProxyAuthK8sError,
+};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CliConfig {
@@ -41,6 +44,40 @@ impl CliConfig {
             default_server_name: "localhost-5437".to_string(),
             servers: vec![(server.url_to_name(), server)].into_iter().collect(),
         }
+    }
+
+    pub fn clear(&mut self) -> &Self {
+        self.servers = HashMap::new();
+        self.default_server_name = "".to_string();
+        self
+    }
+
+    pub fn read_from_file(path: PathBuf) -> Result<Self, ProxyAuthK8sError> {
+        let content = std::fs::read_to_string(path.clone()).map_err(|e| {
+            ProxyAuthK8sError::KubeconfigReadError(format!(
+                "Failed to read CLI config file at {}: {}",
+                path.to_string_lossy(),
+                e
+            ))
+        })?;
+        Ok(Self::from_yaml(&content)?)
+    }
+
+    pub fn write_to_file(&self, path: PathBuf) -> Result<&Self, ProxyAuthK8sError> {
+        let yaml_str = self.to_yaml().map_err(|e| {
+            ProxyAuthK8sError::KubeconfigWriteError(format!(
+                "Failed to serialize CLI config to YAML: {}",
+                e
+            ))
+        })?;
+        std::fs::write(path.clone(), yaml_str).map_err(|e| {
+            ProxyAuthK8sError::KubeconfigWriteError(format!(
+                "Failed to write CLI config file at {}: {}",
+                path.to_string_lossy(),
+                e
+            ))
+        })?;
+        Ok(self)
     }
 
     pub fn from_yaml(yaml_str: &str) -> Result<Self, CliConfigError> {

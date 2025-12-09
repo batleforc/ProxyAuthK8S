@@ -4,9 +4,13 @@ use clap::{Parser, Subcommand};
 use cli_trace::init_tracing;
 use tracing::{debug, info, warn};
 
-use crate::ctx::{CliCtx, ContextFormat};
+use crate::{
+    config::ConfigCommands,
+    ctx::{CliCtx, ContextFormat},
+};
 
 pub mod cli_config;
+pub mod config;
 pub mod context;
 pub mod ctx;
 pub mod error;
@@ -117,17 +121,8 @@ enum Commands {
     },
     /// Configuration management
     Config {
-        /// Set the ProxyAuthK8S server URL in the configuration
-        #[arg(short, long, value_name = "URL")]
-        server_url: Option<String>,
-
-        /// Set the default namespace in the configuration
-        #[arg(short, long, value_name = "NAMESPACE")]
-        namespace: Option<String>,
-
-        /// Clear the configuration file, resetting all settings to defaults
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        clear: bool,
+        #[command(subcommand)]
+        command: Option<ConfigCommands>,
     },
 }
 
@@ -184,16 +179,14 @@ fn main() {
             );
             ctx.handle_context(context_name.clone(), *list, *set);
         }
-        Some(Commands::Config {
-            server_url,
-            namespace,
-            clear,
-        }) => {
+        Some(Commands::Config { command }) => {
             //ctx.handle_config(server_url.clone(), namespace.clone(), *clear);
-            info!(
-                "Handling config with server_url: {:?}, namespace: {:?}, clear: {}",
-                server_url, namespace, clear
-            );
+            debug!("Handling config command: {:?}", command);
+            if let Some(command) = command {
+                command.handle_config_commands(&mut ctx);
+            } else {
+                warn!("No config subcommand provided. Use --help for more information.");
+            }
         }
         None => {
             // If no subcommand is provided, you can show help or a default action

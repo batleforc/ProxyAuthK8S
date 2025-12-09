@@ -15,6 +15,11 @@ impl CliServerConfig {
         url.replace(".", "-").replace(":", "-")
     }
 
+    pub fn url_to_name_from_string(url: String) -> String {
+        let url = url.replace("https://", "").replace("http://", "");
+        url.replace(".", "-").replace(":", "-")
+    }
+
     pub fn get_clusters_from_name_ns(
         &self,
         name: String,

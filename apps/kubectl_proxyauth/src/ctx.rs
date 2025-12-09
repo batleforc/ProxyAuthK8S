@@ -26,6 +26,7 @@ pub struct CliCtx {
     pub format: ContextFormat,
     pub invoked_from_kubectl: bool,
     pub config: CliConfig,
+    pub config_path: PathBuf,
 }
 
 impl From<super::Cli> for CliCtx {
@@ -92,41 +93,30 @@ impl From<super::Cli> for CliCtx {
             PathBuf::from(format!("{}/.kube/proxyauth_config.yaml", home_env))
         };
         let config = if !config_path.exists() {
-            let config = CliConfig::default();
-            let yaml_content = config.to_yaml().unwrap_or_else(|e| {
-                panic!(
-                    "{}",
-                    ProxyAuthK8sError::YamlSerializeError(format!(
-                        "Failed to serialize default config to YAML: {}",
-                        e
-                    ))
-                )
-            });
-            fs::write(&config_path, yaml_content).unwrap_or_else(|e| {
-                panic!(
-                    "{}",
-                    ProxyAuthK8sError::KubeconfigReadError(format!(
-                        "Failed to write default config file at {}: {}",
-                        config_path.to_string_lossy(),
-                        e
-                    ))
-                )
-            });
-            config
-        } else {
-            fs::read_to_string(&config_path)
-                .map_err(|e| {
+            match CliConfig::default().write_to_file(config_path.clone()) {
+                Ok(config) => config.clone(),
+                Err(e) => {
                     panic!(
                         "{}",
-                        ProxyAuthK8sError::KubeconfigReadError(format!(
-                            "Failed to read config file at {}: {}",
+                        ProxyAuthK8sError::KubeconfigWriteError(format!(
+                            "Failed to create default config file at {}: {}",
                             config_path.to_string_lossy(),
                             e
                         ))
                     )
-                })
-                .and_then(|content| CliConfig::from_yaml(&content).map_err(|e| panic!("{}", e)))
-                .unwrap()
+                }
+            }
+        } else {
+            CliConfig::read_from_file(config_path.clone()).unwrap_or_else(|e| {
+                panic!(
+                    "{}",
+                    ProxyAuthK8sError::KubeconfigReadError(format!(
+                        "Failed to read config file at {}: {}",
+                        config_path.to_string_lossy(),
+                        e
+                    ))
+                )
+            })
         };
 
         CliCtx {
@@ -139,6 +129,7 @@ impl From<super::Cli> for CliCtx {
             format: cli.format,
             invoked_from_kubectl,
             config: config,
+            config_path,
         }
     }
 }

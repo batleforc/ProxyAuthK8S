@@ -40,9 +40,17 @@ The `kubectl-proxyauth` plugin will allow users to authenticate against multiple
     - `--set (-s)` : Sets the current context to the specified cluster.
 - **Configuration Management**: The plugin will support configuration files to store settings such as the ProxyAuthK8s service URL and default namespace.
   - `config` : If no flags provided, shows current config
-    - `--server-url (-s) <url>` : Sets the default ProxyAuthK8s service URL in the configuration file.
-    - `--namespace (-n) <namespace>` : Sets the default namespace in the configuration file.
+    - `get` : Displays the current configuration settings.
+      - `--server-url (-s) <url>` : Filters the output by server URL.
+      - `--namespace (-n) <namespace>` : Filters the output by namespace (by default show default ns settings).
+      - `--list (-l)` : Lists all available configurations.
     - `clear` : Clears the configuration file, resetting all settings to defaults.
+      - `--server-url (-s) <url>` : Sets the default ProxyAuthK8s service URL in the configuration file.
+      - `--all (-a)` : Clears all configurations.
+    - `set-def` : Sets configuration options.
+      - `--default-server <server-name>` : Sets the CLI-wide default server name in the configuration file.
+      - `--server-url <url>` : Adds or updates a server with its URL in the configuration file.
+      - `--namespace (-n) <namespace>` : Sets the default namespace for a specific server (requires --server flag with server name only).
 - **Help Command**: A `--help` flag will be available to provide users with information about the plugin's commands and usage.
 - **Error Handling**: The plugin will handle errors gracefully, providing meaningful messages to the user in case of authentication failures or other issues.
   - Each error needs to have a unique ID for easier troubleshooting
