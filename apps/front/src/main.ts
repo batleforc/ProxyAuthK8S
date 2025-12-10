@@ -4,12 +4,15 @@ import { createPinia } from 'pinia';
 import { createApp, markRaw } from 'vue';
 import App from './app/App.vue';
 import { client } from '@proxy-auth-k8s/front-api';
+import vueHljs from 'vue-hljs';
+import hljs from 'highlight.js';
 
 import { ToastOptions, ToastPlugin } from 'maz-ui/plugins/toast';
 import { obsidian } from '@maz-ui/themes/presets/obsidian';
 import { fr } from '@maz-ui/translations';
 import { MazUi } from 'maz-ui/plugins/maz-ui';
 
+import 'vue-hljs/style.css';
 import 'maz-ui/styles';
 import './styles.scss';
 
@@ -50,7 +53,7 @@ app.use(MazUi, {
 });
 
 app.use(ToastPlugin, toastOptions);
-
+app.use(vueHljs, { hljs });
 app.use(pinia);
 app.use(router);
 app.mount('#root');

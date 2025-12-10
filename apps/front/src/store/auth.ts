@@ -24,6 +24,9 @@ export const useAuthStore = defineStore('auth', {
     isInited(): boolean {
       return this.inited;
     },
+    getToken(): string | undefined {
+      return this.user ? this.user.access_token : undefined;
+    },
   },
   actions: {
     async init() {

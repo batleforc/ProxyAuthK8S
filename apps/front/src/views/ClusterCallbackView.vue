@@ -9,6 +9,10 @@ import MazIcon from 'maz-ui/components/MazIcon';
 import MazBadge from 'maz-ui/components/MazBadge';
 import MazSpinner from 'maz-ui/components/MazSpinner';
 import MazTextarea from 'maz-ui/components/MazTextarea';
+import MazTabs from 'maz-ui/components/MazTabs';
+import MazTabsBar from 'maz-ui/components/MazTabsBar';
+import MazTabsContent from 'maz-ui/components/MazTabsContent';
+import MazTabsContentItem from 'maz-ui/components/MazTabsContentItem';
 import {
   MazServer,
   MazShieldCheck,
@@ -84,6 +88,47 @@ current-context: ${contextName}`;
   return kubeconfigYaml;
 };
 
+const generatePluginKubeconfig = () => {
+  const data = callbackData.value;
+  if (!data.retour?.access_token) return '';
+
+  const clusterName = `${data.ns}-${data.cluster}`;
+  const userName = `${data.retour.subject}@${data.ns}-${data.cluster}`;
+  const contextName = `${data.ns}-${data.cluster}-context`;
+  // create a const of the cluster_url without the path
+  const clusterUrl = new URL(data.retour.cluster_url).origin;
+
+  const kubeconfigYaml = `apiVersion: v1
+kind: Config
+clusters:
+- name: ${clusterName}
+  cluster:
+    server: ${data.retour.cluster_url}
+    insecure-skip-tls-verify: false
+users:
+- name: ${userName}
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1
+      args:
+        - proxyauth
+        - get-token
+        - -n ${data.ns}
+        - -s ${clusterUrl}
+        - ${data.cluster}
+      command: kubectl
+      env: null
+      provideClusterInfo: false
+contexts:
+- name: ${contextName}
+  context:
+    cluster: ${clusterName}
+    user: ${userName}
+current-context: ${contextName}`;
+
+  return kubeconfigYaml;
+};
+
 // Actions
 const copyToClipboard = async (text: string, label: string) => {
   try {
@@ -107,6 +152,20 @@ const downloadKubeconfig = () => {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   toast.success('Kubeconfig téléchargé avec succès !');
+};
+
+const downloadPluginKubeconfig = () => {
+  const kubeconfigContent = generatePluginKubeconfig();
+  const blob = new Blob([kubeconfigContent], { type: 'application/yaml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `kubeconfig-plugin-${callbackData.value.ns}-${callbackData.value.cluster}.yaml`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast.success('Kubeconfig Plugin téléchargé avec succès !');
 };
 
 
@@ -230,7 +289,7 @@ const downloadKubeconfig = () => {
                     </div>
                   </div>
 
-                  <div class="token-section">
+                  <div v-if="callbackData.retour.refresh_token !== ''" class="token-section">
                     <label class="token-label">Refresh Token:</label>
                     <div class="token-field">
                       <MazTextarea :model-value="callbackData.retour.refresh_token" readonly :rows="3"
@@ -257,23 +316,69 @@ const downloadKubeconfig = () => {
               <template #default>
                 <div class="kubeconfig-content">
                   <p class="kubeconfig-description">
-                    Utilisez ce fichier kubeconfig pour vous connecter à votre cluster Kubernetes avec kubectl.
+                    Choisissez le type de configuration Kubernetes selon votre usage.
                   </p>
 
-                  <div class="kubeconfig-field">
-                    <MazTextarea :model-value="generateKubeconfig()" readonly :rows="15" class="kubeconfig-textarea" />
-                  </div>
+                  <MazTabs>
+                    <MazTabsBar :items="[
+                      { label: 'Configuration Standard', disabled: false },
+                      { label: 'Configuration Plugin', disabled: false }
+                    ]" />
 
-                  <div class="kubeconfig-actions">
-                    <MazBtn color="success" size="lg" :left-icon="MazCloudArrowDown" @click="downloadKubeconfig"
-                      class="download-button">
-                      Télécharger kubeconfig
-                    </MazBtn>
-                    <MazBtn color="primary" size="lg" :left-icon="MazClipboardDocument"
-                      @click="copyToClipboard(generateKubeconfig(), 'Kubeconfig')" class="copy-kubeconfig-button">
-                      Copier kubeconfig
-                    </MazBtn>
-                  </div>
+                    <MazTabsContent>
+                      <MazTabsContentItem :tab="1">
+                        <div class="tab-content">
+                          <p class="tab-description">
+                            Configuration avec token statique. Utilisez ce fichier kubeconfig pour vous connecter
+                            directement avec le token fourni.
+                          </p>
+
+                          <div class="kubeconfig-field">
+                            <MazTextarea :model-value="generateKubeconfig()" readonly :rows="15"
+                              class="kubeconfig-textarea" />
+                          </div>
+
+                          <div class="kubeconfig-actions">
+                            <MazBtn color="success" size="lg" :left-icon="MazCloudArrowDown" @click="downloadKubeconfig"
+                              class="download-button">
+                              Télécharger kubeconfig
+                            </MazBtn>
+                            <MazBtn color="primary" size="lg" :left-icon="MazClipboardDocument"
+                              @click="copyToClipboard(generateKubeconfig(), 'Kubeconfig')"
+                              class="copy-kubeconfig-button">
+                              Copier kubeconfig
+                            </MazBtn>
+                          </div>
+                        </div>
+                      </MazTabsContentItem>
+
+                      <MazTabsContentItem :tab="2">
+                        <div class="tab-content">
+                          <p class="tab-description">
+                            Configuration avec plugin kubectl-proxyauth. Les tokens sont automatiquement gérés et
+                            rafraîchis par le plugin.
+                          </p>
+
+                          <div class="kubeconfig-field">
+                            <MazTextarea :model-value="generatePluginKubeconfig()" readonly :rows="15"
+                              class="kubeconfig-textarea" />
+                          </div>
+
+                          <div class="kubeconfig-actions">
+                            <MazBtn color="success" size="lg" :left-icon="MazCloudArrowDown"
+                              @click="downloadPluginKubeconfig" class="download-button">
+                              Télécharger kubeconfig plugin
+                            </MazBtn>
+                            <MazBtn color="primary" size="lg" :left-icon="MazClipboardDocument"
+                              @click="copyToClipboard(generatePluginKubeconfig(), 'Kubeconfig Plugin')"
+                              class="copy-kubeconfig-button">
+                              Copier kubeconfig plugin
+                            </MazBtn>
+                          </div>
+                        </div>
+                      </MazTabsContentItem>
+                    </MazTabsContent>
+                  </MazTabs>
                 </div>
               </template>
             </MazCard>
@@ -525,6 +630,17 @@ const downloadKubeconfig = () => {
   color: #94a3b8;
   margin: 0 0 1.5rem 0;
   line-height: 1.6;
+}
+
+.tab-content {
+  padding: 1rem 0;
+}
+
+.tab-description {
+  color: #94a3b8;
+  margin: 0 0 1rem 0;
+  line-height: 1.6;
+  font-size: 0.875rem;
 }
 
 .kubeconfig-field {

@@ -19,6 +19,12 @@ const router = createRouter({
       meta: { requiresAuth: true, name: 'About' },
     },
     {
+      path: '/cli',
+      name: 'cli',
+      component: () => import('../views/CliView.vue'),
+      meta: { requiresAuth: true, name: 'CLI' },
+    },
+    {
       path: '/auth/callback',
       children: [
         {
