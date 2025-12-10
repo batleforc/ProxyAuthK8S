@@ -33,13 +33,6 @@ import { useAuthStore } from '../store/auth';
 const toast = useToast();
 const authStore = useAuthStore();
 
-// Initialize highlight.js
-onMounted(async () => {
-  hljs.registerLanguage('bash', bash);
-  hljs.registerLanguage('yaml', yaml);
-  await nextTick();
-  hljs.highlightAll();
-});
 
 // Helper function for external links
 const openExternalLink = (url: string) => {
@@ -330,7 +323,7 @@ const copyToClipboard = async (text: string, label: string) => {
                         <p class="tab-description">{{ installationCommands.krew.description }}</p>
                       </div>
                       <div class="command-block">
-                        <div class="code-container">
+                        <div class="code-container" v-highlight>
                           <pre><code class="hljs bash">{{ installationCommands.krew.commands.join('\n') }}</code></pre>
                           <MazBtn color="primary" size="sm" :left-icon="MazClipboardDocument"
                             @click="copyToClipboard(installationCommands.krew.commands.join('\n'), 'Commandes Krew')"
@@ -349,7 +342,7 @@ const copyToClipboard = async (text: string, label: string) => {
                         <p class="tab-description">{{ installationCommands.manual.description }}</p>
                       </div>
                       <div class="command-block">
-                        <div class="code-container">
+                        <div class="code-container" v-highlight>
                           <pre><code class="hljs bash">{{ installationCommands.manual.commands.join('\n') }}</code></pre>
                           <MazBtn color="primary" size="sm" :left-icon="MazClipboardDocument"
                             @click="copyToClipboard(installationCommands.manual.commands.join('\n'), 'Commandes manuelles')"
@@ -368,7 +361,7 @@ const copyToClipboard = async (text: string, label: string) => {
                         <p class="tab-description">{{ installationCommands.homebrew.description }}</p>
                       </div>
                       <div class="command-block">
-                        <div class="code-container">
+                        <div class="code-container" v-highlight>
                           <pre><code class="hljs bash">{{ installationCommands.homebrew.commands.join('\n') }}</code></pre>
                           <MazBtn color="primary" size="sm" :left-icon="MazClipboardDocument"
                             @click="copyToClipboard(installationCommands.homebrew.commands.join('\n'), 'Commandes Homebrew')"
@@ -410,7 +403,7 @@ const copyToClipboard = async (text: string, label: string) => {
                         <h4 class="example-title">{{ example.title }}</h4>
                         <p class="example-description">{{ example.description }}</p>
                         <div class="example-command">
-                          <div class="example-code-container">
+                          <div class="example-code-container" v-highlight>
                             <pre><code class="hljs bash">{{ example.command }}</code></pre>
                             <MazBtn size="xs" color="primary" :left-icon="MazClipboardDocument"
                               @click="copyToClipboard(example.command, example.title)" class="example-copy-btn">
@@ -437,7 +430,7 @@ const copyToClipboard = async (text: string, label: string) => {
                         <h4 class="example-title">{{ example.title }}</h4>
                         <p class="example-description">{{ example.description }}</p>
                         <div class="example-command">
-                          <div class="example-code-container">
+                          <div class="example-code-container" v-highlight>
                             <pre><code class="hljs bash">{{ example.command }}</code></pre>
                             <MazBtn size="xs" color="primary" :left-icon="MazClipboardDocument"
                               @click="copyToClipboard(example.command, example.title)" class="example-copy-btn">
@@ -464,7 +457,7 @@ const copyToClipboard = async (text: string, label: string) => {
                         <h4 class="example-title">{{ example.title }}</h4>
                         <p class="example-description">{{ example.description }}</p>
                         <div class="example-command">
-                          <div class="example-code-container">
+                          <div class="example-code-container" v-highlight>
                             <pre><code class="hljs bash">{{ example.command }}</code></pre>
                             <MazBtn size="xs" color="primary" :left-icon="MazClipboardDocument"
                               @click="copyToClipboard(example.command, example.title)" class="example-copy-btn">
@@ -491,7 +484,7 @@ const copyToClipboard = async (text: string, label: string) => {
                         <h4 class="example-title">{{ example.title }}</h4>
                         <p class="example-description">{{ example.description }}</p>
                         <div class="example-command">
-                          <div class="example-code-container">
+                          <div class="example-code-container" v-highlight>
                             <pre><code class="hljs bash">{{ example.command }}</code></pre>
                             <MazBtn size="xs" color="primary" :left-icon="MazClipboardDocument"
                               @click="copyToClipboard(example.command, example.title)" class="example-copy-btn">
@@ -522,7 +515,7 @@ const copyToClipboard = async (text: string, label: string) => {
                 Exemple complet d'utilisation du plugin de l'installation à l'utilisation quotidienne.
               </p>
               <div class="workflow-command-block">
-                <div class="workflow-code-container">
+                <div class="workflow-code-container" v-highlight>
                   <pre><code class="hljs bash">{{ workflowExample }}</code></pre>
                   <MazBtn color="success" size="lg" :left-icon="MazClipboardDocument"
                     @click="copyToClipboard(workflowExample, 'Workflow complet')" class="workflow-copy-btn-overlay">

@@ -333,9 +333,8 @@ const downloadPluginKubeconfig = () => {
                             directement avec le token fourni.
                           </p>
 
-                          <div class="kubeconfig-field">
-                            <MazTextarea :model-value="generateKubeconfig()" readonly :rows="15"
-                              class="kubeconfig-textarea" />
+                          <div class="kubeconfig-field" v-highlight>
+                            <pre><code class="hljs yaml">{{ generateKubeconfig() }}</code></pre>
                           </div>
 
                           <div class="kubeconfig-actions">
@@ -359,9 +358,8 @@ const downloadPluginKubeconfig = () => {
                             rafraîchis par le plugin.
                           </p>
 
-                          <div class="kubeconfig-field">
-                            <MazTextarea :model-value="generatePluginKubeconfig()" readonly :rows="15"
-                              class="kubeconfig-textarea" />
+                          <div class="kubeconfig-field" v-highlight>
+                            <pre><code class="hljs yaml">{{ generatePluginKubeconfig() }}</code></pre>
                           </div>
 
                           <div class="kubeconfig-actions">
@@ -647,9 +645,69 @@ const downloadPluginKubeconfig = () => {
   margin-bottom: 1.5rem;
 }
 
-.kubeconfig-textarea {
+/* Kubeconfig Code Blocks */
+.kubeconfig-code-container {
+  border-radius: 8px;
+  overflow: hidden;
+  background: #282c34;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.kubeconfig-code-container pre {
+  margin: 0;
+  padding: 1.5rem;
+  background: transparent;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.kubeconfig-code-container pre code {
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
   font-size: 0.75rem;
+  background: transparent;
+  color: #abb2bf;
+}
+
+/* Override highlight.js theme colors for kubeconfig */
+.kubeconfig-code-container .hljs {
+  background: transparent !important;
+  color: #abb2bf !important;
+}
+
+.kubeconfig-code-container .hljs-comment {
+  color: #5c6370 !important;
+  font-style: italic;
+}
+
+.kubeconfig-code-container .hljs-keyword,
+.kubeconfig-code-container .hljs-selector-tag,
+.kubeconfig-code-container .hljs-built_in {
+  color: #c678dd !important;
+}
+
+.kubeconfig-code-container .hljs-string,
+.kubeconfig-code-container .hljs-attr {
+  color: #98c379 !important;
+}
+
+.kubeconfig-code-container .hljs-number,
+.kubeconfig-code-container .hljs-literal {
+  color: #d19a66 !important;
+}
+
+.kubeconfig-code-container .hljs-variable,
+.kubeconfig-code-container .hljs-template-variable {
+  color: #e06c75 !important;
+}
+
+.kubeconfig-code-container .hljs-function .hljs-title {
+  color: #61afef !important;
+}
+
+.kubeconfig-code-container .hljs-meta {
+  color: #528bff !important;
 }
 
 .kubeconfig-actions {

@@ -69,6 +69,7 @@ export const useClustersStore = defineStore('clusters', {
         headers: {
           Authorization: `Bearer ${authStore.user?.access_token}`,
           'x-front-callback': 'true',
+          'x-kubectl-callback': null,
         },
       }).then((response) => {
         if (response.status === 200 && response.data) {
@@ -105,6 +106,7 @@ export const useClustersStore = defineStore('clusters', {
       return await callbackLogin({
         headers: {
           'x-front-callback': 'true',
+          'x-kubectl-callback': null,
         },
         path: {
           ns,
