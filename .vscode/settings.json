@@ -3,6 +3,7 @@
     "actix",
     "appender",
     "authelia",
+    "AUTHINFO",
     "crds",
     "deadpool",
     "dotenv",

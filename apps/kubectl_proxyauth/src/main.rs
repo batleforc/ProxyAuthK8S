@@ -139,7 +139,8 @@ enum Commands {
     },
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
     // You can see how many times a particular flag or argument occurred
     // Note, only flags can have multiple occurrences
