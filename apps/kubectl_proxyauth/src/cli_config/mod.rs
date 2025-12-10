@@ -161,6 +161,6 @@ impl CliConfig {
             .and_then(|server| {
                 server.get_clusters_from_name_ns(url_info.cluster_name, Some(url_info.namespace))
             })
-            .ok_or_else(|| CliConfigError::ServerNotFound(cluster_url))
+            .ok_or(CliConfigError::ServerNotFound(cluster_url))
     }
 }

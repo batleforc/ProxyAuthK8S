@@ -69,10 +69,10 @@ impl From<super::Cli> for CliCtx {
                 )
             }
         };
-        let invoked_from_kubectl = env::args().next().map_or(false, |arg0| {
+        let invoked_from_kubectl = env::args().next().is_some_and(|arg0| {
             PathBuf::from(arg0)
                 .file_stem()
-                .map_or(false, |stem| stem == "kubectl")
+                .is_some_and(|stem| stem == "kubectl")
         });
         // Load CLI configuration
         let config_path = if let Some(path) = cli.proxy_auth_config {
@@ -120,7 +120,7 @@ impl From<super::Cli> for CliCtx {
             server_url: cli.server_url,
             format: cli.format,
             invoked_from_kubectl,
-            config: config,
+            config,
             config_path,
         }
     }

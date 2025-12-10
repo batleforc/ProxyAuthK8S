@@ -10,7 +10,6 @@ impl ConfigCommands {
                     Ok(_) => info!("All configurations cleared successfully."),
                     Err(e) => error!("Failed to clear configurations: {}", e),
                 }
-                return;
             } else if let Some(server_url) = server_url {
                 let server_name =
                     crate::cli_config::cli_server_config::CliServerConfig::url_to_name_from_string(
@@ -30,7 +29,6 @@ impl ConfigCommands {
                 } else {
                     warn!("Server URL {} not found in configuration.", server_url);
                 }
-                return;
             } else {
                 warn!("Please provide either --all to clear all configurations or --server_url to clear a specific server configuration.");
             }
