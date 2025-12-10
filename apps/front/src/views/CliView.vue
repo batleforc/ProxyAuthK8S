@@ -395,7 +395,7 @@ const copyToClipboard = async (text: string, label: string) => {
           </template>
           <template #default>
             <div class="usage-content">
-              <MazAccordion>
+              <MazAccordion class="usage-content-accordion">
                 <template #title-1>
                   <div class="accordion-title">
                     <MazIcon :icon="MazCog6Tooth" size="lg" />
@@ -625,6 +625,10 @@ const copyToClipboard = async (text: string, label: string) => {
   position: relative;
   z-index: 1;
   text-align: center;
+}
+
+.usage-content-accordion {
+  width: 100%;
 }
 
 .page-title {
@@ -898,12 +902,23 @@ const copyToClipboard = async (text: string, label: string) => {
   padding: 1rem 0;
 }
 
+/* Accordion Styling */
+.usage-content .maz-accordion {
+  width: 100%;
+  max-width: 100%;
+}
+
+.usage-content .maz-accordion>div {
+  width: 100%;
+}
+
 .accordion-title {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   color: #f1f5f9;
   font-weight: 500;
+  width: 100%;
 }
 
 .accordion-content {
