@@ -590,6 +590,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 
 [[package]]
+name = "cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "cli_trace",
+ "comfy-table",
+ "k8s-openapi",
+ "keyring",
+ "kube",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "cli_trace"
 version = "0.1.0"
 dependencies = [
@@ -2068,16 +2087,8 @@ name = "kubectl_proxyauth"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "cli",
  "cli_trace",
- "comfy-table",
- "k8s-openapi",
- "keyring",
- "kube",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "thiserror 2.0.17",
  "tokio",
  "tracing",
 ]

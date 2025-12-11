@@ -6,24 +6,10 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.5.53", features = ["derive"] }
-
 tracing = { workspace = true }
-k8s-openapi = { workspace = true }
-kube = { workspace = true }
-thiserror = { workspace = true }
 tokio = { workspace = true }
-serde = { workspace = true }
-serde_yaml = { workspace = true }
-serde_json = { workspace = true }
-reqwest = { workspace = true }
-keyring = { version = "3", features = [
-  "linux-native",
-  "apple-native",
-  "windows-native",
-  "sync-secret-service",
-] }
 
 cli_trace = { path = "../../libs/cli_trace" }
-comfy-table = "7.2.1"
+cli = { path = "../../libs/cli" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
