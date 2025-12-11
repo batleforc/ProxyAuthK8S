@@ -1,14 +1,19 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use tracing::{debug, info, warn};
 
-use crate::{config::ConfigCommands, ctx::ContextFormat};
+use crate::{
+    config::ConfigCommands,
+    ctx::{CliCtx, ContextFormat},
+};
 
 pub mod cli_config;
 pub mod config;
 pub mod context;
 pub mod ctx;
 pub mod error;
+pub mod login;
 
 /// Kubectl ProxyAuth CLI
 #[derive(Parser, Debug, Clone)]
@@ -131,4 +136,63 @@ pub enum Commands {
         #[command(subcommand)]
         command: Option<ConfigCommands>,
     },
+}
+
+impl Cli {
+    pub async fn run_cli(&mut self, mut ctx: CliCtx) {
+        // Match and execute the appropriate command
+        match &self.command {
+            Some(Commands::Get { cluster_name }) => {
+                //ctx.handle_get_clusters(cluster_name.clone());
+                debug!("Getting cluster info for: {:?}", cluster_name);
+            }
+            Some(Commands::Login {
+                cluster_name,
+                token,
+            }) => {
+                debug!(
+                    "Logging in to cluster: {:?} with token: {:?}",
+                    cluster_name, token
+                );
+                ctx.handle_login(cluster_name.clone(), token.clone()).await;
+            }
+            Some(Commands::Logout { cluster_name }) => {
+                //ctx.handle_logout(cluster_name.clone());
+                debug!("Logging out from cluster: {:?}", cluster_name);
+            }
+            Some(Commands::Cache { clear }) => {
+                //ctx.handle_cache(*clear);
+                debug!("Handling cache clear: {}", clear);
+            }
+            Some(Commands::GetToken { cluster_name }) => {
+                //ctx.handle_get_token(cluster_name.clone());
+                // Detect if env var KUBERNETES_EXEC_INFO is set, change context accordingly
+                debug!("Getting token for cluster: {:?}", cluster_name);
+            }
+            Some(Commands::Context {
+                context_name,
+                list,
+                set,
+            }) => {
+                debug!(
+                    "Handling context for cluster: {:?}, list: {}, set: {}",
+                    context_name, list, set
+                );
+                ctx.handle_context(context_name.clone(), *list, *set);
+            }
+            Some(Commands::Config { command }) => {
+                //ctx.handle_config(server_url.clone(), namespace.clone(), *clear);
+                debug!("Handling config command: {:?}", command);
+                if let Some(command) = command {
+                    command.handle_config_commands(&mut ctx);
+                } else {
+                    warn!("No config subcommand provided. Use --help for more information.");
+                }
+            }
+            None => {
+                // If no subcommand is provided, you can show help or a default action
+                warn!("No command provided. Use --help for more information.");
+            }
+        }
+    }
 }

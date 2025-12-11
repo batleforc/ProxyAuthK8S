@@ -15,6 +15,18 @@ tasks:
       - task talos:k -- apply -f ./deploy/exemple/min-local-talos.crd.yaml
       - task talos:create-kubeconfig-proxy
       - task talos:create-kubeconfig-oidc
+  re-up:
+    desc: "Wake up Talos containers"
+    cmds:
+      - docker start talos-default-controlplane-1 talos-default-worker-1
+  stop:
+    desc: "Stop Talos containers"
+    cmds:
+      - docker stop talos-default-controlplane-1 talos-default-worker-1
+  logs:
+    desc: "Show Talos cluster logs"
+    cmds:
+      - docker logs -f talos-default-controlplane-1
   up:cert:
     cmds:
       - cp .talos/patch_auth.yaml.tpl .talos/patch_auth.yaml

@@ -35,14 +35,9 @@ pub struct UrlInfo {
 
 impl CliConfig {
     pub fn new() -> Self {
-        let server = CliServerConfig {
-            url: "http://localhost:5437".to_string(),
-            namespace: "default".to_string(),
-            clusters: HashMap::new(),
-        };
         CliConfig {
-            default_server_name: "localhost-5437".to_string(),
-            servers: vec![(server.url_to_name(), server)].into_iter().collect(),
+            default_server_name: "".to_string(),
+            servers: vec![].into_iter().collect(),
         }
     }
 

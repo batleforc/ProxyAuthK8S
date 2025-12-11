@@ -21,7 +21,8 @@ import {
   MazCloudArrowDown,
   MazKey,
   MazGlobeAlt,
-  MazClock
+  MazClock,
+  MazCog6Tooth
 } from '@maz-ui/icons';
 
 const clustersStore = useClustersStore();
@@ -127,6 +128,29 @@ contexts:
 current-context: ${contextName}`;
 
   return kubeconfigYaml;
+};
+
+const generatePluginCommands = () => {
+  const data = callbackData.value;
+  if (!data.retour?.access_token) return '';
+
+  const clusterUrl = new URL(data.retour.cluster_url).origin;
+  const serverName = clusterUrl.replace("http://", "").replace("https://", "").replace(/[.:]/g, "-");
+
+  return `# 1. S'authentifier avec votre token actuel
+kubectl proxyauth login --server-url "${clusterUrl}" --token "${data.retour.access_token}"
+
+# 2. Se connecter au cluster spécifique
+kubectl proxyauth login "${data.cluster}"
+# Ou via votre token
+kubectl proxyauth login "${data.cluster}" --token "${callbackData.value.retour.id_token}"
+
+# 3. Utiliser kubectl normalement
+kubectl get pods
+kubectl get services
+
+# 4. Optionnel: Changer le contexte kubectl vers ce cluster
+kubectl proxyauth ctx --set "${data.cluster}"`;
 };
 
 // Actions
@@ -321,8 +345,9 @@ const downloadPluginKubeconfig = () => {
 
                   <MazTabs>
                     <MazTabsBar :items="[
-                      { label: 'Configuration Standard', disabled: false },
-                      { label: 'Configuration Plugin', disabled: false }
+                      { label: 'Kubeconfig Standard', disabled: false },
+                      { label: 'Kubeconfig Plugin', disabled: false },
+                      { label: 'Configuration via Plugin CLI', disabled: false }
                     ]" />
 
                     <MazTabsContent>
@@ -372,6 +397,87 @@ const downloadPluginKubeconfig = () => {
                               class="copy-kubeconfig-button">
                               Copier kubeconfig plugin
                             </MazBtn>
+                          </div>
+                        </div>
+                      </MazTabsContentItem>
+
+                      <MazTabsContentItem :tab="3">
+                        <div class="tab-content">
+                          <p class="tab-description">
+                            Utilisez le plugin kubectl-proxyauth pour vous connecter directement via la ligne de
+                            commande.
+                            Cette méthode est recommandée pour une intégration transparente avec kubectl.
+                          </p>
+
+                          <div class="cli-steps">
+                            <div class="cli-step">
+                              <h4 class="cli-step-title">
+                                <MazIcon :icon="MazCloudArrowDown" size="sm" />
+                                Étape 1: Installer le plugin (si pas déjà fait)
+                              </h4>
+                              <div class="cli-code-container" v-highlight>
+                                <pre><code class="hljs bash"># Via Krew (recommandé)
+kubectl krew install proxyauth
+
+# Ou téléchargement manuel
+wget https://github.com/batleforc/proxyauthk8s/releases/latest/download/kubectl-proxyauth-linux-amd64
+chmod +x kubectl-proxyauth-linux-amd64
+sudo mv kubectl-proxyauth-linux-amd64 /usr/local/bin/kubectl-proxyauth</code></pre>
+                                <MazBtn size="sm" color="primary" :left-icon="MazClipboardDocument"
+                                  @click="copyToClipboard('kubectl krew install proxyauth', 'Commande d\'installation')"
+                                  class="cli-copy-btn">
+                                  Copier installation
+                                </MazBtn>
+                              </div>
+                            </div>
+
+                            <div class="cli-step">
+                              <h4 class="cli-step-title">
+                                <MazIcon :icon="MazCog6Tooth" size="sm" />
+                                Étape 2: Configurer et se connecter
+                              </h4>
+                              <div class="cli-code-container" v-highlight>
+                                <pre><code class="hljs bash">{{ generatePluginCommands() }}</code></pre>
+                                <MazBtn size="sm" color="primary" :left-icon="MazClipboardDocument"
+                                  @click="copyToClipboard(generatePluginCommands(), 'Commandes CLI')"
+                                  class="cli-copy-btn">
+                                  Copier commandes
+                                </MazBtn>
+                              </div>
+                            </div>
+
+                            <div class="cli-step">
+                              <h4 class="cli-step-title">
+                                <MazIcon :icon="MazShieldCheck" size="sm" />
+                                Étape 3: Vérifier la configuration
+                              </h4>
+                              <div class="cli-code-container" v-highlight>
+                                <pre><code class="hljs bash"># Vérifier la liste des clusters disponibles
+kubectl proxyauth get
+
+# Vérifier le contexte actuel
+kubectl proxyauth ctx
+
+# Tester la connexion
+kubectl get nodes</code></pre>
+                                <MazBtn size="sm" color="primary" :left-icon="MazClipboardDocument"
+                                  @click="copyToClipboard('kubectl proxyauth get\nkubectl proxyauth ctx\nkubectl get nodes', 'Commandes de vérification')"
+                                  class="cli-copy-btn">
+                                  Copier vérification
+                                </MazBtn>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div class="cli-advantages">
+                            <h4 class="advantages-title">Avantages du plugin CLI:</h4>
+                            <ul class="advantages-list">
+                              <li>🔄 Gestion automatique du renouvellement des tokens</li>
+                              <li>🚀 Intégration native avec kubectl</li>
+                              <li>⚙️ Configuration centralisée des clusters</li>
+                              <li>🔐 Authentification sécurisée via navigateur</li>
+                              <li>📋 Gestion des contextes kubectl simplifiée</li>
+                            </ul>
                           </div>
                         </div>
                       </MazTabsContentItem>
@@ -756,6 +862,142 @@ const downloadPluginKubeconfig = () => {
   min-width: 160px;
 }
 
+/* CLI Steps */
+.cli-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.cli-step {
+  padding: 1.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  border-left: 4px solid #3b82f6;
+}
+
+.cli-step-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  margin: 0 0 1rem 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.cli-code-container {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #282c34;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 1rem;
+}
+
+.cli-code-container pre {
+  margin: 0;
+  padding: 1.5rem;
+  background: transparent;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.cli-code-container pre code {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.875rem;
+  background: transparent;
+  color: #abb2bf;
+}
+
+.cli-copy-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  min-width: 120px;
+  z-index: 10;
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+}
+
+.cli-copy-btn:hover {
+  opacity: 1;
+}
+
+/* CLI Advantages */
+.cli-advantages {
+  padding: 1.5rem;
+  background: rgba(34, 197, 94, 0.1);
+  border-radius: 12px;
+  border-left: 4px solid #22c55e;
+}
+
+.advantages-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  margin: 0 0 1rem 0;
+}
+
+.advantages-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.advantages-list li {
+  color: #cbd5e1;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Override highlight.js theme colors for CLI code blocks */
+.cli-code-container .hljs {
+  background: transparent !important;
+  color: #abb2bf !important;
+}
+
+.cli-code-container .hljs-comment {
+  color: #5c6370 !important;
+  font-style: italic;
+}
+
+.cli-code-container .hljs-keyword,
+.cli-code-container .hljs-selector-tag,
+.cli-code-container .hljs-built_in {
+  color: #c678dd !important;
+}
+
+.cli-code-container .hljs-string,
+.cli-code-container .hljs-attr {
+  color: #98c379 !important;
+}
+
+.cli-code-container .hljs-number,
+.cli-code-container .hljs-literal {
+  color: #d19a66 !important;
+}
+
+.cli-code-container .hljs-variable,
+.cli-code-container .hljs-template-variable {
+  color: #e06c75 !important;
+}
+
+.cli-code-container .hljs-function .hljs-title {
+  color: #61afef !important;
+}
+
+.cli-code-container .hljs-meta {
+  color: #528bff !important;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .page-title {
@@ -788,6 +1030,20 @@ const downloadPluginKubeconfig = () => {
   .waiting-details {
     flex-direction: column;
     gap: 1rem;
+  }
+
+  .cli-copy-btn {
+    position: static;
+    margin-top: 1rem;
+    width: 100%;
+  }
+
+  .cli-step {
+    padding: 1rem;
+  }
+
+  .cli-steps {
+    gap: 1.5rem;
   }
 }
 
