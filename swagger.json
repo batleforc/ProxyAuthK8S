@@ -241,6 +241,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Path to resource",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -276,6 +285,15 @@
             "name": "cluster",
             "in": "path",
             "description": "Cluster name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Path to resource",
             "required": true,
             "schema": {
               "type": "string"
@@ -319,6 +337,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Path to resource",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -358,6 +385,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Path to resource",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -393,6 +429,15 @@
             "name": "cluster",
             "in": "path",
             "description": "Cluster name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Path to resource",
             "required": true,
             "schema": {
               "type": "string"

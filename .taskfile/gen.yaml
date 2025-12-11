@@ -25,6 +25,32 @@ tasks:
     silent: true
     cmds:
       - cargo run --bin swaggergen
+  crds-file:
+    desc: "Generate Custom Resource Definitions and save to file"
+    silent: true
+    cmds:
+      - task gen:crds > deploy/crds.yaml
+      - cp deploy/crds.yaml deploy/chart-crd/templates/crds.yaml
+  swagger-file:
+    desc: "Generate Swagger documentation and save to file"
+    silent: true
+    cmds:
+      - task gen:swagger > swagger.json
+  client:
+    desc: "Generate Node and Rust API Clients from OpenAPI specification"
+    silent: true
+    deps:
+      - api-client
+      - back-api-client
+  back-api-client:
+    desc: "Generate backend API client from OpenAPI specification"
+    silent: true
+    vars:
+      RUST_VERSION:
+        sh: cat apps/server/Cargo.toml | grep 'version' | head -1 | cut -d '"' -f2
+    cmds:
+      - echo "Generating backend API client from OpenAPI specification"
+      - npx @openapitools/openapi-generator-cli generate -i ./swagger.json -g rust -o./libs/client_api
   api-client:
     desc: "Generate API client from OpenAPI specification"
     silent: true

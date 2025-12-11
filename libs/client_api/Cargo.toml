@@ -1,8 +1,24 @@
 [package]
-name = "client_api"
+name = "openapi"
 version = "0.1.0"
+authors = ["maxleriche.60@gmail.com"]
+description = "Reverse Proxy K8s Api"
+license = "MIT"
 edition = "2021"
 
 [dependencies]
+serde = { workspace = true }
+serde_with = { version = "^3.8", default-features = false, features = [
+  "base64",
+  "std",
+  "macros",
+] }
+serde_json = { workspace = true }
+serde_repr = "^0.1"
+url = "^2.5"
+reqwest = { workspace = true, features = ["multipart"] }
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["rustls-tls"]
+native-tls = ["reqwest/native-tls"]
+rustls-tls = ["reqwest/rustls-tls"]

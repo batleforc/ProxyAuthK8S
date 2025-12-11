@@ -90,11 +90,11 @@ tasks:
   recu:
     desc: "Run all gen jobs"
     silent: true
+    deps:
+      - gen:swagger-file
+      - gen:crds-file
     cmds:
-      - task gen:crds > deploy/crds.yaml
-      - task gen:crds > deploy/chart-crd/templates/crds.yaml
-      - task gen:swagger > swagger.json
-      - task gen:api-client
+      - task gen:client
 
   cli:
     desc: "Run kubectl_proxyauth with args"

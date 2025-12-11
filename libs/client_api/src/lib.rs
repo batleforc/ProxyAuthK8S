@@ -1,8 +1,11 @@
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}
+#![allow(unused_imports)]
+#![allow(clippy::too_many_arguments)]
+
+extern crate serde_repr;
+extern crate serde;
+extern crate serde_json;
+extern crate url;
+extern crate reqwest;
+
+pub mod apis;
+pub mod models;
