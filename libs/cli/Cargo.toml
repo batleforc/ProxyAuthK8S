@@ -23,5 +23,6 @@ keyring = { version = "3", features = [
 ] }
 
 cli_trace = { path = "../cli_trace" }
+client_api = { path = "../client_api" }
 comfy-table = "7.2.1"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

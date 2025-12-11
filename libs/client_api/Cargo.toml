@@ -1,5 +1,5 @@
 [package]
-name = "openapi"
+name = "client_api"
 version = "0.1.0"
 authors = ["maxleriche.60@gmail.com"]
 description = "Reverse Proxy K8s Api"

@@ -595,6 +595,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "cli_trace",
+ "client_api",
  "comfy-table",
  "k8s-openapi",
  "keyring",
@@ -620,6 +621,18 @@ dependencies = [
  "tracing",
  "tracing-bunyan-formatter",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "client_api"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "serde_with",
+ "url",
 ]
 
 [[package]]
@@ -2383,18 +2396,6 @@ name = "once_cell_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
-
-[[package]]
-name = "openapi"
-version = "0.1.0"
-dependencies = [
- "reqwest",
- "serde",
- "serde_json",
- "serde_repr",
- "serde_with",
- "url",
-]
 
 [[package]]
 name = "openidconnect"
