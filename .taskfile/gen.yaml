@@ -28,6 +28,9 @@ tasks:
   api-client:
     desc: "Generate API client from OpenAPI specification"
     silent: true
+    vars:
+      RUST_VERSION:
+        sh: cat apps/server/Cargo.toml | grep 'version' | head -1 | cut -d '"' -f2
     cmds:
       - echo "Generating API client from OpenAPI specification"
       - yarn openapi-ts
