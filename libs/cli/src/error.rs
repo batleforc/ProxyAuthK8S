@@ -27,9 +27,11 @@ pub enum ProxyAuthK8sError {
     KeyringReadError(String),
     #[error("ERR000011: Failed to write to keyring: {0}")]
     KeyringWriteError(String),
-    #[error("ERR000012: Remote Server error: {0}")]
+    #[error("ERR000012: Failed to delete from keyring: {0}")]
+    KeyringDeleteError(String),
+    #[error("ERR000013: Remote Server error: {0}")]
     RemoteServerError(String),
-    #[error("ERR000013: Unauthenticated: {0}")]
+    #[error("ERR000014: Unauthenticated: {0}")]
     Unauthenticated(String),
 }
 

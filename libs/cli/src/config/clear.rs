@@ -18,6 +18,9 @@ impl ConfigCommands {
                 if ctx.config.default_server_name == server_name {
                     ctx.config.default_server_name = "".to_string();
                 }
+                if let Some(server) = ctx.config.servers.get(&server_name) {
+                    server.clear_all_tokens();
+                }
                 if ctx.config.servers.remove(&server_name).is_some() {
                     match ctx.config.write_to_file(ctx.config_path.clone()) {
                         Ok(_) => info!(

@@ -1,7 +1,6 @@
-use std::{collections::HashMap, path::PathBuf};
-
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, path::PathBuf};
 
 pub mod cli_cluster_config;
 pub mod cli_server_config;
@@ -42,6 +41,10 @@ impl CliConfig {
     }
 
     pub fn clear(&mut self) -> &Self {
+        // Clear all credentials and server configs
+        for server in self.servers.values() {
+            server.clear_all_tokens();
+        }
         self.servers = HashMap::new();
         self.default_server_name = "".to_string();
         self
