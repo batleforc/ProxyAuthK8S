@@ -4,3 +4,9 @@ use serde::{Deserialize, Serialize};
 pub struct CliClusterConfig {
     pub token_exist: bool,
 }
+
+impl CliClusterConfig {
+    pub fn new() -> Self {
+        CliClusterConfig { token_exist: true }
+    }
+}

@@ -34,7 +34,7 @@ pub struct Cli {
         long,
         global = true,
         value_name = "NAMESPACE",
-        default_value = "default"
+        default_value = ""
     )]
     pub namespace: String,
 
@@ -63,14 +63,7 @@ pub struct Cli {
     pub verbose: Option<u8>,
 
     /// ProxyAuthK8S server URL
-    /// If not provided, uses the default URL http://localhost:8080
-    #[arg(
-        short,
-        long,
-        global = true,
-        value_name = "URL",
-        default_value = "http://localhost:8080"
-    )]
+    #[arg(short, long, global = true, value_name = "URL", default_value = "")]
     pub server_url: String,
 
     /// Output format

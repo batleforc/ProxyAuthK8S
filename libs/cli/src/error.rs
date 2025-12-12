@@ -1,3 +1,6 @@
+use core::error;
+
+use client_api::apis::api_clusters_api::GetAllVisibleClusterError;
 use thiserror::Error;
 
 use crate::cli_config::error::CliConfigError;
@@ -26,6 +29,10 @@ pub enum ProxyAuthK8sError {
     KeyringReadError(String),
     #[error("ERR000011: Failed to write to keyring: {0}")]
     KeyringWriteError(String),
+    #[error("ERR000012: Remote Server error: {0}")]
+    RemoteServerError(String),
+    #[error("ERR000013: Unauthenticated: {0}")]
+    Unauthenticated(String),
 }
 
 impl From<CliConfigError> for ProxyAuthK8sError {
@@ -39,6 +46,39 @@ impl From<CliConfigError> for ProxyAuthK8sError {
             CliConfigError::YamlSerializeError(error) => {
                 ProxyAuthK8sError::YamlSerializeError(error)
             }
+        }
+    }
+}
+
+impl From<GetAllVisibleClusterError> for ProxyAuthK8sError {
+    fn from(value: GetAllVisibleClusterError) -> Self {
+        match value {
+            GetAllVisibleClusterError::Status401() => ProxyAuthK8sError::Unauthenticated(format!(
+                "Authentification failed, please re-login to the server."
+            )),
+            GetAllVisibleClusterError::Status500() => ProxyAuthK8sError::RemoteServerError(
+                format!("Invalid response from server, see debug to have more details",),
+            ),
+            GetAllVisibleClusterError::UnknownValue(val) => {
+                ProxyAuthK8sError::RemoteServerError(format!("Unknown error from server: {}", val))
+            }
+        }
+    }
+}
+
+impl From<client_api::apis::Error<GetAllVisibleClusterError>> for ProxyAuthK8sError {
+    fn from(value: client_api::apis::Error<GetAllVisibleClusterError>) -> Self {
+        match value {
+            client_api::apis::Error::ResponseError(resp_content) => match resp_content.entity {
+                Some(err) => ProxyAuthK8sError::from(err),
+                None => ProxyAuthK8sError::RemoteServerError(
+                    "No error details provided by server".to_string(),
+                ),
+            },
+            client_api::apis::Error::Serde(err) => {
+                ProxyAuthK8sError::RemoteServerError(format!("Serialization error: {}", err))
+            }
+            other => ProxyAuthK8sError::RemoteServerError(format!("Unexpected error: {:?}", other)),
         }
     }
 }

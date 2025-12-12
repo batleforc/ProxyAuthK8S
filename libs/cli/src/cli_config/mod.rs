@@ -168,4 +168,20 @@ impl CliConfig {
             })
             .ok_or(CliConfigError::ServerNotFound(cluster_url))
     }
+
+    pub fn get_server_config_by_url(
+        &self,
+        server_url: Option<String>,
+    ) -> Result<&CliServerConfig, CliConfigError> {
+        let server_name = match server_url {
+            Some(url) => {
+                let url_info = Self::proxy_url_to_tuple(&url)?;
+                url_info.server_name
+            }
+            None => self.default_server_name.clone(),
+        };
+        self.servers
+            .get(&server_name)
+            .ok_or(CliConfigError::ServerNotFound(server_name))
+    }
 }
