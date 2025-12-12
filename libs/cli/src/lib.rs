@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::{
     config::ConfigCommands,

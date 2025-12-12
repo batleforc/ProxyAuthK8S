@@ -10,6 +10,7 @@ RUN mkdir -p libs/api/src && \
   mkdir -p libs/crd/src && \
   mkdir -p libs/trace/src && \
   mkdir -p libs/controller/src && \
+  mkdir -p libs/client_api/src && \
   mkdir -p apps/server/src && \
   mkdir -p apps/crdgen/src && \
   mkdir -p apps/swaggergen/src && \
@@ -22,6 +23,7 @@ COPY libs/common/Cargo.toml libs/common/Cargo.toml
 COPY libs/crd/Cargo.toml libs/crd/Cargo.toml
 COPY libs/trace/Cargo.toml libs/trace/Cargo.toml
 COPY libs/controller/Cargo.toml libs/controller/Cargo.toml
+COPY libs/client_api/Cargo.toml libs/client_api/Cargo.toml
 COPY apps/server/Cargo.toml apps/server/Cargo.toml
 COPY apps/crdgen/Cargo.toml apps/crdgen/Cargo.toml
 COPY apps/swaggergen/Cargo.toml apps/swaggergen/Cargo.toml
@@ -34,6 +36,7 @@ RUN echo "fn main() {}" > libs/api/src/lib.rs && \
   echo "fn main() {}" > libs/crd/src/lib.rs && \
   echo "fn main() {}" > libs/trace/src/lib.rs && \
   echo "fn main() {}" > libs/controller/src/lib.rs && \
+  echo "fn main() {}" > libs/client_api/src/lib.rs && \
   echo "fn main() {}" > apps/server/src/main.rs && \
   echo "fn main() {}" > apps/crdgen/src/main.rs && \
   echo "fn main() {}" > apps/swaggergen/src/main.rs && \

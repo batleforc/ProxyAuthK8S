@@ -22,6 +22,10 @@ pub enum ProxyAuthK8sError {
     ConfigPathCouldNotBeCalculated,
     #[error("ERR000009: Failed to write kubeconfig file: {0}")]
     KubeconfigWriteError(String),
+    #[error("ERR000010: Failed to read from keyring: {0}")]
+    KeyringReadError(String),
+    #[error("ERR000011: Failed to write to keyring: {0}")]
+    KeyringWriteError(String),
 }
 
 impl From<CliConfigError> for ProxyAuthK8sError {

@@ -43,7 +43,7 @@
         },
         "security": [
           {
-            "oauth2": []
+            "bearer_auth": []
           }
         ]
       }
@@ -548,6 +548,13 @@
             "type": "boolean"
           }
         }
+      }
+    },
+    "securitySchemes": {
+      "bearer_auth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
       }
     }
   },

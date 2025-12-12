@@ -25,6 +25,9 @@ impl CliCtx {
                     info!("Setting current context to: {}", context_name);
                     // Here you would implement the logic to actually set the context
                     self.kubeconfig.current_context = Some(context_name);
+                    if let Err(e) = self.write_kubeconfig() {
+                        panic!("Failed to write kubeconfig: {}", e);
+                    }
                 }
                 None => {
                     panic!("Context '{}' not found in kubeconfig.", context_name);

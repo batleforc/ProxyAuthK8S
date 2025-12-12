@@ -101,6 +101,16 @@ impl CliConfig {
             .and_then(|server| server.get_clusters_from_name_ns(cluster_name, ns))
     }
 
+    pub fn get_or_insert_server_config(
+        &mut self,
+        server_name: String,
+        server_url: String,
+    ) -> &mut CliServerConfig {
+        self.servers
+            .entry(server_name.clone())
+            .or_insert_with(|| CliServerConfig::new(server_url))
+    }
+
     pub fn proxy_url_to_tuple(url: &str) -> Result<UrlInfo, CliConfigError> {
         let parsed_url = match Url::parse(url) {
             Ok(u) => u,
