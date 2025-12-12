@@ -97,10 +97,7 @@ impl CliServerConfig {
     }
 
     pub fn get_base_configuration(&self) -> Result<Configuration, ProxyAuthK8sError> {
-        let token = match self.get_server_token() {
-            Ok(t) => t,
-            Err(err) => return Err(err),
-        };
+        let token = self.get_server_token()?;
         Ok(Configuration {
             base_path: self.url.clone(),
             bearer_access_token: Some(token),

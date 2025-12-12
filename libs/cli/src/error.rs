@@ -1,5 +1,3 @@
-use core::error;
-
 use client_api::apis::api_clusters_api::GetAllVisibleClusterError;
 use thiserror::Error;
 
@@ -53,11 +51,11 @@ impl From<CliConfigError> for ProxyAuthK8sError {
 impl From<GetAllVisibleClusterError> for ProxyAuthK8sError {
     fn from(value: GetAllVisibleClusterError) -> Self {
         match value {
-            GetAllVisibleClusterError::Status401() => ProxyAuthK8sError::Unauthenticated(format!(
-                "Authentification failed, please re-login to the server."
-            )),
+            GetAllVisibleClusterError::Status401() => ProxyAuthK8sError::Unauthenticated(
+                "Authentification failed, please re-login to the server.".to_owned(),
+            ),
             GetAllVisibleClusterError::Status500() => ProxyAuthK8sError::RemoteServerError(
-                format!("Invalid response from server, see debug to have more details",),
+                "Invalid response from server, see debug to have more details".to_owned(),
             ),
             GetAllVisibleClusterError::UnknownValue(val) => {
                 ProxyAuthK8sError::RemoteServerError(format!("Unknown error from server: {}", val))
