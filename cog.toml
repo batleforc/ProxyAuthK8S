@@ -26,6 +26,8 @@ set -e
 task recu
 git add .
 gitleaks git --pre-commit --redact --staged --verbose
+.hooks/end-of-line.sh
+.hooks/whitespace-fixer.sh
 """
 
 [commit_types]
