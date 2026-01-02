@@ -26,6 +26,9 @@ on:
     - cron: "50 23 * * *" # 🕚 Daily at 23:50 UTC for security scanning
   workflow_dispatch: # 🚀 Allow manual triggering
 
+permissions:
+  contents: read
+
 jobs:
   rust-clippy-analyze:
     name: 🔍 Run Rust Clippy Analysis
@@ -35,11 +38,16 @@ jobs:
       security-events: write # 🔒 Write security analysis results
       actions: read # ⚡ Read action status (required for private repos)
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@20cf305ff2072d973412fa9b1e3a4f227bda3c76 # v2.14.0
+        with:
+          egress-policy: audit
+
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: 🦀 Install Rust Toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
         with:
           toolchain: stable
           components: clippy, rustfmt # 🔧 Essential Rust tools
@@ -54,7 +62,7 @@ jobs:
         # 🎯 Analyze all code with full features, convert to SARIF, and format output
 
       - name: 📤 Upload Results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v4.31.9
         with:
           sarif_file: rust-clippy-results.sarif
           wait-for-processing: true
