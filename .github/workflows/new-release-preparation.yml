@@ -1072,7 +1072,7 @@ jobs:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
       - name: 📥 Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
 
       - name: 📝 Create comprehensive PR body
         run: |
