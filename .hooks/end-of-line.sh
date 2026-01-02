@@ -21,4 +21,6 @@ for FILE in $STAGED_FILES; do
     fi
 done
 
+echo "[End-of-Line Fixer] All done!"
+
 exit

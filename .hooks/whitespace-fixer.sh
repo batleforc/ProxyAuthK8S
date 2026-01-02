@@ -56,5 +56,6 @@ if [ "x`git status -s | grep '^[A|D|M]'`" = "x" ]; then
   exit 1
 fi
 
+echo "[Whitespace Fixer] All done!"
 # Now we can commit
 exit
