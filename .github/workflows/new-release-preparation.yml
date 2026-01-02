@@ -216,7 +216,7 @@ jobs:
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: 📤 Upload Quality Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: quality-report
           path: quality_report.md
@@ -442,7 +442,7 @@ jobs:
           echo "📋 Changelog and release guide generated for artifacts only - not committed to repository"
 
       - name: 📤 Upload Changelog and Guide
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: changelog
           path: |
@@ -533,7 +533,7 @@ jobs:
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: 📤 Upload Security Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: security-report
           path: security_report.md
@@ -618,7 +618,7 @@ jobs:
           fi
 
       - name: 📤 Upload Commit Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: commit-report
           path: commit_report.md
@@ -694,7 +694,7 @@ jobs:
           syft ${{ steps.build_front.outputs.image }} -o table=front-sbom.txt
 
       - name: 📤 Upload SBOM artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: sbom-reports
           path: |
@@ -723,7 +723,7 @@ jobs:
           grype ${{ needs.docker-build.outputs.front_image }} -o table >> docker_security_report.md
 
       - name: 📤 Upload Docker Security Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: docker-security-report
           path: docker_security_report.md
@@ -774,7 +774,7 @@ jobs:
             echo "❌ Swagger validation failed" >> swagger_report.md
           fi
       - name: 📤 Upload Swagger Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: swagger-report
           path: swagger_report.md
@@ -980,13 +980,13 @@ jobs:
           echo "- 🎯 **CRD Chart**: \`${CRD_CHART_OCI_PATH}:${NEW_VERSION}\`" >> helm_report.md
 
       - name: 📤 Upload Helm packages
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: helm-packages
           path: helm-packages/*.tgz
 
       - name: 📤 Upload Helm report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v6.0.0
         with:
           name: helm-report
           path: helm_report.md
