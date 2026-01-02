@@ -267,7 +267,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🎯 Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.detect-release-merge.outputs.version }}
           name: ${{ needs.detect-release-merge.outputs.release_name }}
