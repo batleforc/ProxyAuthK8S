@@ -11,11 +11,6 @@ updates:
       interval: daily
 
   - package-ecosystem: npm
-    directory: /libs/front-api
-    schedule:
-      interval: daily
-
-  - package-ecosystem: npm
     directory: /
     schedule:
       interval: daily
