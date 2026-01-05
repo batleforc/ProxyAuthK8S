@@ -31,7 +31,7 @@ jobs:
       is_release_branch: ${{ steps.branch_info.outputs.is_release_branch }}
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -72,21 +72,21 @@ jobs:
       frontend_quality: ${{ steps.frontend_check.outputs.status }}
     steps:
       - name: 📥 Checkout Release Branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.detect-release-info.outputs.branch_name }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: package-lock.json
 
       - name: 🦀 Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy, rustfmt
@@ -163,7 +163,7 @@ jobs:
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: 📤 Upload Updated Quality Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: updated-quality-report
           path: quality_report.md
@@ -177,18 +177,18 @@ jobs:
       audit_status: ${{ steps.audit.outputs.status }}
     steps:
       - name: 📥 Checkout Release Branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.detect-release-info.outputs.branch_name }}
 
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
       - name: 🦀 Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
@@ -256,7 +256,7 @@ jobs:
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: 📤 Upload Updated Security Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: updated-security-report
           path: security_report.md
@@ -270,13 +270,13 @@ jobs:
       commit_status: ${{ steps.validate.outputs.status }}
     steps:
       - name: 📥 Checkout Release Branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.detect-release-info.outputs.branch_name }}
           fetch-depth: 0
 
       - name: 🦀 Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
@@ -333,7 +333,7 @@ jobs:
           fi
 
       - name: 📤 Upload Updated Commit Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: updated-commit-report
           path: commit_report.md
@@ -349,17 +349,17 @@ jobs:
       build_status: ${{ steps.build_status.outputs.status }}
     steps:
       - name: 📥 Checkout Release Branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.detect-release-info.outputs.branch_name }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🔧 Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: 🔐 Login to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -446,7 +446,7 @@ jobs:
           echo "✅ Docker images rebuild completed successfully"
 
       - name: 📤 Upload Docker Artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: updated-docker-artifacts
           path: |
@@ -466,10 +466,10 @@ jobs:
     if: always() && needs.detect-release-info.outputs.is_release_branch == 'true'
     steps:
       - name: 📥 Download Updated Reports
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
 
       - name: 💬 Update PR Comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           script: |
             const branchName = "${{ needs.detect-release-info.outputs.branch_name }}";

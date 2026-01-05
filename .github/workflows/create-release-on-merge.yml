@@ -78,14 +78,14 @@ jobs:
     if: needs.detect-release-merge.outputs.is_release == 'true'
     steps:
       - name: 🔍 Checkout merged main branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: main
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -267,7 +267,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🎯 Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           tag_name: v${{ needs.detect-release-merge.outputs.version }}
           name: ${{ needs.detect-release-merge.outputs.release_name }}
@@ -307,7 +307,7 @@ jobs:
     if: always() && needs.detect-release-merge.outputs.is_release == 'true'
     steps:
       - name: 📝 Comment on merged PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
