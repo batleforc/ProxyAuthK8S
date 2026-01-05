@@ -1,9 +1,6 @@
 <script setup lang="ts">
-import { onMounted, nextTick, computed } from 'vue';
+import { computed } from 'vue';
 import { useToast } from 'maz-ui/composables/useToast';
-import hljs from 'highlight.js/lib/core';
-import bash from 'highlight.js/lib/languages/bash';
-import yaml from 'highlight.js/lib/languages/yaml';
 import 'highlight.js/styles/atom-one-dark.css';
 import MazCard from 'maz-ui/components/MazCard';
 import MazBtn from 'maz-ui/components/MazBtn';
@@ -40,13 +37,14 @@ const openExternalLink = (url: string) => {
 };
 
 const backendUrl = computed(() => {
+  // @ts-expect-error: VITE_API_BASE_URL is injected at build time
   let envUrl = import.meta.env.VITE_API_BASE_URL;
   if (envUrl && (envUrl.endsWith('/') || envUrl.endsWith('/api'))) {
     envUrl = envUrl.replace(/\/api\/?$/, '').replace(/\/$/, '');
   }
   if (envUrl === '' || envUrl === undefined) {
     // IF the env variable is an empty string, use the frontend url
-    envUrl = window.location.origin;
+    envUrl = globalThis.location.origin;
   }
   return envUrl
 });
@@ -56,6 +54,7 @@ const backendUrlName = computed(() => {
     let url = backendUrl.value;
     return url.replace("http://", "").replace("https://", "").replace(".", "-").replace(":", "-");
   } catch (error) {
+    console.error("Error parsing backend URL:", error);
     return backendUrl.value;
   }
 });

@@ -96,6 +96,17 @@ tasks:
     cmds:
       - task gen:client
 
+  lint:
+    desc: "Run all linters"
+    silent: true
+    cmds:
+      - echo "Running cargo fmt"
+      - cargo fmt --all -- --check
+      - echo "Running cargo clippy"
+      - cargo clippy --all -- -D warnings
+      - echo "Running yarn lint"
+      - yarn nx run-many --target=lint --all
+
   cli:
     desc: "Run kubectl_proxyauth with args"
     silent: true

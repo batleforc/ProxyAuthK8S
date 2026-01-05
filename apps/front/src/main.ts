@@ -17,7 +17,7 @@ import 'maz-ui/styles';
 import './styles.scss';
 
 client.setConfig({
-  // @ts-ignore
+  // @ts-expect-error: VITE_API_BASE_URL is injected at build time
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
 });
 

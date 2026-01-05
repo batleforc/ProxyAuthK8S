@@ -1,17 +1,15 @@
 {
-  "name": "swagger",
+  "name": "swaggergen",
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "projectType": "application",
-  "sourceRoot": "apps/swagger/src",
+  "sourceRoot": "apps/swaggergen/src",
   "targets": {
     "build": {
       "cache": true,
       "executor": "@monodon/rust:build",
-      "outputs": [
-        "{options.target-dir}"
-      ],
+      "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/swagger"
+        "target-dir": "dist/target/swaggergen"
       },
       "configurations": {
         "production": {
@@ -22,11 +20,9 @@
     "test": {
       "cache": true,
       "executor": "@monodon/rust:test",
-      "outputs": [
-        "{options.target-dir}"
-      ],
+      "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/swagger"
+        "target-dir": "dist/target/swaggergen"
       },
       "configurations": {
         "production": {
@@ -37,20 +33,16 @@
     "lint": {
       "cache": true,
       "executor": "@monodon/rust:lint",
-      "outputs": [
-        "{options.target-dir}"
-      ],
+      "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/swagger"
+        "target-dir": "dist/target/swaggergen"
       }
     },
     "run": {
       "executor": "@monodon/rust:run",
-      "outputs": [
-        "{options.target-dir}"
-      ],
+      "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/swagger"
+        "target-dir": "dist/target/swaggergen"
       },
       "configurations": {
         "production": {

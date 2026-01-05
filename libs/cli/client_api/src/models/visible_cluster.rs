@@ -16,7 +16,12 @@ use serde::{Deserialize, Serialize};
 pub struct VisibleCluster {
     #[serde(rename = "enabled")]
     pub enabled: bool,
-    #[serde(rename = "is_reachable", default, with = "::serde_with::rust::double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "is_reachable",
+        default,
+        with = "::serde_with::rust::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub is_reachable: Option<Option<bool>>,
     #[serde(rename = "name")]
     pub name: String,
@@ -28,7 +33,12 @@ pub struct VisibleCluster {
 
 impl VisibleCluster {
     /// Model representing a cluster visible to the user
-    pub fn new(enabled: bool, name: String, namespace: String, sso_enabled: bool) -> VisibleCluster {
+    pub fn new(
+        enabled: bool,
+        name: String,
+        namespace: String,
+        sso_enabled: bool,
+    ) -> VisibleCluster {
         VisibleCluster {
             enabled,
             is_reachable: None,
@@ -38,4 +48,3 @@ impl VisibleCluster {
         }
     }
 }
-

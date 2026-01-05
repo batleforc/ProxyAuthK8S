@@ -150,7 +150,7 @@ impl ProxyKubeApi {
                 Ok(c) => reqwest_client.add_root_certificate(c),
                 Err(err) => return Err(err.to_string()),
             },
-            Ok(None) => reqwest_client.danger_accept_invalid_certs(true),
+            Ok(None) => reqwest_client,
             Err(err) => {
                 return Err(err.to_string());
             }

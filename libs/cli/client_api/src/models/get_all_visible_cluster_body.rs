@@ -19,9 +19,6 @@ pub struct GetAllVisibleClusterBody {
 
 impl GetAllVisibleClusterBody {
     pub fn new(clusters: Vec<models::VisibleCluster>) -> GetAllVisibleClusterBody {
-        GetAllVisibleClusterBody {
-            clusters,
-        }
+        GetAllVisibleClusterBody { clusters }
     }
 }
-

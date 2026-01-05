@@ -231,7 +231,7 @@ impl CliServerConfig {
     pub fn clear_all_tokens(&self) {
         for cluster in self.clusters.keys() {
             let val: Vec<&str> = cluster.split("/").collect();
-            let ns = val.get(0).unwrap_or(&"").to_string();
+            let ns = val.first().unwrap_or(&"").to_string();
             let cluster = val.get(1).unwrap_or(&"").to_string();
             if let Err(err) = self.clear_cluster_token(ns, cluster.clone()) {
                 error!("Error clearing token for cluster {}: {}", cluster, err);

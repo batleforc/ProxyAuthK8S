@@ -671,6 +671,7 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "deadpool-redis",
+ "k8s-openapi",
  "kube",
  "openidconnect",
  "reqwest",

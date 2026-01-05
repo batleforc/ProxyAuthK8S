@@ -52,6 +52,7 @@ tasks:
       - echo "Generating backend API client from OpenAPI specification"
       - npx @openapitools/openapi-generator-cli generate -i ./swagger.json -g rust -o./libs/cli/client_api
       - cargo clippy --fix --lib -p client_api --allow-dirty
+      - cargo fmt --all
   api-client:
     desc: "Generate API client from OpenAPI specification"
     silent: true

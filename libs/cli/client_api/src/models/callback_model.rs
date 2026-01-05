@@ -26,7 +26,13 @@ pub struct CallbackModel {
 }
 
 impl CallbackModel {
-    pub fn new(access_token: String, cluster_url: String, id_token: String, refresh_token: String, subject: String) -> CallbackModel {
+    pub fn new(
+        access_token: String,
+        cluster_url: String,
+        id_token: String,
+        refresh_token: String,
+        subject: String,
+    ) -> CallbackModel {
         CallbackModel {
             access_token,
             cluster_url,
@@ -36,4 +42,3 @@ impl CallbackModel {
         }
     }
 }
-
