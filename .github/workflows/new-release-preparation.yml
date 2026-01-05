@@ -35,7 +35,7 @@ jobs:
       release_name: ${{ steps.release_info.outputs.release_name }}
     steps:
       - name: 🔍 Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -108,7 +108,7 @@ jobs:
     needs: prepare-release
     steps:
       - name: 🔍 Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -132,7 +132,7 @@ jobs:
       frontend_quality: ${{ steps.frontend_check.outputs.status }}
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
@@ -227,7 +227,7 @@ jobs:
     needs: [prepare-release, create-release-branch]
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
           fetch-depth: 0
@@ -457,7 +457,7 @@ jobs:
       audit_status: ${{ steps.audit.outputs.status }}
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
@@ -546,7 +546,7 @@ jobs:
       commit_status: ${{ steps.validate.outputs.status }}
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
           fetch-depth: 0
@@ -639,7 +639,7 @@ jobs:
       front_image: ${{ steps.build_front.outputs.image }}
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
@@ -735,7 +735,7 @@ jobs:
     if: needs.code-quality-validation.outputs.backend_quality == 'success'
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
@@ -791,7 +791,7 @@ jobs:
       crd_chart_oci: ${{ steps.build_charts.outputs.crd_chart_oci }}
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
@@ -1009,7 +1009,7 @@ jobs:
     if: always() && needs.prepare-release.result == 'success'
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
           fetch-depth: 0
@@ -1067,7 +1067,7 @@ jobs:
     if: always() && needs.prepare-release.result == 'success'
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 

@@ -31,7 +31,7 @@ jobs:
       is_release_branch: ${{ steps.branch_info.outputs.is_release_branch }}
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -72,7 +72,7 @@ jobs:
       frontend_quality: ${{ steps.frontend_check.outputs.status }}
     steps:
       - name: 📥 Checkout Release Branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.detect-release-info.outputs.branch_name }}
           fetch-depth: 0
@@ -177,7 +177,7 @@ jobs:
       audit_status: ${{ steps.audit.outputs.status }}
     steps:
       - name: 📥 Checkout Release Branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.detect-release-info.outputs.branch_name }}
 
@@ -270,7 +270,7 @@ jobs:
       commit_status: ${{ steps.validate.outputs.status }}
     steps:
       - name: 📥 Checkout Release Branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.detect-release-info.outputs.branch_name }}
           fetch-depth: 0
@@ -349,7 +349,7 @@ jobs:
       build_status: ${{ steps.build_status.outputs.status }}
     steps:
       - name: 📥 Checkout Release Branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ needs.detect-release-info.outputs.branch_name }}
           fetch-depth: 0

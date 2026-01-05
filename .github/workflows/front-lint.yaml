@@ -28,7 +28,7 @@ jobs:
       actions: read # ⚡ Read action status (required for private repos)
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 📦 Setup Node.js 22
         uses: actions/setup-node@v4

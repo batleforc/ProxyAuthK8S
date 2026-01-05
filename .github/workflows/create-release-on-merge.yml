@@ -78,7 +78,7 @@ jobs:
     if: needs.detect-release-merge.outputs.is_release == 'true'
     steps:
       - name: 🔍 Checkout merged main branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0
