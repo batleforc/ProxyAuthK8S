@@ -50,7 +50,7 @@ tasks:
         sh: cat apps/server/Cargo.toml | grep 'version' | head -1 | cut -d '"' -f2
     cmds:
       - echo "Generating backend API client from OpenAPI specification"
-      - npx @openapitools/openapi-generator-cli generate -i ./swagger.json -g rust -o./libs/client_api
+      - npx @openapitools/openapi-generator-cli generate -i ./swagger.json -g rust -o./libs/cli/client_api
       - cargo clippy --fix --lib -p client_api --allow-dirty
   api-client:
     desc: "Generate API client from OpenAPI specification"

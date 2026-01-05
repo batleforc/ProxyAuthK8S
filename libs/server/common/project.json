@@ -1,14 +1,14 @@
 {
-  "name": "client_api",
-  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "common",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
-  "sourceRoot": "libs/client_api/src",
+  "sourceRoot": "libs/common/src",
   "targets": {
     "build": {
       "executor": "@monodon/rust:check",
       "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/client_api"
+        "target-dir": "dist/target/common"
       }
     },
     "test": {
@@ -16,7 +16,7 @@
       "executor": "@monodon/rust:test",
       "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/client_api"
+        "target-dir": "dist/target/common"
       },
       "configurations": {
         "production": {
@@ -29,7 +29,7 @@
       "executor": "@monodon/rust:lint",
       "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/client_api"
+        "target-dir": "dist/target/common"
       }
     }
   },

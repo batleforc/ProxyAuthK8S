@@ -9,7 +9,7 @@ clap = { version = "4.5.53", features = ["derive"] }
 tracing = { workspace = true }
 tokio = { workspace = true }
 
-cli_trace = { path = "../../libs/cli_trace" }
-cli = { path = "../../libs/cli" }
+cli_trace = { path = "../../libs/cli/cli_trace" }
+cli = { path = "../../libs/cli/cli" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

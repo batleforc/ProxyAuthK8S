@@ -24,7 +24,7 @@ pub mod login;
     long_about = "A command-line tool to interact with ProxyAuthK8S for managing authentication to Kubernetes clusters.",
     arg_required_else_help = true,
     after_help = "Made with ❤️  and too much ☕ by Batleforc",
-    before_help = include_str!("../../../banner.art"),
+    before_help = include_str!("../../../../banner.art"),
 )]
 pub struct Cli {
     /// Namespace to search within

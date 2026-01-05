@@ -1,26 +1,22 @@
 {
-  "name": "crd",
-  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "client_api",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
-  "sourceRoot": "libs/crd/src",
+  "sourceRoot": "libs/client_api/src",
   "targets": {
     "build": {
       "executor": "@monodon/rust:check",
-      "outputs": [
-        "{options.target-dir}"
-      ],
+      "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/crd"
+        "target-dir": "dist/target/client_api"
       }
     },
     "test": {
       "cache": true,
       "executor": "@monodon/rust:test",
-      "outputs": [
-        "{options.target-dir}"
-      ],
+      "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/crd"
+        "target-dir": "dist/target/client_api"
       },
       "configurations": {
         "production": {
@@ -31,11 +27,9 @@
     "lint": {
       "cache": true,
       "executor": "@monodon/rust:lint",
-      "outputs": [
-        "{options.target-dir}"
-      ],
+      "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/crd"
+        "target-dir": "dist/target/client_api"
       }
     }
   },

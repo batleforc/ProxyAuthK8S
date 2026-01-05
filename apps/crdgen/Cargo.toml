@@ -6,7 +6,7 @@ edition = "2021"
 
 [dependencies]
 kube = { workspace = true }
-crd = { path = "../../libs/crd" }
+crd = { path = "../../libs/server/crd" }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 

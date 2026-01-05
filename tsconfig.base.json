@@ -15,7 +15,7 @@
     "skipDefaultLibCheck": true,
     "baseUrl": ".",
     "paths": {
-      "@proxy-auth-k8s/front-api": ["libs/front-api/src/index.ts"]
+      "@proxy-auth-k8s/front-api": ["libs/front/front-api/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp"]

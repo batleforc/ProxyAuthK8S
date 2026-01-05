@@ -17,6 +17,7 @@ import 'maz-ui/styles';
 import './styles.scss';
 
 client.setConfig({
+  // @ts-ignore
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
 });
 
@@ -27,7 +28,7 @@ declare const RawSymbol: unique symbol;
 declare module 'pinia' {
   export interface PiniaCustomProperties {
     // by using a setter we can allow both strings and refs
-    router: Router & { [RawSymbol]?: true | undefined };
+    router: Router & { [RawSymbol]?: true };
     language: string;
   }
 }

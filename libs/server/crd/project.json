@@ -1,26 +1,22 @@
 {
-  "name": "common",
-  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "crd",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "projectType": "library",
-  "sourceRoot": "libs/common/src",
+  "sourceRoot": "libs/crd/src",
   "targets": {
     "build": {
       "executor": "@monodon/rust:check",
-      "outputs": [
-        "{options.target-dir}"
-      ],
+      "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/common"
+        "target-dir": "dist/target/crd"
       }
     },
     "test": {
       "cache": true,
       "executor": "@monodon/rust:test",
-      "outputs": [
-        "{options.target-dir}"
-      ],
+      "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/common"
+        "target-dir": "dist/target/crd"
       },
       "configurations": {
         "production": {
@@ -31,11 +27,9 @@
     "lint": {
       "cache": true,
       "executor": "@monodon/rust:lint",
-      "outputs": [
-        "{options.target-dir}"
-      ],
+      "outputs": ["{options.target-dir}"],
       "options": {
-        "target-dir": "dist/target/common"
+        "target-dir": "dist/target/crd"
       }
     }
   },

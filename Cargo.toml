@@ -2,18 +2,18 @@
 [workspace]
 resolver = '2'
 members = [
-  'libs/crd',
+  'libs/server/crd',
   'apps/server',
-  'libs/trace',
+  'libs/server/trace',
   'apps/crdgen',
   'apps/swaggergen',
-  'libs/api',
-  'libs/controller',
-  'libs/common',
+  'libs/server/api',
+  'libs/server/controller',
+  'libs/server/common',
   'apps/kubectl_proxyauth',
-  'libs/cli_trace',
-  'libs/client_api',
-  'libs/cli',
+  'libs/cli/cli_trace',
+  'libs/cli/client_api',
+  'libs/cli/cli',
 ]
 
 [workspace.dependencies]
