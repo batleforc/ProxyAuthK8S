@@ -135,7 +135,6 @@ const generatePluginCommands = () => {
   if (!data.retour?.access_token) return '';
 
   const clusterUrl = new URL(data.retour.cluster_url).origin;
-  const serverName = clusterUrl.replace("http://", "").replace("https://", "").replace(/[.:]/g, "-");
 
   return `# 1. S'authentifier avec votre token actuel
 kubectl proxyauth login --server-url "${clusterUrl}" --token "${data.retour.access_token}"
@@ -173,7 +172,7 @@ const downloadKubeconfig = () => {
   a.download = `kubeconfig-${callbackData.value.ns}-${callbackData.value.cluster}.yaml`;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
+  a.remove();
   URL.revokeObjectURL(url);
   toast.success('Kubeconfig téléchargé avec succès !');
 };
@@ -187,7 +186,7 @@ const downloadPluginKubeconfig = () => {
   a.download = `kubeconfig-plugin-${callbackData.value.ns}-${callbackData.value.cluster}.yaml`;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
+  a.remove();
   URL.revokeObjectURL(url);
   toast.success('Kubeconfig Plugin téléchargé avec succès !');
 };
@@ -290,9 +289,9 @@ const downloadPluginKubeconfig = () => {
               <template #default>
                 <div class="tokens-content">
                   <div class="token-section">
-                    <label class="token-label">Access Token:</label>
+                    <label for="access-token" class="token-label">Access Token:</label>
                     <div class="token-field">
-                      <MazTextarea :model-value="callbackData.retour.access_token" readonly :rows="3"
+                      <MazTextarea id="access-token" :model-value="callbackData.retour.access_token" readonly :rows="3"
                         class="token-textarea" />
                       <MazBtn size="sm" color="primary" :left-icon="MazClipboardDocument"
                         @click="copyToClipboard(callbackData.retour.access_token, 'Access Token')" class="copy-button">
@@ -302,9 +301,9 @@ const downloadPluginKubeconfig = () => {
                   </div>
 
                   <div class="token-section">
-                    <label class="token-label">ID Token:</label>
+                    <label for="id-token" class="token-label">ID Token:</label>
                     <div class="token-field">
-                      <MazTextarea :model-value="callbackData.retour.id_token" readonly :rows="3"
+                      <MazTextarea id="id-token" :model-value="callbackData.retour.id_token" readonly :rows="3"
                         class="token-textarea" />
                       <MazBtn size="sm" color="primary" :left-icon="MazClipboardDocument"
                         @click="copyToClipboard(callbackData.retour.id_token, 'ID Token')" class="copy-button">
@@ -314,10 +313,10 @@ const downloadPluginKubeconfig = () => {
                   </div>
 
                   <div v-if="callbackData.retour.refresh_token !== ''" class="token-section">
-                    <label class="token-label">Refresh Token:</label>
+                    <label for="refresh-token" class="token-label">Refresh Token:</label>
                     <div class="token-field">
-                      <MazTextarea :model-value="callbackData.retour.refresh_token" readonly :rows="3"
-                        class="token-textarea" />
+                      <MazTextarea id="refresh-token" :model-value="callbackData.retour.refresh_token" readonly
+                        :rows="3" class="token-textarea" />
                       <MazBtn size="sm" color="primary" :left-icon="MazClipboardDocument"
                         @click="copyToClipboard(callbackData.retour.refresh_token, 'Refresh Token')"
                         class="copy-button">
