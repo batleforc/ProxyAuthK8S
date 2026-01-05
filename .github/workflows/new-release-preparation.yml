@@ -35,13 +35,13 @@ jobs:
       release_name: ${{ steps.release_info.outputs.release_name }}
     steps:
       - name: 🔍 Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
@@ -108,7 +108,7 @@ jobs:
     needs: prepare-release
     steps:
       - name: 🔍 Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -132,19 +132,19 @@ jobs:
       frontend_quality: ${{ steps.frontend_check.outputs.status }}
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: package-lock.json
 
       - name: 🦀 Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: clippy, rustfmt
@@ -216,7 +216,7 @@ jobs:
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: 📤 Upload Quality Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: quality-report
           path: quality_report.md
@@ -227,14 +227,14 @@ jobs:
     needs: [prepare-release, create-release-branch]
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -442,7 +442,7 @@ jobs:
           echo "📋 Changelog and release guide generated for artifacts only - not committed to repository"
 
       - name: 📤 Upload Changelog and Guide
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: changelog
           path: |
@@ -457,18 +457,18 @@ jobs:
       audit_status: ${{ steps.audit.outputs.status }}
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
 
       - name: 🦀 Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
@@ -533,7 +533,7 @@ jobs:
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: 📤 Upload Security Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: security-report
           path: security_report.md
@@ -546,13 +546,13 @@ jobs:
       commit_status: ${{ steps.validate.outputs.status }}
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
           fetch-depth: 0
 
       - name: 🦀 Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
@@ -618,7 +618,7 @@ jobs:
           fi
 
       - name: 📤 Upload Commit Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: commit-report
           path: commit_report.md
@@ -639,15 +639,15 @@ jobs:
       front_image: ${{ steps.build_front.outputs.image }}
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
       - name: 🔧 Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
       - name: 🔐 Login to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -694,7 +694,7 @@ jobs:
           syft ${{ steps.build_front.outputs.image }} -o table=front-sbom.txt
 
       - name: 📤 Upload SBOM artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: sbom-reports
           path: |
@@ -723,7 +723,7 @@ jobs:
           grype ${{ needs.docker-build.outputs.front_image }} -o table >> docker_security_report.md
 
       - name: 📤 Upload Docker Security Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: docker-security-report
           path: docker_security_report.md
@@ -735,17 +735,17 @@ jobs:
     if: needs.code-quality-validation.outputs.backend_quality == 'success'
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
       - name: 🦀 Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
         with:
           toolchain: ${{ env.RUST_VERSION }}
 
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -774,7 +774,7 @@ jobs:
             echo "❌ Swagger validation failed" >> swagger_report.md
           fi
       - name: 📤 Upload Swagger Report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: swagger-report
           path: swagger_report.md
@@ -791,17 +791,17 @@ jobs:
       crd_chart_oci: ${{ steps.build_charts.outputs.crd_chart_oci }}
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
       - name: ⎈ Install Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
         with:
           version: "latest"
 
       - name: 🔐 Login to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -980,13 +980,13 @@ jobs:
           echo "- 🎯 **CRD Chart**: \`${CRD_CHART_OCI_PATH}:${NEW_VERSION}\`" >> helm_report.md
 
       - name: 📤 Upload Helm packages
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: helm-packages
           path: helm-packages/*.tgz
 
       - name: 📤 Upload Helm report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: helm-report
           path: helm_report.md
@@ -1009,14 +1009,14 @@ jobs:
     if: always() && needs.prepare-release.result == 'success'
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
@@ -1067,12 +1067,12 @@ jobs:
     if: always() && needs.prepare-release.result == 'success'
     steps:
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.prepare-release.outputs.branch_name }}
 
       - name: 📥 Download all artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
 
       - name: 📝 Create comprehensive PR body
         run: |
@@ -1203,7 +1203,7 @@ jobs:
           echo "" >> pr_body.md
 
       - name: 🔀 Create Pull Request
-        uses: peter-evans/create-pull-request@v5
+        uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5.0.3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ needs.prepare-release.outputs.branch_name }}
