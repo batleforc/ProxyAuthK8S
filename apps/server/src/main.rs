@@ -14,6 +14,7 @@ async fn main() -> anyhow::Result<()> {
     println!(include_str!("../../../banner.art"));
     let (trace, meter) = start_tracing(&trace::Context {
         pod_name: std::env::var("POD_NAME").unwrap_or_else(|_| "not_a_pod".to_string()),
+        service_name: "proxyauthk8s".to_string(),
     });
 
     let state = common::State::new().await;

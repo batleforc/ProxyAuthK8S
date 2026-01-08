@@ -16,6 +16,7 @@ use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Layer};
 #[derive(Clone)]
 pub struct Context {
     pub pod_name: String,
+    pub service_name: String,
 }
 
 pub mod helper;
@@ -25,7 +26,7 @@ fn get_resource(ctx: &Context) -> Resource {
     RESOURCE
         .get_or_init(|| {
             Resource::builder()
-                .with_service_name("proxyauthk8s")
+                .with_service_name(ctx.service_name.clone())
                 .with_attributes(vec![
                     KeyValue::new("service.pod", ctx.pod_name.clone()),
                     KeyValue::new("service.version", env!("CARGO_PKG_VERSION").to_string()),
@@ -37,7 +38,7 @@ fn get_resource(ctx: &Context) -> Resource {
 
 fn get_metadata(ctx: &Context) -> metadata::MetadataMap {
     let mut metadata = metadata::MetadataMap::new();
-    metadata.insert("service.name", "proxyauthk8s".parse().unwrap());
+    metadata.insert("service.name", ctx.service_name.clone().parse().unwrap());
     metadata.insert("service.pod", ctx.pod_name.clone().parse().unwrap());
     metadata
 }
@@ -104,7 +105,7 @@ pub fn start_tracing(ctx: &Context) -> (SdkTracerProvider, SdkMeterProvider) {
     global::meter_with_scope(scope);
 
     // Setup subscriber
-    let tracer = tracer_provider.tracer("proxyauthk8s");
+    let tracer = tracer_provider.tracer(ctx.service_name.clone());
 
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"))
