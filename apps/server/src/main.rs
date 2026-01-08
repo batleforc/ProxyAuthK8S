@@ -12,7 +12,7 @@ use utoipa_scalar::{Scalar, Servable};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     println!(include_str!("../../../banner.art"));
-    let (trace, meter) = start_tracing(&trace::Context {
+    let tracing_output = start_tracing(&trace::Context {
         pod_name: std::env::var("POD_NAME").unwrap_or_else(|_| "not_a_pod".to_string()),
         service_name: "proxyauthk8s".to_string(),
     });
@@ -73,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     tokio::join!(controller, server.run()).1?;
-    if let Err(e) = shutdown_tracing(trace, meter) {
+    if let Err(e) = shutdown_tracing(tracing_output) {
         eprintln!("Error during the shutdown of tracing: {e}");
     }
     Ok(())
