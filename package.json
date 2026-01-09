@@ -31,7 +31,7 @@
     "@nx/web": "22.3.3",
     "@nx/workspace": "22.3.3",
     "@swc-node/register": "~1.9.1",
-    "@swc/core": "~1.5.7",
+    "@swc/core": "~1.15.8",
     "@swc/helpers": "~0.5.11",
     "@types/node": "20.19.9",
     "@typescript-eslint/eslint-plugin": "^8.48.0",
