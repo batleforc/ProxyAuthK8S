@@ -30,7 +30,7 @@
     "@nx/vue": "22.3.3",
     "@nx/web": "22.3.3",
     "@nx/workspace": "22.3.3",
-    "@swc-node/register": "~1.9.1",
+    "@swc-node/register": "~1.11.1",
     "@swc/core": "~1.5.7",
     "@swc/helpers": "~0.5.11",
     "@types/node": "20.19.9",
