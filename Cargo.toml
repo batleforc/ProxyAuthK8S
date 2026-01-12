@@ -29,7 +29,7 @@ serde = { version = '1', features = ['derive'] }
 serde_json = '1'
 serde_yaml = '0.9'
 tracing = { version = '0.1', features = ['std'] }
-kube = { version = '2', features = ['derive', 'runtime', 'client'] }
+kube = { version = '3', features = ['derive', 'runtime', 'client'] }
 reqwest = { version = '0.12', features = ['json', 'rustls-tls', 'stream'] }
 schemars = { version = '1' }
 futures = '0.3'
