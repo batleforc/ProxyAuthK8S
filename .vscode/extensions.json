@@ -6,7 +6,7 @@
     "tamasfe.even-better-toml",
     "oderwat.indent-rainbow",
     "ms-kubernetes-tools.vscode-kubernetes-tools",
-    "pflannery.vscode-versionlens",
+    "legalfina.npm-version-lens",
     "redhat.vscode-yaml",
     "task.vscode-task",
     "gruntfuggly.todo-tree",
