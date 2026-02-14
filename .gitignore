@@ -4,6 +4,7 @@
 dist
 tmp
 out-tsc
+.yarn
 .tls
 .compose/traefik/certs
 .compose/headlamp

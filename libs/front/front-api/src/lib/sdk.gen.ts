@@ -23,42 +23,31 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
  *
  * if none return an empty array
  */
-export const getAllVisibleCluster = <ThrowOnError extends boolean = false>(options?: Options<GetAllVisibleClusterData, ThrowOnError>) => {
-    return (options?.client ?? client).get<GetAllVisibleClusterResponses, GetAllVisibleClusterErrors, ThrowOnError>({
-        responseType: 'json',
-        security: [
-            {
-                scheme: 'bearer',
-                type: 'http'
-            }
-        ],
-        url: '/api/v1/clusters',
-        ...options
-    });
-};
+export const getAllVisibleCluster = <ThrowOnError extends boolean = false>(options?: Options<GetAllVisibleClusterData, ThrowOnError>) => (options?.client ?? client).get<GetAllVisibleClusterResponses, GetAllVisibleClusterErrors, ThrowOnError>({
+    responseType: 'json',
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/v1/clusters',
+    ...options
+});
 
 /**
  * Callback from the cluster's OIDC provider
  *
  * If the cluster is not found or disabled, return 404
  */
-export const callbackLogin = <ThrowOnError extends boolean = false>(options: Options<CallbackLoginData, ThrowOnError>) => {
-    return (options.client ?? client).get<CallbackLoginResponses, CallbackLoginErrors, ThrowOnError>({
-        responseType: 'json',
-        url: '/clusters/{ns}/{cluster}/auth/callback',
-        ...options
-    });
-};
+export const callbackLogin = <ThrowOnError extends boolean = false>(options: Options<CallbackLoginData, ThrowOnError>) => (options.client ?? client).get<CallbackLoginResponses, CallbackLoginErrors, ThrowOnError>({
+    responseType: 'json',
+    url: '/clusters/{ns}/{cluster}/auth/callback',
+    ...options
+});
 
 /**
  * Redirect to the cluster's login page
  *
  * If the cluster is not found or disabled, return 404
  */
-export const clusterLogin = <ThrowOnError extends boolean = false>(options: Options<ClusterLoginData, ThrowOnError>) => {
-    return (options.client ?? client).get<ClusterLoginResponses, ClusterLoginErrors, ThrowOnError>({
-        responseType: 'text',
-        url: '/clusters/{ns}/{cluster}/auth/login',
-        ...options
-    });
-};
+export const clusterLogin = <ThrowOnError extends boolean = false>(options: Options<ClusterLoginData, ThrowOnError>) => (options.client ?? client).get<ClusterLoginResponses, ClusterLoginErrors, ThrowOnError>({
+    responseType: 'text',
+    url: '/clusters/{ns}/{cluster}/auth/login',
+    ...options
+});

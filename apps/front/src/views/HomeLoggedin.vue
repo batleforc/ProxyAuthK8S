@@ -53,14 +53,13 @@ const getClusterStatusIcon = (cluster: VisibleCluster) => {
 };
 
 const handleClusterAccess = (cluster: VisibleCluster) => {
-  // TODO: Implement cluster access logic
   console.log('Accessing cluster:', cluster.name);
-  toast.warning(`Accès au cluster ${cluster.name} (fonctionnalité à implémenter)`);
+  toast.warning(`Accès au cluster ${cluster.name} en cours...`);
   clustersStore.redirectToLogin(cluster.namespace, cluster.name);
 };
 
 const getClusterURL = (cluster: VisibleCluster) => {
-  return `${window.location.origin}/clusters/${cluster.namespace}/${cluster.name}`;
+  return `${globalThis.location.origin}/clusters/${cluster.namespace}/${cluster.name}`;
 };
 
 const copyUrlToClipboard = async (cluster: VisibleCluster) => {

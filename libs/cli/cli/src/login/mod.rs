@@ -72,6 +72,9 @@ impl CliCtx {
                     return;
                 }
             }
+            //TODO: Validate token against cluster here
+            // Validation has to be done by calling the /api?timeout=32s used by kubectl to ensure token is valid for the cluster
+
             // Insert credentials into config
             let _ = &self
                 .config

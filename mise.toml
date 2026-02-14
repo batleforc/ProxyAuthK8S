@@ -1,0 +1,9 @@
+[tools]
+java = "temurin"
+node = "lts"
+rust = { version = "latest", profile = "default", components = "rust-src,llvm-tools" }
+task = "latest"
+yarn = "latest"
+
+[env]
+MISE_NODE_COREPACK = "true"
