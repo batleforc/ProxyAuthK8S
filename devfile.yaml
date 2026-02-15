@@ -71,8 +71,9 @@ components:
     memoryLimit: 2Gi
     memoryRequest: 512Mi
     mountSources: true
-    command:
-      - authelia --config ${PROJECT_SOURCE}/.compose/authelia/che-configuration.yml
+    args:
+      - --config
+      - ${PROJECT_SOURCE}/.compose/authelia/che-configuration.yml
     env:
       - name: TZ
         value: "{{ AUTHELIA_TZ }}"
