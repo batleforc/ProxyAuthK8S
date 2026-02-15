@@ -73,7 +73,7 @@ components:
     mountSources: true
     args:
       - --config
-      - "/projects/proxyauthk8s/.compose/authelia/che-configuration.yml"
+      - "/projects/ProxyAuthK8S/.compose/authelia/che-configuration.yml"
     env:
       - name: TZ
         value: "{{ AUTHELIA_TZ }}"
