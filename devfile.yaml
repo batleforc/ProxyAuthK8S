@@ -4,7 +4,7 @@ metadata:
   language: rust
   version: 1.0.0
 parent:
-  uri: https://raw.githubusercontent.com/batleforc/WeeboDevImage/main/che-mise/devfile.yaml
+  uri: https://raw.githubusercontent.com/batleforc/WeeboDevImage/main/che-rust/devfile.yaml
 
 variables:
   REDIS_PASSWORD: "Complexpass#123"
