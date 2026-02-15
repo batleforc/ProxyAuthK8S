@@ -3,51 +3,14 @@ metadata:
   name: ProxyAuthK8S
   language: rust
   version: 1.0.0
+parent:
+  uri: https://raw.githubusercontent.com/batleforc/WeeboDevImage/main/che-mise/devfile.yaml
+
+variables:
+  REDIS_PASSWORD: "Complexpass#123"
+  AUTHELIA_TZ: "Europe/Paris"
 
 components:
-- name: tools
-  container:
-    image: ghcr.io/batleforc/weebodevimage/che-rust:main
-    memoryLimit: 8Gi
-    memoryRequest: 1Gi
-    cpuLimit: "2"
-    cpuRequest: "500m"
-    mountSources: true
-    endpoints:
-    - name: 5437-http
-      targetPort: 5437
-      exposure: public
-      protocol: https
-      secure: true
-    env:
-    - name: RUST_ENV
-      value: "dev-che"
-    - name: "PORT"
-      value: "5437"
-- name: openobserve
-  container:
-    image: public.ecr.aws/zinclabs/openobserve:latest
-    memoryLimit: 4Gi
-    memoryRequest: 1Gi
-    cpuLimit: "500m"
-    cpuRequest: "250m"
-    mountSources: false
-    env:
-    - name: ZO_ROOT_USER_EMAIL
-      value: "root@example.com"
-    - name: ZO_ROOT_USER_PASSWORD
-      value: "Complexpass#123"
-    endpoints:
-    - name: openobserve
-      targetPort: 5080
-      exposure: public
-      protocol: https
-      secure: true
-    - name: grpc
-      targetPort: 5081
-      exposure: public
-      protocol: tcp
-      secure: false
 - name: redis
   container:
     image: redis
@@ -59,18 +22,16 @@ components:
     command:
       - redis-server
     args:
-      - --requirepass $$REDIS_HOST_PASSWORD
+      - --requirepass {{ .REDIS_PASSWORD }}
     env:
       - name: REDIS_HOST_PASSWORD
-        value: Complexpass#123
+        value: "{{ .REDIS_PASSWORD }}"
     endpoints:
     - name: redis
       targetPort: 6379
       exposure: public
       protocol: tcp
     volumeMounts:
-      # Outside of the persistence of redis
-      # if this folder is not writable, redis will stop working after some time
       - name: redis-volume
         path: /data
 - name: redis-volume
@@ -102,28 +63,29 @@ components:
       - name: SERVER_redis
         value: "localhost"
       - name: PASSWORD_redis
-        value: "Complexpass#123"
+        value: "{{ .REDIS_PASSWORD }}"
       - name: PORT_redis
         value: "6379"
 - name: dbgate-volume
   volume:
     size: 1Gi
-
-commands:
-- id: build
-  exec:
-    component: tools
-    workingDir: ${PROJECT_SOURCE}
-    commandLine: cargo build
-    group:
-      kind: build
-      isDefault: true
-
-- id: run
-  exec:
-    component: tools
-    workingDir: ${PROJECT_SOURCE}
-    commandLine: cargo run
-    group:
-      kind: run
-      isDefault: true
+- name: authelia
+  container:
+    image: authelia/authelia
+    memoryLimit: 2Gi
+    memoryRequest: 512Mi
+    cpuLimit: "500m"
+    cpuRequest: "100m"
+    mountSources: true
+    command:
+      - authelia --config ${PROJECT_SOURCE}/.compose/authelia/che-configuration.yml
+    env:
+      - name: TZ
+        value: "{{ .AUTHELIA_TZ }}"
+      - name: X_AUTHELIA_CONFIG_FILTERS
+        value: "template"
+    endpoints:
+      - name: authelia
+        targetPort: 9091
+        exposure: public
+        protocol: http
