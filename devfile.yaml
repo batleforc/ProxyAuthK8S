@@ -22,10 +22,10 @@ components:
     command:
       - redis-server
     args:
-      - --requirepass {{ .REDIS_PASSWORD }}
+      - --requirepass {{ REDIS_PASSWORD }}
     env:
       - name: REDIS_HOST_PASSWORD
-        value: "{{ .REDIS_PASSWORD }}"
+        value: "{{ REDIS_PASSWORD }}"
     endpoints:
     - name: redis
       targetPort: 6379
@@ -63,7 +63,7 @@ components:
       - name: SERVER_redis
         value: "localhost"
       - name: PASSWORD_redis
-        value: "{{ .REDIS_PASSWORD }}"
+        value: "{{ REDIS_PASSWORD }}"
       - name: PORT_redis
         value: "6379"
 - name: dbgate-volume
@@ -81,7 +81,7 @@ components:
       - authelia --config ${PROJECT_SOURCE}/.compose/authelia/che-configuration.yml
     env:
       - name: TZ
-        value: "{{ .AUTHELIA_TZ }}"
+        value: "{{ AUTHELIA_TZ }}"
       - name: X_AUTHELIA_CONFIG_FILTERS
         value: "template"
     endpoints:
