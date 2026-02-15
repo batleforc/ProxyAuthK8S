@@ -65,22 +65,22 @@ components:
 - name: dbgate-volume
   volume:
     size: 1Gi
-- name: authelia
-  container:
-    image: authelia/authelia
-    memoryLimit: 2Gi
-    memoryRequest: 512Mi
-    mountSources: true
-    args:
-      - --config
-      - "/projects/ProxyAuthK8S/.compose/authelia/che-configuration.yml"
-    env:
-      - name: TZ
-        value: "{{ AUTHELIA_TZ }}"
-      - name: X_AUTHELIA_CONFIG_FILTERS
-        value: "template"
-    endpoints:
-      - name: authelia
-        targetPort: 9091
-        exposure: public
-        protocol: http
+# - name: authelia
+#   container:
+#     image: authelia/authelia
+#     memoryLimit: 2Gi
+#     memoryRequest: 512Mi
+#     mountSources: true
+#     args:
+#       - --config
+#       - "/projects/ProxyAuthK8S/.compose/authelia/che-configuration.yml"
+#     env:
+#       - name: TZ
+#         value: "{{ AUTHELIA_TZ }}"
+#       - name: X_AUTHELIA_CONFIG_FILTERS
+#         value: "template"
+#     endpoints:
+#       - name: authelia
+#         targetPort: 9091
+#         exposure: public
+#         protocol: http
