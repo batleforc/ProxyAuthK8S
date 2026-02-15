@@ -56,7 +56,7 @@ tracing-subscriber = { version = '0.3', features = [
   'std',
   'fmt',
 ] }
-tracing-opentelemetry = { version = '0.32.0' }
+tracing-opentelemetry = { version = '0.32' }
 rustls = { version = '0.23', features = ['ring'], default-features = false }
 openidconnect = '4.0.1'
 thiserror = { version = '2' }
