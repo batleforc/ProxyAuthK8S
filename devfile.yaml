@@ -73,7 +73,7 @@ components:
     mountSources: true
     args:
       - --config
-      - ${PROJECT_SOURCE}/.compose/authelia/che-configuration.yml
+      - "{{PROJECT_SOURCE}}/.compose/authelia/che-configuration.yml"
     env:
       - name: TZ
         value: "{{ AUTHELIA_TZ }}"
