@@ -28,3 +28,8 @@ Two auth workflows are possible:
 
 - Full Frontend flow where the frontend handles the oidc flow and sends the token to the api that will validate it
 - Backend flow where the api handles the oidc flow and then sends the token to the frontend
+
+## RBAC overload
+
+- The api will add a new layer to further restrict some access with some special kind of rules.
+  - Example: Restrict access to a single namespace mapped from the user name
