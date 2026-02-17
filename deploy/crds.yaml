@@ -223,6 +223,137 @@ spec:
                 description: Security configuration
                 nullable: true
                 properties:
+                  allowed_ressources:
+                    description: Allowed resources, limit the access to the proxy to only these resources, if empty all resources are allowed
+                    items:
+                      description: Enum of the allowed paths configuration, currently only supports path and crd, but can be extended in the future
+                      oneOf:
+                      - required:
+                        - Path
+                      - required:
+                        - Crd
+                      properties:
+                        Crd:
+                          description: |-
+                            Allowed crd configuration, used in conjunction with the allowed_paths configuration
+                            /apis/{group}/{version}/namespaces/{namespace}/{kind}/
+                          properties:
+                            group:
+                              description: The group of the crd
+                              type: string
+                            kind:
+                              description: The kind of the crd
+                              type: string
+                            namespace:
+                              description: Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource
+                              properties:
+                                enabled:
+                                  default: false
+                                  description: |-
+                                    If the feature is enabled
+                                    default: false
+                                  type: boolean
+                                rule_kind:
+                                  description: The kind of the namespace access rule
+                                  oneOf:
+                                  - required:
+                                    - AllowedNamespaces
+                                  - required:
+                                    - DeniedNamespaces
+                                  - required:
+                                    - ParametisedRule
+                                  properties:
+                                    AllowedNamespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    DeniedNamespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    ParametisedRule:
+                                      type: string
+                                  type: object
+                              required:
+                              - rule_kind
+                              type: object
+                            namespaced:
+                              default: true
+                              description: |-
+                                Namespaced or not
+                                default: true
+                              type: boolean
+                            plural:
+                              description: |-
+                                Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind
+                                for example, if the kind is "MyResource" and the plural form is "MyResources"
+                                the path will be /apis/{group}/{version}/namespaces/{namespace}/myresources/
+                                instead of       /apis/{group}/{version}/namespaces/{namespace}/myresource/
+                                In case of cluster-scoped crd
+                                the path will be /apis/{group}/{version}/myresources/
+                                instead of       /apis/{group}/{version}/myresource/
+                              nullable: true
+                              type: string
+                            version:
+                              description: The version of the crd
+                              type: string
+                          required:
+                          - group
+                          - kind
+                          - namespace
+                          - version
+                          type: object
+                        Path:
+                          description: Allowed path configuration, used in conjunction with the allowed_paths configuration
+                          properties:
+                            namespace:
+                              description: Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource
+                              properties:
+                                enabled:
+                                  default: false
+                                  description: |-
+                                    If the feature is enabled
+                                    default: false
+                                  type: boolean
+                                rule_kind:
+                                  description: The kind of the namespace access rule
+                                  oneOf:
+                                  - required:
+                                    - AllowedNamespaces
+                                  - required:
+                                    - DeniedNamespaces
+                                  - required:
+                                    - ParametisedRule
+                                  properties:
+                                    AllowedNamespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    DeniedNamespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    ParametisedRule:
+                                      type: string
+                                  type: object
+                              required:
+                              - rule_kind
+                              type: object
+                            namespaced:
+                              default: true
+                              description: |-
+                                Namespaced or not
+                                default: true
+                              type: boolean
+                            path:
+                              description: The path to allow, if the request path starts with this path, it will be allowed
+                              type: string
+                          required:
+                          - namespace
+                          - path
+                          type: object
+                      type: object
+                    type: array
                   enabled:
                     default: true
                     description: Whether the token is validated beforehand
@@ -288,6 +419,7 @@ spec:
                       type: object
                     type: array
                 required:
+                - allowed_ressources
                 - fail2login_equal_ban
                 - per_user_group_rate_limiting
                 type: object
