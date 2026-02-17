@@ -4,10 +4,13 @@ use kube::Client;
 use rustls::pki_types::{pem::PemObject as _, CertificateDer, PrivateKeyDer};
 use tracing::{info, instrument};
 
-use deadpool_redis::{Config, Pool, Runtime};
+use deadpool_redis::{redis::AsyncTypedCommands, Config, Pool, Runtime};
+
+use crate::traits::ObjectRedis;
 
 pub mod oidc_conf;
 pub mod oidc_error;
+pub mod traits;
 
 #[derive(Clone)]
 pub struct State {
@@ -52,6 +55,27 @@ impl State {
         &self,
     ) -> Result<deadpool_redis::Connection, deadpool_redis::PoolError> {
         self.redis.get().await
+    }
+
+    #[instrument(skip(self))]
+    pub async fn get_object_from_redis<T: ObjectRedis>(
+        &self,
+        prefix: String,
+        key: String,
+    ) -> Result<Option<T>, Box<dyn std::error::Error>> {
+        let mut conn = self.get_redis_conn().await?;
+        let obj_json = match conn.get(format!("{}:{}", prefix, key)).await? {
+            Some(json) => {
+                info!("Object found in Redis with key {}:{}", prefix, key);
+                json
+            }
+            None => {
+                info!("Object not found in Redis with key {}:{}", prefix, key);
+                return Ok(None);
+            }
+        };
+        let obj = T::from_json(&obj_json);
+        Ok(obj)
     }
 }
 

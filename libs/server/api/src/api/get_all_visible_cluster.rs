@@ -1,5 +1,5 @@
 use actix_web::{dev::PeerAddr, get, http, web::Data, HttpRequest, HttpResponse, Responder};
-use common::State;
+use common::{traits::ObjectRedis, State};
 use crd::ProxyKubeApi;
 use deadpool_redis::redis::AsyncCommands;
 use tracing::instrument;

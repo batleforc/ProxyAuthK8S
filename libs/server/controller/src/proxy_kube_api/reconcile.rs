@@ -1,4 +1,4 @@
-use common::State;
+use common::{traits::ObjectRedis, State};
 use crd::{status::ProxyKubeApiStatus, ProxyKubeApi};
 use deadpool_redis::redis::cmd;
 use kube::{api::PatchParams, runtime::controller::Action, Api};

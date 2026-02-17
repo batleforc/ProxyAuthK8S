@@ -39,19 +39,15 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>, user: User)
             return HttpResponse::ServiceUnavailable().body(e.to_string());
         }
     };
-    let proxy_json = match conn.get(format!("proxyk8sauth:{}/{}", ns, cluster)).await {
+    let proxy: ProxyKubeApi = match data
+        .get_object_from_redis("proxyk8sauth".to_string(), format!("{}/{}", ns, cluster))
+        .await
+    {
         Ok(Some(proxy)) => proxy,
         Ok(None) => return HttpResponse::NotFound().finish(),
         Err(e) => {
             error!(error = %e, " couldn't get proxy from redis");
             return HttpResponse::ServiceUnavailable().body(e.to_string());
-        }
-    };
-    let proxy = match ProxyKubeApi::from_json(&proxy_json) {
-        Some(proxy) => proxy,
-        None => {
-            error!("Couldn't parse object");
-            return HttpResponse::NotFound().finish();
         }
     };
     if !proxy.spec.enabled

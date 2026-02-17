@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use authentication_configuration::AuthenticationConfiguration;
 use certificate::CertSource;
-use common::State;
+use common::{traits::ObjectRedis, State};
 use default::default_enabled;
 use kube::{CustomResource, ResourceExt};
 use reqwest::Url;
@@ -91,12 +91,7 @@ impl ProxyKubeApi {
         }
         user_groups.iter().any(|g| g == &dashboard_group)
     }
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap_or_default()
-    }
-    pub fn from_json(json: &str) -> Option<Self> {
-        serde_json::from_str(json).ok()
-    }
+
     /// Check if the service is reachable
     pub async fn is_reachable(&self, ctx: Arc<State>) -> Result<bool, String> {
         let ip = match self
@@ -230,5 +225,14 @@ impl ProxyKubeApi {
             }
             None => None,
         }
+    }
+}
+
+impl ObjectRedis for ProxyKubeApi {
+    fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).unwrap_or_default()
+    }
+    fn from_json(json: &str) -> Option<Self> {
+        serde_json::from_str(json).ok()
     }
 }

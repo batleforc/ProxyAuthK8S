@@ -100,3 +100,17 @@ impl FromRequest for User {
         })
     }
 }
+
+impl User {
+    pub fn is_in_group(&self, group: &str) -> bool {
+        self.groups.iter().any(|g| g == group)
+    }
+    // TODO: Implement auth against Kubernetes API server using the token from the request and fetch user info (e.g., groups) from Kubernetes API server.
+    // pub async fn auth_against_kubernetes(
+    //     state: State,
+    //     ns: String,
+    //     cluster: String,
+    // ) -> Result<(), String> {
+    //     Ok(())
+    // }
+}

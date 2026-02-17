@@ -1,7 +1,6 @@
 use actix_web::{dev::PeerAddr, http, web, HttpRequest, HttpResponse, Responder};
 use common::State;
 use crd::ProxyKubeApi;
-use deadpool_redis::redis::AsyncTypedCommands;
 use futures_util::stream::StreamExt;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -17,27 +16,18 @@ pub async fn redirect(
 ) -> impl Responder {
     let ns: String = req.match_info().get("ns").unwrap().parse().unwrap();
     let cluster: String = req.match_info().get("cluster").unwrap().parse().unwrap();
-    let mut conn = match data.get_redis_conn().await {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = %e, " couldn't get redis connection");
-            return HttpResponse::ServiceUnavailable().body(e.to_string());
-        }
-    };
-    let proxy_json = match conn.get(format!("proxyk8sauth:{}/{}", ns, cluster)).await {
+
+    // TODO: MTLS ? https://github.com/actix/examples/blob/master/https-tls/rustls-client-cert/src/main.rs
+
+    let proxy: ProxyKubeApi = match data
+        .get_object_from_redis("proxyk8sauth".to_string(), format!("{}/{}", ns, cluster))
+        .await
+    {
         Ok(Some(proxy)) => proxy,
         Ok(None) => return HttpResponse::NotFound().finish(),
         Err(e) => {
             error!(error = %e, " couldn't get proxy from redis");
             return HttpResponse::ServiceUnavailable().body(e.to_string());
-        }
-    };
-    // TODO: MTLS ? https://github.com/actix/examples/blob/master/https-tls/rustls-client-cert/src/main.rs
-    let proxy = match ProxyKubeApi::from_json(&proxy_json) {
-        Some(proxy) => proxy,
-        None => {
-            error!("Couldn't parse object");
-            return HttpResponse::NotFound().finish();
         }
     };
 
