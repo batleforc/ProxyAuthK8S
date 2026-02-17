@@ -168,6 +168,16 @@ spec:
                     - client_id
                     - issuer_url
                     type: object
+                  validate_against:
+                    default: Kubernetes
+                    description: |-
+                      Validate against the configured JWT authenticators, OIDC provider or Kubernetes API
+                      Default : OidcProvider if enabled, otherwise JwtAuthenticators if configured, otherwise Kubernetes
+                    enum:
+                    - JwtAuthenticators
+                    - OidcProvider
+                    - Kubernetes
+                    type: string
                 required:
                 - oidc_provider
                 type: object

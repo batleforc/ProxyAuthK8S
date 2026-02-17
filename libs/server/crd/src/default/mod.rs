@@ -1,3 +1,5 @@
+use crate::authentication_configuration::ValidateAgainst;
+
 pub fn default_enabled() -> bool {
     true
 }
@@ -23,4 +25,8 @@ pub fn default_empty_array<T>() -> Vec<T> {
 
 pub fn default_empty_string() -> String {
     String::new()
+}
+
+pub fn default_validate_against() -> ValidateAgainst {
+    ValidateAgainst::Kubernetes
 }
