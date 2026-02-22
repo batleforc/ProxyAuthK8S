@@ -1,6 +1,6 @@
 use crate::default::{
-    default_ban_duration, default_disabled, default_enabled, default_max_failed_logins,
-    default_max_requests_per_minute,
+    default_ban_duration, default_disabled, default_empty_array, default_enabled,
+    default_max_failed_logins, default_max_requests_per_minute,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,9 +14,21 @@ pub struct SecurityConfiguration {
     pub fail2login_equal_ban: Fail2LoginEqualBanConfiguration,
     /// Per group rate limiting configuration
     /// This take precedence over the global rate limiting configuration
+    #[serde(default = "default_empty_array::<PerUserGroupRateLimitingConfiguration>")]
     pub per_user_group_rate_limiting: Vec<PerUserGroupRateLimitingConfiguration>,
     /// Allowed resources, limit the access to the proxy to only these resources, if empty all resources are allowed
     pub allowed_ressources: Vec<AllowedPathConfigurationEnum>,
+}
+
+impl Default for SecurityConfiguration {
+    fn default() -> Self {
+        Self {
+            enabled: default_enabled(),
+            fail2login_equal_ban: Fail2LoginEqualBanConfiguration::default(),
+            per_user_group_rate_limiting: default_empty_array(),
+            allowed_ressources: default_empty_array(),
+        }
+    }
 }
 
 /// Pseudo Fail2Ban configuration
@@ -40,6 +52,17 @@ pub struct Fail2LoginEqualBanConfiguration {
     /// default: false
     #[serde(default = "default_disabled")]
     pub exponential_backoff: bool,
+}
+
+impl Default for Fail2LoginEqualBanConfiguration {
+    fn default() -> Self {
+        Self {
+            enabled: default_disabled(),
+            max_failed_logins: default_max_failed_logins(),
+            ban_duration: default_ban_duration(),
+            exponential_backoff: default_disabled(),
+        }
+    }
 }
 
 /// Rate limiting configuration

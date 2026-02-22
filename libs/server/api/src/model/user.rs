@@ -3,6 +3,9 @@ use actix_web::{
     web, FromRequest,
 };
 use common::State;
+use crd::ProxyKubeApi;
+use k8s_openapi::api::authentication::v1::SelfSubjectReview;
+use kube::Api;
 use openidconnect::{AccessToken, UserInfoError};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -105,12 +108,82 @@ impl User {
     pub fn is_in_group(&self, group: &str) -> bool {
         self.groups.iter().any(|g| g == group)
     }
-    // TODO: Implement auth against Kubernetes API server using the token from the request and fetch user info (e.g., groups) from Kubernetes API server.
-    // pub async fn auth_against_kubernetes(
-    //     state: State,
-    //     ns: String,
-    //     cluster: String,
-    // ) -> Result<(), String> {
-    //     Ok(())
-    // }
+
+    pub async fn get_user_info(
+        state: State,
+        ns: String,
+        cluster: String,
+        token: String,
+    ) -> Result<Option<Self>, String> {
+        let proxy: ProxyKubeApi = match state
+            .get_object_from_redis("proxyk8sauth".to_string(), format!("{}/{}", ns, cluster))
+            .await
+        {
+            Ok(Some(proxy)) => proxy,
+            Ok(None) => return Err("Proxy not found".to_string()),
+            Err(e) => return Err(format!("Error fetching proxy from Redis: {}", e)),
+        };
+        if proxy.spec.auth_config.clone().is_none() {
+            return Ok(None);
+        }
+
+        match proxy.spec.auth_config.clone().unwrap().validate_against {
+            // TODO : Implement OIDC provider validation by calling the provider's userinfo endpoint and generating a user from the response according to the configured claim mappings and validation rules
+            crd::authentication_configuration::ValidateAgainst::OidcProvider => todo!(),
+            crd::authentication_configuration::ValidateAgainst::Kubernetes => {
+                Self::auth_against_kubernetes(state, proxy, token).await
+            }
+        }
+    }
+
+    pub async fn auth_against_kubernetes(
+        state: State,
+        proxy: ProxyKubeApi,
+        token: String,
+    ) -> Result<Option<Self>, String> {
+        // Create a Kubernetes client using the provided token and targeting the proxy from the request
+        let client = proxy
+            .to_kube_client(
+                state.clone().into(),
+                Some("default".to_owned()),
+                Some(token),
+            )
+            .await
+            .map_err(|e| {
+                tracing::error!("Error while creating Kubernetes client: {}", e);
+                format!("Error while creating Kubernetes client: {}", e)
+            })?;
+
+        let review: Api<SelfSubjectReview> = Api::all_with(client, &());
+        match review.get("").await {
+            Ok(review_content) => {
+                let user_info = review_content
+                    .status
+                    .unwrap_or_default()
+                    .user_info
+                    .unwrap_or_default();
+                // In a real implementation, extract user info from the SelfSubjectReview response
+                // Here we return a dummy user for illustration
+                Ok(Some(User {
+                    username: user_info.username.unwrap_or_default(),
+                    email: user_info
+                        .extra
+                        .and_then(|extra| {
+                            extra
+                                .get("email")
+                                .and_then(|emails| emails.first().cloned())
+                        })
+                        .unwrap_or_default(),
+                    groups: user_info.groups.unwrap_or_default(),
+                }))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Error while executing SelfSubjectAccessReview request: {}",
+                    e
+                );
+                Err("Invalid SelfSubjectAccessReview response".to_string())
+            }
+        }
+    }
 }

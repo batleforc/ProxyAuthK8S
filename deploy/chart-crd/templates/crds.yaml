@@ -174,7 +174,6 @@ spec:
                       Validate against the configured JWT authenticators, OIDC provider or Kubernetes API
                       Default : OidcProvider if enabled, otherwise JwtAuthenticators if configured, otherwise Kubernetes
                     enum:
-                    - JwtAuthenticators
                     - OidcProvider
                     - Kubernetes
                     type: string
@@ -402,6 +401,7 @@ spec:
                         type: integer
                     type: object
                   per_user_group_rate_limiting:
+                    default: []
                     description: |-
                       Per group rate limiting configuration
                       This take precedence over the global rate limiting configuration
@@ -431,7 +431,6 @@ spec:
                 required:
                 - allowed_ressources
                 - fail2login_equal_ban
-                - per_user_group_rate_limiting
                 type: object
               service:
                 description: Service to expose the proxy

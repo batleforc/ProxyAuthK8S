@@ -6,6 +6,8 @@ edition = "2021"
 [dependencies]
 utoipa = { workspace = true }
 utoipa-actix-web = { workspace = true }
+kube = { workspace = true }
+k8s-openapi = { workspace = true }
 actix-web = { workspace = true }
 tracing = { workspace = true }
 deadpool-redis = { workspace = true }

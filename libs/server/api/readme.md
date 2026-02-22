@@ -34,5 +34,5 @@ Two auth workflows are possible:
 - The api will add a new layer to further restrict some access with some special kind of rules.
   - Example: Restrict access to a single namespace mapped from the user name
   - https://kubernetes.io/docs/reference/kubectl/generated/kubectl_auth/kubectl_auth_whoami/
-  - https://kubernetes.io/docs/reference/kubernetes-api/authorization-resources/self-subject-access-review-v1/
-  - https://docs.rs/k8s-openapi/latest/k8s_openapi/api/authorization/v1/struct.SelfSubjectAccessReview.html
+  - https://kubernetes.io/docs/reference/kubernetes-api/authentication-resources/self-subject-review-v1/
+  - https://docs.rs/k8s-openapi/latest/k8s_openapi/api/authentication/v1/struct.SelfSubjectReview.html

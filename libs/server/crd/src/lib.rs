@@ -1,16 +1,18 @@
 use std::sync::Arc;
 
 use authentication_configuration::AuthenticationConfiguration;
+use base64::{prelude::BASE64_STANDARD, Engine};
 use certificate::CertSource;
 use common::{traits::ObjectRedis, State};
 use default::default_enabled;
-use kube::{CustomResource, ResourceExt};
+use kube::{config::Kubeconfig, Client, CustomResource, ResourceExt};
 use reqwest::Url;
 use schemars::JsonSchema;
 use security::SecurityConfiguration;
 use serde::{Deserialize, Serialize};
 use service::Service;
 use status::ProxyKubeApiStatus;
+use tracing::instrument;
 
 pub mod authentication_configuration;
 pub mod certificate;
@@ -225,6 +227,73 @@ impl ProxyKubeApi {
             }
             None => None,
         }
+    }
+
+    #[instrument(skip(self, state, token))]
+    pub async fn to_kubeconfig(
+        &self,
+        state: Arc<State>,
+        default_ns: Option<String>,
+        token: Option<String>,
+    ) -> Result<Kubeconfig, String> {
+        let cluster_url = match self
+            .spec
+            .service
+            .url_to_call(state.client.clone(), self.namespace().unwrap_or_default())
+            .await
+        {
+            Ok(url) => url,
+            Err(e) => return Err(format!("Error getting cluster URL: {}", e)),
+        };
+        let mut kubeconfig = Kubeconfig::default();
+        kubeconfig.clusters.push(kube::config::NamedCluster {
+            name: self.name_any(),
+            cluster: Some(kube::config::Cluster {
+                server: Some(cluster_url),
+                certificate_authority_data: self
+                    .spec
+                    .cert
+                    .get_cert(state.client.clone(), &self.namespace().unwrap_or_default())
+                    .await?
+                    .as_ref()
+                    .map(|cert| BASE64_STANDARD.encode(cert)),
+                ..Default::default()
+            }),
+        });
+        kubeconfig.auth_infos.push(kube::config::NamedAuthInfo {
+            name: self.name_any(),
+            auth_info: Some(kube::config::AuthInfo {
+                token: token
+                    .as_ref()
+                    .map(|t| secrecy::SecretBox::new(t.clone().into())),
+                ..Default::default()
+            }),
+        });
+        kubeconfig.contexts.push(kube::config::NamedContext {
+            name: self.name_any(),
+            context: Some(kube::config::Context {
+                cluster: self.name_any(),
+                user: Some(self.name_any()),
+                namespace: default_ns,
+                ..Default::default()
+            }),
+        });
+        kubeconfig.current_context = Some(self.name_any());
+        Ok(kubeconfig)
+    }
+
+    #[instrument(skip(self, state, token))]
+    pub async fn to_kube_client(
+        &self,
+        state: Arc<State>,
+        default_ns: Option<String>,
+        token: Option<String>,
+    ) -> Result<kube::Client, String> {
+        let kubeconfig = self
+            .to_kubeconfig(state.clone(), default_ns.clone(), token.clone())
+            .await?;
+
+        Client::try_from(kubeconfig).map_err(|e| e.to_string())
     }
 }
 
