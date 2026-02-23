@@ -2,7 +2,7 @@ use actix_web::{
     error::{ErrorInternalServerError, ErrorUnauthorized},
     web, FromRequest,
 };
-use common::State;
+use common::{oidc_conf::OidcConf, State};
 use crd::ProxyKubeApi;
 use k8s_openapi::api::authentication::v1::SelfSubjectReview;
 use kube::Api;
@@ -47,59 +47,22 @@ impl FromRequest for User {
                 }
             };
 
-            let oidc_conf = match oidc_handler.oidc_client.get_oidc_core().await {
-                Ok(conf) => conf,
-                Err(e) => {
-                    tracing::error!("Error while getting OIDC config: {}", e);
-                    return Err(ErrorInternalServerError("Invalid OIDC config"));
-                }
-            };
-            let http_client = oidc_handler.oidc_client.get_reqwest_client();
-
-            let user_claim_req = match oidc_conf.user_info(AccessToken::new(token.to_owned()), None)
+            match User::get_user_info_from_oidc_token(
+                token.to_string(),
+                oidc_handler.oidc_client.clone(),
+            )
+            .await
             {
-                Ok(req) => req,
+                Ok(Some(user)) => Ok(user),
+                Ok(None) => {
+                    tracing::warn!("User info not found in OIDC response");
+                    Err(ErrorUnauthorized("User info not found in OIDC response"))
+                }
                 Err(e) => {
-                    tracing::warn!("Error while getting user info: {}", e);
-                    return Err(ErrorInternalServerError("Invalid user info request"));
+                    tracing::warn!("Error while getting user info from OIDC token: {}", e);
+                    Err(ErrorUnauthorized("Invalid user info from OIDC token"))
                 }
-            };
-            let user_info: GroupsUserInfoClaims =
-                match user_claim_req.request_async(&http_client).await {
-                    Ok(info) => info,
-                    Err(UserInfoError::Other(err)) => {
-                        tracing::warn!("Error while executing user info request: {}", err);
-                        return Err(ErrorInternalServerError("Invalid user info response"));
-                    }
-                    Err(e) => {
-                        tracing::warn!("Error while executing user info request: {}", e);
-                        return Err(ErrorUnauthorized("Invalid user info response"));
-                    }
-                };
-            let email = match user_info.email() {
-                Some(email) => email.to_string(),
-                None => {
-                    tracing::warn!("No email found in user info");
-                    "".to_string()
-                }
-            };
-            let username = match user_info.preferred_username() {
-                Some(username) => username.to_string(),
-                None => {
-                    tracing::warn!("No preferred username found in user info");
-                    "".to_string()
-                }
-            };
-            let groups = user_info.additional_claims().groups.clone();
-            tracing::info!("User groups: {:?}", groups);
-            // In a real implementation, extract user info from request (e.g., headers, tokens)
-            // Here we return a dummy user for illustration
-            let user = User {
-                username,
-                email,
-                groups,
-            };
-            Ok(user)
+            }
         })
     }
 }
@@ -128,8 +91,9 @@ impl User {
         }
 
         match proxy.spec.auth_config.clone().unwrap().validate_against {
-            // TODO : Implement OIDC provider validation by calling the provider's userinfo endpoint and generating a user from the response according to the configured claim mappings and validation rules
-            crd::authentication_configuration::ValidateAgainst::OidcProvider => todo!(),
+            crd::authentication_configuration::ValidateAgainst::OidcProvider => {
+                Self::auth_against_oidc_provider(state, proxy, token).await
+            }
             crd::authentication_configuration::ValidateAgainst::Kubernetes => {
                 Self::auth_against_kubernetes(state, proxy, token).await
             }
@@ -185,5 +149,77 @@ impl User {
                 Err("Invalid SelfSubjectAccessReview response".to_string())
             }
         }
+    }
+
+    pub async fn auth_against_oidc_provider(
+        state: State,
+        proxy: ProxyKubeApi,
+        token: String,
+    ) -> Result<Option<Self>, String> {
+        let oidc_conf = match proxy.get_oidc_conf(state.clone().into(), false, None) {
+            Some(conf) => conf,
+            None => {
+                tracing::warn!(
+                    "No OIDC configuration found for proxy {:?}",
+                    proxy.metadata.name
+                );
+                return Err("No OIDC configuration found for this proxy".to_string());
+            }
+        };
+        Self::get_user_info_from_oidc_token(token, oidc_conf).await
+    }
+
+    pub async fn get_user_info_from_oidc_token(
+        token: String,
+        oidc_conf: OidcConf,
+    ) -> Result<Option<Self>, String> {
+        let oidc_core = oidc_conf.get_oidc_core().await.map_err(|e| {
+            tracing::error!("Error while getting OIDC core client: {}", e);
+            format!("Error while getting OIDC core client: {}", e)
+        })?;
+        let http_client = oidc_conf.get_reqwest_client();
+
+        let user_claim_req = match oidc_core.user_info(AccessToken::new(token.to_owned()), None) {
+            Ok(req) => req,
+            Err(e) => {
+                tracing::warn!("Error while getting user info: {}", e);
+                return Err("Invalid user info request".to_string());
+            }
+        };
+        let user_info: GroupsUserInfoClaims = match user_claim_req.request_async(&http_client).await
+        {
+            Ok(info) => info,
+            Err(UserInfoError::Other(err)) => {
+                tracing::warn!("Error while executing user info request: {}", err);
+                return Err("Invalid user info response".to_string());
+            }
+            Err(e) => {
+                tracing::warn!("Error while executing user info request: {}", e);
+                return Err("Invalid user info response".to_string());
+            }
+        };
+        let email = match user_info.email() {
+            Some(email) => email.to_string(),
+            None => {
+                tracing::warn!("No email found in user info");
+                "".to_string()
+            }
+        };
+        let username = match user_info.preferred_username() {
+            Some(username) => username.to_string(),
+            None => {
+                tracing::warn!("No preferred username found in user info");
+                "".to_string()
+            }
+        };
+        let groups = user_info.additional_claims().groups.clone();
+        tracing::info!("User groups: {:?}", groups);
+        // In a real implementation, extract user info from request (e.g., headers, tokens)
+        // Here we return a dummy user for illustration
+        Ok(Some(User {
+            username,
+            email,
+            groups,
+        }))
     }
 }
