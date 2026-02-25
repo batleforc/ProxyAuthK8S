@@ -1,4 +1,4 @@
-use crate::authentication_configuration::ValidateAgainst;
+use crate::authentication_configuration::validate_against::ValidateAgainst;
 
 pub fn default_enabled() -> bool {
     true

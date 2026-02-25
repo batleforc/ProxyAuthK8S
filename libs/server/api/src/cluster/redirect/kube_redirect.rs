@@ -35,6 +35,8 @@ pub async fn redirect(
         return HttpResponse::NotFound().finish();
     }
 
+    // TODO: Check if user need to be validated for this cluster and if so, validate it before forwarding the request
+
     let url_to_call = match proxy
         .spec
         .service
@@ -58,6 +60,7 @@ pub async fn redirect(
             return HttpResponse::NotFound().finish();
         }
     };
+    // TODO: Check if base url filters exist
     info!(from = %req.uri().to_string(), to = %url_to_call, method = %method.as_str(),
         "Forwarding request from {} to {} with method {}",
         req.uri().to_string(),

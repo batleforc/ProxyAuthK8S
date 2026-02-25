@@ -15,6 +15,7 @@ futures = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 openidconnect = { workspace = true }
+regex = { workspace = true }
 
 base64 = "0.22"
 

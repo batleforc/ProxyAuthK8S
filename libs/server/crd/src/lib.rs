@@ -55,6 +55,19 @@ pub struct ProxyKubeApiSpec {
 }
 
 impl ProxyKubeApi {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.spec.enabled {
+            self.spec
+                .auth_config
+                .as_ref()
+                .map_or(Ok(()), |auth_config| auth_config.validate())?;
+            self.spec
+                .security_config
+                .as_ref()
+                .map_or(Ok(()), |security_config| security_config.validate())?;
+        }
+        Ok(())
+    }
     pub fn to_identifier(&self) -> String {
         format!(
             "proxyk8sauth:{}/{}",
@@ -188,7 +201,7 @@ impl ProxyKubeApi {
     ) -> Option<common::oidc_conf::OidcConf> {
         if let Some(redirect_kubectl_uri) = redirect_kubectl.clone() {
             // Validate the redirect uri
-            // The uri need to be have no path, no query and no fragment and uri shoud be localhost
+            // The uri need to be have no path, no query and no fragment and uri should be localhost
             let parsed_uri = match Url::parse(&redirect_kubectl_uri) {
                 Ok(uri) => uri,
                 Err(_) => {

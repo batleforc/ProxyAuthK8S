@@ -239,126 +239,28 @@ spec:
                       oneOf:
                       - required:
                         - Path
-                      - required:
-                        - Crd
                       properties:
-                        Crd:
-                          description: |-
-                            Allowed crd configuration, used in conjunction with the allowed_paths configuration
-                            /apis/{group}/{version}/namespaces/{namespace}/{kind}/
-                          properties:
-                            group:
-                              description: The group of the crd
-                              type: string
-                            kind:
-                              description: The kind of the crd
-                              type: string
-                            namespace:
-                              description: Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource
-                              properties:
-                                enabled:
-                                  default: false
-                                  description: |-
-                                    If the feature is enabled
-                                    default: false
-                                  type: boolean
-                                rule_kind:
-                                  description: The kind of the namespace access rule
-                                  oneOf:
-                                  - required:
-                                    - AllowedNamespaces
-                                  - required:
-                                    - DeniedNamespaces
-                                  - required:
-                                    - ParametisedRule
-                                  properties:
-                                    AllowedNamespaces:
-                                      items:
-                                        type: string
-                                      type: array
-                                    DeniedNamespaces:
-                                      items:
-                                        type: string
-                                      type: array
-                                    ParametisedRule:
-                                      type: string
-                                  type: object
-                              required:
-                              - rule_kind
-                              type: object
-                            namespaced:
-                              default: true
-                              description: |-
-                                Namespaced or not
-                                default: true
-                              type: boolean
-                            plural:
-                              description: |-
-                                Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind
-                                for example, if the kind is "MyResource" and the plural form is "MyResources"
-                                the path will be /apis/{group}/{version}/namespaces/{namespace}/myresources/
-                                instead of       /apis/{group}/{version}/namespaces/{namespace}/myresource/
-                                In case of cluster-scoped crd
-                                the path will be /apis/{group}/{version}/myresources/
-                                instead of       /apis/{group}/{version}/myresource/
-                              nullable: true
-                              type: string
-                            version:
-                              description: The version of the crd
-                              type: string
-                          required:
-                          - group
-                          - kind
-                          - namespace
-                          - version
-                          type: object
                         Path:
                           description: Allowed path configuration, used in conjunction with the allowed_paths configuration
                           properties:
-                            namespace:
-                              description: Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource
-                              properties:
-                                enabled:
-                                  default: false
-                                  description: |-
-                                    If the feature is enabled
-                                    default: false
-                                  type: boolean
-                                rule_kind:
-                                  description: The kind of the namespace access rule
-                                  oneOf:
-                                  - required:
-                                    - AllowedNamespaces
-                                  - required:
-                                    - DeniedNamespaces
-                                  - required:
-                                    - ParametisedRule
-                                  properties:
-                                    AllowedNamespaces:
-                                      items:
-                                        type: string
-                                      type: array
-                                    DeniedNamespaces:
-                                      items:
-                                        type: string
-                                      type: array
-                                    ParametisedRule:
-                                      type: string
-                                  type: object
-                              required:
-                              - rule_kind
-                              type: object
-                            namespaced:
-                              default: true
+                            parametised:
+                              default: false
                               description: |-
-                                Namespaced or not
-                                default: true
+                                Wether or not the path is parametised
+                                if true, the path will be treated as a template, it either handle wildcard parameters, like "*" or "dev-*", or mustache-like parameters, like "{{username}}" or "{{group}}"
+                                for example, if the path is "/api/v1/namespaces/*/pods", it will allow all requests to pods in any namespace
+                                if the path is "/api/v1/namespaces/dev-*/pods", it will allow all requests to pods in namespaces that start with "dev-"
+                                It will also try to detect mustache-like parameters, for example, if the path is "/api/v1/namespaces/{{username}}/pods"
+                                it will allow all requests to pods in namespaces carrying the username as a parameter
+                                if the selected field is an array, like the groups claim, it will try to match any of the values in the array
+                                for example, if the groups claim is ["dev-alice", "dev-bob"] and the path is "/api/v1/namespaces/{{group}}/pods", it will allow all requests to pods in namespaces that match either "dev-alice" or "dev-bob"
+                                Allowed parameters are : {{username}} and {{group}}
+                                default: false
                               type: boolean
                             path:
-                              description: The path to allow, if the request path starts with this path, it will be allowed
+                              description: The path to allow, if the request path equals this path, it will be allowed
                               type: string
                           required:
-                          - namespace
                           - path
                           type: object
                       type: object
@@ -367,70 +269,8 @@ spec:
                     default: true
                     description: Whether the token is validated beforehand
                     type: boolean
-                  fail2login_equal_ban:
-                    description: Configuration for banning users after multiple failed login attempts
-                    properties:
-                      ban_duration:
-                        default: 300
-                        description: |-
-                          The duration of the ban in seconds
-                          default: 300 (5 minutes)
-                          0 means permanent ban
-                        format: uint32
-                        minimum: 0.0
-                        type: integer
-                      enabled:
-                        default: false
-                        description: |-
-                          If the feature is enabled
-                          default: false
-                        type: boolean
-                      exponential_backoff:
-                        default: false
-                        description: |-
-                          If the time is exponentially increased with each failed login attempt
-                          default: false
-                        type: boolean
-                      max_failed_logins:
-                        default: 5
-                        description: |-
-                          The number of failed login attempts before the user is banned
-                          default: 5
-                        format: uint32
-                        minimum: 0.0
-                        type: integer
-                    type: object
-                  per_user_group_rate_limiting:
-                    default: []
-                    description: |-
-                      Per group rate limiting configuration
-                      This take precedence over the global rate limiting configuration
-                    items:
-                      description: Per-user group rate limiting configuration
-                      properties:
-                        claim:
-                          description: Claim to identify the user group, used in conjunction with claim_mappings in the JWTAuthenticator
-                          type: string
-                        group:
-                          description: Group name
-                          type: string
-                        max_requests_per_minute:
-                          description: |-
-                            The maximum number of requests per minute for this group
-                            This setting overrides the global rate limiting setting
-                            0 disables the rate limiting for this group
-                          format: uint32
-                          minimum: 0.0
-                          type: integer
-                      required:
-                      - claim
-                      - group
-                      - max_requests_per_minute
-                      type: object
-                    type: array
                 required:
                 - allowed_ressources
-                - fail2login_equal_ban
                 type: object
               service:
                 description: Service to expose the proxy

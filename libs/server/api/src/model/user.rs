@@ -91,10 +91,10 @@ impl User {
         }
 
         match proxy.spec.auth_config.clone().unwrap().validate_against {
-            crd::authentication_configuration::ValidateAgainst::OidcProvider => {
+            crd::authentication_configuration::validate_against::ValidateAgainst::OidcProvider => {
                 Self::auth_against_oidc_provider(state, proxy, token).await
             }
-            crd::authentication_configuration::ValidateAgainst::Kubernetes => {
+            crd::authentication_configuration::validate_against::ValidateAgainst::Kubernetes => {
                 Self::auth_against_kubernetes(state, proxy, token).await
             }
         }

@@ -19,36 +19,55 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
     let name = metadata.name.as_deref().unwrap_or("unknown");
     let proxys: Api<ProxyKubeApi> = Api::namespaced(ctx.client.clone(), ns);
 
-    let new_status = match proxy.clone().is_reachable(ctx.clone()).await {
-        Ok(reachable) => {
-            if reachable {
-                tracing::info!("ProxyKubeApi {} is reachable", proxy.to_identifier());
-                ProxyKubeApiStatus::new(true, Some(format!("/clusters/{}", path)), None)
-            } else {
-                tracing::warn!("ProxyKubeApi {} is not reachable", proxy.to_identifier());
-                ProxyKubeApiStatus::new(
-                    false,
-                    None,
-                    Some("Target service is not reachable".to_string()),
-                )
-            }
-        }
+    // validate the proxy configuration, if it's invalid, set the status to not reachable with the error message and requeue after 5 minutes
+    let mut new_status = match proxy_cloned.validate() {
+        Ok(_) => ProxyKubeApiStatus::new(false, None, None),
         Err(e) => {
             tracing::error!(
-                "Failed to check if ProxyKubeApi {} is reachable: {}",
+                "Failed to validate ProxyKubeApi {}: {}",
                 proxy.to_identifier(),
                 e
             );
             ProxyKubeApiStatus::new(
                 false,
                 None,
-                Some(format!(
-                    "Failed to check if target service is reachable: {}",
-                    e
-                )),
+                Some(format!("Failed to validate proxy configuration: {}", e)),
             )
         }
     };
+
+    if new_status.error.is_some() {
+        new_status = match proxy.clone().is_reachable(ctx.clone()).await {
+            Ok(reachable) => {
+                if reachable {
+                    tracing::info!("ProxyKubeApi {} is reachable", proxy.to_identifier());
+                    ProxyKubeApiStatus::new(true, Some(format!("/clusters/{}", path)), None)
+                } else {
+                    tracing::warn!("ProxyKubeApi {} is not reachable", proxy.to_identifier());
+                    ProxyKubeApiStatus::new(
+                        false,
+                        None,
+                        Some("Target service is not reachable".to_string()),
+                    )
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to check if ProxyKubeApi {} is reachable: {}",
+                    proxy.to_identifier(),
+                    e
+                );
+                ProxyKubeApiStatus::new(
+                    false,
+                    None,
+                    Some(format!(
+                        "Failed to check if target service is reachable: {}",
+                        e
+                    )),
+                )
+            }
+        };
+    }
     let mut redis_conn = ctx.get_redis_conn().await?;
     proxy_cloned.status = Some(new_status.clone());
     let proxy_json = proxy_cloned.to_json();
