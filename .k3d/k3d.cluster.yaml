@@ -10,3 +10,12 @@ hostAliases: # /etc/hosts style entries to be injected into /etc/hosts in the no
       - authelia.k8s.localhost
       - traefik.k8s.localhost
       - k8s.localhost
+options:
+  kubeconfig:
+    updateDefaultKubeconfig: false
+    switchCurrentContext: false
+  k3s:
+    extraArgs:
+      - arg: "--no-deploy=traefik"
+        nodeFilters:
+          - "server:*"
