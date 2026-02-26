@@ -1,10 +1,9 @@
 /// <reference types='vitest' />
-import { defineConfig, type PluginOption } from 'vite';
+import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
 import { nxCopyAssetsPlugin } from '@nx/vite/plugins/nx-copy-assets.plugin';
 import fs from 'node:fs';
-import { visualizer } from 'rollup-plugin-visualizer';
 
 let tls = undefined;
 
@@ -35,11 +34,7 @@ export default defineConfig(() => ({
     port: 4300,
     host: 'localhost',
   },
-  plugins: [
-    vue(),
-    nxViteTsPaths(),
-    nxCopyAssetsPlugin(['*.md'], visualizer() as PluginOption),
-  ],
+  plugins: [vue(), nxViteTsPaths(), nxCopyAssetsPlugin(['*.md'])],
   // Uncomment this if you are using workers.
   // worker: {
   //  plugins: [ nxViteTsPaths() ],
