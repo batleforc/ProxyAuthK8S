@@ -7,5 +7,4 @@ include:
 
 networks:
   default:
-    name: talos-default
-    external: true
+    name: proxy-auth-k8s

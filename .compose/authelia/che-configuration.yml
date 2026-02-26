@@ -18,7 +18,7 @@ identity_validation:
 
 authentication_backend:
   file:
-    path: "/config/users_database.yml"
+    path: "/projects/proxyauthk8s/.compose/authelia/users_database.yml"
 
 access_control:
   default_policy: "deny"
@@ -51,11 +51,11 @@ regulation:
 storage:
   encryption_key: "you_must_generate_a_random_string_of_more_than_twenty_chars_and_configure_this"
   local:
-    path: "/config/db.sqlite3"
+    path: "/projects/proxyauthk8s/.compose/authelia/db.sqlite3"
 
 notifier:
   filesystem:
-    filename: "/config/notification.txt"
+    filename: "/projects/proxyauthk8s/.compose/authelia/notification.txt"
 
 identity_providers:
   oidc:
@@ -110,4 +110,4 @@ identity_providers:
     jwks:
       - key_id: "kube_login"
         key: |
-          {{- secret "/config/private.pem" | nindent 10 }}
+          {{- secret "/projects/proxyauthk8s/.compose/authelia/private.pem" | nindent 10 }}

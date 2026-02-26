@@ -1,6 +1,12 @@
 version: "3"
 
 tasks:
+  tls:trust:
+    desc: "Trust the generated TLS certificates in the local system"
+    silent: true
+    cmds:
+      - echo "Trusting the generated TLS certificates in the local system"
+      - mkcert -install
   tls:
     desc: "Generate self-signed TLS certificates for local development"
     silent: true

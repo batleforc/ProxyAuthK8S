@@ -1,9 +1,6 @@
 services:
   authelia:
     image: "authelia/authelia"
-    networks:
-      default:
-        ipv4_address: 10.5.0.16
     container_name: authelia
     user: "${PUID}:${PGID}"
     volumes:

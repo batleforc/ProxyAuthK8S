@@ -64,7 +64,7 @@ tasks:
           exit 1
         fi
       - command -v docker && PUID="$(id -u)" PGID="$(id -g)" docker compose up || true
-      - command -v podman && PUID="$(id -u)" PGID="$(id -g)"  podman compose up || true
+      - command -v podman && PODMAN_USERNS="host" PUID="$(id -u)" PGID="$(id -g)" podman compose up || true
   service:recette:
     desc: "Run the service task in recette mode"
     silent: true
@@ -78,7 +78,7 @@ tasks:
           exit 1
         fi
       - command -v docker && PUID="$(id -u)" PGID="$(id -g)" MODE="recette" docker compose -f .compose/compose.recette.yaml up  || true
-      - command -v podman && PUID="$(id -u)" PGID="$(id -g)" MODE="recette" podman compose -f .compose/compose.recette.yaml up || true
+      - command -v podman && PODMAN_USERNS="host" PUID="$(id -u)" PGID="$(id -g)" MODE="recette" podman compose -f .compose/compose.recette.yaml up || true
   init:service:
     desc: "Initialize the service task"
     silent: true

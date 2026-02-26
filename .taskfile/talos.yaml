@@ -6,10 +6,13 @@ tasks:
     vars:
       TRAEFIK_IP:
         sh: task talos:get-traefik-ip
+      BECOME: '{{ .BECOME | default "" }}'
+    envs:
+      DOCKER_SOCK: "/run/podman/podman.sock"
     cmds:
       - cp .talos/patch_host.yaml.tpl .talos/patch_host.yaml && sed -i 's/TRAEFIK_IP/{{ .TRAEFIK_IP }}/g' .talos/patch_host.yaml
       - task talos:up:cert
-      - talosctl cluster create --workers 1 --config-patch-control-plane @.talos/patch_auth.yaml --config-patch @.talos/patch_host.yaml
+      - "{{ .BECOME }} talosctl cluster create docker --workers 1 --config-patch-controlplanes @.talos/patch_auth.yaml --config-patch @.talos/patch_host.yaml"
       - task talos:kubeconfig
       - task talos:crd
       - task talos:k -- apply -f ./deploy/exemple/min-local-talos.crd.yaml
@@ -112,5 +115,8 @@ tasks:
     desc: "Get Traefik Docker IP"
     silent: true
     cmds:
-      - docker inspect traefik | jq -r '.[0].NetworkSettings.Networks["talos-default"].IPAddress'
+      - cmd: docker inspect traefik | jq -r '.[0].NetworkSettings.Networks["talos-default"].IPAddress'
+        if: 'command -v docker'
+      - cmd: podman inspect traefik | jq -r '.[0].NetworkSettings.Networks["talos-default"].IPAddress'
+        if: 'command -v podman'
       # https://docs.siderolabs.com/talos/v1.6/reference/configuration/v1alpha1/config#extrahostentries%5B%5D

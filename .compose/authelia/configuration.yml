@@ -12,24 +12,27 @@ log:
 totp:
   issuer: "authelia.k8s.localhost"
 
+ntp:
+  disable_startup_check: true
+
 identity_validation:
   reset_password:
     jwt_secret: "a_very_important_secret"
 
 authentication_backend:
   file:
-    path: "/projects/proxyauthk8s/.compose/authelia/users_database.yml"
+    path: "/config/users_database.yml"
 
 access_control:
   default_policy: "deny"
   rules:
-    - domain: "public.k8s.localhost"
+    - domain: "public.k8s.localhost:8443"
       policy: "bypass"
-    - domain: "traefik.k8s.localhost"
+    - domain: "traefik.k8s.localhost:8443"
       policy: "one_factor"
     - domain: "secure.k8s.localhost"
       policy: "two_factor"
-    - domain: "localhost"
+    - domain: "localhost:8443"
       policy: "bypass"
 
 session:
@@ -38,10 +41,10 @@ session:
   cookies:
     - name: "authelia_session"
       domain: "k8s.localhost" # Should match whatever your root protected domain is
-      authelia_url: "https://authelia.k8s.localhost"
+      authelia_url: "https://authelia.k8s.localhost:8443"
       expiration: "6 hour" # 6 hour
       inactivity: "1 hour" # 1 hour
-      default_redirection_url: "https://public.k8s.localhost"
+      default_redirection_url: "https://public.k8s.localhost:8443"
 
 regulation:
   max_retries: 3
@@ -51,11 +54,11 @@ regulation:
 storage:
   encryption_key: "you_must_generate_a_random_string_of_more_than_twenty_chars_and_configure_this"
   local:
-    path: "/projects/proxyauthk8s/.compose/authelia/db.sqlite3"
+    path: "/config/db.sqlite3"
 
 notifier:
   filesystem:
-    filename: "/projects/proxyauthk8s/.compose/authelia/notification.txt"
+    filename: "/config/notification.txt"
 
 identity_providers:
   oidc:
@@ -110,4 +113,4 @@ identity_providers:
     jwks:
       - key_id: "kube_login"
         key: |
-          {{- secret "/projects/proxyauthk8s/.compose/authelia/private.pem" | nindent 10 }}
+          {{- secret "/config/private.pem" | nindent 10 }}

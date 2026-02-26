@@ -1,0 +1,9 @@
+version: "3"
+
+tasks:
+  up:
+    # https://k3d.io/v5.8.3/usage/advanced/podman/#using-podman
+    desc: "Start the cluster"
+    cmds:
+      - echo "Starting the cluster"
+      - docker compose -f .compose/compose.traefik.yaml -f .compose/compose.redis.yaml -f .compose/compose.dbgate.yaml -f .compose/authelia/docker-compose.yml up -d

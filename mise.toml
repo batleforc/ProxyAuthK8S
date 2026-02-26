@@ -1,7 +1,10 @@
 [tools]
 java = "temurin"
+k3d = "latest"
+mkcert = "latest"
 node = "lts"
 rust = { version = "latest", profile = "default", components = "rust-src,llvm-tools" }
+talosctl = "latest"
 task = "latest"
 yarn = "latest"
 
