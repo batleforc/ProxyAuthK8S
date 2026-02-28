@@ -4,6 +4,63 @@ tasks:
   up:
     # https://k3d.io/v5.8.3/usage/advanced/podman/#using-podman
     desc: "Start the cluster"
+    vars:
+      TRAEFIK_IP:
+        sh: task tool:get-traefik-ip
     cmds:
       - echo "Starting the cluster"
-      - docker compose -f .compose/compose.traefik.yaml -f .compose/compose.redis.yaml -f .compose/compose.dbgate.yaml -f .compose/authelia/docker-compose.yml up -d
+      - cp .k3d/k3d.cluster.yaml.tpl .k3d/k3d.cluster.yaml && sed -i 's/TRAEFIK_IP/{{ .TRAEFIK_IP }}/g' .k3d/k3d.cluster.yaml
+      - task k3d:up:cert
+      - DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock DOCKER_SOCK=$XDG_RUNTIME_DIR/podman/podman.sock k3d cluster create --config .k3d/k3d.cluster.yaml
+      - task k3d:kubeconfig
+      - task k3d:crd
+      - task k3d:k -- apply -f ./deploy/exemple/min-local-talos.crd.yaml
+      - task tool:create-kubeconfig-proxy
+      - task tool:create-kubeconfig-oidc
+  down:
+    desc: "Destroy the cluster"
+    cmds:
+      - k3d cluster delete --config .k3d/k3d.cluster.yaml
+  up:cert:
+    cmds:
+      - |
+        awk '/CERTIFICATE/ {
+          while ((getline line < ".compose/traefik/certs/cert.pem") > 0) {
+          print "              " line
+          }
+          close(".compose/traefik/certs/cert.pem")
+          next
+          }
+        { print }' .k3d/k3d.cluster.yaml > .k3d/k3d.cluster.yaml.tmp
+      - mv .k3d/k3d.cluster.yaml.tmp .k3d/k3d.cluster.yaml
+  kubeconfig:
+    desc: "Get kubeconfig for the cluster"
+    cmds:
+      - rm -f kubeconfig.local-k3d.yaml
+      - k3d kubeconfig get proxy-auth-k8s >> kubeconfig.local-k3d.yaml
+  k:
+    desc: "Shortcut for kubectl"
+    cmds:
+      - kubectl --kubeconfig kubeconfig.local-k3d.yaml {{.CLI_ARGS}}
+  k-proxy:
+    desc: "Shortcut for kubectl using ProxyauthK8s"
+    silent: true
+    env:
+      KUBECONFIG: kubeconfig.local-proxy-k3d.yaml
+    cmds:
+      - kubectl {{ .CLI_ARGS }}
+  k-oidc:
+    desc: "Shortcut for kubectl using OIDC"
+    silent: true
+    env:
+      KUBECONFIG: kubeconfig.local-oidc-k3d.yaml
+    cmds:
+      - kubectl {{ .CLI_ARGS }}
+  crd:
+    desc: "Apply CRD for the cluster"
+    cmds:
+      - kubectl --kubeconfig kubeconfig.local-k3d.yaml apply -f ./deploy/crds.yaml
+  k9s:
+    desc: "Open k9s for the cluster"
+    cmds:
+      - k9s --kubeconfig kubeconfig.local-k3d.yaml

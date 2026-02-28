@@ -1,0 +1,36 @@
+version: "3"
+
+tasks:
+  get-traefik-ip:
+    desc: "Get Traefik Docker IP"
+    silent: true
+    cmds:
+      - cmd: docker inspect traefik | jq -r '.[0].NetworkSettings.Networks["proxy-auth-k8s"].IPAddress'
+        if: 'command -v docker'
+      - cmd: podman inspect traefik | jq -r '.[0].NetworkSettings.Networks["proxy-auth-k8s"].IPAddress'
+        if: 'command -v podman'
+  create-kubeconfig-oidc:
+    desc: "Create kubeconfig to use with OIDC and ProxyauthK8s"
+    silent: true
+    vars:
+      server_url: "https://localhost:5437/clusters/default/local"
+      prefix: "k3d"
+    cmds:
+      - cp kubeconfig-template.oidc.yaml kubeconfig.local-oidc-{{ .prefix }}.yaml
+      - yq e -i '.clusters[0].cluster.server = "{{ .server_url }}"' kubeconfig.local-oidc-{{ .prefix }}.yaml
+  create-kubeconfig-proxy:
+    desc: "Create kubeconfig to use with ProxyauthK8s"
+    silent: true
+    vars:
+      server_url: "https://localhost:5437/clusters/default/local"
+      prefix: "k3d"
+      token:
+        sh: task k3d:k -- create token default
+    cmds:
+      - cp kubeconfig.local-{{ .prefix }}.yaml kubeconfig.local-proxy-{{ .prefix }}.yaml
+      - yq e -i '.clusters[0].cluster.server = "{{ .server_url }}"' kubeconfig.local-proxy-{{ .prefix }}.yaml
+      - yq e -i 'del(.clusters[0].cluster."certificate-authority-data")' kubeconfig.local-proxy-{{ .prefix }}.yaml
+      - yq e -i '.users[0].user.token = "{{ .token }}"' kubeconfig.local-proxy-{{ .prefix }}.yaml
+      - yq e -i 'del(.users[0].user."client-certificate-data")' kubeconfig.local-proxy-{{ .prefix }}.yaml
+      - yq e -i 'del(.users[0].user."client-key-data")' kubeconfig.local-proxy-{{ .prefix }}.yaml
+      # https://docs.siderolabs.com/talos/v1.6/reference/configuration/v1alpha1/config#extrahostentries%5B%5D

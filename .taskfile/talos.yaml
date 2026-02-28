@@ -5,7 +5,7 @@ tasks:
     desc: "Start Talos cluster"
     vars:
       TRAEFIK_IP:
-        sh: task talos:get-traefik-ip
+        sh: task tool:get-traefik-ip
       BECOME: '{{ .BECOME | default "" }}'
     envs:
       DOCKER_SOCK: "/run/podman/podman.sock"
@@ -111,12 +111,4 @@ tasks:
       - yq e -i '.users[0].user.token = "{{ .token }}"' kubeconfig.local-proxy.yaml
       - yq e -i 'del(.users[0].user."client-certificate-data")' kubeconfig.local-proxy.yaml
       - yq e -i 'del(.users[0].user."client-key-data")' kubeconfig.local-proxy.yaml
-  get-traefik-ip:
-    desc: "Get Traefik Docker IP"
-    silent: true
-    cmds:
-      - cmd: docker inspect traefik | jq -r '.[0].NetworkSettings.Networks["talos-default"].IPAddress'
-        if: 'command -v docker'
-      - cmd: podman inspect traefik | jq -r '.[0].NetworkSettings.Networks["talos-default"].IPAddress'
-        if: 'command -v podman'
       # https://docs.siderolabs.com/talos/v1.6/reference/configuration/v1alpha1/config#extrahostentries%5B%5D

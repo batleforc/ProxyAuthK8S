@@ -4,6 +4,8 @@ includes:
   talos: .taskfile/talos.yaml
   lab: .taskfile/lab.yaml
   gen: .taskfile/gen.yaml
+  k3d: .taskfile/kube3d.yaml
+  tool: .taskfile/tool.yaml
 
 dotenv:
   - .env
