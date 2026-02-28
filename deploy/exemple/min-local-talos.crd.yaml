@@ -6,10 +6,13 @@ metadata:
   namespace: default
 spec:
   cert:
-    Insecure: true
+    ConfigMap:
+      name: kube-root-ca.crt
+      key: ca.crt
+      namespace: default
   service:
     ExternalService:
-      url: "https://10.5.0.2:6443"
+      url: "https://localhost:42171"
 ---
 apiVersion: weebo.si.rs/v1
 kind: ProxyKubeApi
@@ -31,10 +34,13 @@ metadata:
 spec:
   enabled: false
   cert:
-    Insecure: true
+    ConfigMap:
+      name: kube-root-ca.crt
+      key: ca.crt
+      namespace: default
   service:
     ExternalService:
-      url: "https://10.5.0.2:6443"
+      url: "https://localhost:42171"
 ---
 apiVersion: weebo.si.rs/v1
 kind: ProxyKubeApi
@@ -46,7 +52,7 @@ spec:
     Insecure: false
   service:
     ExternalService:
-      url: "https://10.5.0.2:6443"
+      url: "https://localhost:42171"
 ---
 apiVersion: weebo.si.rs/v1
 kind: ProxyKubeApi
@@ -55,10 +61,13 @@ metadata:
   namespace: default
 spec:
   cert:
-    Insecure: true
+    ConfigMap:
+      name: kube-root-ca.crt
+      key: ca.crt
+      namespace: default
   service:
     ExternalService:
-      url: "https://10.5.0.2:6443"
+      url: "https://localhost:42171"
   auth_config:
     oidc_provider:
       enabled: true

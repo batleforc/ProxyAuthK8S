@@ -13,6 +13,12 @@ pub enum CertSource {
     },
     /// Base64 encoded cert
     Cert(String),
+    /// Configmap
+    ConfigMap {
+        name: String,
+        key: String,
+        namespace: Option<String>,
+    },
     /// Insecure, do not use TLS
     Insecure(bool),
 }
@@ -52,6 +58,24 @@ impl CertSource {
                     }
                 }
                 Err(format!("No data found in secret {}", name))
+            }
+            CertSource::ConfigMap {
+                name,
+                key,
+                namespace,
+            } => {
+                let target_ns = namespace.as_deref().unwrap_or(ns);
+                let configmaps: kube::Api<k8s_openapi::api::core::v1::ConfigMap> =
+                    kube::Api::namespaced(client, target_ns);
+                let configmap = configmaps.get(name).await.map_err(|e| e.to_string())?;
+                if let Some(data) = configmap.data {
+                    if let Some(cert) = data.get(key) {
+                        return Ok(Some(cert.clone()));
+                    } else {
+                        return Err(format!("Key {} not found in configmap {}", key, name));
+                    }
+                }
+                Err(format!("No data found in configmap {}", name))
             }
             CertSource::Cert(c) => {
                 // base64 decode the cert

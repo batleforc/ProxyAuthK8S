@@ -36,7 +36,7 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
         }
     };
 
-    if new_status.error.is_some() {
+    if new_status.error.is_none() {
         new_status = match proxy.clone().is_reachable(ctx.clone()).await {
             Ok(reachable) => {
                 if reachable {
@@ -68,6 +68,12 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
             }
         };
     }
+    info!(
+        "Updating status of ProxyKubeApi {}: reachable={}, error={:?}",
+        proxy.to_identifier(),
+        new_status.exposed,
+        new_status.error
+    );
     let mut redis_conn = ctx.get_redis_conn().await?;
     proxy_cloned.status = Some(new_status.clone());
     let proxy_json = proxy_cloned.to_json();

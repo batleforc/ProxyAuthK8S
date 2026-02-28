@@ -108,6 +108,7 @@ impl ProxyKubeApi {
     }
 
     /// Check if the service is reachable
+    #[instrument(skip(self, ctx))]
     pub async fn is_reachable(&self, ctx: Arc<State>) -> Result<bool, String> {
         let ip = match self
             .spec
@@ -134,6 +135,11 @@ impl ProxyKubeApi {
                 Ok(false)
             }
             Err(err) => {
+                tracing::error!(
+                    "Failed to reach ProxyKubeApi {}: {}",
+                    self.to_identifier(),
+                    err
+                );
                 if let Some(status) = err.status() {
                     if status.as_u16() >= 400 && status.as_u16() < 500 {
                         // client error, the service is reachable but the request is not authorized

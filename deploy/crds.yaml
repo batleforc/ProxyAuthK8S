@@ -188,11 +188,27 @@ spec:
                 - required:
                   - Cert
                 - required:
+                  - ConfigMap
+                - required:
                   - Insecure
                 properties:
                   Cert:
                     description: Base64 encoded cert
                     type: string
+                  ConfigMap:
+                    description: Configmap
+                    properties:
+                      key:
+                        type: string
+                      name:
+                        type: string
+                      namespace:
+                        nullable: true
+                        type: string
+                    required:
+                    - key
+                    - name
+                    type: object
                   Insecure:
                     description: Insecure, do not use TLS
                     type: boolean
