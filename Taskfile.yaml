@@ -20,7 +20,7 @@ tasks:
   back:
     desc: "Run the backend"
     env:
-      KUBECONFIG: ./kubeconfig.local.yaml
+      KUBECONFIG: ./kubeconfig.local-k3d.yaml
       #OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:5081/api/default"
       #OTEL_EXPORTER_OTLP_HEADERS: "Authorization=Basic cm9vdEBleGFtcGxlLmNvbTpDb21wbGV4cGFzcyMxMjM=,organization=default,stream-name=default"
       REDIS_URL: redis://:{{ .REDIS_PASSWORD }}@localhost:6379
@@ -31,7 +31,7 @@ tasks:
   back:tls:
     desc: "Run the TLS terminator"
     env:
-      KUBECONFIG: ./kubeconfig.local.yaml
+      KUBECONFIG: ./kubeconfig.local-k3d.yaml
       REDIS_URL: redis://:{{ .REDIS_PASSWORD }}@localhost:6379
       SERVER_HTTPS: "true"
       SERVER_CERT_PATH: ".tls/cert.pem"
