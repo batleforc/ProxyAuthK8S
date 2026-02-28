@@ -22,9 +22,11 @@ flowchart LR
   subgraph PX[ProxyAuthK8S]
     UI[UI ProxyAuthK8S]
     BE[Backend + Controller]
+    R[(Redis)]
   end
 
   UI --> BE
+  BE <--> R
   BE <--> KC[(Cluster Kubernetes Fédérateur)]
   BE <--> IDP[Providers d'identité]
   BE --> KX[Clusters Kubernetes accessibles]
