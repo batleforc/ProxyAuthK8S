@@ -10,6 +10,28 @@ In addition to the secured exposure, this project also eases the sharing of kube
 
 The base specification of the [project can be found here](https://batleforc.github.io/weebo-si/0.projects/reverse-api-kube-oidc-based.html).
 
+![ProxyAuthK8s Demo](.docs/assets/demo-1.gif)
+
+## Architecture
+
+```mermaid
+flowchart LR
+  UF[Utilisateur Front] --> UI
+  UC[Utilisateur CLI] --> BE
+
+  subgraph PX[ProxyAuthK8S]
+    UI[UI ProxyAuthK8S]
+    BE[Backend + Controller]
+  end
+
+  UI --> BE
+  BE <--> KC[(Cluster Kubernetes Fédérateur)]
+  BE <--> IDP[Providers d'identité]
+  BE --> KX[Clusters Kubernetes accessibles]
+```
+
+N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la brique ProxyAuthK8S.
+
 ## Left to do
 
 ### v0.2.0
@@ -34,6 +56,7 @@ The base specification of the [project can be found here](https://batleforc.gith
   - [ ] How to setup development environment
 - [ ] Add security features (details later)
 - [ ] Add Oidc token validation
+- [ ] Add ability to go through a proxy (exemple with Netbird)
 
 ### v0.4.0
 
