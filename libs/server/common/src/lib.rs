@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, sync::Arc};
 
 use kube::Client;
 use rustls::pki_types::{pem::PemObject as _, CertificateDer, PrivateKeyDer};
@@ -19,6 +19,9 @@ pub struct State {
     pub oidc_client: oidc_conf::OidcConf,
     pub oidc_cluster_redirect_base_url: String,
     pub oidc_front_redirect_base_url: String,
+    pub is_leader: Arc<std::sync::atomic::AtomicBool>,
+    pub lease_namespace: String,
+    pub lease_name: String,
 }
 
 impl State {
@@ -41,12 +44,17 @@ impl State {
             .unwrap_or("https://localhost:5437".to_string());
         let oidc_front_redirect_base_url = env::var("API_CLUSTER_OIDC_FRONT_REDIRECT_URL")
             .unwrap_or("https://localhost:4200/auth/callback/".to_string());
+        let lease_namespace = env::var("LEASE_NAMESPACE").unwrap_or("default".to_string());
+        let lease_name = env::var("HOSTNAME").unwrap_or("NOT_A_POD".to_string());
         Self {
             client,
             redis: pool,
             oidc_client,
             oidc_cluster_redirect_base_url,
             oidc_front_redirect_base_url,
+            is_leader: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            lease_namespace,
+            lease_name,
         }
     }
 

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use common::State;
 use crd::ProxyKubeApi;
@@ -17,19 +18,27 @@ use crate::error::Result;
 pub mod cleanup;
 pub mod reconcile;
 
-#[instrument(skip(_ctx))]
+#[instrument(skip(ctx))]
 pub fn error_policy_proxy_kube_api(
     proxy: Arc<ProxyKubeApi>,
     _error: &ControllerError,
-    _ctx: Arc<State>,
-) -> kube::runtime::controller::Action {
+    ctx: Arc<State>,
+) -> Action {
+    if !ctx.is_leader.load(std::sync::atomic::Ordering::Relaxed) {
+        tracing::info!(
+            "This instance is not the leader, skipping reconciliation for ProxyKubeApi {}/{}",
+            proxy.namespace().as_deref().unwrap_or_default(),
+            proxy.name_any()
+        );
+        return Action::requeue(Duration::from_hours(1));
+    }
     warn!(
         "Reconciliation error for ProxyKubeApi {}/{}",
         proxy.metadata.namespace.as_deref().unwrap_or_default(),
         proxy.metadata.name.as_deref().unwrap_or_default()
     );
     // Requeue after 5 seconds
-    kube::runtime::controller::Action::requeue(std::time::Duration::from_secs(5))
+    Action::requeue(std::time::Duration::from_secs(5))
 }
 
 #[instrument(skip(ctx, proxy), fields(trace_id))]
@@ -37,6 +46,15 @@ pub async fn main_reconcile_proxy_kube_api(
     proxy: Arc<ProxyKubeApi>,
     ctx: Arc<State>,
 ) -> Result<Action> {
+    if !ctx.is_leader.load(std::sync::atomic::Ordering::Relaxed) {
+        tracing::info!(
+            "This instance is not the leader, skipping reconciliation for ProxyKubeApi {}/{}",
+            proxy.namespace().as_deref().unwrap_or_default(),
+            proxy.name_any()
+        );
+        // Even if not the leader, still wait in case of becoming the leader soon, and avoid hot looping when there are many events
+        return Ok(Action::requeue(Duration::from_hours(1)));
+    }
     let trace_id = get_trace_id();
     if trace_id != TraceId::INVALID {
         tracing::Span::current().record("trace_id", tracing::field::display(trace_id));

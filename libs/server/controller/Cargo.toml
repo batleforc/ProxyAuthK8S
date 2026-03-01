@@ -18,8 +18,9 @@ anyhow = { workspace = true }
 tokio = { workspace = true }
 deadpool-redis = { workspace = true }
 opentelemetry = { workspace = true }
-
 thiserror = { workspace = true }
+
+kube-leader-election = "0.43.0"
 
 crd = { path = "../crd" }
 common = { path = "../common" }
