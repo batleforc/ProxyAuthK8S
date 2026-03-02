@@ -107,6 +107,14 @@ impl ProxyKubeApi {
         user_groups.iter().any(|g| g == &dashboard_group)
     }
 
+    pub fn need_token_validation(&self) -> bool {
+        if let Some(auth_config) = &self.spec.auth_config {
+            !auth_config.disable_validation
+        } else {
+            false
+        }
+    }
+
     /// Check if the service is reachable
     #[instrument(skip(self, ctx))]
     pub async fn is_reachable(&self, ctx: Arc<State>) -> Result<bool, String> {

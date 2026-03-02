@@ -24,6 +24,13 @@ spec:
                 description: Main configuration for authentication
                 nullable: true
                 properties:
+                  disable_validation:
+                    default: false
+                    description: |-
+                      Disable validation of the token against the configured JWT authenticators, OIDC provider or Kubernetes API
+                      If the AuthenticationConfiguration is not provided, does not validate the token against any of the configured JWT authenticators, OIDC provider or Kubernetes API
+                      Default : false
+                    type: boolean
                   jwt:
                     default: []
                     items:

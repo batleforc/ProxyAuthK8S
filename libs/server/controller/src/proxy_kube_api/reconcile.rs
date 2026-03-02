@@ -112,6 +112,10 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
         let retry_delay_seconds = ERROR_REQUEUE_MIN_SECONDS
             .saturating_mul(2_u64.saturating_pow(exponent))
             .min(SUCCESS_REQUEUE_SECONDS);
+        info!(
+            "Requeueing ProxyKubeApi {} after error, attempt {}, retrying in {} seconds due to error: {:?}",
+            id, attempts, retry_delay_seconds, new_status.error
+        );
 
         Action::requeue(std::time::Duration::from_secs(retry_delay_seconds))
     } else {
@@ -125,15 +129,33 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
                 id, error
             );
         }
+        info!(
+            "ProxyKubeApi {} is healthy, requeueing after {} seconds",
+            id, SUCCESS_REQUEUE_SECONDS
+        );
         Action::requeue(std::time::Duration::from_secs(SUCCESS_REQUEUE_SECONDS))
     };
 
     drop(redis_conn);
 
-    let patch = new_status.get_patch();
-    let _ = proxys
-        .patch_status(name, &ps, &patch)
-        .await
-        .map_err(ControllerError::Kube)?;
+    // patch only if necessary to avoid unnecessary API calls and potential conflicts
+    let current_status = proxy.status.as_ref();
+    if current_status.is_none() || !current_status.unwrap().equal(&new_status) {
+        info!(
+            "Patching status of ProxyKubeApi {}: reachable={}, error={:?}",
+            proxy.to_identifier(),
+            new_status.exposed,
+            new_status.error
+        );
+        let patch = new_status.get_patch();
+        let _ = proxys
+            .patch_status(name, &ps, &patch)
+            .await
+            .map_err(ControllerError::Kube)?;
+    }
+    info!(
+        "Finished reconciling ProxyKubeApi: {}",
+        proxy.to_identifier()
+    );
     Ok(requeue_action)
 }

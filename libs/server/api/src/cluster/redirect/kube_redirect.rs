@@ -6,6 +6,8 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{error, info, instrument};
 
+use crate::model::user::User;
+
 #[instrument(name = "main_redirect",fields(http.method= ?method, http.response.status_code) ,skip(req, data, payload))]
 pub async fn redirect(
     req: HttpRequest,
@@ -34,6 +36,42 @@ pub async fn redirect(
     if !proxy.spec.enabled {
         return HttpResponse::NotFound().finish();
     }
+
+    let _user = if proxy.need_token_validation() {
+        if req.headers().clone().get("authorization").is_none() {
+            return HttpResponse::Unauthorized().finish();
+        }
+        let token = match req
+            .headers()
+            .get("authorization")
+            .and_then(|h| h.to_str().ok())
+        {
+            Some(token) => token,
+            None => {
+                tracing::warn!("Authorization header is not a valid string");
+                return HttpResponse::Unauthorized().finish();
+            }
+        };
+        match User::get_user_info_with_proxy(
+            data.get_ref().clone(),
+            proxy.clone(),
+            token.to_string(),
+        )
+        .await
+        {
+            Ok(Some(user)) => Some(user),
+            Ok(None) => {
+                tracing::warn!("User info not found in OIDC response");
+                return HttpResponse::Unauthorized().finish();
+            }
+            Err(e) => {
+                tracing::warn!("Error while getting user info from OIDC token: {}", e);
+                return HttpResponse::Unauthorized().finish();
+            }
+        }
+    } else {
+        None
+    };
 
     // TODO: Check if user need to be validated for this cluster and if so, validate it before forwarding the request
 

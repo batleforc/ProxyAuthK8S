@@ -2,6 +2,7 @@ services:
   redis:
     image: ghcr.io/dragonflydb/dragonfly
     container_name: redis
+    userns_mode: "host"
     environment:
       REDIS_HOST_PASSWORD: "${REDIS_PASSWORD}"
       DFLY_requirepass: "${REDIS_PASSWORD}"

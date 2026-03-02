@@ -25,4 +25,7 @@ impl ProxyKubeApiStatus {
             "status": &self
         }))
     }
+    pub fn equal(&self, other: &ProxyKubeApiStatus) -> bool {
+        self.exposed == other.exposed && self.path == other.path && self.error == other.error
+    }
 }

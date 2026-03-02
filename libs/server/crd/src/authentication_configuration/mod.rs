@@ -11,7 +11,7 @@ use crate::{
         jwt_authenticator::JWTAuthenticator, oidc_provider::OidcProvider,
         validate_against::ValidateAgainst,
     },
-    default::{default_empty_array, default_validate_against},
+    default::{default_disabled, default_empty_array, default_validate_against},
 };
 
 use schemars::JsonSchema;
@@ -22,6 +22,12 @@ pub struct AuthenticationConfiguration {
     #[serde(default = "default_empty_array::<JWTAuthenticator>")]
     pub jwt: Vec<JWTAuthenticator>,
     pub oidc_provider: OidcProvider,
+
+    /// Disable validation of the token against the configured JWT authenticators, OIDC provider or Kubernetes API
+    /// If the AuthenticationConfiguration is not provided, does not validate the token against any of the configured JWT authenticators, OIDC provider or Kubernetes API
+    /// Default : false
+    #[serde(default = "default_disabled")]
+    pub disable_validation: bool,
     /// Validate against the configured JWT authenticators, OIDC provider or Kubernetes API
     /// Default : OidcProvider if enabled, otherwise JwtAuthenticators if configured, otherwise Kubernetes
     #[serde(default = "default_validate_against")]

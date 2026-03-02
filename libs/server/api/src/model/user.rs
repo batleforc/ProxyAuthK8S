@@ -86,6 +86,14 @@ impl User {
             Ok(None) => return Err("Proxy not found".to_string()),
             Err(e) => return Err(format!("Error fetching proxy from Redis: {}", e)),
         };
+        User::get_user_info_with_proxy(state, proxy, token).await
+    }
+
+    pub async fn get_user_info_with_proxy(
+        state: State,
+        proxy: ProxyKubeApi,
+        token: String,
+    ) -> Result<Option<Self>, String> {
         if proxy.spec.auth_config.clone().is_none() {
             return Ok(None);
         }
