@@ -41,6 +41,12 @@ const router = createRouter({
         },
       ],
     },
+    {
+      path: '/clusters/:ns/:cluster/nosso',
+      name: 'cluster-nosso',
+      component: () => import('../views/ClusterNoSSOView.vue'),
+      meta: { requiresAuth: true, name: 'Cluster NoSSO' },
+    },
   ],
 });
 

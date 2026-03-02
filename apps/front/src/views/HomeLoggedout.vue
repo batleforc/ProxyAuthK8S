@@ -4,15 +4,15 @@ import MazBtn from 'maz-ui/components/MazBtn';
 import MazIcon from 'maz-ui/components/MazIcon';
 import { RouterLink } from 'vue-router';
 import {
-  MazArrowRightOnRectangle,
-  MazInformationCircle,
-  MazShieldCheck,
-  MazRectangleGroup,
-  MazBolt,
-  MazUsers,
-  MazChartBar,
-  MazCog6Tooth,
-  MazArrowRight,
+  LazyMazArrowRightOnRectangle as MazArrowRightOnRectangle,
+  LazyMazInformationCircle as MazInformationCircle,
+  LazyMazShieldCheck as MazShieldCheck,
+  LazyMazRectangleGroup as MazRectangleGroup,
+  LazyMazBolt as MazBolt,
+  LazyMazUsers as MazUsers,
+  LazyMazChartBar as MazChartBar,
+  LazyMazCog6Tooth as MazCog6Tooth,
+  LazyMazArrowRight as MazArrowRight,
 } from '@maz-ui/icons';
 
 const authStore = useAuthStore();

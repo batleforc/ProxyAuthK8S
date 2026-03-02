@@ -2,19 +2,20 @@
 import { computed, onMounted } from 'vue';
 import { useClustersStore } from '../store/clusters.ts';
 import { useAuthStore } from '../store/auth.ts';
+import { useRouter } from 'vue-router';
 import MazCard from 'maz-ui/components/MazCard';
 import MazBtn from 'maz-ui/components/MazBtn';
 import MazIcon from 'maz-ui/components/MazIcon';
 import MazBadge from 'maz-ui/components/MazBadge';
 import MazSpinner from 'maz-ui/components/MazSpinner';
 import {
-  MazServer,
-  MazShieldCheck,
-  MazExclamationTriangle,
-  MazCheckCircle,
-  MazXCircle,
-  MazArrowTopRightOnSquare,
-  MazCog6Tooth
+  LazyMazServer as MazServer,
+  LazyMazShieldCheck as MazShieldCheck,
+  LazyMazExclamationTriangle as MazExclamationTriangle,
+  LazyMazCheckCircle as MazCheckCircle,
+  LazyMazXCircle as MazXCircle,
+  LazyMazArrowTopRightOnSquare as MazArrowTopRightOnSquare,
+  LazyMazCog6Tooth as MazCog6Tooth
 } from '@maz-ui/icons';
 import { useToast } from 'maz-ui/composables/useToast';
 import { VisibleCluster } from '@proxy-auth-k8s/front-api';
@@ -22,6 +23,7 @@ import { VisibleCluster } from '@proxy-auth-k8s/front-api';
 const clustersStore = useClustersStore();
 const authStore = useAuthStore();
 const toast = useToast();
+const router = useRouter();
 
 onMounted(() => {
   if (authStore.inited && authStore.user && clustersStore.inited === false) {
@@ -54,8 +56,20 @@ const getClusterStatusIcon = (cluster: VisibleCluster) => {
 
 const handleClusterAccess = (cluster: VisibleCluster) => {
   console.log('Accessing cluster:', cluster.name);
-  toast.warning(`Accès au cluster ${cluster.name} en cours...`);
-  clustersStore.redirectToLogin(cluster.namespace, cluster.name);
+
+  if (cluster.sso_enabled) {
+    toast.warning(`Accès au cluster ${cluster.name} en cours...`);
+    clustersStore.redirectToLogin(cluster.namespace, cluster.name);
+  } else {
+    toast.info(`Redirection vers le cluster ${cluster.name} (sans SSO)...`);
+    router.push({
+      name: 'cluster-nosso',
+      params: {
+        ns: cluster.namespace,
+        cluster: cluster.name
+      }
+    });
+  }
 };
 
 const getClusterURL = (cluster: VisibleCluster) => {

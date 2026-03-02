@@ -10,6 +10,7 @@ pre_bump_hooks = []
 post_bump_hooks = []
 pre_package_bump_hooks = []
 post_package_bump_hooks = []
+tag_prefix = "v"
 
 [git_hooks]
 
@@ -33,11 +34,30 @@ gitleaks git --pre-commit --redact --staged --verbose
 """
 
 [commit_types]
+release = { changelog_title = "Releases" }
 
 [changelog]
 path = "CHANGELOG.md"
-authors = []
+template = "remote"
+remote = "github.com"
+repository = "proxyauthK8s"
+owner = "batleforc"
 
 [bump_profiles]
 
 [packages]
+proxyauthK8S-back-crd = { path = 'libs/server/crd' }
+proxyauthK8S-back-server = { path = 'apps/server' }
+proxyauthK8S-back-trace = { path = 'libs/server/trace' }
+proxyauthK8S-back-crdgen = { path = 'apps/crdgen' }
+proxyauthK8S-back-swaggergen = { path = 'apps/swaggergen' }
+proxyauthK8S-back-api = { path = 'libs/server/api' }
+proxyauthK8S-back-controller = { path = 'libs/server/controller' }
+proxyauthK8S-back-common = { path = 'libs/server/common' }
+proxyauthK8S-back-kubectl = { path = 'apps/kubectl_proxyauth' }
+proxyauthK8S-cli-trace = { path = 'libs/cli/cli_trace' }
+proxyauthK8S-cli-client-api = { path = 'libs/cli/client_api' }
+proxyauthK8S-cli = { path = 'libs/cli/cli' }
+
+proxyauthK8S-front = { path = 'apps/front' }
+proxyauthK8S-front-api = { path = 'libs/front/front-api' }

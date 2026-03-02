@@ -12,18 +12,18 @@ import MazTabsContent from 'maz-ui/components/MazTabsContent';
 import MazTabsContentItem from 'maz-ui/components/MazTabsContentItem';
 import MazAccordion from 'maz-ui/components/MazAccordion';
 import {
-  MazCommandLine,
-  MazCloudArrowDown,
-  MazClipboardDocument,
-  MazCodeBracket,
-  MazCog6Tooth,
-  MazKey,
-  MazShieldCheck,
-  MazDocumentText,
-  MazPlay,
-  MazArrowTopRightOnSquare,
-  MazCube,
-  MazServer
+  LazyMazCommandLine as MazCommandLine,
+  LazyMazCloudArrowDown as MazCloudArrowDown,
+  LazyMazClipboardDocument as MazClipboardDocument,
+  LazyMazCodeBracket as MazCodeBracket,
+  LazyMazCog6Tooth as MazCog6Tooth,
+  LazyMazKey as MazKey,
+  LazyMazShieldCheck as MazShieldCheck,
+  LazyMazDocumentText as MazDocumentText,
+  LazyMazPlay as MazPlay,
+  LazyMazArrowTopRightOnSquare as MazArrowTopRightOnSquare,
+  LazyMazCube as MazCube,
+  LazyMazServer as MazServer
 } from '@maz-ui/icons';
 import { useAuthStore } from '../store/auth';
 

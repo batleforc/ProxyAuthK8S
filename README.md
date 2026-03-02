@@ -36,6 +36,40 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
 
 ## Left to do
 
+### v0.1.0
+
+- [x] Create a CRD to store target cluster
+- [x] Validate the CRD against certain rules
+- [x] Authenticate users against an Oidc Provider for the UI and filter dashboard based on the user groups
+- [x] Create a UI
+  - [x] List User's accessible clusters
+  - [x] Login to cluster's OIDC if provider is OIDC and show kubeconfig
+  - [x] Show kubeconfig in case of non OIDC provider
+  - [x] Generate the Api client from the Swagger documentation of the API
+- [x] Controller
+  - [x] Reconcile CRD and update the status with the cluster accessibility for the user
+  - [x] Handle CallBack from OIDC provider and update the status
+  - [x] Handle HA of the controller with leader election
+- [x] Backend
+  - [x] Expose API for the UI
+  - [x] Redirect each request to the right cluster based on the user and the cluster accessibility
+  - [x] Validate the token either against the OIDC provider or kube itself before redirecting the request
+  - [x] Handle HA of the backend with state storage in Redis
+  - [x] Generate the Swagger documentation for the API
+- [ ] CI/CD
+  - [x] On each commit
+    - [x] Run CodeQL analysis
+    - [x] Rust Deeper analysis including CVE
+    - [x] Front Lint and CVE
+  - [ ] In case of TAG on main, if not ignored the tag and need to be in the format vX.X.X
+    - [ ] Build and push Docker image to GHCR
+    - [ ] Build and push Helm chart to GHCR
+    - [ ] Create a draft-release on GitHub with the changelog
+- [ ] PRE-TAG
+  - [ ] Tag need to be in the format vX.X.X
+  - [ ] Tag need to be done with cog by a human contributor
+  - [ ] Each release need to have a name and a description in the changelog
+
 ### v0.2.0
 
 - [ ] Create Krew plugin for easier usage
@@ -43,6 +77,11 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
   - <https://github.com/kubernetes-sigs/krew-index/blob/master/plugins/view-allocations.yaml>
   - name: `proxyauthk8s`
   - <https://docs.rs/clap/latest/clap/>
+  - [x] Use an auto generated client from the OpenAPI spec of the API to interact with the API
+- [ ] CI/CD
+  - [ ] In case of TAG
+    - [ ] Build and push Krew plugin to Krew Index
+- [ ] Have a clean git history
 
 ### v0.3.0
 
@@ -58,8 +97,12 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
   - [ ] How to setup development environment
 - [ ] Add security features (details later)
 - [ ] Add Oidc token validation
-- [ ] Add ability to go through a proxy (exemple with Netbird)
+- [ ] CI/CD
+  - [ ] In case of TAG
+    - [ ] Publish the documentation on GitHub Pages
 
 ### v0.4.0
 
 - [ ] Setup Exchange token between IdP and ProxyAuthK8S main auth server
+- [ ] Add ability to go through a proxy (exemple with Netbird)
+- [ ] Setup Agent Mode, Allow to not expose each cluster to the world and just have an agent doing a tunnel between the Cluster ApiServer and ProxyAuthK8S
