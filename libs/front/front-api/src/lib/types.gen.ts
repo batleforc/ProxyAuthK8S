@@ -5,7 +5,7 @@ export type ClientOptions = {
 };
 
 /**
- * Model representing a cluster visible to the user
+ * Model representing a cluster visible to the user.
  */
 export type VisibleCluster = {
     enabled: boolean;

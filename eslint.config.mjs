@@ -39,4 +39,10 @@ export default [
     // Override or add rules here
     rules: {},
   },
+  {
+    files: ['libs/front/front-api/**/*.ts'],
+    rules: {
+      '@typescript-eslint/ban-ts-comment': 0,
+    },
+  },
 ];

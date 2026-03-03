@@ -11,7 +11,7 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
-/// VisibleCluster : Model representing a cluster visible to the user
+/// VisibleCluster : Model representing a cluster visible to the user.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct VisibleCluster {
     #[serde(rename = "enabled")]
@@ -32,7 +32,7 @@ pub struct VisibleCluster {
 }
 
 impl VisibleCluster {
-    /// Model representing a cluster visible to the user
+    /// Model representing a cluster visible to the user.
     pub fn new(
         enabled: bool,
         name: String,

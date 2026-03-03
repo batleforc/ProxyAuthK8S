@@ -101,5 +101,6 @@
   "[helm]": {
     "editor.tabSize": 2,
     "editor.defaultFormatter": "tim-koehler.helm-intellisense"
-  }
+  },
+  "sarif-viewer.connectToGithubCodeScanning": "on"
 }

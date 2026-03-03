@@ -36,10 +36,10 @@ impl Modify for SecurityAddons {
         ),
       ),
     tags(
-            (name = "health", description = "Health check endpoints."),
             (name = "api_clusters", description = "API endpoints used by the front."),
-            (name = "proxy_clusters", description = "Proxy cluster endpoints."),
             (name = "auth_clusters", description = "Authentication endpoints for clusters."),
+            (name = "health", description = "Health check endpoints."),
+            (name = "proxy_clusters", description = "Proxy cluster endpoints."),
         ),
     modifiers(&SecurityAddons)
 )]

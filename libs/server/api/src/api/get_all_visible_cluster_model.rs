@@ -2,7 +2,7 @@ use crd::ProxyKubeApi;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-/// Model representing a cluster visible to the user
+/// Model representing a cluster visible to the user.
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct VisibleCluster {
     pub enabled: bool,

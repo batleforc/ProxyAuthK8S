@@ -26,7 +26,7 @@ Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
 **ns** | **String** | Namespace | [required] |
 **cluster** | **String** | Cluster name | [required] |
-**path** | **String** | Path to resource | [required] |
+**path** | **String** | Corresponding path to resource given to the kube api server | [required] |
 
 ### Return type
 
@@ -58,7 +58,7 @@ Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
 **ns** | **String** | Namespace | [required] |
 **cluster** | **String** | Cluster name | [required] |
-**path** | **String** | Path to resource | [required] |
+**path** | **String** | Corresponding path to resource given to the kube api server | [required] |
 
 ### Return type
 
@@ -90,7 +90,7 @@ Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
 **ns** | **String** | Namespace | [required] |
 **cluster** | **String** | Cluster name | [required] |
-**path** | **String** | Path to resource | [required] |
+**path** | **String** | Corresponding path to resource given to the kube api server | [required] |
 
 ### Return type
 
@@ -122,7 +122,7 @@ Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
 **ns** | **String** | Namespace | [required] |
 **cluster** | **String** | Cluster name | [required] |
-**path** | **String** | Path to resource | [required] |
+**path** | **String** | Corresponding path to resource given to the kube api server | [required] |
 
 ### Return type
 
@@ -154,7 +154,7 @@ Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
 **ns** | **String** | Namespace | [required] |
 **cluster** | **String** | Cluster name | [required] |
-**path** | **String** | Path to resource | [required] |
+**path** | **String** | Corresponding path to resource given to the kube api server | [required] |
 
 ### Return type
 

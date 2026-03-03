@@ -20,7 +20,7 @@ pub mod kube_redirect;
     params(
         ("ns" = String, description = "Namespace"),
         ("cluster" = String, description = "Cluster name"),
-        ("path" = String, description = "Path to resource")
+        ("path" = String, description = "Corresponding path to resource given to the kube api server")
     )
 )]
 #[get("/{ns}/{cluster}/{path:.*}")]
@@ -48,7 +48,7 @@ pub async fn get_redirect(
     params(
         ("ns" = String, description = "Namespace"),
         ("cluster" = String, description = "Cluster name"),
-        ("path" = String, description = "Path to resource")
+        ("path" = String, description = "Corresponding path to resource given to the kube api server")
     )
 )]
 #[post("/{ns}/{cluster}/{path:.*}")]
@@ -76,7 +76,7 @@ pub async fn post_redirect(
     params(
         ("ns" = String, description = "Namespace"),
         ("cluster" = String, description = "Cluster name"),
-        ("path" = String, description = "Path to resource")
+        ("path" = String, description = "Corresponding path to resource given to the kube api server")
     )
 )]
 #[put("/{ns}/{cluster}/{path:.*}")]
@@ -104,7 +104,7 @@ pub async fn put_redirect(
     params(
         ("ns" = String, description = "Namespace"),
         ("cluster" = String, description = "Cluster name"),
-        ("path" = String, description = "Path to resource")
+        ("path" = String, description = "Corresponding path to resource given to the kube api server")
     )
 )]
 #[patch("/{ns}/{cluster}/{path:.*}")]
@@ -132,7 +132,7 @@ pub async fn patch_redirect(
     params(
         ("ns" = String, description = "Namespace"),
         ("cluster" = String, description = "Cluster name"),
-        ("path" = String, description = "Path to resource")
+        ("path" = String, description = "Corresponding path to resource given to the kube api server")
     )
 )]
 #[delete("/{ns}/{cluster}/{path:.*}")]
