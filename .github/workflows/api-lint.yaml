@@ -12,6 +12,7 @@ on:
     paths:
       - "swagger.json"
       - ".spectral.yaml"
+  workflow_dispatch:
   schedule:
     - cron: "50 23 * * *"
 
