@@ -1,6 +1,7 @@
 [tools]
 java = "temurin"
 k3d = "latest"
+krew = "latest"
 mkcert = "latest"
 node = "lts"
 rust = { version = "latest", profile = "default", components = "rust-src,llvm-tools" }

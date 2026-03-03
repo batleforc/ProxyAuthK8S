@@ -4,6 +4,7 @@ metadata:
   name: proxy-auth-k8s
 servers: 1
 agents: 0
+network: proxy-auth-k8s
 hostAliases: # /etc/hosts style entries to be injected into /etc/hosts in the node containers and in the NodeHosts section in CoreDNS
   - ip: TRAEFIK_IP
     hostnames:

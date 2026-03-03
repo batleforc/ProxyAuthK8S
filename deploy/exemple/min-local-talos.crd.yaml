@@ -12,7 +12,7 @@ spec:
       namespace: default
   service:
     ExternalService:
-      url: "https://localhost:42171"
+      url: "https://localhost:34799"
 ---
 apiVersion: weebo.si.rs/v1
 kind: ProxyKubeApi
@@ -40,7 +40,7 @@ spec:
       namespace: default
   service:
     ExternalService:
-      url: "https://localhost:42171"
+      url: "https://localhost:34799"
 ---
 apiVersion: weebo.si.rs/v1
 kind: ProxyKubeApi
@@ -52,7 +52,7 @@ spec:
     Insecure: false
   service:
     ExternalService:
-      url: "https://localhost:42171"
+      url: "https://localhost:34799"
 ---
 apiVersion: weebo.si.rs/v1
 kind: ProxyKubeApi
@@ -67,7 +67,7 @@ spec:
       namespace: default
   service:
     ExternalService:
-      url: "https://localhost:42171"
+      url: "https://localhost:34799"
   auth_config:
     oidc_provider:
       enabled: true
