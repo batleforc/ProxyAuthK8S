@@ -1,4 +1,4 @@
-name: rust api-lint spectral
+name: 🦀 Rust API Lint Spectral
 
 on:
   push:

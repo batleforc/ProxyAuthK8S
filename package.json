@@ -5,7 +5,8 @@
   "scripts": {
     "nx": "nx",
     "openapi-ts": "openapi-ts",
-    "build": "nx run front:build"
+    "build": "nx run front:build",
+    "spectral":"spectral"
   },
   "private": true,
   "dependencies": {

@@ -73,4 +73,4 @@ tasks:
     silent: true
     cmds:
       - echo "Linting the OpenAPI specification with Spectral"
-      - spectral lint -f sarif -o ./spectral-report.sarif ./swagger.json
+      - yarn spectral lint -f sarif -o ./spectral-report.sarif ./swagger.json
