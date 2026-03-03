@@ -1,0 +1,27 @@
+name: Release Prepare
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# This workflow is triggered when a new tag matching the pattern "v*.*.*" is pushed.
+# It will be split into multiple steps (Max dont forget to update the ci when reaching v0.4.0):
+# - Build and push the Docker image to Github
+#   - Back
+#   - Front
+#   - All In One Image (Only in V0.4.0) (contains the back and the front, do i expose the front by the back ?)
+# - Build and push the Helm chart to Github
+#   - CRD
+#   - Chart
+# - Create a draft release on github with the generated changelog by Cocogitto
+
+jobs:
+  gather-facts:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set-version.outputs.version }}
+    steps:
+      - name: Set version
+        id: set-version
+        run: echo "::set-output name=version::${GITHUB_REF#refs/tags/}"
