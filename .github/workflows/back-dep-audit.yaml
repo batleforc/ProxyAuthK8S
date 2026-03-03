@@ -1,0 +1,22 @@
+name: 🦀 Rust dependency audit
+on:
+  push:
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+  schedule:
+    - cron: "50 23 * * *"
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      checks: write
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v1.4.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -83,7 +83,7 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
     - [ ] Build and push Krew plugin to Krew Index
 - [ ] Have a clean git history
 
-### v0.3.0
+### v1.0.0
 
 - [ ] Add more tests
 - [ ] Add documentation
@@ -95,13 +95,14 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
   - [ ] API documentation
   - [ ] How to contribute
   - [ ] How to setup development environment
+  - [ ] How to Release a new version
 - [ ] Add security features (details later)
 - [ ] Add Oidc token validation
 - [ ] CI/CD
   - [ ] In case of TAG
     - [ ] Publish the documentation on GitHub Pages
 
-### v0.4.0
+### v2.0.0
 
 - [ ] Setup Exchange token between IdP and ProxyAuthK8S main auth server
 - [ ] Add ability to go through a proxy (exemple with Netbird)

@@ -68,3 +68,9 @@ tasks:
     cmds:
       - echo "Generating API client from OpenAPI specification"
       - yarn openapi-ts
+  api-lint:
+    desc: "Lint the OpenAPI specification with Spectral"
+    silent: true
+    cmds:
+      - echo "Linting the OpenAPI specification with Spectral"
+      - spectral lint -f sarif -o ./spectral-report.sarif ./swagger.json

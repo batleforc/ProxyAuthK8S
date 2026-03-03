@@ -1,0 +1,7 @@
+extends:
+  [
+    "spectral:oas",
+    "spectral:asyncapi",
+    "spectral:arazzo",
+    "https://unpkg.com/@stoplight/spectral-documentation/dist/ruleset.mjs",
+  ]

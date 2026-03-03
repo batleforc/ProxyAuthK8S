@@ -1,4 +1,5 @@
 [tools]
+helm = "latest"
 java = "temurin"
 k3d = "latest"
 krew = "latest"

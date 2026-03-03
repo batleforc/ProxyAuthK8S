@@ -1,0 +1,222 @@
+name: Release Prepare
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# This workflow is triggered when a new tag matching the pattern "v*.*.*" is pushed.
+# It will be split into multiple steps (Max dont forget to update the ci when reaching v0.4.0):
+# - Build and push the Docker image to Github
+#   - Back
+#   - Front
+#   - All In One Image (Only in V0.4.0) (contains the back and the front, do i expose the front by the back ?)
+# - Build and push the Helm chart to Github
+#   - CRD
+#   - Chart
+# - Create a draft release on github with the generated changelog by Cocogitto
+
+env:
+  REGISTRY: ghcr.io
+  REPO_NAME_LOWER: ${{ format('{0}', github.event.repository.name) }}
+  IMAGE_NAME_SERVER: ${{ github.repository_owner }}/proxyauthk8s/server
+  IMAGE_NAME_FRONT: ${{ github.repository_owner }}/proxyauthk8s/front
+
+jobs:
+  gather-facts:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.set-version.outputs.version }}
+      name: ${{ steps.set-name.outputs.name }}
+    steps:
+      - name: Set version
+        id: set-version
+        run: echo "::set-output name=version::${GITHUB_REF#refs/tags/}"
+      - name: Set name
+        id: set-name
+        run: |
+          if [ -z "$GITHUB_HEAD_REF" ]; then
+            echo "::set-output name=name::${GITHUB_REF#refs/tags/}"
+          else
+            echo "::set-output name=name::${GITHUB_HEAD_REF}"
+          fi
+  build-and-push-back:
+    name: 🐳 Build and push Back image
+    needs: gather-facts
+    runs-on: ubuntu-latest
+    outputs:
+      server_image: ${{ steps.build_server.outputs.image }}
+    steps:
+      - name: Build and push back image
+        run: echo "Build and push back image with version ${{ needs.gather-facts.outputs.version }} and latest tag"
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: 🔧 Setup Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔧 Install Syft for SBOM generation
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+      - name: 🏗️ Build Server Image
+        id: build_server
+        run: |
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_SERVER }}:${{ needs.gather-facts.outputs.version }}"
+          LATEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_SERVER }}:latest"
+
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag $IMAGE_TAG \
+            --tag $LATEST_TAG \
+            --file deploy/build/back/Containerfile \
+            --push .
+
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+      - name: 📋 Generate SBOM for Server
+        run: |
+          syft ${{ steps.build_server.outputs.image }} -o spdx-json=server-sbom.json
+          syft ${{ steps.build_server.outputs.image }} -o table=server-sbom.txt
+
+      - name: 📤 Upload SBOM artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: sbom-reports
+          path: |
+            *-sbom.json
+            *-sbom.txt
+  build-and-push-front:
+    name: 🐳 Build and push front image
+    needs: gather-facts
+    runs-on: ubuntu-latest
+    outputs:
+      front_image: ${{ steps.build_front.outputs.image }}
+    steps:
+      - name: Build and push front image
+        run: echo "Build and push front image with version ${{ needs.gather-facts.outputs.version }} and latest tag"
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: 🔧 Setup Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔧 Install Syft for SBOM generation
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: 🏗️ Build Front Image
+        id: build_front
+        run: |
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONT }}:${{ needs.gather-facts.outputs.version }}"
+          LATEST_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME_FRONT }}:latest"
+
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag $IMAGE_TAG \
+            --tag $LATEST_TAG \
+            --file deploy/build/front/Containerfile \
+            --push .
+
+          echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: 📋 Generate SBOM for Front
+        run: |
+          syft ${{ steps.build_front.outputs.image }} -o spdx-json=front-sbom.json
+          syft ${{ steps.build_front.outputs.image }} -o table=front-sbom.txt
+
+      - name: 📤 Upload SBOM artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: sbom-reports
+          path: |
+            *-sbom.json
+            *-sbom.txt
+  build-and-push-helm-crd:
+    name: ⎈ Build and push crd helm chart
+    needs: gather-facts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build and push crd helm chart
+        run: echo "Build and push crd helm chart with version ${{ needs.gather-facts.outputs.version }} and latest tag"
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: ⎈ Install Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: "latest"
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 🔧 Install Helm plugins
+        run: |
+          helm plugin install https://github.com/chartmuseum/helm-push || true
+      - name: ⎈ Package and push Helm Chart
+        run: |
+          helm package deploy/chart-crd
+          helm push chart-crd-*.tgz oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts-crd --version ${{ needs.gather-facts.outputs.version }}
+  build-and-push-helm:
+    name: ⎈ Build and push helm chart
+    needs: gather-facts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build and push helm chart
+        run: echo "Build and push helm chart with version ${{ needs.gather-facts.outputs.version }} and latest tag"
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: ⎈ Install Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        with:
+          version: "latest"
+      - name: 🔐 Login to Container Registry
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: 🔧 Install Helm plugins
+        run: |
+          helm plugin install https://github.com/chartmuseum/helm-push || true
+      - name: ⎈ Package and push Helm Chart
+        run: |
+          helm package deploy/chart
+          helm push chart-*.tgz oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts --version ${{ needs.gather-facts.outputs.version }}
+
+  create-draft-release:
+    needs:
+      - gather-facts
+      - build-and-push-back
+      - build-and-push-front
+      - build-and-push-helm-crd
+      - build-and-push-helm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create draft release
+        run: echo "Create draft release with version ${{ needs.gather-facts.outputs.version }} and name ${{ needs.gather-facts.outputs.name }}"
+      - name: 🔍 Checkout release branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      # Generate Release Notes and link to the existing changelog
+      - name: 📝 Generate Release Notes
+        id: generate_release_notes
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          tag_name: ${{ needs.gather-facts.outputs.version }}
+          name: ${{ needs.gather-facts.outputs.name }}
+          draft: true
+          generate_release_notes: true
+          token: ${{ secrets.GITHUB_TOKEN }}
