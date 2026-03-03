@@ -22,6 +22,9 @@ env:
   IMAGE_NAME_SERVER: ${{ github.repository_owner }}/proxyauthk8s/server
   IMAGE_NAME_FRONT: ${{ github.repository_owner }}/proxyauthk8s/front
 
+permissions:
+  contents: read
+
 jobs:
   gather-facts:
     runs-on: ubuntu-latest
@@ -198,6 +201,8 @@ jobs:
           helm push chart-*.tgz oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts --version ${{ needs.gather-facts.outputs.version }}
 
   create-draft-release:
+    permissions:
+      contents: write  # for softprops/action-gh-release to create GitHub release
     needs:
       - gather-facts
       - build-and-push-back
