@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use openidconnect::{
     core::{CoreClient, CoreProviderMetadata},
     ClientId, ClientSecret, EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, RedirectUrl,
@@ -15,7 +17,7 @@ pub type CoreClientFront = CoreClient<
     EndpointMaybeSet,
 >;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub struct OidcConf {
     pub client_id: String,
     pub client_secret: Option<String>,
@@ -23,6 +25,19 @@ pub struct OidcConf {
     pub scopes: String,
     pub audience: String,
     pub redirect_url: Option<String>,
+}
+
+impl Debug for OidcConf {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcConf")
+            .field("client_id", &self.client_id)
+            .field("client_secret", &"***REDACTED***")
+            .field("issuer_url", &self.issuer_url)
+            .field("scopes", &self.scopes)
+            .field("audience", &self.audience)
+            .field("redirect_url", &self.redirect_url)
+            .finish()
+    }
 }
 
 impl Default for OidcConf {
