@@ -53,7 +53,7 @@ jobs:
       - name: Build and push back image
         run: echo "Build and push back image with version ${{ needs.gather-facts.outputs.version }} and latest tag"
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 🔧 Setup Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -104,7 +104,7 @@ jobs:
       - name: Build and push front image
         run: echo "Build and push front image with version ${{ needs.gather-facts.outputs.version }} and latest tag"
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: 🔧 Setup Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -155,7 +155,7 @@ jobs:
       - name: Build and push crd helm chart
         run: echo "Build and push crd helm chart with version ${{ needs.gather-facts.outputs.version }} and latest tag"
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: ⎈ Install Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
         with:
@@ -181,7 +181,7 @@ jobs:
       - name: Build and push helm chart
         run: echo "Build and push helm chart with version ${{ needs.gather-facts.outputs.version }} and latest tag"
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: ⎈ Install Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
         with:
@@ -214,7 +214,7 @@ jobs:
       - name: Create draft release
         run: echo "Create draft release with version ${{ needs.gather-facts.outputs.version }} and name ${{ needs.gather-facts.outputs.name }}"
       - name: 🔍 Checkout release branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       # Generate Release Notes and link to the existing changelog
       - name: 📝 Generate Release Notes
         id: generate_release_notes
