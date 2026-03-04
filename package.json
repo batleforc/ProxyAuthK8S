@@ -6,7 +6,9 @@
     "nx": "nx",
     "openapi-ts": "openapi-ts",
     "build": "nx run front:build",
-    "spectral":"spectral"
+    "spectral": "spectral",
+    "eslint": "eslint",
+    "prettier": "prettier"
   },
   "private": true,
   "dependencies": {

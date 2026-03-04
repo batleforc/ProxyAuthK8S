@@ -8,8 +8,6 @@ out-tsc
 .tls
 .compose/traefik/certs
 .compose/headlamp
-spectral-report.sarif
-
 # dependencies
 node_modules
 
