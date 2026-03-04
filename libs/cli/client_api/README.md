@@ -1,6 +1,6 @@
 # Rust API client for openapi
 
-Reverse Proxy K8s Api
+Reverse Proxy K8s Api.
 
 For more information, please visit [https://maxleriche.net](https://maxleriche.net)
 
@@ -27,7 +27,7 @@ All URIs are relative to *http://localhost*
 
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
-*ApiClustersApi* | [**get_all_visible_cluster**](docs/ApiClustersApi.md#get_all_visible_cluster) | **GET** /api/v1/clusters | Get all cluster visible to the user
+*ApiClustersApi* | [**get_all_visible_cluster**](docs/ApiClustersApi.md#get_all_visible_cluster) | **GET** /api/v1/clusters | Get all cluster visible to the user.
 *AuthClustersApi* | [**callback_login**](docs/AuthClustersApi.md#callback_login) | **GET** /clusters/{ns}/{cluster}/auth/callback | Callback from the cluster's OIDC provider
 *AuthClustersApi* | [**cluster_login**](docs/AuthClustersApi.md#cluster_login) | **GET** /clusters/{ns}/{cluster}/auth/login | Redirect to the cluster's login page
 *HealthApi* | [**health**](docs/HealthApi.md#health) | **GET** /management/health | Base path just to answer if the server is up and running.

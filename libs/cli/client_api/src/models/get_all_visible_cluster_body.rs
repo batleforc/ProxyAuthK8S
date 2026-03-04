@@ -1,7 +1,7 @@
 /*
  * ProxyAuthK8S
  *
- * Reverse Proxy K8s Api
+ * Reverse Proxy K8s Api.
  *
  * The version of the OpenAPI document: 0.1.0
  * Contact: maxleriche.60@gmail.com
@@ -11,6 +11,7 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
+/// GetAllVisibleClusterBody : Body of the response for the get_all_visible_cluster endpoint.  Contains a list of clusters visible to the user. Will be empty if the user has no clusters visible to them.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GetAllVisibleClusterBody {
     #[serde(rename = "clusters")]
@@ -18,6 +19,7 @@ pub struct GetAllVisibleClusterBody {
 }
 
 impl GetAllVisibleClusterBody {
+    /// Body of the response for the get_all_visible_cluster endpoint.  Contains a list of clusters visible to the user. Will be empty if the user has no clusters visible to them.
     pub fn new(clusters: Vec<models::VisibleCluster>) -> GetAllVisibleClusterBody {
         GetAllVisibleClusterBody { clusters }
     }

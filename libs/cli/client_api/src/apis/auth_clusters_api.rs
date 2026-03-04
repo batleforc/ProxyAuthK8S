@@ -1,7 +1,7 @@
 /*
  * ProxyAuthK8S
  *
- * Reverse Proxy K8s Api
+ * Reverse Proxy K8s Api.
  *
  * The version of the OpenAPI document: 0.1.0
  * Contact: maxleriche.60@gmail.com
@@ -31,7 +31,7 @@ pub enum ClusterLoginError {
     UnknownValue(serde_json::Value),
 }
 
-/// If the cluster is not found or disabled, return 404
+/// If the cluster is not found or disabled, return 404.
 pub async fn callback_login(
     configuration: &configuration::Configuration,
     ns: &str,
@@ -108,7 +108,7 @@ pub async fn callback_login(
     }
 }
 
-/// If the cluster is not found or disabled, return 404
+/// If the cluster is not found or disabled, return 404.
 pub async fn cluster_login(
     configuration: &configuration::Configuration,
     ns: &str,
@@ -149,6 +149,9 @@ pub async fn cluster_login(
             req_builder = req_builder.header("x-kubectl-callback", "");
         }
     }
+    if let Some(ref token) = configuration.bearer_access_token {
+        req_builder = req_builder.bearer_auth(token.to_owned());
+    };
 
     let req = req_builder.build()?;
     let resp = configuration.client.execute(req).await?;

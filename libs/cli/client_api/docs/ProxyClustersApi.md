@@ -17,16 +17,16 @@ Method | HTTP request | Description
 > delete_redirect(ns, cluster, path)
 Cluster redirect
 
-Redirect to the cluster if exists
+Redirect to the cluster if exists.
 
 ### Parameters
 
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-**ns** | **String** | Namespace | [required] |
-**cluster** | **String** | Cluster name | [required] |
-**path** | **String** | Corresponding path to resource given to the kube api server | [required] |
+**ns** | **String** | Namespace containing the cluster. | [required] |
+**cluster** | **String** | Cluster name, must match an enabled cluster in the namespace. | [required] |
+**path** | **String** | Corresponding path to resource given to the kube api server. | [required] |
 
 ### Return type
 
@@ -49,16 +49,16 @@ No authorization required
 > get_redirect(ns, cluster, path)
 Cluster redirect
 
-Redirect to the cluster if exists
+Redirect to the cluster if exists.
 
 ### Parameters
 
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-**ns** | **String** | Namespace | [required] |
-**cluster** | **String** | Cluster name | [required] |
-**path** | **String** | Corresponding path to resource given to the kube api server | [required] |
+**ns** | **String** | Namespace containing the cluster. | [required] |
+**cluster** | **String** | Cluster name, must match an enabled cluster in the namespace. | [required] |
+**path** | **String** | Corresponding path to resource given to the kube api server. | [required] |
 
 ### Return type
 
@@ -81,16 +81,16 @@ No authorization required
 > patch_redirect(ns, cluster, path)
 Cluster redirect
 
-Redirect to the cluster if exists
+Redirect to the cluster if exists.
 
 ### Parameters
 
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-**ns** | **String** | Namespace | [required] |
-**cluster** | **String** | Cluster name | [required] |
-**path** | **String** | Corresponding path to resource given to the kube api server | [required] |
+**ns** | **String** | Namespace containing the cluster. | [required] |
+**cluster** | **String** | Cluster name, must match an enabled cluster in the namespace. | [required] |
+**path** | **String** | Corresponding path to resource given to the kube api server. | [required] |
 
 ### Return type
 
@@ -113,16 +113,16 @@ No authorization required
 > post_redirect(ns, cluster, path)
 Cluster redirect
 
-Redirect to the cluster if exists
+Redirect to the cluster if exists.
 
 ### Parameters
 
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-**ns** | **String** | Namespace | [required] |
-**cluster** | **String** | Cluster name | [required] |
-**path** | **String** | Corresponding path to resource given to the kube api server | [required] |
+**ns** | **String** | Namespace containing the cluster. | [required] |
+**cluster** | **String** | Cluster name, must match an enabled cluster in the namespace. | [required] |
+**path** | **String** | Corresponding path to resource given to the kube api server. | [required] |
 
 ### Return type
 
@@ -145,16 +145,16 @@ No authorization required
 > put_redirect(ns, cluster, path)
 Cluster redirect
 
-Redirect to the cluster if exists
+Redirect to the cluster if exists.
 
 ### Parameters
 
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-**ns** | **String** | Namespace | [required] |
-**cluster** | **String** | Cluster name | [required] |
-**path** | **String** | Corresponding path to resource given to the kube api server | [required] |
+**ns** | **String** | Namespace containing the cluster. | [required] |
+**cluster** | **String** | Cluster name, must match an enabled cluster in the namespace. | [required] |
+**path** | **String** | Corresponding path to resource given to the kube api server. | [required] |
 
 ### Return type
 

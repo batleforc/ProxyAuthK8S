@@ -14,19 +14,19 @@ Method | HTTP request | Description
 > models::CallbackModel callback_login(ns, cluster, x_front_callback, x_kubectl_callback, code, state)
 Callback from the cluster's OIDC provider
 
-If the cluster is not found or disabled, return 404
+If the cluster is not found or disabled, return 404.
 
 ### Parameters
 
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-**ns** | **String** | Namespace | [required] |
-**cluster** | **String** | Cluster name | [required] |
+**ns** | **String** | Namespace containing the cluster. | [required] |
+**cluster** | **String** | Cluster name that should exist in the namespace. | [required] |
 **x_front_callback** | Option<**String**> | If it's from the frontend, this header will be set. | [required] |
 **x_kubectl_callback** | Option<**String**> | If it's from kubectl plugin, this header will be set. | [required] |
-**code** | **String** | Authorization code from the OIDC provider | [required] |
-**state** | **String** | State parameter to prevent CSRF | [required] |
+**code** | **String** | Authorization code from the OIDC provider. | [required] |
+**state** | **String** | State parameter to prevent CSRF. | [required] |
 
 ### Return type
 
@@ -49,15 +49,15 @@ No authorization required
 > String cluster_login(ns, cluster, x_front_callback, x_kubectl_callback)
 Redirect to the cluster's login page
 
-If the cluster is not found or disabled, return 404
+If the cluster is not found or disabled, return 404.
 
 ### Parameters
 
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-**ns** | **String** | Namespace | [required] |
-**cluster** | **String** | Cluster name | [required] |
+**ns** | **String** | Namespace containing the cluster. | [required] |
+**cluster** | **String** | Cluster name that should exist in the namespace. | [required] |
 **x_front_callback** | Option<**String**> | If it's from the frontend, this header will be set. | [required] |
 **x_kubectl_callback** | Option<**String**> | If it's from kubectl plugin, this header will be set. | [required] |
 
@@ -67,7 +67,7 @@ Name | Type | Description  | Required | Notes
 
 ### Authorization
 
-No authorization required
+[bearer_auth](../README.md#bearer_auth)
 
 ### HTTP request headers
 

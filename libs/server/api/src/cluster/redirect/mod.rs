@@ -9,18 +9,18 @@ pub mod kube_redirect;
 
 /// Cluster redirect
 ///
-/// Redirect to the cluster if exists
+/// Redirect to the cluster if exists.
 #[utoipa::path(
     tag = "proxy_clusters",
     responses(
-        (status = 200, description = "Response from remote cluster"),
+        (status = 200, description = "Response from remote cluster."),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     ),
     params(
-        ("ns" = String, description = "Namespace"),
-        ("cluster" = String, description = "Cluster name"),
-        ("path" = String, description = "Corresponding path to resource given to the kube api server")
+        ("ns" = String, description = "Namespace containing the cluster."),
+        ("cluster" = String, description = "Cluster name, must match an enabled cluster in the namespace."),
+        ("path" = String, description = "Corresponding path to resource given to the kube api server.")
     )
 )]
 #[get("/{ns}/{cluster}/{path:.*}")]
@@ -37,18 +37,18 @@ pub async fn get_redirect(
 
 /// Cluster redirect
 ///
-/// Redirect to the cluster if exists
+/// Redirect to the cluster if exists.
 #[utoipa::path(
     tag = "proxy_clusters",
     responses(
-        (status = 200, description = "Response from remote cluster"),
+        (status = 200, description = "Response from remote cluster."),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     ),
     params(
-        ("ns" = String, description = "Namespace"),
-        ("cluster" = String, description = "Cluster name"),
-        ("path" = String, description = "Corresponding path to resource given to the kube api server")
+        ("ns" = String, description = "Namespace containing the cluster."),
+        ("cluster" = String, description = "Cluster name, must match an enabled cluster in the namespace."),
+        ("path" = String, description = "Corresponding path to resource given to the kube api server.")
     )
 )]
 #[post("/{ns}/{cluster}/{path:.*}")]
@@ -65,18 +65,18 @@ pub async fn post_redirect(
 
 /// Cluster redirect
 ///
-/// Redirect to the cluster if exists
+/// Redirect to the cluster if exists.
 #[utoipa::path(
     tag = "proxy_clusters",
     responses(
-        (status = 200, description = "Response from remote cluster"),
+        (status = 200, description = "Response from remote cluster."),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     ),
     params(
-        ("ns" = String, description = "Namespace"),
-        ("cluster" = String, description = "Cluster name"),
-        ("path" = String, description = "Corresponding path to resource given to the kube api server")
+        ("ns" = String, description = "Namespace containing the cluster."),
+        ("cluster" = String, description = "Cluster name, must match an enabled cluster in the namespace."),
+        ("path" = String, description = "Corresponding path to resource given to the kube api server.")
     )
 )]
 #[put("/{ns}/{cluster}/{path:.*}")]
@@ -93,18 +93,18 @@ pub async fn put_redirect(
 
 /// Cluster redirect
 ///
-/// Redirect to the cluster if exists
+/// Redirect to the cluster if exists.
 #[utoipa::path(
     tag = "proxy_clusters",
     responses(
-        (status = 200, description = "Response from remote cluster"),
+        (status = 200, description = "Response from remote cluster."),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     ),
     params(
-        ("ns" = String, description = "Namespace"),
-        ("cluster" = String, description = "Cluster name"),
-        ("path" = String, description = "Corresponding path to resource given to the kube api server")
+        ("ns" = String, description = "Namespace containing the cluster."),
+        ("cluster" = String, description = "Cluster name, must match an enabled cluster in the namespace."),
+        ("path" = String, description = "Corresponding path to resource given to the kube api server.")
     )
 )]
 #[patch("/{ns}/{cluster}/{path:.*}")]
@@ -121,18 +121,18 @@ pub async fn patch_redirect(
 
 /// Cluster redirect
 ///
-/// Redirect to the cluster if exists
+/// Redirect to the cluster if exists.
 #[utoipa::path(
     tag = "proxy_clusters",
     responses(
-        (status = 200, description = "Response from remote cluster"),
+        (status = 200, description = "Response from remote cluster."),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     ),
     params(
-        ("ns" = String, description = "Namespace"),
-        ("cluster" = String, description = "Cluster name"),
-        ("path" = String, description = "Corresponding path to resource given to the kube api server")
+        ("ns" = String, description = "Namespace containing the cluster."),
+        ("cluster" = String, description = "Cluster name, must match an enabled cluster in the namespace."),
+        ("path" = String, description = "Corresponding path to resource given to the kube api server.")
     )
 )]
 #[delete("/{ns}/{cluster}/{path:.*}")]

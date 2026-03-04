@@ -1,7 +1,7 @@
 /*
  * ProxyAuthK8S
  *
- * Reverse Proxy K8s Api
+ * Reverse Proxy K8s Api.
  *
  * The version of the OpenAPI document: 0.1.0
  * Contact: maxleriche.60@gmail.com
@@ -22,7 +22,7 @@ pub enum GetAllVisibleClusterError {
     UnknownValue(serde_json::Value),
 }
 
-/// if none return an empty array
+/// Get all cluster visible to the user, if the user is not authenticated return 401, if none return an empty array.
 pub async fn get_all_visible_cluster(
     configuration: &configuration::Configuration,
 ) -> Result<models::GetAllVisibleClusterBody, Error<GetAllVisibleClusterError>> {

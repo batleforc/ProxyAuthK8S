@@ -11,25 +11,25 @@ use crate::cluster::auth::{auth_model::LoginToCallBackModel, callback_model::Cal
 
 #[derive(Deserialize, ToSchema, IntoParams)]
 pub struct CallbackQuery {
-    /// Authorization code from the OIDC provider
+    /// Authorization code from the OIDC provider.
     pub code: String,
-    /// State parameter to prevent CSRF
+    /// State parameter to prevent CSRF.
     pub state: String,
 }
 
 /// Callback from the cluster's OIDC provider
 ///
-/// If the cluster is not found or disabled, return 404
+/// If the cluster is not found or disabled, return 404.
 #[utoipa::path(
     tag = "auth_clusters",
     responses(
-        (status = 200, description = "Response from remote cluster", body = CallbackModel),
+        (status = 200, description = "Response from remote cluster.", body = CallbackModel),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     ),
     params(
-        ("ns" = String, description = "Namespace"),
-        ("cluster" = String, description = "Cluster name"),
+        ("ns" = String, description = "Namespace containing the cluster."),
+        ("cluster" = String, description = "Cluster name that should exist in the namespace."),
         ("x-front-callback" = String, Header, nullable, description = "If it's from the frontend, this header will be set."),
         ("x-kubectl-callback" = String, Header, nullable, description = "If it's from kubectl plugin, this header will be set."),
         CallbackQuery,

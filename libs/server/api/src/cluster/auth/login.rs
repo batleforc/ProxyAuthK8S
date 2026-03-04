@@ -9,20 +9,20 @@ use crate::{cluster::auth::auth_model::LoginToCallBackModel, model::user::User};
 
 /// Redirect to the cluster's login page
 ///
-/// If the cluster is not found or disabled, return 404
+/// If the cluster is not found or disabled, return 404.
 #[utoipa::path(
     tag = "auth_clusters",
     responses(
-        (status = 200, description = "Response from remote cluster", body = String),
+        (status = 200, description = "Response from remote cluster.", body = String),
         (status = 404, description = "Cluster not found or disabled."),
         (status = 500, description = "Internal server error."),
     ),
     security(
-        ("oauth2" = [])
+        ("bearer_auth" = [])
     ),
     params(
-        ("ns" = String, description = "Namespace"),
-        ("cluster" = String, description = "Cluster name"),
+        ("ns" = String, description = "Namespace containing the cluster."),
+        ("cluster" = String, description = "Cluster name that should exist in the namespace."),
         ("x-front-callback" = String, Header, nullable, description = "If it's from the frontend, this header will be set."),
         ("x-kubectl-callback" = String, Header, nullable, description = "If it's from kubectl plugin, this header will be set."),
     )

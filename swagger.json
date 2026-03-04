@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "ProxyAuthK8S",
-    "description": "Reverse Proxy K8s Api",
+    "description": "Reverse Proxy K8s Api.",
     "contact": {
       "name": "Batleforc",
       "url": "https://maxleriche.net",
@@ -14,18 +14,24 @@
     },
     "version": "0.1.0"
   },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current usable server."
+    }
+  ],
   "paths": {
     "/api/v1/clusters": {
       "get": {
         "tags": [
           "api_clusters"
         ],
-        "summary": "Get all cluster visible to the user",
-        "description": "if none return an empty array",
+        "summary": "Get all cluster visible to the user.",
+        "description": "Get all cluster visible to the user,\nif the user is not authenticated return 401,\nif none return an empty array.",
         "operationId": "get_all_visible_cluster",
         "responses": {
           "200": {
-            "description": "ATM nothing real",
+            "description": "Get all visible clusters.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35,7 +41,7 @@
             }
           },
           "401": {
-            "description": "Unauthorized"
+            "description": "User is not authenticated."
           },
           "500": {
             "description": "Internal server error."
@@ -54,13 +60,13 @@
           "auth_clusters"
         ],
         "summary": "Callback from the cluster's OIDC provider",
-        "description": "If the cluster is not found or disabled, return 404",
+        "description": "If the cluster is not found or disabled, return 404.",
         "operationId": "callback_login",
         "parameters": [
           {
             "name": "ns",
             "in": "path",
-            "description": "Namespace",
+            "description": "Namespace containing the cluster.",
             "required": true,
             "schema": {
               "type": "string"
@@ -69,7 +75,7 @@
           {
             "name": "cluster",
             "in": "path",
-            "description": "Cluster name",
+            "description": "Cluster name that should exist in the namespace.",
             "required": true,
             "schema": {
               "type": "string"
@@ -102,7 +108,7 @@
           {
             "name": "code",
             "in": "query",
-            "description": "Authorization code from the OIDC provider",
+            "description": "Authorization code from the OIDC provider.",
             "required": true,
             "schema": {
               "type": "string"
@@ -111,7 +117,7 @@
           {
             "name": "state",
             "in": "query",
-            "description": "State parameter to prevent CSRF",
+            "description": "State parameter to prevent CSRF.",
             "required": true,
             "schema": {
               "type": "string"
@@ -120,7 +126,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Response from remote cluster",
+            "description": "Response from remote cluster.",
             "content": {
               "application/json": {
                 "schema": {
@@ -144,13 +150,13 @@
           "auth_clusters"
         ],
         "summary": "Redirect to the cluster's login page",
-        "description": "If the cluster is not found or disabled, return 404",
+        "description": "If the cluster is not found or disabled, return 404.",
         "operationId": "cluster_login",
         "parameters": [
           {
             "name": "ns",
             "in": "path",
-            "description": "Namespace",
+            "description": "Namespace containing the cluster.",
             "required": true,
             "schema": {
               "type": "string"
@@ -159,7 +165,7 @@
           {
             "name": "cluster",
             "in": "path",
-            "description": "Cluster name",
+            "description": "Cluster name that should exist in the namespace.",
             "required": true,
             "schema": {
               "type": "string"
@@ -192,7 +198,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Response from remote cluster",
+            "description": "Response from remote cluster.",
             "content": {
               "text/plain": {
                 "schema": {
@@ -210,7 +216,7 @@
         },
         "security": [
           {
-            "oauth2": []
+            "bearer_auth": []
           }
         ]
       }
@@ -221,13 +227,13 @@
           "proxy_clusters"
         ],
         "summary": "Cluster redirect",
-        "description": "Redirect to the cluster if exists",
+        "description": "Redirect to the cluster if exists.",
         "operationId": "get_redirect",
         "parameters": [
           {
             "name": "ns",
             "in": "path",
-            "description": "Namespace",
+            "description": "Namespace containing the cluster.",
             "required": true,
             "schema": {
               "type": "string"
@@ -236,7 +242,7 @@
           {
             "name": "cluster",
             "in": "path",
-            "description": "Cluster name",
+            "description": "Cluster name, must match an enabled cluster in the namespace.",
             "required": true,
             "schema": {
               "type": "string"
@@ -245,7 +251,7 @@
           {
             "name": "path",
             "in": "path",
-            "description": "Corresponding path to resource given to the kube api server",
+            "description": "Corresponding path to resource given to the kube api server.",
             "required": true,
             "schema": {
               "type": "string"
@@ -254,7 +260,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Response from remote cluster"
+            "description": "Response from remote cluster."
           },
           "404": {
             "description": "Cluster not found or disabled."
@@ -269,13 +275,13 @@
           "proxy_clusters"
         ],
         "summary": "Cluster redirect",
-        "description": "Redirect to the cluster if exists",
+        "description": "Redirect to the cluster if exists.",
         "operationId": "put_redirect",
         "parameters": [
           {
             "name": "ns",
             "in": "path",
-            "description": "Namespace",
+            "description": "Namespace containing the cluster.",
             "required": true,
             "schema": {
               "type": "string"
@@ -284,7 +290,7 @@
           {
             "name": "cluster",
             "in": "path",
-            "description": "Cluster name",
+            "description": "Cluster name, must match an enabled cluster in the namespace.",
             "required": true,
             "schema": {
               "type": "string"
@@ -293,7 +299,7 @@
           {
             "name": "path",
             "in": "path",
-            "description": "Corresponding path to resource given to the kube api server",
+            "description": "Corresponding path to resource given to the kube api server.",
             "required": true,
             "schema": {
               "type": "string"
@@ -302,7 +308,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Response from remote cluster"
+            "description": "Response from remote cluster."
           },
           "404": {
             "description": "Cluster not found or disabled."
@@ -317,13 +323,13 @@
           "proxy_clusters"
         ],
         "summary": "Cluster redirect",
-        "description": "Redirect to the cluster if exists",
+        "description": "Redirect to the cluster if exists.",
         "operationId": "post_redirect",
         "parameters": [
           {
             "name": "ns",
             "in": "path",
-            "description": "Namespace",
+            "description": "Namespace containing the cluster.",
             "required": true,
             "schema": {
               "type": "string"
@@ -332,7 +338,7 @@
           {
             "name": "cluster",
             "in": "path",
-            "description": "Cluster name",
+            "description": "Cluster name, must match an enabled cluster in the namespace.",
             "required": true,
             "schema": {
               "type": "string"
@@ -341,7 +347,7 @@
           {
             "name": "path",
             "in": "path",
-            "description": "Corresponding path to resource given to the kube api server",
+            "description": "Corresponding path to resource given to the kube api server.",
             "required": true,
             "schema": {
               "type": "string"
@@ -350,7 +356,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Response from remote cluster"
+            "description": "Response from remote cluster."
           },
           "404": {
             "description": "Cluster not found or disabled."
@@ -365,13 +371,13 @@
           "proxy_clusters"
         ],
         "summary": "Cluster redirect",
-        "description": "Redirect to the cluster if exists",
+        "description": "Redirect to the cluster if exists.",
         "operationId": "delete_redirect",
         "parameters": [
           {
             "name": "ns",
             "in": "path",
-            "description": "Namespace",
+            "description": "Namespace containing the cluster.",
             "required": true,
             "schema": {
               "type": "string"
@@ -380,7 +386,7 @@
           {
             "name": "cluster",
             "in": "path",
-            "description": "Cluster name",
+            "description": "Cluster name, must match an enabled cluster in the namespace.",
             "required": true,
             "schema": {
               "type": "string"
@@ -389,7 +395,7 @@
           {
             "name": "path",
             "in": "path",
-            "description": "Corresponding path to resource given to the kube api server",
+            "description": "Corresponding path to resource given to the kube api server.",
             "required": true,
             "schema": {
               "type": "string"
@@ -398,7 +404,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Response from remote cluster"
+            "description": "Response from remote cluster."
           },
           "404": {
             "description": "Cluster not found or disabled."
@@ -413,13 +419,13 @@
           "proxy_clusters"
         ],
         "summary": "Cluster redirect",
-        "description": "Redirect to the cluster if exists",
+        "description": "Redirect to the cluster if exists.",
         "operationId": "patch_redirect",
         "parameters": [
           {
             "name": "ns",
             "in": "path",
-            "description": "Namespace",
+            "description": "Namespace containing the cluster.",
             "required": true,
             "schema": {
               "type": "string"
@@ -428,7 +434,7 @@
           {
             "name": "cluster",
             "in": "path",
-            "description": "Cluster name",
+            "description": "Cluster name, must match an enabled cluster in the namespace.",
             "required": true,
             "schema": {
               "type": "string"
@@ -437,7 +443,7 @@
           {
             "name": "path",
             "in": "path",
-            "description": "Corresponding path to resource given to the kube api server",
+            "description": "Corresponding path to resource given to the kube api server.",
             "required": true,
             "schema": {
               "type": "string"
@@ -446,7 +452,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Response from remote cluster"
+            "description": "Response from remote cluster."
           },
           "404": {
             "description": "Cluster not found or disabled."
@@ -467,7 +473,7 @@
         "operationId": "health",
         "responses": {
           "200": {
-            "description": "Nothing"
+            "description": "If the server is healthy."
           },
           "500": {
             "description": "Internal server error."
@@ -480,6 +486,7 @@
     "schemas": {
       "CallbackModel": {
         "type": "object",
+        "description": "Model for the callback response after successful authentication with the cluster.\n\nThis model contains the access token, refresh token, cluster URL, subject, and ID token returned by the cluster after successful authentication.",
         "required": [
           "access_token",
           "refresh_token",
@@ -507,6 +514,7 @@
       },
       "GetAllVisibleClusterBody": {
         "type": "object",
+        "description": "Body of the response for the get_all_visible_cluster endpoint.\n\nContains a list of clusters visible to the user.\nWill be empty if the user has no clusters visible to them.",
         "required": [
           "clusters"
         ],

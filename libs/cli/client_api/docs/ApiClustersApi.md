@@ -4,16 +4,16 @@ All URIs are relative to *http://localhost*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
-[**get_all_visible_cluster**](ApiClustersApi.md#get_all_visible_cluster) | **GET** /api/v1/clusters | Get all cluster visible to the user
+[**get_all_visible_cluster**](ApiClustersApi.md#get_all_visible_cluster) | **GET** /api/v1/clusters | Get all cluster visible to the user.
 
 
 
 ## get_all_visible_cluster
 
 > models::GetAllVisibleClusterBody get_all_visible_cluster()
-Get all cluster visible to the user
+Get all cluster visible to the user.
 
-if none return an empty array
+Get all cluster visible to the user, if the user is not authenticated return 401, if none return an empty array.
 
 ### Parameters
 

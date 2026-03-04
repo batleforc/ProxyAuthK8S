@@ -7,7 +7,7 @@ use tracing::{info, instrument};
 #[utoipa::path(
     tag = "health",
     responses(
-        (status = 200, description = "Nothing"),
+        (status = 200, description = "If the server is healthy."),
         (status = 500, description = "Internal server error."),
     )
 )]

@@ -9,14 +9,16 @@ use crate::{
     model::user::User,
 };
 
-/// Get all cluster visible to the user
+/// Get all cluster visible to the user.
 ///
-/// if none return an empty array
+/// Get all cluster visible to the user,
+/// if the user is not authenticated return 401,
+/// if none return an empty array.
 #[utoipa::path(
     tag = "api_clusters",
     responses(
-        (status = 200, description = "ATM nothing real", body = GetAllVisibleClusterBody),
-        (status = 401, description = "Unauthorized"),
+        (status = 200, description = "Get all visible clusters.", body = GetAllVisibleClusterBody),
+        (status = 401, description = "User is not authenticated."),
         (status = 500, description = "Internal server error."),
     ),
     security(

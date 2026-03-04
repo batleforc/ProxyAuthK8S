@@ -1,7 +1,7 @@
 /*
  * ProxyAuthK8S
  *
- * Reverse Proxy K8s Api
+ * Reverse Proxy K8s Api.
  *
  * The version of the OpenAPI document: 0.1.0
  * Contact: maxleriche.60@gmail.com
@@ -11,6 +11,7 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
+/// CallbackModel : Model for the callback response after successful authentication with the cluster.  This model contains the access token, refresh token, cluster URL, subject, and ID token returned by the cluster after successful authentication.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CallbackModel {
     #[serde(rename = "access_token")]
@@ -26,6 +27,7 @@ pub struct CallbackModel {
 }
 
 impl CallbackModel {
+    /// Model for the callback response after successful authentication with the cluster.  This model contains the access token, refresh token, cluster URL, subject, and ID token returned by the cluster after successful authentication.
     pub fn new(
         access_token: String,
         cluster_url: String,

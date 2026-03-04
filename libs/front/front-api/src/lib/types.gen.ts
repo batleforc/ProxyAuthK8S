@@ -15,10 +15,21 @@ export type VisibleCluster = {
     sso_enabled: boolean;
 };
 
+/**
+ * Body of the response for the get_all_visible_cluster endpoint.
+ *
+ * Contains a list of clusters visible to the user.
+ * Will be empty if the user has no clusters visible to them.
+ */
 export type GetAllVisibleClusterBody = {
     clusters: Array<VisibleCluster>;
 };
 
+/**
+ * Model for the callback response after successful authentication with the cluster.
+ *
+ * This model contains the access token, refresh token, cluster URL, subject, and ID token returned by the cluster after successful authentication.
+ */
 export type CallbackModel = {
     access_token: string;
     cluster_url: string;
@@ -36,7 +47,7 @@ export type GetAllVisibleClusterData = {
 
 export type GetAllVisibleClusterErrors = {
     /**
-     * Unauthorized
+     * User is not authenticated.
      */
     401: unknown;
     /**
@@ -47,7 +58,7 @@ export type GetAllVisibleClusterErrors = {
 
 export type GetAllVisibleClusterResponses = {
     /**
-     * ATM nothing real
+     * Get all visible clusters.
      */
     200: GetAllVisibleClusterBody;
 };
@@ -68,21 +79,21 @@ export type CallbackLoginData = {
     };
     path: {
         /**
-         * Namespace
+         * Namespace containing the cluster.
          */
         ns: string;
         /**
-         * Cluster name
+         * Cluster name that should exist in the namespace.
          */
         cluster: string;
     };
     query: {
         /**
-         * Authorization code from the OIDC provider
+         * Authorization code from the OIDC provider.
          */
         code: string;
         /**
-         * State parameter to prevent CSRF
+         * State parameter to prevent CSRF.
          */
         state: string;
     };
@@ -102,7 +113,7 @@ export type CallbackLoginErrors = {
 
 export type CallbackLoginResponses = {
     /**
-     * Response from remote cluster
+     * Response from remote cluster.
      */
     200: CallbackModel;
 };
@@ -123,11 +134,11 @@ export type ClusterLoginData = {
     };
     path: {
         /**
-         * Namespace
+         * Namespace containing the cluster.
          */
         ns: string;
         /**
-         * Cluster name
+         * Cluster name that should exist in the namespace.
          */
         cluster: string;
     };
@@ -148,7 +159,7 @@ export type ClusterLoginErrors = {
 
 export type ClusterLoginResponses = {
     /**
-     * Response from remote cluster
+     * Response from remote cluster.
      */
     200: string;
 };

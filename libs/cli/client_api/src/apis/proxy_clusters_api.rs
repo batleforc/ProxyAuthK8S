@@ -1,7 +1,7 @@
 /*
  * ProxyAuthK8S
  *
- * Reverse Proxy K8s Api
+ * Reverse Proxy K8s Api.
  *
  * The version of the OpenAPI document: 0.1.0
  * Contact: maxleriche.60@gmail.com
@@ -58,7 +58,7 @@ pub enum PutRedirectError {
     UnknownValue(serde_json::Value),
 }
 
-/// Redirect to the cluster if exists
+/// Redirect to the cluster if exists.
 pub async fn delete_redirect(
     configuration: &configuration::Configuration,
     ns: &str,
@@ -103,7 +103,7 @@ pub async fn delete_redirect(
     }
 }
 
-/// Redirect to the cluster if exists
+/// Redirect to the cluster if exists.
 pub async fn get_redirect(
     configuration: &configuration::Configuration,
     ns: &str,
@@ -146,7 +146,7 @@ pub async fn get_redirect(
     }
 }
 
-/// Redirect to the cluster if exists
+/// Redirect to the cluster if exists.
 pub async fn patch_redirect(
     configuration: &configuration::Configuration,
     ns: &str,
@@ -191,7 +191,7 @@ pub async fn patch_redirect(
     }
 }
 
-/// Redirect to the cluster if exists
+/// Redirect to the cluster if exists.
 pub async fn post_redirect(
     configuration: &configuration::Configuration,
     ns: &str,
@@ -236,7 +236,7 @@ pub async fn post_redirect(
     }
 }
 
-/// Redirect to the cluster if exists
+/// Redirect to the cluster if exists.
 pub async fn put_redirect(
     configuration: &configuration::Configuration,
     ns: &str,

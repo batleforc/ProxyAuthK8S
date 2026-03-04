@@ -24,7 +24,7 @@ impl Modify for SecurityAddons {
 #[openapi(
     info(
       title = "ProxyAuthK8S",
-      description = "Reverse Proxy K8s Api",
+      description = "Reverse Proxy K8s Api.",
       contact(
             name = "Batleforc",
             email = "maxleriche.60@gmail.com",
@@ -41,6 +41,9 @@ impl Modify for SecurityAddons {
             (name = "health", description = "Health check endpoints."),
             (name = "proxy_clusters", description = "Proxy cluster endpoints."),
         ),
+    servers(
+        (url = "/", description = "Current usable server.")
+    ),
     modifiers(&SecurityAddons)
 )]
 pub struct ApiDoc;

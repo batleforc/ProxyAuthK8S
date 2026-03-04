@@ -44,6 +44,10 @@ impl From<ProxyKubeApi> for VisibleCluster {
     }
 }
 
+/// Body of the response for the get_all_visible_cluster endpoint.
+///
+/// Contains a list of clusters visible to the user.
+/// Will be empty if the user has no clusters visible to them.
 #[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
 pub struct GetAllVisibleClusterBody {
     pub clusters: Vec<VisibleCluster>,

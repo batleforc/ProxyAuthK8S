@@ -19,9 +19,11 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
 };
 
 /**
- * Get all cluster visible to the user
+ * Get all cluster visible to the user.
  *
- * if none return an empty array
+ * Get all cluster visible to the user,
+ * if the user is not authenticated return 401,
+ * if none return an empty array.
  */
 export const getAllVisibleCluster = <ThrowOnError extends boolean = false>(options?: Options<GetAllVisibleClusterData, ThrowOnError>) => (options?.client ?? client).get<GetAllVisibleClusterResponses, GetAllVisibleClusterErrors, ThrowOnError>({
     responseType: 'json',
@@ -33,7 +35,7 @@ export const getAllVisibleCluster = <ThrowOnError extends boolean = false>(optio
 /**
  * Callback from the cluster's OIDC provider
  *
- * If the cluster is not found or disabled, return 404
+ * If the cluster is not found or disabled, return 404.
  */
 export const callbackLogin = <ThrowOnError extends boolean = false>(options: Options<CallbackLoginData, ThrowOnError>) => (options.client ?? client).get<CallbackLoginResponses, CallbackLoginErrors, ThrowOnError>({
     responseType: 'json',
@@ -44,10 +46,11 @@ export const callbackLogin = <ThrowOnError extends boolean = false>(options: Opt
 /**
  * Redirect to the cluster's login page
  *
- * If the cluster is not found or disabled, return 404
+ * If the cluster is not found or disabled, return 404.
  */
 export const clusterLogin = <ThrowOnError extends boolean = false>(options: Options<ClusterLoginData, ThrowOnError>) => (options.client ?? client).get<ClusterLoginResponses, ClusterLoginErrors, ThrowOnError>({
     responseType: 'text',
+    security: [{ scheme: 'bearer', type: 'http' }],
     url: '/clusters/{ns}/{cluster}/auth/login',
     ...options
 });
