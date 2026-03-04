@@ -206,7 +206,11 @@ const downloadPluginKubeconfig = () => {
     <section class="header-section">
       <div class="header-content">
         <h1 class="page-title">
-          <MazIcon :icon="LazyMazShieldCheck" size="lg" class="title-icon" />
+          <MazIcon
+            :icon="LazyMazShieldCheck"
+            size="lg"
+            class="title-icon"
+          />
           Authentification Cluster
         </h1>
         <p class="page-description">
@@ -220,15 +224,24 @@ const downloadPluginKubeconfig = () => {
     <!-- Main Content -->
     <section class="main-section">
       <div class="main-container">
-
         <!-- Étape 1: Attente de récupération du token -->
-        <div v-if="isAuthenticating" class="waiting-step">
+        <div
+          v-if="isAuthenticating"
+          class="waiting-step"
+        >
           <MazCard class="waiting-card">
             <template #default>
               <div class="waiting-content">
-                <MazSpinner size="3rem" color="primary" class="waiting-spinner" />
+                <MazSpinner
+                  size="3rem"
+                  color="primary"
+                  class="waiting-spinner"
+                />
                 <h2 class="waiting-title">
-                  <MazIcon :icon="LazyMazClock" size="lg" />
+                  <MazIcon
+                    :icon="LazyMazClock"
+                    size="lg"
+                  />
                   Récupération des tokens en cours...
                 </h2>
                 <p class="waiting-description">
@@ -237,11 +250,19 @@ const downloadPluginKubeconfig = () => {
                 </p>
                 <div class="waiting-details">
                   <div class="detail-item">
-                    <MazIcon :icon="LazyMazServer" size="sm" class="detail-icon" />
+                    <MazIcon
+                      :icon="LazyMazServer"
+                      size="sm"
+                      class="detail-icon"
+                    />
                     <span>Cluster: {{ callbackData.cluster || 'Chargement...' }}</span>
                   </div>
                   <div class="detail-item">
-                    <MazIcon :icon="LazyMazGlobeAlt" size="sm" class="detail-icon" />
+                    <MazIcon
+                      :icon="LazyMazGlobeAlt"
+                      size="sm"
+                      class="detail-icon"
+                    />
                     <span>Namespace: {{ callbackData.ns || 'Chargement...' }}</span>
                   </div>
                 </div>
@@ -251,14 +272,19 @@ const downloadPluginKubeconfig = () => {
         </div>
 
         <!-- Étape 2: Affichage des tokens et informations -->
-        <div v-else-if="authenticationComplete && hasToken" class="success-step">
+        <div
+          v-else-if="authenticationComplete && hasToken"
+          class="success-step"
+        >
           <div class="success-grid">
-
             <!-- Informations du cluster -->
             <MazCard class="info-card">
               <template #content-title>
                 <h3 class="card-title">
-                  <MazIcon :icon="LazyMazServer" size="lg" />
+                  <MazIcon
+                    :icon="LazyMazServer"
+                    size="lg"
+                  />
                   Informations du Cluster
                 </h3>
               </template>
@@ -266,11 +292,21 @@ const downloadPluginKubeconfig = () => {
                 <div class="info-content">
                   <div class="info-row">
                     <span class="info-label">Nom du cluster:</span>
-                    <MazBadge color="info" size="sm">{{ callbackData.cluster }}</MazBadge>
+                    <MazBadge
+                      color="info"
+                      size="sm"
+                    >
+                      {{ callbackData.cluster }}
+                    </MazBadge>
                   </div>
                   <div class="info-row">
                     <span class="info-label">Namespace:</span>
-                    <MazBadge color="primary" size="sm">{{ callbackData.ns }}</MazBadge>
+                    <MazBadge
+                      color="primary"
+                      size="sm"
+                    >
+                      {{ callbackData.ns }}
+                    </MazBadge>
                   </div>
                   <div class="info-row">
                     <span class="info-label">URL de l'API:</span>
@@ -282,17 +318,22 @@ const downloadPluginKubeconfig = () => {
                   </div>
                   <div class="info-row">
                     <span class="info-label">Status:</span>
-                    <MazBadge :color="currentCluster ? (currentCluster.enabled ? 'success' : 'danger') : 'info'"
-                      size="sm">
+                    <MazBadge
+                      :color="currentCluster ? (currentCluster.enabled ? 'success' : 'danger') : 'info'"
+                      size="sm"
+                    >
                       {{ currentCluster ? (currentCluster.enabled ? 'Activé' : 'Désactivé') : 'Inconnu' }}
                     </MazBadge>
                   </div>
                   <div class="info-row">
                     <span class="info-label">Accessible:</span>
-                    <MazBadge :color="currentCluster && currentCluster.is_reachable !== null
+                    <MazBadge
+                      :color="currentCluster && currentCluster.is_reachable !== null
                         ? (currentCluster.is_reachable ? 'success' : 'warning')
                         : 'info'
-                      " size="sm">
+                      "
+                      size="sm"
+                    >
                       {{
                         currentCluster && currentCluster.is_reachable !== null
                           ? (currentCluster.is_reachable ? 'Oui' : 'Non')
@@ -308,44 +349,88 @@ const downloadPluginKubeconfig = () => {
             <MazCard class="tokens-card">
               <template #content-title>
                 <h3 class="card-title">
-                  <MazIcon :icon="LazyMazKey" size="lg" />
+                  <MazIcon
+                    :icon="LazyMazKey"
+                    size="lg"
+                  />
                   Tokens d'Authentification
                 </h3>
               </template>
               <template #default>
                 <div class="tokens-content">
                   <div class="token-section">
-                    <label for="access-token" class="token-label">Access Token:</label>
+                    <label
+                      for="access-token"
+                      class="token-label"
+                    >Access Token:</label>
                     <div class="token-field">
-                      <MazTextarea id="access-token" :model-value="callbackData.retour.access_token" readonly :rows="3"
-                        class="token-textarea" />
-                      <MazBtn size="sm" color="primary" :left-icon="LazyMazClipboardDocument"
-                        @click="copyToClipboard(callbackData.retour.access_token, 'Access Token')" class="copy-button">
+                      <MazTextarea
+                        id="access-token"
+                        :model-value="callbackData.retour.access_token"
+                        readonly
+                        :rows="3"
+                        class="token-textarea"
+                      />
+                      <MazBtn
+                        size="sm"
+                        color="primary"
+                        :left-icon="LazyMazClipboardDocument"
+                        class="copy-button"
+                        @click="copyToClipboard(callbackData.retour.access_token, 'Access Token')"
+                      >
                         Copier
                       </MazBtn>
                     </div>
                   </div>
 
                   <div class="token-section">
-                    <label for="id-token" class="token-label">ID Token:</label>
+                    <label
+                      for="id-token"
+                      class="token-label"
+                    >ID Token:</label>
                     <div class="token-field">
-                      <MazTextarea id="id-token" :model-value="callbackData.retour.id_token" readonly :rows="3"
-                        class="token-textarea" />
-                      <MazBtn size="sm" color="primary" :left-icon="LazyMazClipboardDocument"
-                        @click="copyToClipboard(callbackData.retour.id_token, 'ID Token')" class="copy-button">
+                      <MazTextarea
+                        id="id-token"
+                        :model-value="callbackData.retour.id_token"
+                        readonly
+                        :rows="3"
+                        class="token-textarea"
+                      />
+                      <MazBtn
+                        size="sm"
+                        color="primary"
+                        :left-icon="LazyMazClipboardDocument"
+                        class="copy-button"
+                        @click="copyToClipboard(callbackData.retour.id_token, 'ID Token')"
+                      >
                         Copier
                       </MazBtn>
                     </div>
                   </div>
 
-                  <div v-if="callbackData.retour.refresh_token !== ''" class="token-section">
-                    <label for="refresh-token" class="token-label">Refresh Token:</label>
+                  <div
+                    v-if="callbackData.retour.refresh_token !== ''"
+                    class="token-section"
+                  >
+                    <label
+                      for="refresh-token"
+                      class="token-label"
+                    >Refresh Token:</label>
                     <div class="token-field">
-                      <MazTextarea id="refresh-token" :model-value="callbackData.retour.refresh_token" readonly
-                        :rows="3" class="token-textarea" />
-                      <MazBtn size="sm" color="primary" :left-icon="LazyMazClipboardDocument"
+                      <MazTextarea
+                        id="refresh-token"
+                        :model-value="callbackData.retour.refresh_token"
+                        readonly
+                        :rows="3"
+                        class="token-textarea"
+                      />
+                      <MazBtn
+                        size="sm"
+                        color="primary"
+                        :left-icon="LazyMazClipboardDocument"
+                        class="copy-button"
                         @click="copyToClipboard(callbackData.retour.refresh_token, 'Refresh Token')"
-                        class="copy-button">
+                      >
                         Copier
                       </MazBtn>
                     </div>
@@ -358,7 +443,10 @@ const downloadPluginKubeconfig = () => {
             <MazCard class="kubeconfig-card full-width">
               <template #content-title>
                 <h3 class="card-title">
-                  <MazIcon :icon="LazyMazCloudArrowDown" size="lg" />
+                  <MazIcon
+                    :icon="LazyMazCloudArrowDown"
+                    size="lg"
+                  />
                   Configuration Kubernetes
                 </h3>
               </template>
@@ -369,11 +457,13 @@ const downloadPluginKubeconfig = () => {
                   </p>
 
                   <MazTabs>
-                    <MazTabsBar :items="[
-                      { label: 'Kubeconfig Standard', disabled: false },
-                      { label: 'Kubeconfig Plugin (SOON in v0.2.0)', disabled: false },
-                      { label: 'Configuration via Plugin CLI (SOON in v0.2.0)', disabled: false }
-                    ]" />
+                    <MazTabsBar
+                      :items="[
+                        { label: 'Kubeconfig Standard', disabled: false },
+                        { label: 'Kubeconfig Plugin (SOON in v0.2.0)', disabled: false },
+                        { label: 'Configuration via Plugin CLI (SOON in v0.2.0)', disabled: false }
+                      ]"
+                    />
 
                     <MazTabsContent>
                       <MazTabsContentItem :tab="1">
@@ -383,18 +473,30 @@ const downloadPluginKubeconfig = () => {
                             directement avec le token fourni.
                           </p>
 
-                          <div class="kubeconfig-field" v-highlight>
+                          <div
+                            v-highlight
+                            class="kubeconfig-field"
+                          >
                             <pre><code class="hljs yaml">{{ generateKubeconfig() }}</code></pre>
                           </div>
 
                           <div class="kubeconfig-actions">
-                            <MazBtn color="success" size="lg" :left-icon="LazyMazCloudArrowDown"
-                              @click="downloadKubeconfig" class="download-button">
+                            <MazBtn
+                              color="success"
+                              size="lg"
+                              :left-icon="LazyMazCloudArrowDown"
+                              class="download-button"
+                              @click="downloadKubeconfig"
+                            >
                               Télécharger kubeconfig
                             </MazBtn>
-                            <MazBtn color="primary" size="lg" :left-icon="LazyMazClipboardDocument"
+                            <MazBtn
+                              color="primary"
+                              size="lg"
+                              :left-icon="LazyMazClipboardDocument"
+                              class="copy-kubeconfig-button"
                               @click="copyToClipboard(generateKubeconfig(), 'Kubeconfig')"
-                              class="copy-kubeconfig-button">
+                            >
                               Copier kubeconfig
                             </MazBtn>
                           </div>
@@ -408,18 +510,30 @@ const downloadPluginKubeconfig = () => {
                             rafraîchis par le plugin.
                           </p>
 
-                          <div class="kubeconfig-field" v-highlight>
+                          <div
+                            v-highlight
+                            class="kubeconfig-field"
+                          >
                             <pre><code class="hljs yaml">{{ generatePluginKubeconfig() }}</code></pre>
                           </div>
 
                           <div class="kubeconfig-actions">
-                            <MazBtn color="success" size="lg" :left-icon="LazyMazCloudArrowDown"
-                              @click="downloadPluginKubeconfig" class="download-button">
+                            <MazBtn
+                              color="success"
+                              size="lg"
+                              :left-icon="LazyMazCloudArrowDown"
+                              class="download-button"
+                              @click="downloadPluginKubeconfig"
+                            >
                               Télécharger kubeconfig plugin
                             </MazBtn>
-                            <MazBtn color="primary" size="lg" :left-icon="LazyMazClipboardDocument"
+                            <MazBtn
+                              color="primary"
+                              size="lg"
+                              :left-icon="LazyMazClipboardDocument"
+                              class="copy-kubeconfig-button"
                               @click="copyToClipboard(generatePluginKubeconfig(), 'Kubeconfig Plugin')"
-                              class="copy-kubeconfig-button">
+                            >
                               Copier kubeconfig plugin
                             </MazBtn>
                           </div>
@@ -436,7 +550,9 @@ const downloadPluginKubeconfig = () => {
 
                           <div class="cli-steps">
                             <div class="cli-advantages">
-                              <h4 class="advantages-title">Avantages du plugin CLI:</h4>
+                              <h4 class="advantages-title">
+                                Avantages du plugin CLI:
+                              </h4>
                               <ul class="advantages-list">
                                 <li>🔄 Gestion automatique du renouvellement des tokens</li>
                                 <li>🚀 Intégration native avec kubectl</li>
@@ -447,10 +563,16 @@ const downloadPluginKubeconfig = () => {
                             </div>
                             <div class="cli-step">
                               <h4 class="cli-step-title">
-                                <MazIcon :icon="LazyMazCloudArrowDown" size="sm" />
+                                <MazIcon
+                                  :icon="LazyMazCloudArrowDown"
+                                  size="sm"
+                                />
                                 Étape 1: Installer le plugin (si pas déjà fait)
                               </h4>
-                              <div class="cli-code-container" v-highlight>
+                              <div
+                                v-highlight
+                                class="cli-code-container"
+                              >
                                 <pre><code class="hljs bash"># Via Krew (recommandé)
 kubectl krew install proxyauth
 
@@ -458,9 +580,13 @@ kubectl krew install proxyauth
 wget https://github.com/batleforc/proxyauthk8s/releases/latest/download/kubectl-proxyauth-linux-amd64
 chmod +x kubectl-proxyauth-linux-amd64
 sudo mv kubectl-proxyauth-linux-amd64 /usr/local/bin/kubectl-proxyauth</code></pre>
-                                <MazBtn size="sm" color="primary" :left-icon="LazyMazClipboardDocument"
+                                <MazBtn
+                                  size="sm"
+                                  color="primary"
+                                  :left-icon="LazyMazClipboardDocument"
+                                  class="cli-copy-btn"
                                   @click="copyToClipboard('kubectl krew install proxyauth', 'Commande d\'installation')"
-                                  class="cli-copy-btn">
+                                >
                                   Copier installation
                                 </MazBtn>
                               </div>
@@ -468,14 +594,24 @@ sudo mv kubectl-proxyauth-linux-amd64 /usr/local/bin/kubectl-proxyauth</code></p
 
                             <div class="cli-step">
                               <h4 class="cli-step-title">
-                                <MazIcon :icon="LazyMazCog6Tooth" size="sm" />
+                                <MazIcon
+                                  :icon="LazyMazCog6Tooth"
+                                  size="sm"
+                                />
                                 Étape 2: Configurer et se connecter
                               </h4>
-                              <div class="cli-code-container" v-highlight>
+                              <div
+                                v-highlight
+                                class="cli-code-container"
+                              >
                                 <pre><code class="hljs bash">{{ generatePluginCommands() }}</code></pre>
-                                <MazBtn size="sm" color="primary" :left-icon="LazyMazClipboardDocument"
+                                <MazBtn
+                                  size="sm"
+                                  color="primary"
+                                  :left-icon="LazyMazClipboardDocument"
+                                  class="cli-copy-btn"
                                   @click="copyToClipboard(generatePluginCommands(), 'Commandes CLI')"
-                                  class="cli-copy-btn">
+                                >
                                   Copier commandes
                                 </MazBtn>
                               </div>
@@ -483,10 +619,16 @@ sudo mv kubectl-proxyauth-linux-amd64 /usr/local/bin/kubectl-proxyauth</code></p
 
                             <div class="cli-step">
                               <h4 class="cli-step-title">
-                                <MazIcon :icon="LazyMazShieldCheck" size="sm" />
+                                <MazIcon
+                                  :icon="LazyMazShieldCheck"
+                                  size="sm"
+                                />
                                 Étape 3: Vérifier la configuration
                               </h4>
-                              <div class="cli-code-container" v-highlight>
+                              <div
+                                v-highlight
+                                class="cli-code-container"
+                              >
                                 <pre><code class="hljs bash"># Vérifier la liste des clusters disponibles
 kubectl proxyauth get
 
@@ -495,9 +637,13 @@ kubectl proxyauth ctx
 
 # Tester la connexion
 kubectl get nodes</code></pre>
-                                <MazBtn size="sm" color="primary" :left-icon="LazyMazClipboardDocument"
+                                <MazBtn
+                                  size="sm"
+                                  color="primary"
+                                  :left-icon="LazyMazClipboardDocument"
+                                  class="cli-copy-btn"
                                   @click="copyToClipboard('kubectl proxyauth get\nkubectl proxyauth ctx\nkubectl get nodes', 'Commandes de vérification')"
-                                  class="cli-copy-btn">
+                                >
                                   Copier vérification
                                 </MazBtn>
                               </div>
@@ -514,24 +660,37 @@ kubectl get nodes</code></pre>
         </div>
 
         <!-- État d'erreur -->
-        <div v-else class="error-step">
+        <div
+          v-else
+          class="error-step"
+        >
           <MazCard class="error-card">
             <template #default>
               <div class="error-content">
-                <MazIcon :icon="LazyMazArrowTopRightOnSquare" size="xl" class="error-icon" />
-                <h2 class="error-title">Authentification échouée</h2>
+                <MazIcon
+                  :icon="LazyMazArrowTopRightOnSquare"
+                  size="xl"
+                  class="error-icon"
+                />
+                <h2 class="error-title">
+                  Authentification échouée
+                </h2>
                 <p class="error-description">
                   Une erreur s'est produite lors de la récupération des tokens d'authentification.
                   Veuillez réessayer ou contacter votre administrateur.
                 </p>
-                <MazBtn color="primary" size="lg" @click="$router.push({ name: 'home' })" class="back-button">
+                <MazBtn
+                  color="primary"
+                  size="lg"
+                  class="back-button"
+                  @click="$router.push({ name: 'home' })"
+                >
                   Retour à l'accueil
                 </MazBtn>
               </div>
             </template>
           </MazCard>
         </div>
-
       </div>
     </section>
   </div>

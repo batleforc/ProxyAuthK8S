@@ -255,7 +255,11 @@ const copyToClipboard = async (text: string, label: string) => {
     <section class="header-section">
       <div class="header-content">
         <h1 class="page-title">
-          <MazIcon :icon="MazCommandLine" size="xl" class="title-icon" />
+          <MazIcon
+            :icon="MazCommandLine"
+            size="xl"
+            class="title-icon"
+          />
           Plugin kubectl-proxyauth
         </h1>
         <p class="page-description">
@@ -268,12 +272,14 @@ const copyToClipboard = async (text: string, label: string) => {
     <!-- Main Content -->
     <section class="main-section">
       <div class="main-container">
-
         <!-- Quick Start Card -->
         <MazCard class="quick-start-card">
           <template #content-title>
             <h2 class="card-title">
-              <MazIcon :icon="MazPlay" size="lg" />
+              <MazIcon
+                :icon="MazPlay"
+                size="lg"
+              />
               Démarrage Rapide
             </h2>
           </template>
@@ -281,15 +287,30 @@ const copyToClipboard = async (text: string, label: string) => {
             <div class="quick-start-content">
               <div class="quick-steps">
                 <div class="step">
-                  <MazBadge color="primary" size="sm">1</MazBadge>
+                  <MazBadge
+                    color="primary"
+                    size="sm"
+                  >
+                    1
+                  </MazBadge>
                   <span>Installer le plugin via Krew ou manuellement</span>
                 </div>
                 <div class="step">
-                  <MazBadge color="primary" size="sm">2</MazBadge>
+                  <MazBadge
+                    color="primary"
+                    size="sm"
+                  >
+                    2
+                  </MazBadge>
                   <span>Configurer le serveur ProxyAuthK8s</span>
                 </div>
                 <div class="step">
-                  <MazBadge color="primary" size="sm">3</MazBadge>
+                  <MazBadge
+                    color="primary"
+                    size="sm"
+                  >
+                    3
+                  </MazBadge>
                   <span>S'authentifier et utiliser kubectl normalement</span>
                 </div>
               </div>
@@ -301,32 +322,51 @@ const copyToClipboard = async (text: string, label: string) => {
         <MazCard class="installation-card">
           <template #content-title>
             <h2 class="card-title">
-              <MazIcon :icon="MazCloudArrowDown" size="lg" />
+              <MazIcon
+                :icon="MazCloudArrowDown"
+                size="lg"
+              />
               Installation
             </h2>
           </template>
           <template #default>
             <div class="installation-content">
               <MazTabs>
-                <MazTabsBar :items="[
-                  { label: installationCommands.krew.title, disabled: false },
-                  { label: installationCommands.manual.title, disabled: false },
-                  { label: installationCommands.homebrew.title, disabled: false }
-                ]" />
+                <MazTabsBar
+                  :items="[
+                    { label: installationCommands.krew.title, disabled: false },
+                    { label: installationCommands.manual.title, disabled: false },
+                    { label: installationCommands.homebrew.title, disabled: false }
+                  ]"
+                />
 
                 <MazTabsContent>
                   <MazTabsContentItem :tab="1">
                     <div class="installation-tab">
                       <div class="tab-header">
-                        <MazBadge color="success" size="sm">{{ installationCommands.krew.badge }}</MazBadge>
-                        <p class="tab-description">{{ installationCommands.krew.description }}</p>
+                        <MazBadge
+                          color="success"
+                          size="sm"
+                        >
+                          {{ installationCommands.krew.badge }}
+                        </MazBadge>
+                        <p class="tab-description">
+                          {{ installationCommands.krew.description }}
+                        </p>
                       </div>
                       <div class="command-block">
-                        <div class="code-container" v-highlight>
+                        <div
+                          v-highlight
+                          class="code-container"
+                        >
                           <pre><code class="hljs bash">{{ installationCommands.krew.commands.join('\n') }}</code></pre>
-                          <MazBtn color="primary" size="sm" :left-icon="MazClipboardDocument"
+                          <MazBtn
+                            color="primary"
+                            size="sm"
+                            :left-icon="MazClipboardDocument"
+                            class="copy-btn-overlay"
                             @click="copyToClipboard(installationCommands.krew.commands.join('\n'), 'Commandes Krew')"
-                            class="copy-btn-overlay">
+                          >
                             Copier
                           </MazBtn>
                         </div>
@@ -337,15 +377,29 @@ const copyToClipboard = async (text: string, label: string) => {
                   <MazTabsContentItem :tab="2">
                     <div class="installation-tab">
                       <div class="tab-header">
-                        <MazBadge color="warning" size="sm">{{ installationCommands.manual.badge }}</MazBadge>
-                        <p class="tab-description">{{ installationCommands.manual.description }}</p>
+                        <MazBadge
+                          color="warning"
+                          size="sm"
+                        >
+                          {{ installationCommands.manual.badge }}
+                        </MazBadge>
+                        <p class="tab-description">
+                          {{ installationCommands.manual.description }}
+                        </p>
                       </div>
                       <div class="command-block">
-                        <div class="code-container" v-highlight>
+                        <div
+                          v-highlight
+                          class="code-container"
+                        >
                           <pre><code class="hljs bash">{{ installationCommands.manual.commands.join('\n') }}</code></pre>
-                          <MazBtn color="primary" size="sm" :left-icon="MazClipboardDocument"
+                          <MazBtn
+                            color="primary"
+                            size="sm"
+                            :left-icon="MazClipboardDocument"
+                            class="copy-btn-overlay"
                             @click="copyToClipboard(installationCommands.manual.commands.join('\n'), 'Commandes manuelles')"
-                            class="copy-btn-overlay">
+                          >
                             Copier
                           </MazBtn>
                         </div>
@@ -356,15 +410,29 @@ const copyToClipboard = async (text: string, label: string) => {
                   <MazTabsContentItem :tab="3">
                     <div class="installation-tab">
                       <div class="tab-header">
-                        <MazBadge color="info" size="sm">{{ installationCommands.homebrew.badge }}</MazBadge>
-                        <p class="tab-description">{{ installationCommands.homebrew.description }}</p>
+                        <MazBadge
+                          color="info"
+                          size="sm"
+                        >
+                          {{ installationCommands.homebrew.badge }}
+                        </MazBadge>
+                        <p class="tab-description">
+                          {{ installationCommands.homebrew.description }}
+                        </p>
                       </div>
                       <div class="command-block">
-                        <div class="code-container" v-highlight>
+                        <div
+                          v-highlight
+                          class="code-container"
+                        >
                           <pre><code class="hljs bash">{{ installationCommands.homebrew.commands.join('\n') }}</code></pre>
-                          <MazBtn color="primary" size="sm" :left-icon="MazClipboardDocument"
+                          <MazBtn
+                            color="primary"
+                            size="sm"
+                            :left-icon="MazClipboardDocument"
+                            class="copy-btn-overlay"
                             @click="copyToClipboard(installationCommands.homebrew.commands.join('\n'), 'Commandes Homebrew')"
-                            class="copy-btn-overlay">
+                          >
                             Copier
                           </MazBtn>
                         </div>
@@ -381,7 +449,10 @@ const copyToClipboard = async (text: string, label: string) => {
         <MazCard class="usage-card">
           <template #content-title>
             <h2 class="card-title">
-              <MazIcon :icon="MazCodeBracket" size="lg" />
+              <MazIcon
+                :icon="MazCodeBracket"
+                size="lg"
+              />
               Guide d'Utilisation
             </h2>
           </template>
@@ -390,22 +461,43 @@ const copyToClipboard = async (text: string, label: string) => {
               <MazAccordion class="usage-content-accordion">
                 <template #title-1>
                   <div class="accordion-title">
-                    <MazIcon :icon="MazCog6Tooth" size="lg" />
+                    <MazIcon
+                      :icon="MazCog6Tooth"
+                      size="lg"
+                    />
                     <span>{{ usageExamples.config.title }}</span>
                   </div>
                 </template>
                 <template #content-1>
                   <div class="accordion-content">
-                    <p class="section-description">{{ usageExamples.config.description }}</p>
+                    <p class="section-description">
+                      {{ usageExamples.config.description }}
+                    </p>
                     <div class="examples-list">
-                      <div v-for="example in usageExamples.config.examples" :key="example.title" class="example-item">
-                        <h4 class="example-title">{{ example.title }}</h4>
-                        <p class="example-description">{{ example.description }}</p>
+                      <div
+                        v-for="example in usageExamples.config.examples"
+                        :key="example.title"
+                        class="example-item"
+                      >
+                        <h4 class="example-title">
+                          {{ example.title }}
+                        </h4>
+                        <p class="example-description">
+                          {{ example.description }}
+                        </p>
                         <div class="example-command">
-                          <div class="example-code-container" v-highlight>
+                          <div
+                            v-highlight
+                            class="example-code-container"
+                          >
                             <pre><code class="hljs bash">{{ example.command }}</code></pre>
-                            <MazBtn size="xs" color="primary" :left-icon="MazClipboardDocument"
-                              @click="copyToClipboard(example.command, example.title)" class="example-copy-btn">
+                            <MazBtn
+                              size="xs"
+                              color="primary"
+                              :left-icon="MazClipboardDocument"
+                              class="example-copy-btn"
+                              @click="copyToClipboard(example.command, example.title)"
+                            >
                               Copier
                             </MazBtn>
                           </div>
@@ -417,22 +509,43 @@ const copyToClipboard = async (text: string, label: string) => {
 
                 <template #title-2>
                   <div class="accordion-title">
-                    <MazIcon :icon="MazKey" size="lg" />
+                    <MazIcon
+                      :icon="MazKey"
+                      size="lg"
+                    />
                     <span>{{ usageExamples.auth.title }}</span>
                   </div>
                 </template>
                 <template #content-2>
                   <div class="accordion-content">
-                    <p class="section-description">{{ usageExamples.auth.description }}</p>
+                    <p class="section-description">
+                      {{ usageExamples.auth.description }}
+                    </p>
                     <div class="examples-list">
-                      <div v-for="example in usageExamples.auth.examples" :key="example.title" class="example-item">
-                        <h4 class="example-title">{{ example.title }}</h4>
-                        <p class="example-description">{{ example.description }}</p>
+                      <div
+                        v-for="example in usageExamples.auth.examples"
+                        :key="example.title"
+                        class="example-item"
+                      >
+                        <h4 class="example-title">
+                          {{ example.title }}
+                        </h4>
+                        <p class="example-description">
+                          {{ example.description }}
+                        </p>
                         <div class="example-command">
-                          <div class="example-code-container" v-highlight>
+                          <div
+                            v-highlight
+                            class="example-code-container"
+                          >
                             <pre><code class="hljs bash">{{ example.command }}</code></pre>
-                            <MazBtn size="xs" color="primary" :left-icon="MazClipboardDocument"
-                              @click="copyToClipboard(example.command, example.title)" class="example-copy-btn">
+                            <MazBtn
+                              size="xs"
+                              color="primary"
+                              :left-icon="MazClipboardDocument"
+                              class="example-copy-btn"
+                              @click="copyToClipboard(example.command, example.title)"
+                            >
                               Copier
                             </MazBtn>
                           </div>
@@ -444,22 +557,43 @@ const copyToClipboard = async (text: string, label: string) => {
 
                 <template #title-3>
                   <div class="accordion-title">
-                    <MazIcon :icon="MazServer" size="lg" />
+                    <MazIcon
+                      :icon="MazServer"
+                      size="lg"
+                    />
                     <span>{{ usageExamples.clusters.title }}</span>
                   </div>
                 </template>
                 <template #content-3>
                   <div class="accordion-content">
-                    <p class="section-description">{{ usageExamples.clusters.description }}</p>
+                    <p class="section-description">
+                      {{ usageExamples.clusters.description }}
+                    </p>
                     <div class="examples-list">
-                      <div v-for="example in usageExamples.clusters.examples" :key="example.title" class="example-item">
-                        <h4 class="example-title">{{ example.title }}</h4>
-                        <p class="example-description">{{ example.description }}</p>
+                      <div
+                        v-for="example in usageExamples.clusters.examples"
+                        :key="example.title"
+                        class="example-item"
+                      >
+                        <h4 class="example-title">
+                          {{ example.title }}
+                        </h4>
+                        <p class="example-description">
+                          {{ example.description }}
+                        </p>
                         <div class="example-command">
-                          <div class="example-code-container" v-highlight>
+                          <div
+                            v-highlight
+                            class="example-code-container"
+                          >
                             <pre><code class="hljs bash">{{ example.command }}</code></pre>
-                            <MazBtn size="xs" color="primary" :left-icon="MazClipboardDocument"
-                              @click="copyToClipboard(example.command, example.title)" class="example-copy-btn">
+                            <MazBtn
+                              size="xs"
+                              color="primary"
+                              :left-icon="MazClipboardDocument"
+                              class="example-copy-btn"
+                              @click="copyToClipboard(example.command, example.title)"
+                            >
                               Copier
                             </MazBtn>
                           </div>
@@ -471,22 +605,43 @@ const copyToClipboard = async (text: string, label: string) => {
 
                 <template #title-4>
                   <div class="accordion-title">
-                    <MazIcon :icon="MazCube" size="lg" />
+                    <MazIcon
+                      :icon="MazCube"
+                      size="lg"
+                    />
                     <span>{{ usageExamples.contexts.title }}</span>
                   </div>
                 </template>
                 <template #content-4>
                   <div class="accordion-content">
-                    <p class="section-description">{{ usageExamples.contexts.description }}</p>
+                    <p class="section-description">
+                      {{ usageExamples.contexts.description }}
+                    </p>
                     <div class="examples-list">
-                      <div v-for="example in usageExamples.contexts.examples" :key="example.title" class="example-item">
-                        <h4 class="example-title">{{ example.title }}</h4>
-                        <p class="example-description">{{ example.description }}</p>
+                      <div
+                        v-for="example in usageExamples.contexts.examples"
+                        :key="example.title"
+                        class="example-item"
+                      >
+                        <h4 class="example-title">
+                          {{ example.title }}
+                        </h4>
+                        <p class="example-description">
+                          {{ example.description }}
+                        </p>
                         <div class="example-command">
-                          <div class="example-code-container" v-highlight>
+                          <div
+                            v-highlight
+                            class="example-code-container"
+                          >
                             <pre><code class="hljs bash">{{ example.command }}</code></pre>
-                            <MazBtn size="xs" color="primary" :left-icon="MazClipboardDocument"
-                              @click="copyToClipboard(example.command, example.title)" class="example-copy-btn">
+                            <MazBtn
+                              size="xs"
+                              color="primary"
+                              :left-icon="MazClipboardDocument"
+                              class="example-copy-btn"
+                              @click="copyToClipboard(example.command, example.title)"
+                            >
                               Copier
                             </MazBtn>
                           </div>
@@ -504,7 +659,10 @@ const copyToClipboard = async (text: string, label: string) => {
         <MazCard class="workflow-card">
           <template #content-title>
             <h2 class="card-title">
-              <MazIcon :icon="MazCommandLine" size="lg" />
+              <MazIcon
+                :icon="MazCommandLine"
+                size="lg"
+              />
               Workflow Complet
             </h2>
           </template>
@@ -514,10 +672,18 @@ const copyToClipboard = async (text: string, label: string) => {
                 Exemple complet d'utilisation du plugin de l'installation à l'utilisation quotidienne.
               </p>
               <div class="workflow-command-block">
-                <div class="workflow-code-container" v-highlight>
+                <div
+                  v-highlight
+                  class="workflow-code-container"
+                >
                   <pre><code class="hljs bash">{{ workflowExample }}</code></pre>
-                  <MazBtn color="success" size="lg" :left-icon="MazClipboardDocument"
-                    @click="copyToClipboard(workflowExample, 'Workflow complet')" class="workflow-copy-btn-overlay">
+                  <MazBtn
+                    color="success"
+                    size="lg"
+                    :left-icon="MazClipboardDocument"
+                    class="workflow-copy-btn-overlay"
+                    @click="copyToClipboard(workflowExample, 'Workflow complet')"
+                  >
                     Copier le workflow complet
                   </MazBtn>
                 </div>
@@ -530,7 +696,10 @@ const copyToClipboard = async (text: string, label: string) => {
         <MazCard class="resources-card">
           <template #content-title>
             <h2 class="card-title">
-              <MazIcon :icon="MazDocumentText" size="lg" />
+              <MazIcon
+                :icon="MazDocumentText"
+                size="lg"
+              />
               Ressources Supplémentaires
             </h2>
           </template>
@@ -538,37 +707,67 @@ const copyToClipboard = async (text: string, label: string) => {
             <div class="resources-content">
               <div class="resources-grid">
                 <div class="resource-item">
-                  <MazIcon :icon="MazShieldCheck" size="lg" class="resource-icon" />
-                  <h3 class="resource-title">Documentation Complète</h3>
+                  <MazIcon
+                    :icon="MazShieldCheck"
+                    size="lg"
+                    class="resource-icon"
+                  />
+                  <h3 class="resource-title">
+                    Documentation Complète
+                  </h3>
                   <p class="resource-description">
                     Consultez le README du plugin pour plus de détails sur toutes les fonctionnalités.
                   </p>
-                  <MazBtn color="primary" size="sm" :right-icon="MazArrowTopRightOnSquare"
-                    @click="openExternalLink('https://github.com/batleforc/proxyauthk8s/tree/main/apps/kubectl_proxyauth')">
+                  <MazBtn
+                    color="primary"
+                    size="sm"
+                    :right-icon="MazArrowTopRightOnSquare"
+                    @click="openExternalLink('https://github.com/batleforc/proxyauthk8s/tree/main/apps/kubectl_proxyauth')"
+                  >
                     Voir le README
                   </MazBtn>
                 </div>
 
                 <div class="resource-item">
-                  <MazIcon :icon="MazCloudArrowDown" size="lg" class="resource-icon" />
-                  <h3 class="resource-title">Releases GitHub</h3>
+                  <MazIcon
+                    :icon="MazCloudArrowDown"
+                    size="lg"
+                    class="resource-icon"
+                  />
+                  <h3 class="resource-title">
+                    Releases GitHub
+                  </h3>
                   <p class="resource-description">
                     Téléchargez les dernières versions du plugin pour tous les OS.
                   </p>
-                  <MazBtn color="success" size="sm" :right-icon="MazArrowTopRightOnSquare"
-                    @click="openExternalLink('https://github.com/batleforc/proxyauthk8s/releases')">
+                  <MazBtn
+                    color="success"
+                    size="sm"
+                    :right-icon="MazArrowTopRightOnSquare"
+                    @click="openExternalLink('https://github.com/batleforc/proxyauthk8s/releases')"
+                  >
                     Voir les releases
                   </MazBtn>
                 </div>
 
                 <div class="resource-item">
-                  <MazIcon :icon="MazCommandLine" size="lg" class="resource-icon" />
-                  <h3 class="resource-title">Index Krew</h3>
+                  <MazIcon
+                    :icon="MazCommandLine"
+                    size="lg"
+                    class="resource-icon"
+                  />
+                  <h3 class="resource-title">
+                    Index Krew
+                  </h3>
                   <p class="resource-description">
                     Plugin disponible dans l'index officiel Krew pour une installation facile.
                   </p>
-                  <MazBtn color="info" size="sm" :right-icon="MazArrowTopRightOnSquare"
-                    @click="openExternalLink('https://krew.sigs.k8s.io/plugins/')">
+                  <MazBtn
+                    color="info"
+                    size="sm"
+                    :right-icon="MazArrowTopRightOnSquare"
+                    @click="openExternalLink('https://krew.sigs.k8s.io/plugins/')"
+                  >
                     Voir Krew
                   </MazBtn>
                 </div>
@@ -576,7 +775,6 @@ const copyToClipboard = async (text: string, label: string) => {
             </div>
           </template>
         </MazCard>
-
       </div>
     </section>
   </div>

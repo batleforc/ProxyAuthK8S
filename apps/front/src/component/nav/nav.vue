@@ -85,15 +85,38 @@ const userInitials = computed(() => {
     <div class="navbar-container">
       <!-- Logo/Brand -->
       <div class="navbar-brand">
-        <RouterLink to="/" class="brand-link" @click="closeMobileMenu">
+        <RouterLink
+          to="/"
+          class="brand-link"
+          @click="closeMobileMenu"
+        >
           <div class="brand-icon">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                stroke-linejoin="round" />
-              <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                stroke-linejoin="round" />
-              <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                stroke-linejoin="round" />
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M12 2L2 7L12 12L22 7L12 2Z"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M2 17L12 22L22 17"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M2 12L12 17L22 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
           </div>
           <span class="brand-text">ProxyAuthK8S</span>
@@ -103,9 +126,18 @@ const userInitials = computed(() => {
       <!-- Desktop Navigation -->
       <nav class="desktop-nav">
         <div class="nav-links">
-          <RouterLink v-for="item in navItems" :key="item.label" :to="item.to" class="nav-link"
-            active-class="nav-link-active">
-            <MazIcon :icon="item.icon" size="md" class="nav-icon" />
+          <RouterLink
+            v-for="item in navItems"
+            :key="item.label"
+            :to="item.to"
+            class="nav-link"
+            active-class="nav-link-active"
+          >
+            <MazIcon
+              :icon="item.icon"
+              size="md"
+              class="nav-icon"
+            />
             <span>{{ item.label }}</span>
           </RouterLink>
         </div>
@@ -113,26 +145,62 @@ const userInitials = computed(() => {
 
       <!-- User Section -->
       <div class="user-section">
-        <div v-if="authStore.isAuthenticated" class="user-authenticated">
+        <div
+          v-if="authStore.isAuthenticated"
+          class="user-authenticated"
+        >
           <!-- User info with dropdown menu -->
-          <MazDropdown :items="userMenuItems" trigger="click" position="bottom-end" color="transparent" :chevron="false"
-            class="user-dropdown" menu-panel-class="dropdown-panel"
-            menu-panel-style="background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1); min-width: 200px; padding: 8px;">
+          <MazDropdown
+            :items="userMenuItems"
+            trigger="click"
+            position="bottom-end"
+            color="transparent"
+            :chevron="false"
+            class="user-dropdown"
+            menu-panel-class="dropdown-panel"
+            menu-panel-style="background: rgba(30, 41, 59, 0.95); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 12px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1); min-width: 200px; padding: 8px;"
+          >
             <template #trigger>
-              <div class="user-trigger" tabindex="-1">
-                <MazAvatar :caption="userInitials" size="1rem" clickable hide-clickable-icon class="user-avatar" />
+              <div
+                class="user-trigger"
+                tabindex="-1"
+              >
+                <MazAvatar
+                  :caption="userInitials"
+                  size="1rem"
+                  clickable
+                  hide-clickable-icon
+                  class="user-avatar"
+                />
                 <span class="user-name desktop-only">{{ userDisplayName }}</span>
-                <MazIcon :icon="MazChevronDown" size="sm" class="chevron-icon desktop-only" />
+                <MazIcon
+                  :icon="MazChevronDown"
+                  size="sm"
+                  class="chevron-icon desktop-only"
+                />
               </div>
             </template>
 
             <template #menuitem-label="{ item }">
               <div class="dropdown-item-content">
-                <MazIcon v-if="item.label === 'Profile'" :icon="MazUser" size="sm" class="dropdown-item-icon" />
-                <MazIcon v-else-if="item.label === 'Settings'" :icon="MazCog6Tooth" size="sm"
-                  class="dropdown-item-icon" />
-                <MazIcon v-else-if="item.label === 'Logout'" :icon="MazArrowLeftOnRectangle" size="sm"
-                  class="dropdown-item-icon dropdown-item-icon-destructive" />
+                <MazIcon
+                  v-if="item.label === 'Profile'"
+                  :icon="MazUser"
+                  size="sm"
+                  class="dropdown-item-icon"
+                />
+                <MazIcon
+                  v-else-if="item.label === 'Settings'"
+                  :icon="MazCog6Tooth"
+                  size="sm"
+                  class="dropdown-item-icon"
+                />
+                <MazIcon
+                  v-else-if="item.label === 'Logout'"
+                  :icon="MazArrowLeftOnRectangle"
+                  size="sm"
+                  class="dropdown-item-icon dropdown-item-icon-destructive"
+                />
                 <span :class="{ 'dropdown-item-text-destructive': item.label === 'Logout' }">
                   {{ item.label }}
                 </span>
@@ -142,58 +210,123 @@ const userInitials = computed(() => {
         </div>
 
         <!-- Login button for unauthenticated users -->
-        <div v-else class="user-unauthenticated">
-          <MazBtn @click="handleLogin" color="success" size="md" :left-icon="MazArrowRightOnRectangle">
+        <div
+          v-else
+          class="user-unauthenticated"
+        >
+          <MazBtn
+            color="success"
+            size="md"
+            :left-icon="MazArrowRightOnRectangle"
+            @click="handleLogin"
+          >
             <span class="desktop-only">Login</span>
           </MazBtn>
         </div>
       </div>
 
       <!-- Mobile Menu Button -->
-      <MazBtn fab @click="toggleMobileMenu" color="transparent" size="md" class="mobile-menu-btn"
-        :class="{ active: isMobileMenuOpen }">
+      <MazBtn
+        fab
+        color="transparent"
+        size="md"
+        class="mobile-menu-btn"
+        :class="{ active: isMobileMenuOpen }"
+        @click="toggleMobileMenu"
+      >
         <template #icon>
-          <MazIcon :icon="isMobileMenuOpen ? MazXMark : MazBars3" size="md" style="color: white;" />
+          <MazIcon
+            :icon="isMobileMenuOpen ? MazXMark : MazBars3"
+            size="md"
+            style="color: white;"
+          />
         </template>
       </MazBtn>
     </div>
 
     <!-- Mobile Navigation -->
-    <div class="mobile-nav" :class="{ open: isMobileMenuOpen }">
+    <div
+      class="mobile-nav"
+      :class="{ open: isMobileMenuOpen }"
+    >
       <div class="mobile-nav-content">
         <!-- Mobile Navigation Links -->
         <div class="mobile-nav-links">
-          <RouterLink v-for="item in navItems" :key="item.label" :to="item.to" class="mobile-nav-link"
-            active-class="mobile-nav-link-active" @click="closeMobileMenu">
-            <MazIcon :icon="item.icon" size="md" class="nav-icon" />
+          <RouterLink
+            v-for="item in navItems"
+            :key="item.label"
+            :to="item.to"
+            class="mobile-nav-link"
+            active-class="mobile-nav-link-active"
+            @click="closeMobileMenu"
+          >
+            <MazIcon
+              :icon="item.icon"
+              size="md"
+              class="nav-icon"
+            />
             <span>{{ item.label }}</span>
           </RouterLink>
         </div>
 
         <!-- Mobile User Section -->
         <div class="mobile-user-section">
-          <div v-if="authStore.isAuthenticated" class="mobile-user-authenticated">
+          <div
+            v-if="authStore.isAuthenticated"
+            class="mobile-user-authenticated"
+          >
             <div class="mobile-user-info">
-              <MazAvatar :caption="userInitials" size="1rem" class="user-avatar" />
+              <MazAvatar
+                :caption="userInitials"
+                size="1rem"
+                class="user-avatar"
+              />
               <span class="user-name">{{ userDisplayName }}</span>
             </div>
 
             <div class="mobile-user-actions">
-              <template v-for="value in userMenuItems" :key="value.label">
-                <MazBtn v-if="value.label !== 'Logout'" @click="() => { value.onClick(); closeMobileMenu(); }"
-                  color="transparent" justify="start" block size="md" :left-icon="MazCog6Tooth">
+              <template
+                v-for="value in userMenuItems"
+                :key="value.label"
+              >
+                <MazBtn
+                  v-if="value.label !== 'Logout'"
+                  color="transparent"
+                  justify="start"
+                  block
+                  size="md"
+                  :left-icon="MazCog6Tooth"
+                  @click="() => { value.onClick(); closeMobileMenu(); }"
+                >
                   {{ value.label }}
                 </MazBtn>
-                <MazBtn v-else @click="handleLogout" color="destructive" justify="start" block size="md" outlined
-                  :left-icon="MazArrowLeftOnRectangle">
+                <MazBtn
+                  v-else
+                  color="destructive"
+                  justify="start"
+                  block
+                  size="md"
+                  outlined
+                  :left-icon="MazArrowLeftOnRectangle"
+                  @click="handleLogout"
+                >
                   Logout
                 </MazBtn>
               </template>
             </div>
           </div>
 
-          <div v-else class="mobile-user-unauthenticated">
-            <MazBtn @click="handleLogin" color="success" block size="lg" :left-icon="MazArrowRightOnRectangle">
+          <div
+            v-else
+            class="mobile-user-unauthenticated"
+          >
+            <MazBtn
+              color="success"
+              block
+              size="lg"
+              :left-icon="MazArrowRightOnRectangle"
+              @click="handleLogin"
+            >
               Login
             </MazBtn>
           </div>
@@ -202,7 +335,11 @@ const userInitials = computed(() => {
     </div>
 
     <!-- Mobile Menu Overlay -->
-    <div v-if="isMobileMenuOpen" class="mobile-overlay" @click="closeMobileMenu"></div>
+    <div
+      v-if="isMobileMenuOpen"
+      class="mobile-overlay"
+      @click="closeMobileMenu"
+    />
   </header>
 </template>
 

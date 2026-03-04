@@ -20,10 +20,18 @@ onMounted(async () => {
   <Nav />
 
   <!-- Loading state while auth is initializing -->
-  <div v-if="isInitializing" class="app-loading">
+  <div
+    v-if="isInitializing"
+    class="app-loading"
+  >
     <div class="loading-content">
-      <MazSpinner size="3rem" color="primary" />
-      <p class="loading-text">Initialisation en cours...</p>
+      <MazSpinner
+        size="3rem"
+        color="primary"
+      />
+      <p class="loading-text">
+        Initialisation en cours...
+      </p>
     </div>
   </div>
 

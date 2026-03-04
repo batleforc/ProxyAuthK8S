@@ -4,43 +4,71 @@
       <!-- Logo/Brand -->
       <div class="brand-section">
         <div class="brand-icon">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M12 2L2 7L12 12L22 7L12 2Z"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M2 17L12 22L22 17"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M2 12L12 17L22 12"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </div>
-        <h1 class="brand-text">ProxyAuthK8S</h1>
+        <h1 class="brand-text">
+          ProxyAuthK8S
+        </h1>
       </div>
 
       <!-- Loading Animation -->
       <div class="loading-section">
         <div class="loading-spinner">
-          <div class="spinner-ring"></div>
-          <div class="spinner-ring"></div>
-          <div class="spinner-ring"></div>
+          <div class="spinner-ring" />
+          <div class="spinner-ring" />
+          <div class="spinner-ring" />
         </div>
       </div>
 
       <!-- Message Section -->
       <div class="message-section">
-        <h2 class="main-message">Finalisation de l'authentification</h2>
+        <h2 class="main-message">
+          Finalisation de l'authentification
+        </h2>
         <p class="sub-message">
           Veuillez patienter pendant que nous finalisons votre connexion sécurisée.
         </p>
         <div class="loading-dots">
-          <span class="dot"></span>
-          <span class="dot"></span>
-          <span class="dot"></span>
+          <span class="dot" />
+          <span class="dot" />
+          <span class="dot" />
         </div>
       </div>
 
       <!-- Progress Indicator -->
       <div class="progress-section">
         <div class="progress-bar">
-          <div class="progress-fill"></div>
+          <div class="progress-fill" />
         </div>
-        <p class="progress-text">Authentification en cours...</p>
+        <p class="progress-text">
+          Authentification en cours...
+        </p>
       </div>
     </div>
   </div>

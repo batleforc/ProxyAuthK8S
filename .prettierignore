@@ -3,3 +3,7 @@
 /coverage
 /.nx/cache
 /.nx/workspace-data
+/swagger.json
+/swagger.yaml
+/deploy/chart/*
+/deploy/chart-crd/*

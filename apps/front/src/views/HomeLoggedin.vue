@@ -106,7 +106,11 @@ const copyUrlToClipboard = async (cluster: VisibleCluster) => {
       <div class="clusters-container">
         <div class="section-header">
           <h2 class="section-title">
-            <MazIcon :icon="MazServer" size="lg" class="title-icon" />
+            <MazIcon
+              :icon="MazServer"
+              size="lg"
+              class="title-icon"
+            />
             Vos Clusters Kubernetes
           </h2>
           <p class="section-subtitle">
@@ -116,15 +120,32 @@ const copyUrlToClipboard = async (cluster: VisibleCluster) => {
         </div>
 
         <!-- Loading State -->
-        <div v-if="isLoading" class="loading-container">
-          <MazSpinner size="4em" color="primary" />
-          <p class="loading-text">Chargement de vos clusters...</p>
+        <div
+          v-if="isLoading"
+          class="loading-container"
+        >
+          <MazSpinner
+            size="4em"
+            color="primary"
+          />
+          <p class="loading-text">
+            Chargement de vos clusters...
+          </p>
         </div>
 
         <!-- Empty State -->
-        <div v-else-if="clusters.length === 0" class="empty-state">
-          <MazIcon :icon="MazServer" size="xl" class="empty-icon" />
-          <h3 class="empty-title">Aucun cluster disponible</h3>
+        <div
+          v-else-if="clusters.length === 0"
+          class="empty-state"
+        >
+          <MazIcon
+            :icon="MazServer"
+            size="xl"
+            class="empty-icon"
+          />
+          <h3 class="empty-title">
+            Aucun cluster disponible
+          </h3>
           <p class="empty-description">
             Vous n'avez actuellement accès à aucun cluster Kubernetes.
             Contactez votre administrateur pour obtenir les permissions nécessaires.
@@ -132,21 +153,39 @@ const copyUrlToClipboard = async (cluster: VisibleCluster) => {
         </div>
 
         <!-- Clusters Grid -->
-        <div v-else class="clusters-grid">
-          <MazCard v-for="cluster in clusters" :key="`${cluster.namespace}-${cluster.name}`" class="cluster-card"
+        <div
+          v-else
+          class="clusters-grid"
+        >
+          <MazCard
+            v-for="cluster in clusters"
+            :key="`${cluster.namespace}-${cluster.name}`"
+            class="cluster-card"
             :class="{
               'cluster-disabled': !cluster.enabled,
               'cluster-unreachable': cluster.is_reachable === false
-            }">
+            }"
+          >
             <template #content-title>
               <div class="cluster-header">
                 <div class="cluster-info">
-                  <h3 class="cluster-name">{{ cluster.name }}</h3>
-                  <p class="cluster-namespace">Namespace: {{ cluster.namespace }}</p>
+                  <h3 class="cluster-name">
+                    {{ cluster.name }}
+                  </h3>
+                  <p class="cluster-namespace">
+                    Namespace: {{ cluster.namespace }}
+                  </p>
                 </div>
                 <div class="cluster-status">
-                  <MazBadge :color="getClusterStatusColor(cluster)" size="sm">
-                    <MazIcon :icon="getClusterStatusIcon(cluster)" size="xs" class="status-icon" />
+                  <MazBadge
+                    :color="getClusterStatusColor(cluster)"
+                    size="sm"
+                  >
+                    <MazIcon
+                      :icon="getClusterStatusIcon(cluster)"
+                      size="xs"
+                      class="status-icon"
+                    />
                     {{ getClusterStatusText(cluster) }}
                   </MazBadge>
                 </div>
@@ -156,14 +195,25 @@ const copyUrlToClipboard = async (cluster: VisibleCluster) => {
             <template #default>
               <div class="cluster-features">
                 <div class="feature-item">
-                  <MazIcon :icon="MazShieldCheck" size="sm"
-                    :class="cluster.sso_enabled ? 'feature-enabled' : 'feature-disabled'" />
+                  <MazIcon
+                    :icon="MazShieldCheck"
+                    size="sm"
+                    :class="cluster.sso_enabled ? 'feature-enabled' : 'feature-disabled'"
+                  />
                   <span class="feature-text">
                     SSO {{ cluster.sso_enabled ? 'activé' : 'désactivé' }}
                   </span>
                 </div>
-                <div class="feature-item cluster-url" @click="copyUrlToClipboard(cluster)" style="cursor: pointer;">
-                  <MazIcon :icon="MazArrowTopRightOnSquare" size="sm" class="url-icon" />
+                <div
+                  class="feature-item cluster-url"
+                  style="cursor: pointer;"
+                  @click="copyUrlToClipboard(cluster)"
+                >
+                  <MazIcon
+                    :icon="MazArrowTopRightOnSquare"
+                    size="sm"
+                    class="url-icon"
+                  />
                   <span class="url-text">
                     {{ getClusterURL(cluster) }}
                   </span>
@@ -173,8 +223,14 @@ const copyUrlToClipboard = async (cluster: VisibleCluster) => {
 
             <template #footer>
               <div class="cluster-actions">
-                <MazBtn :disabled="!cluster.enabled || cluster.is_reachable === false" color="primary" size="sm"
-                  @click="handleClusterAccess(cluster)" :right-icon="MazArrowTopRightOnSquare" class="access-button">
+                <MazBtn
+                  :disabled="!cluster.enabled || cluster.is_reachable === false"
+                  color="primary"
+                  size="sm"
+                  :right-icon="MazArrowTopRightOnSquare"
+                  class="access-button"
+                  @click="handleClusterAccess(cluster)"
+                >
                   Accéder au cluster
                 </MazBtn>
               </div>

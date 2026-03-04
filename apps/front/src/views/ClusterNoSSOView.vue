@@ -141,7 +141,11 @@ const downloadKubeconfig = () => {
     <section class="header-section">
       <div class="header-content">
         <h1 class="page-title">
-          <MazIcon :icon="LazyMazServer" size="lg" class="title-icon" />
+          <MazIcon
+            :icon="LazyMazServer"
+            size="lg"
+            class="title-icon"
+          />
           Cluster sans SSO
         </h1>
         <p class="page-description">
@@ -155,15 +159,24 @@ const downloadKubeconfig = () => {
     <!-- Main Content -->
     <section class="main-section">
       <div class="main-container">
-
         <!-- Chargement -->
-        <div v-if="isLoading" class="loading-step">
+        <div
+          v-if="isLoading"
+          class="loading-step"
+        >
           <MazCard class="loading-card">
             <template #default>
               <div class="loading-content">
-                <MazSpinner size="3rem" color="primary" class="loading-spinner" />
+                <MazSpinner
+                  size="3rem"
+                  color="primary"
+                  class="loading-spinner"
+                />
                 <h2 class="loading-title">
-                  <MazIcon :icon="LazyMazClock" size="lg" />
+                  <MazIcon
+                    :icon="LazyMazClock"
+                    size="lg"
+                  />
                   Chargement des informations du cluster...
                 </h2>
                 <p class="loading-description">
@@ -175,14 +188,19 @@ const downloadKubeconfig = () => {
         </div>
 
         <!-- Affichage du cluster -->
-        <div v-else-if="clusterData" class="cluster-step">
+        <div
+          v-else-if="clusterData"
+          class="cluster-step"
+        >
           <div class="cluster-grid">
-
             <!-- Information box -->
             <MazCard class="info-box full-width">
               <template #content-title>
                 <h3 class="card-title">
-                  <MazIcon :icon="LazyMazInformationCircle" size="lg" />
+                  <MazIcon
+                    :icon="LazyMazInformationCircle"
+                    size="lg"
+                  />
                   À propos de ce cluster
                 </h3>
               </template>
@@ -201,7 +219,10 @@ const downloadKubeconfig = () => {
             <MazCard class="info-card">
               <template #content-title>
                 <h3 class="card-title">
-                  <MazIcon :icon="LazyMazServer" size="lg" />
+                  <MazIcon
+                    :icon="LazyMazServer"
+                    size="lg"
+                  />
                   Informations du Cluster
                 </h3>
               </template>
@@ -209,11 +230,21 @@ const downloadKubeconfig = () => {
                 <div class="info-content">
                   <div class="info-row">
                     <span class="info-label">Nom du cluster:</span>
-                    <MazBadge color="info" size="sm">{{ clusterData.name }}</MazBadge>
+                    <MazBadge
+                      color="info"
+                      size="sm"
+                    >
+                      {{ clusterData.name }}
+                    </MazBadge>
                   </div>
                   <div class="info-row">
                     <span class="info-label">Namespace:</span>
-                    <MazBadge color="primary" size="sm">{{ clusterData.namespace }}</MazBadge>
+                    <MazBadge
+                      color="primary"
+                      size="sm"
+                    >
+                      {{ clusterData.namespace }}
+                    </MazBadge>
                   </div>
                   <div class="info-row">
                     <span class="info-label">URL du proxy:</span>
@@ -225,13 +256,22 @@ const downloadKubeconfig = () => {
                   </div>
                   <div class="info-row">
                     <span class="info-label">Statut:</span>
-                    <MazBadge :color="clusterData.enabled ? 'success' : 'danger'" size="sm">
+                    <MazBadge
+                      :color="clusterData.enabled ? 'success' : 'danger'"
+                      size="sm"
+                    >
                       {{ clusterData.enabled ? 'Activé' : 'Désactivé' }}
                     </MazBadge>
                   </div>
-                  <div class="info-row" v-if="clusterData.is_reachable !== null">
+                  <div
+                    v-if="clusterData.is_reachable !== null"
+                    class="info-row"
+                  >
                     <span class="info-label">Accessible:</span>
-                    <MazBadge :color="clusterData.is_reachable ? 'success' : 'warning'" size="sm">
+                    <MazBadge
+                      :color="clusterData.is_reachable ? 'success' : 'warning'"
+                      size="sm"
+                    >
                       {{ clusterData.is_reachable ? 'Oui' : 'Non' }}
                     </MazBadge>
                   </div>
@@ -243,7 +283,10 @@ const downloadKubeconfig = () => {
             <MazCard class="auth-card">
               <template #content-title>
                 <h3 class="card-title">
-                  <MazIcon :icon="LazyMazShieldCheck" size="lg" />
+                  <MazIcon
+                    :icon="LazyMazShieldCheck"
+                    size="lg"
+                  />
                   Authentification
                 </h3>
               </template>
@@ -255,15 +298,27 @@ const downloadKubeconfig = () => {
                   </p>
                   <div class="auth-details">
                     <div class="auth-item">
-                      <MazIcon :icon="LazyMazShieldCheck" size="sm" class="auth-icon" />
+                      <MazIcon
+                        :icon="LazyMazShieldCheck"
+                        size="sm"
+                        class="auth-icon"
+                      />
                       <span>Pas de redirections SSO requises</span>
                     </div>
                     <div class="auth-item">
-                      <MazIcon :icon="LazyMazServer" size="sm" class="auth-icon" />
+                      <MazIcon
+                        :icon="LazyMazServer"
+                        size="sm"
+                        class="auth-icon"
+                      />
                       <span>Requêtes via le proxy ProxyAuth</span>
                     </div>
                     <div class="auth-item">
-                      <MazIcon :icon="LazyMazShieldCheck" size="sm" class="auth-icon" />
+                      <MazIcon
+                        :icon="LazyMazShieldCheck"
+                        size="sm"
+                        class="auth-icon"
+                      />
                       <span>Token ProxyAuth utilisé</span>
                     </div>
                   </div>
@@ -275,7 +330,10 @@ const downloadKubeconfig = () => {
             <MazCard class="kubeconfig-card full-width">
               <template #content-title>
                 <h3 class="card-title">
-                  <MazIcon :icon="LazyMazCloudArrowDown" size="lg" />
+                  <MazIcon
+                    :icon="LazyMazCloudArrowDown"
+                    size="lg"
+                  />
                   Configuration Kubernetes
                 </h3>
               </template>
@@ -287,17 +345,30 @@ const downloadKubeconfig = () => {
                     tant que votre session ProxyAuth est active.
                   </p>
 
-                  <div class="kubeconfig-field" v-highlight>
+                  <div
+                    v-highlight
+                    class="kubeconfig-field"
+                  >
                     <pre><code class="hljs yaml">{{ generateKubeconfig() }}</code></pre>
                   </div>
 
                   <div class="kubeconfig-actions">
-                    <MazBtn color="success" size="lg" :left-icon="LazyMazCloudArrowDown" @click="downloadKubeconfig"
-                      class="download-button">
+                    <MazBtn
+                      color="success"
+                      size="lg"
+                      :left-icon="LazyMazCloudArrowDown"
+                      class="download-button"
+                      @click="downloadKubeconfig"
+                    >
                       Télécharger kubeconfig
                     </MazBtn>
-                    <MazBtn color="primary" size="lg" :left-icon="LazyMazClipboardDocument"
-                      @click="copyToClipboard(generateKubeconfig(), 'Kubeconfig')" class="copy-kubeconfig-button">
+                    <MazBtn
+                      color="primary"
+                      size="lg"
+                      :left-icon="LazyMazClipboardDocument"
+                      class="copy-kubeconfig-button"
+                      @click="copyToClipboard(generateKubeconfig(), 'Kubeconfig')"
+                    >
                       Copier kubeconfig
                     </MazBtn>
                   </div>
@@ -308,24 +379,37 @@ const downloadKubeconfig = () => {
         </div>
 
         <!-- État d'erreur -->
-        <div v-else class="error-step">
+        <div
+          v-else
+          class="error-step"
+        >
           <MazCard class="error-card">
             <template #default>
               <div class="error-content">
-                <MazIcon :icon="LazyMazArrowTopRightOnSquare" size="xl" class="error-icon" />
-                <h2 class="error-title">Cluster introuvable</h2>
+                <MazIcon
+                  :icon="LazyMazArrowTopRightOnSquare"
+                  size="xl"
+                  class="error-icon"
+                />
+                <h2 class="error-title">
+                  Cluster introuvable
+                </h2>
                 <p class="error-description">
                   Le cluster demandé est introuvable ou inaccessible.
                   Veuillez vérifier l'URL ou contacter votre administrateur.
                 </p>
-                <MazBtn color="primary" size="lg" @click="$router.push({ name: 'home' })" class="back-button">
+                <MazBtn
+                  color="primary"
+                  size="lg"
+                  class="back-button"
+                  @click="$router.push({ name: 'home' })"
+                >
                   Retour à l'accueil
                 </MazBtn>
               </div>
             </template>
           </MazCard>
         </div>
-
       </div>
     </section>
   </div>
