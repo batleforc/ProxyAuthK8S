@@ -49,6 +49,7 @@ app.use(MazUi, {
     mode: 'dark',
   },
   translations: {
+    locale: 'fr',
     messages: { fr },
   },
 });
