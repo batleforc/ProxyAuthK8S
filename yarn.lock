@@ -1378,7 +1378,7 @@
   dependencies:
     "@maz-ui/utils" "4.7.2"
 
-"@maz-ui/translations@4.7.2":
+"@maz-ui/translations@4.7.2", "@maz-ui/translations@^4.7.2":
   version "4.7.2"
   resolved "https://registry.yarnpkg.com/@maz-ui/translations/-/translations-4.7.2.tgz#55e3a9df092c9c532f3c0fff112b9dc08fc2c4d9"
   integrity sha512-ybCTECHWUPlUGR6kaq3LImYoFjo+cC8IvMh0AClnk4jcryc1ExD21u91GKjihtKJk8XeWUaryeWA2tod3QmLTg==

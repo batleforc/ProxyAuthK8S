@@ -9,7 +9,6 @@ import hljs from 'highlight.js';
 
 import { ToastOptions, ToastPlugin } from 'maz-ui/plugins/toast';
 import { obsidian } from '@maz-ui/themes/presets/obsidian';
-import { fr } from '@maz-ui/translations';
 import { MazUi } from 'maz-ui/plugins/maz-ui';
 
 import 'vue-hljs/style.css';
@@ -50,7 +49,6 @@ app.use(MazUi, {
   },
   translations: {
     locale: 'fr',
-    messages: { fr },
   },
 });
 
