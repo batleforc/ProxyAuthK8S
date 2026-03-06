@@ -36,7 +36,7 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
 
 ## Left to do
 
-### v0.1.0
+### v1.0.0
 
 - [x] Create a CRD to store target cluster
 - [x] Validate the CRD against certain rules
@@ -70,7 +70,7 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
   - [x] Tag need to be done with cog by a human contributor - Rules on repo
   - [x] Each release need to have a name and a description in the changelog
 
-### v0.2.0
+### v1.1.0
 
 - [ ] Create Krew plugin for easier usage
   - <https://github.com/davidB/kubectl-view-allocations/tree/master>
@@ -83,7 +83,7 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
     - [ ] Build and push Krew plugin to Krew Index
 - [ ] Have a clean git history
 
-### v1.0.0
+### v1.2.0
 
 - [ ] Add more tests
 - [ ] Add documentation
