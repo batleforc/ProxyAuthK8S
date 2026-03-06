@@ -115,3 +115,14 @@ tasks:
     silent: true
     cmds:
       - cargo run --bin kubectl_proxyauth -- --proxy-auth-config="proxyauth_config.dev.yaml" {{ .CLI_ARGS }}
+
+  bump:
+    desc: "Bump the version of the project"
+    silent: true
+    vars:
+      message: "cerberus4"
+    cmds:
+      - echo "Bumping the version of the project"
+      - cog bump {{ .CLI_ARGS }}
+      - VERSION=$(git tag --sort=-creatordate | head -n1) git tag $VERSION $VERSION^{} -f -m "{{ .message }}"
+      - VERSION=$(git tag --sort=-creatordate | head -n1) git push origin tag $VERSION
