@@ -8,7 +8,7 @@ COPY . ./
 ENV ENV production
 RUN npx nx build front
 
-FROM registry.hub.docker.com/nginxinc/nginx-unprivileged:1.29-alpine-slim AS deploy
+FROM registry.hub.docker.com/nginxinc/nginx-unprivileged:1-alpine-slim AS deploy
 WORKDIR /app
 USER 0
 RUN rm -rf ./* && apk upgrade --no-cache
