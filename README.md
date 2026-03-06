@@ -61,14 +61,14 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
     - [x] Run CodeQL analysis
     - [x] Rust Deeper analysis including CVE
     - [x] Front Lint and CVE
-  - [ ] In case of TAG on main, if not ignored the tag and need to be in the format vX.X.X
-    - [ ] Build and push Docker image to GHCR
-    - [ ] Build and push Helm chart to GHCR
-    - [ ] Create a draft-release on GitHub with the changelog
-- [ ] PRE-TAG
-  - [ ] Tag need to be in the format vX.X.X
-  - [ ] Tag need to be done with cog by a human contributor
-  - [ ] Each release need to have a name and a description in the changelog
+  - [x] In case of TAG on main, if not ignored the tag and need to be in the format vX.X.X
+    - [x] Build and push Docker image to GHCR
+    - [x] Build and push Helm chart to GHCR
+    - [x] Create a draft-release on GitHub with the changelog
+- [x] PRE-TAG
+  - [x] Tag need to be in the format vX.X.X - Rules on repo
+  - [x] Tag need to be done with cog by a human contributor - Rules on repo
+  - [x] Each release need to have a name and a description in the changelog
 
 ### v0.2.0
 
