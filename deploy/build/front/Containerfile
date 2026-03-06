@@ -1,11 +1,10 @@
 FROM registry.hub.docker.com/library/node:24 AS build
 WORKDIR /app
-ENV ENV production
+ENV ENV=production
 COPY package.json ./
 COPY yarn.lock ./
 RUN yarn
 COPY . ./
-ENV ENV production
 RUN npx nx build front
 
 FROM registry.hub.docker.com/nginxinc/nginx-unprivileged:1-alpine-slim AS deploy

@@ -170,7 +170,7 @@ jobs:
       - name: ⎈ Package and push Helm Chart
         run: |
           helm package deploy/chart-crd
-          helm push chart-crd-*.tgz oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts-crd --version ${{ needs.gather-facts.outputs.version }}
+          helm push chart-crd-*.tgz oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts-crd
   build-and-push-helm:
     name: ⎈ Build and push helm chart
     needs: gather-facts
@@ -196,7 +196,7 @@ jobs:
       - name: ⎈ Package and push Helm Chart
         run: |
           helm package deploy/chart
-          helm push chart-*.tgz oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts --version ${{ needs.gather-facts.outputs.version }}
+          helm push chart-*.tgz oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts
 
   create-draft-release:
     permissions:

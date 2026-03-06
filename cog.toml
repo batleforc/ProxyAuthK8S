@@ -62,3 +62,6 @@ proxyauthK8S-cli = { path = 'libs/cli/cli', bump_order = 1, public_api = true }
 
 proxyauthK8S-front = { path = 'apps/front', bump_order = 1, public_api = true }
 proxyauthK8S-front-api = { path = 'libs/front/front-api', bump_order = 1, public_api = true }
+
+proxyauthK8S-helm = { path = 'deploy/chart', bump_order = 1, public_api = true }
+proxyauthK8S-helm-crd = { path = 'deploy/chart-crd', bump_order = 1, public_api = true }
