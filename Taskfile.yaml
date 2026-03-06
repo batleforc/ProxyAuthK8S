@@ -16,6 +16,7 @@ tasks:
     silent: true
     cmds:
       - echo "Initializing the project"
+      - cargo install cargo-set-version
       - cog install-hook -a -o
   back:
     desc: "Run the backend"
