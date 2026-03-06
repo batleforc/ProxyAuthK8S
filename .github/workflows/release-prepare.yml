@@ -88,14 +88,6 @@ jobs:
           image: ${{ steps.build_server.outputs.image }}
           format: cyclonedx-json
           output-file: server-sbom.json
-
-      - name: 📤 Upload SBOM artifacts
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: sbom-reports
-          path: |
-            *-sbom.json
-            *-sbom.txt
   build-and-push-front:
     name: 🐳 Build and push front image
     permissions:
@@ -142,13 +134,6 @@ jobs:
           format: cyclonedx-json
           output-file: front-sbom.json
 
-      - name: 📤 Upload SBOM artifacts
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: sbom-reports
-          path: |
-            *-sbom.json
-            *-sbom.txt
   build-and-push-helm-crd:
     name: ⎈ Build and push crd helm chart
     permissions:
@@ -174,9 +159,12 @@ jobs:
         run: |
           helm plugin install https://github.com/chartmuseum/helm-push || true
       - name: ⎈ Package and push Helm Chart
-        run: |
-          helm package deploy/chart-crd
-          helm push chart-crd-*.tgz oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts-crd
+        uses: bsord/helm-push@v4.1.0
+        with:
+          useOCIRegistry: true
+          registry-url: oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts-crd
+          access-token: ${{ secrets.GITHUB_TOKEN }}
+          chart-folder: deploy/chart-crd
   build-and-push-helm:
     name: ⎈ Build and push helm chart
     permissions:
@@ -202,9 +190,12 @@ jobs:
         run: |
           helm plugin install https://github.com/chartmuseum/helm-push || true
       - name: ⎈ Package and push Helm Chart
-        run: |
-          helm package deploy/chart
-          helm push chart-*.tgz oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts
+        uses: bsord/helm-push@v4.1.0
+        with:
+          useOCIRegistry: true
+          registry-url: oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts
+          access-token: ${{ secrets.GITHUB_TOKEN }}
+          chart-folder: deploy/chart
 
   create-draft-release:
     permissions:
