@@ -34,17 +34,19 @@ jobs:
     steps:
       - name: Set version
         id: set-version
-        run: echo "::set-output name=version::${GITHUB_REF#refs/tags/}"
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
       - name: Set name
         id: set-name
         run: |
           if [ -z "$GITHUB_HEAD_REF" ]; then
-            echo "::set-output name=name::${GITHUB_REF#refs/tags/}"
+            echo "name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           else
-            echo "::set-output name=name::${GITHUB_HEAD_REF}"
+            echo "name=${GITHUB_HEAD_REF}" >> $GITHUB_OUTPUT
           fi
   build-and-push-back:
     name: 🐳 Build and push Back image
+    permissions:
+      packages: write
     needs: gather-facts
     runs-on: ubuntu-latest
     outputs:
@@ -96,6 +98,8 @@ jobs:
             *-sbom.txt
   build-and-push-front:
     name: 🐳 Build and push front image
+    permissions:
+      packages: write
     needs: gather-facts
     runs-on: ubuntu-latest
     outputs:
@@ -147,6 +151,8 @@ jobs:
             *-sbom.txt
   build-and-push-helm-crd:
     name: ⎈ Build and push crd helm chart
+    permissions:
+      packages: write
     needs: gather-facts
     runs-on: ubuntu-latest
     steps:
@@ -173,6 +179,8 @@ jobs:
           helm push chart-crd-*.tgz oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts-crd
   build-and-push-helm:
     name: ⎈ Build and push helm chart
+    permissions:
+      packages: write
     needs: gather-facts
     runs-on: ubuntu-latest
     steps:
