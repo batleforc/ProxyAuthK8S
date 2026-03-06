@@ -163,6 +163,7 @@ jobs:
         with:
           useOCIRegistry: true
           registry-url: oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts-crd
+          username: ${{ github.actor }}
           access-token: ${{ secrets.GITHUB_TOKEN }}
           chart-folder: deploy/chart-crd
   build-and-push-helm:
@@ -194,6 +195,7 @@ jobs:
         with:
           useOCIRegistry: true
           registry-url: oci://${{ env.REGISTRY }}/${{ env.REPO_NAME_LOWER }}/charts
+          username: ${{ github.actor }}
           access-token: ${{ secrets.GITHUB_TOKEN }}
           chart-folder: deploy/chart
 
