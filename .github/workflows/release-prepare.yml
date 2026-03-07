@@ -215,6 +215,20 @@ jobs:
         run: echo "Create draft release with version ${{ needs.gather-facts.outputs.version }} and name ${{ needs.gather-facts.outputs.name }}"
       - name: 🔍 Checkout release branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Prepare release body
+        run: |
+          # Read the release template
+          TEMPLATE=$(cat .github/release_template.md)
+          RELEASE_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          CONTRIBUTORS=$(git log --format='%aN' | sort -u | grep -v "dependabot" | grep -v "github-actions" | grep -v "bot" | grep -v "actions" | grep -v "users.noreply.github.com" | paste -sd ", " -)
+
+          # Replace placeholders with actual values
+          TEMPLATE=${TEMPLATE//\{\{VERSION\}\}/${{ needs.gather-facts.outputs.version }}}
+          TEMPLATE=${TEMPLATE//\{\{RELEASE_DATE\}\}/$RELEASE_DATE}
+          TEMPLATE=${TEMPLATE//\{\{CONTRIBUTORS_LIST\}\}/$CONTRIBUTORS}
+
+          # Save the prepared release notes to a file
+          echo "$TEMPLATE" > release.md
       # Generate Release Notes and link to the existing changelog
       - name: 📝 Generate Release Notes
         id: generate_release_notes
@@ -222,6 +236,7 @@ jobs:
         with:
           tag_name: ${{ needs.gather-facts.outputs.version }}
           name: ${{ needs.gather-facts.outputs.name }}
+          body_path: release.md
           draft: true
           generate_release_notes: true
           token: ${{ secrets.GITHUB_TOKEN }}

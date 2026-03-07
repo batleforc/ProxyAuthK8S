@@ -64,3 +64,5 @@ vitest.config.*.timestamp*
 /pr_body.md
 /helm-report
 /helm-packages
+
+release.md
