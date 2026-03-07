@@ -12,7 +12,7 @@ tag_prefix = "v"
 
 pre_bump_hooks = [
   "echo 'upgrading to {{version}}'",
-  "cargo set-version {{version}}",
+  "cargo set-version {{version}} && cargo build",
   "yq eval '.version = \"{{version}}\"' -i deploy/chart-crd/Chart.yaml",
   "yq eval '.version = \"{{version}}\"' -i deploy/chart/Chart.yaml",
   "yq eval '.version = \"{{version}}\"' -i package.json",
