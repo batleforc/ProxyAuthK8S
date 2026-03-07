@@ -2,6 +2,18 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.1.7](https://github.com/batleforc/proxyauthK8s/compare/ef1e89362d07704161f0c67830e730a2c5be4e16..v0.1.7) - 2026-03-07
+#### Features
+- another other pre bump - ([76f9f0b](https://github.com/batleforc/proxyauthK8s/commit/76f9f0bfb7628e7e64ee533719dd83ca06fa6dce)) - Max Batleforc
+- another pre-bump - ([6473b56](https://github.com/batleforc/proxyauthK8s/commit/6473b56382eb81ad35fcd25ff25688d1749bcf82)) - Max Batleforc
+- pre-bump - ([35405ab](https://github.com/batleforc/proxyauthK8s/commit/35405ab917ed59655b413757290fee828bb5537b)) - Max Batleforc
+- pre-bump - ([ef1e893](https://github.com/batleforc/proxyauthK8s/commit/ef1e89362d07704161f0c67830e730a2c5be4e16)) - Max Batleforc
+#### Bug Fixes
+- qip - ([8d41bd2](https://github.com/batleforc/proxyauthK8s/commit/8d41bd23efd673c93aaff65131a2970900448e7f)) - Max Batleforc
+- wrong pre bump format - ([7a10ee2](https://github.com/batleforc/proxyauthK8s/commit/7a10ee295daff89f9505ee679a1cef7fc17fa992)) - Max Batleforc
+
+- - -
+
 ## [v0.1.6](https://github.com/batleforc/proxyauthK8s/compare/bf92b5ce245a81ed33045155612402ce7020355f..v0.1.6) - 2026-03-07
 ### Packages
 - [proxyauthk8s-back-crd-v0.1.0](libs/server/crd) locked to [proxyauthk8s-back-crd-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-back-crd-v0.1.0)
