@@ -15,7 +15,7 @@ pre_bump_hooks = [
   "cargo set-version {{version}}",
   "yq eval '.version = \"{{version}}\"' -i deploy/chart-crd/Chart.yaml",
   "yq eval '.version = \"{{version}}\"' -i deploy/chart/Chart.yaml",
-  "yq eval '.version = \"{{version}}\"' -i apps/front/package.json",
+  "yq eval '.version = \"{{version}}\"' -i package.json",
   "yq eval '.version = \"{{version}}\"' -i libs/front/front-api/package.json",
 ]
 
