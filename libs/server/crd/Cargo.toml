@@ -1,6 +1,6 @@
 [package]
 name = "crd"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 
 [dependencies]
@@ -19,7 +19,7 @@ regex = { workspace = true }
 
 base64 = "0.22"
 
-common = { path = "../common" , version = "0.1.7" }
+common = { path = "../common" , version = "0.1.8" }
 secrecy = "0.10.3"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

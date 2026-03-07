@@ -1,12 +1,12 @@
 [package]
 name = "crdgen"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 
 
 [dependencies]
 kube = { workspace = true }
-crd = { path = "../../libs/server/crd" , version = "0.1.7" }
+crd = { path = "../../libs/server/crd" , version = "0.1.8" }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 
