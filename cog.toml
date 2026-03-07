@@ -6,14 +6,17 @@ generate_mono_repository_global_tag = true
 branch_whitelist = []
 skip_ci = "[skip ci]"
 skip_untracked = false
-pre_bump_hooks = []
 post_bump_hooks = []
 post_package_bump_hooks = []
 tag_prefix = "v"
 
-pre_package_bump_hooks = [
+pre_bump_hooks = [
   "echo 'upgrading {{package}}' to {{version}}",
   "cargo set-version {{version}}",
+  "yq eval '.version = \"{{version}}\"' -i deploy/chart-crd/Chart.yaml",
+  "yq eval '.version = \"{{version}}\"' -i deploy/chart/Chart.yaml",
+  "yq eval '.version = \"{{version}}\"' -i apps/front/package.json",
+  "yq eval '.version = \"{{version}}\"' -i libs/front/front-api/package.json",
 ]
 
 
@@ -65,14 +68,8 @@ proxyauthK8S-cli-trace = { path = 'libs/cli/cli_trace', bump_order = 1, public_a
 proxyauthK8S-cli-client-api = { path = 'libs/cli/client_api', bump_order = 1, public_api = true }
 proxyauthK8S-cli = { path = 'libs/cli/cli', bump_order = 1, public_api = true }
 
-proxyauthK8S-front = { path = 'apps/front', bump_order = 1, public_api = true, pre_bump_hooks = [
-  "yq eval '.version = \"{{version}}\"' -i apps/front/package.json",
-] }
+proxyauthK8S-front = { path = 'apps/front', bump_order = 1, public_api = true }
 proxyauthK8S-front-api = { path = 'libs/front/front-api', bump_order = 1, public_api = true }
 
-proxyauthK8S-helm = { path = 'deploy/chart', bump_order = 1, public_api = true, pre_bump_hooks = [
-  "yq eval '.version = \"{{version}}\"' -i deploy/chart/Chart.yaml",
-] }
-proxyauthK8S-helm-crd = { path = 'deploy/chart-crd', bump_order = 1, public_api = true, pre_bump_hooks = [
-  "yq eval '.version = \"{{version}}\"' -i deploy/chart-crd/Chart.yaml",
-] }
+proxyauthK8S-helm = { path = 'deploy/chart', bump_order = 1, public_api = true }
+proxyauthK8S-helm-crd = { path = 'deploy/chart-crd', bump_order = 1, public_api = true }
