@@ -53,23 +53,3 @@ repository = "proxyauthK8s"
 owner = "batleforc"
 
 [bump_profiles]
-
-[packages]
-proxyauthK8S-back-crd = { path = 'libs/server/crd', bump_order = 1, public_api = true }
-proxyauthK8S-back-server = { path = 'apps/server', bump_order = 1, public_api = true }
-proxyauthK8S-back-trace = { path = 'libs/server/trace', bump_order = 1, public_api = true }
-proxyauthK8S-back-crdgen = { path = 'apps/crdgen', bump_order = 1, public_api = true }
-proxyauthK8S-back-swaggergen = { path = 'apps/swaggergen', bump_order = 1, public_api = true }
-proxyauthK8S-back-api = { path = 'libs/server/api', bump_order = 1, public_api = true }
-proxyauthK8S-back-controller = { path = 'libs/server/controller', bump_order = 1, public_api = true }
-proxyauthK8S-back-common = { path = 'libs/server/common', bump_order = 1, public_api = true }
-proxyauthK8S-back-kubectl = { path = 'apps/kubectl_proxyauth', bump_order = 1, public_api = true }
-proxyauthK8S-cli-trace = { path = 'libs/cli/cli_trace', bump_order = 1, public_api = true }
-proxyauthK8S-cli-client-api = { path = 'libs/cli/client_api', bump_order = 1, public_api = true }
-proxyauthK8S-cli = { path = 'libs/cli/cli', bump_order = 1, public_api = true }
-
-proxyauthK8S-front = { path = 'apps/front', bump_order = 1, public_api = true }
-proxyauthK8S-front-api = { path = 'libs/front/front-api', bump_order = 1, public_api = true }
-
-proxyauthK8S-helm = { path = 'deploy/chart', bump_order = 1, public_api = true }
-proxyauthK8S-helm-crd = { path = 'deploy/chart-crd', bump_order = 1, public_api = true }
