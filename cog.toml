@@ -46,8 +46,7 @@ release = { changelog_title = "Releases" }
 
 [changelog]
 path = "CHANGELOG.md"
-template = "monorepo_remote"
-package_template = "package_remote"
+template = "remote"
 remote = "github.com"
 repository = "proxyauthK8s"
 owner = "batleforc"
