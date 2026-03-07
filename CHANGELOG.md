@@ -2,6 +2,30 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.1.6](https://github.com/batleforc/proxyauthK8s/compare/bf92b5ce245a81ed33045155612402ce7020355f..v0.1.6) - 2026-03-07
+### Packages
+- [proxyauthk8s-back-crd-v0.1.0](libs/server/crd) locked to [proxyauthk8s-back-crd-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-back-crd-v0.1.0)
+- [proxyauthk8s-back-trace-v0.1.0](libs/server/trace) locked to [proxyauthk8s-back-trace-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-back-trace-v0.1.0)
+- [proxyauthk8s-back-controller-v0.1.0](libs/server/controller) locked to [proxyauthk8s-back-controller-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-back-controller-v0.1.0)
+- [proxyauthk8s-back-kubectl-v0.1.0](apps/kubectl_proxyauth) locked to [proxyauthk8s-back-kubectl-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-back-kubectl-v0.1.0)
+- [proxyauthk8s-cli-trace-v0.1.0](libs/cli/cli_trace) locked to [proxyauthk8s-cli-trace-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-cli-trace-v0.1.0)
+- [proxyauthk8s-back-server-v0.1.0](apps/server) locked to [proxyauthk8s-back-server-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-back-server-v0.1.0)
+- [proxyauthk8s-back-common-v0.1.0](libs/server/common) locked to [proxyauthk8s-back-common-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-back-common-v0.1.0)
+- [proxyauthk8s-front-api-v0.1.0](libs/front/front-api) locked to [proxyauthk8s-front-api-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-front-api-v0.1.0)
+- [proxyauthk8s-back-swaggergen-v0.1.0](apps/swaggergen) locked to [proxyauthk8s-back-swaggergen-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-back-swaggergen-v0.1.0)
+- [proxyauthk8s-cli-v0.1.0](libs/cli/cli) locked to [proxyauthk8s-cli-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-cli-v0.1.0)
+- [v0.0.0](deploy/chart) locked to [v0.0.0](https://github.com/batleforc/proxyauthK8s/tree/v0.0.0)
+- [proxyauthk8s-cli-client-api-v0.1.0](libs/cli/client_api) locked to [proxyauthk8s-cli-client-api-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-cli-client-api-v0.1.0)
+- [v0.0.0](deploy/chart-crd) locked to [v0.0.0](https://github.com/batleforc/proxyauthK8s/tree/v0.0.0)
+- [proxyauthk8s-back-api-v0.1.0](libs/server/api) locked to [proxyauthk8s-back-api-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-back-api-v0.1.0)
+- [proxyauthk8s-back-crdgen-v0.1.0](apps/crdgen) locked to [proxyauthk8s-back-crdgen-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-back-crdgen-v0.1.0)
+- [proxyauthk8s-front-v0.1.0](apps/front) locked to [proxyauthk8s-front-v0.1.0](https://github.com/batleforc/proxyauthK8s/tree/proxyauthk8s-front-v0.1.0)
+### Global changes
+#### Features
+- wip - ([bf92b5c](https://github.com/batleforc/proxyauthK8s/commit/bf92b5ce245a81ed33045155612402ce7020355f)) - Max Batleforc
+
+- - -
+
 ## [v0.1.5](https://github.com/batleforc/proxyauthK8s/compare/de7aeb447f771965d632c13c8824b0bf182c7879..v0.1.5) - 2026-03-06
 ### Packages
 - [v0.0.0](deploy/chart) locked to [v0.0.0](https://github.com/batleforc/proxyauthK8s/tree/v0.0.0)
