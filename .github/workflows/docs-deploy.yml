@@ -5,6 +5,7 @@ on:
     branches: ["main", "feat/init-doc"]
     paths:
       - ".docs/**" # Only trigger on changes to documentation files
+      - ".github/workflows/docs-deploy.yml" # Trigger if the workflow file itself is changed
   workflow_dispatch:
 
 concurrency:
