@@ -2,7 +2,7 @@ name: Deploy Documentation
 
 on:
   push:
-    branches: ["main", "feat/init-docb^ bbbbbb"]
+    branches: ["main", "feat/init-doc"]
     paths:
       - ".docs/**" # Only trigger on changes to documentation files
   workflow_dispatch:
