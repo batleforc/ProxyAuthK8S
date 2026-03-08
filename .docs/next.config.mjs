@@ -7,6 +7,7 @@ const config = {
   serverExternalPackages: ['@takumi-rs/image-response'],
   output: 'export',
   reactStrictMode: true,
+  basePath: '/ProxyAuthK8S',
 };
 
 export default withMDX(config);
