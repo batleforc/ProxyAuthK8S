@@ -17,6 +17,8 @@ tasks:
     cmds:
       - echo "Initializing the project"
       - cargo install cargo-set-version
+      - yarn install
+      - cd .docs && yarn install
       - cog install-hook -a -o
   back:
     desc: "Run the backend"
