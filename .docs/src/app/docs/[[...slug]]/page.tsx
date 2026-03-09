@@ -24,12 +24,12 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
     <DocsPage toc={page.data.toc} full={page.data.full}>
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription className="mb-0">{page.data.description}</DocsDescription>
-      {lastModifiedTime && <PageLastUpdate date={lastModifiedTime} />}
       <div className="flex flex-row gap-2 items-center border-b pb-6">
         <ViewOptions
           markdownUrl={markdownUrl}
           githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}/blob/${gitConfig.branch}/${gitConfig.basePath}/content/docs/${page.path}`}
         />
+        {lastModifiedTime && <PageLastUpdate date={lastModifiedTime} />}
       </div>
       <DocsBody>
         <MDX

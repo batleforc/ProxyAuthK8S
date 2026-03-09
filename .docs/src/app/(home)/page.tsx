@@ -11,6 +11,8 @@ import {
   ArrowBigUp,
 } from 'lucide-react';
 
+import { SiGithub } from '@icons-pack/react-simple-icons';
+
 const featureCards = [
   {
     title: 'Sécurité Renforcée',
@@ -47,8 +49,7 @@ const featureCards = [
 const startSteps = [
   'git clone https://github.com/batleforc/proxyAuthK8s.git',
   'cd proxyAuthK8s',
-  'yarn install',
-  'yarn docs:dev',
+  'task docs',
 ] as const;
 
 export default function HomePage() {
@@ -138,6 +139,16 @@ export default function HomePage() {
               <span className="inline-flex items-center gap-2 font-medium">
                 <GitBranch className="size-4" />
                 Discussions & Feedback
+              </span>
+              <ExternalLink className="size-4" />
+            </Link>
+            <Link
+              href="https://github.com/batleforc"
+              className="group flex items-center justify-between rounded-md border p-3 transition-colors hover:bg-fd-accent"
+            >
+              <span className="inline-flex items-center gap-2 font-medium">
+                <SiGithub className="size-4" />
+                Owner&apos;s Github
               </span>
               <ExternalLink className="size-4" />
             </Link>

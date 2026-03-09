@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useId } from 'react';
+import { use, useId, useEffect, useState } from 'react';
 import { useTheme } from 'next-themes';
 
 export function Mermaid({ chart }: { chart: string }) {
@@ -21,6 +21,17 @@ function cachePromise<T>(key: string, setPromise: () => Promise<T>): Promise<T> 
 function MermaidContent({ chart }: { chart: string }) {
   const id = useId();
   const { resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Don't render on server or before hydration
+  if (!mounted || typeof window === 'undefined') {
+    return <div className="mermaid-loading">Loading diagram...</div>;
+  }
+
   const { default: mermaid } = use(cachePromise('mermaid', () => import('mermaid')));
 
   mermaid.initialize({
@@ -33,7 +44,7 @@ function MermaidContent({ chart }: { chart: string }) {
 
   const { svg, bindFunctions } = use(
     cachePromise(`${chart}-${resolvedTheme}`, () => {
-      return mermaid.render(id, chart.replaceAll('\\n', '\n'));
+      return mermaid.render(id, chart.replaceAll(String.raw`\n`, '\n'));
     }),
   );
 

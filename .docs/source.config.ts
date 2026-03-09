@@ -1,6 +1,7 @@
 import { defineConfig, defineDocs } from 'fumadocs-mdx/config';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
 import lastModified from 'fumadocs-mdx/plugins/last-modified';
+import { remarkMdxMermaid } from 'fumadocs-core/mdx-plugins';
 
 // You can customise Zod schemas for frontmatter and `meta.json` here
 // see https://fumadocs.dev/docs/mdx/collections
@@ -21,5 +22,6 @@ export default defineConfig({
   plugins: [lastModified()],
   mdxOptions: {
     // MDX options
+    remarkPlugins: [remarkMdxMermaid],
   },
 });
