@@ -18,7 +18,7 @@
     "@maz-ui/themes": "^4.7.2",
     "@maz-ui/translations": "^4.7.2",
     "highlight.js": "^11.11.1",
-    "maz-ui": "^4.7.2",
+    "maz-ui": "^4.7.3",
     "oidc-client-ts": "^3.4.1",
     "pinia": "^3.0.4",
     "vue": "^3.5.29",

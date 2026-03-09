@@ -899,7 +899,7 @@
   dependencies:
     sisteransi "^1.0.5"
 
-"@clack/prompts@^1.0.1":
+"@clack/prompts@^1.1.0":
   version "1.1.0"
   resolved "https://registry.yarnpkg.com/@clack/prompts/-/prompts-1.1.0.tgz#f0dff2bcc48d68394f9ce4777651a8faed5714fa"
   integrity sha512-pkqbPGtohJAvm4Dphs2M8xE29ggupihHdy1x84HNojZuMtFsHiUlRvqD24tM2+XmI+61LlfNceM3Wr7U5QES5g==
@@ -1185,7 +1185,7 @@
   resolved "https://registry.yarnpkg.com/@floating-ui/utils/-/utils-0.2.11.tgz#a269e055e40e2f45873bae9d1a2fdccbd314ea3f"
   integrity sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==
 
-"@floating-ui/vue@^1.1.10":
+"@floating-ui/vue@^1.1.11":
   version "1.1.11"
   resolved "https://registry.yarnpkg.com/@floating-ui/vue/-/vue-1.1.11.tgz#94fb1e62f6e157f91258a315a78b17079dd260e3"
   integrity sha512-HzHKCNVxnGS35r9fCHBc3+uCnjw9IWIlCPL683cGgM9Kgj2BiAl8x1mS7vtvP6F9S/e/q4O6MApwSHj8hNLGfw==
@@ -1345,15 +1345,15 @@
   resolved "https://registry.yarnpkg.com/@ltd/j-toml/-/j-toml-1.38.0.tgz#00d19f6d65ac5dac39bc64f97a545f47e9ebefc4"
   integrity sha512-lYtBcmvHustHQtg4X7TXUu1Xa/tbLC3p2wLvgQI+fWVySguVZJF60Snxijw5EiohumxZbR10kWYFFebh1zotiw==
 
-"@maz-ui/cli@4.7.2":
-  version "4.7.2"
-  resolved "https://registry.yarnpkg.com/@maz-ui/cli/-/cli-4.7.2.tgz#23681c98c7ea39c285b4e8461217d5a3a5a4b13a"
-  integrity sha512-h95xbfrEzs3kN5xbPMy11i1pTEMAG+jBWKcKaVhDBGmM3SqytYEm0GS2IjKlCcWWkFt/rvNfDTT162DhwQc4XQ==
+"@maz-ui/cli@4.7.3":
+  version "4.7.3"
+  resolved "https://registry.yarnpkg.com/@maz-ui/cli/-/cli-4.7.3.tgz#12065dd02f98f2114dfc74bdaf75f6c8a2b386a4"
+  integrity sha512-7fTR29GUOpXsfNCKq/zj32IMBLsGEdS/0evVjxj/SyT/+UzWj+fkNTZ8v+yABSPrSv2JdWcIrQnhWqa9KpQM+A==
   dependencies:
-    "@clack/prompts" "^1.0.1"
+    "@clack/prompts" "^1.1.0"
     "@maz-ui/node" "4.6.1"
     commander "^14.0.3"
-    cosmiconfig "^9.0.0"
+    cosmiconfig "^9.0.1"
     figlet "^1.10.0"
     tinycolor2 "^1.6.0"
 
@@ -1371,24 +1371,24 @@
     consola "^3.4.2"
     figlet "^1.10.0"
 
-"@maz-ui/themes@4.7.2", "@maz-ui/themes@^4.7.2":
-  version "4.7.2"
-  resolved "https://registry.yarnpkg.com/@maz-ui/themes/-/themes-4.7.2.tgz#f23e2ac44d38c52231e3e041914c4cb4a7e53dd6"
-  integrity sha512-QV/0puFFBZXxhUNjaHOwnX4B8ghiP/EqPWRHN1carLsLKobDZQkVT8b8FV1ZWUCdOknBCHIaakVgyBcWQ10F8g==
+"@maz-ui/themes@4.7.3", "@maz-ui/themes@^4.7.2":
+  version "4.7.3"
+  resolved "https://registry.yarnpkg.com/@maz-ui/themes/-/themes-4.7.3.tgz#e304ec7c917161ae77355b5e190214990f149580"
+  integrity sha512-z4jNmZpwQtAjIFjGBxQjODLofdQ/38GPJnrtpQDBKu4sU+5CsOKLmYVGUjSZayV4+k82fBtcmbWXgeccXOey+g==
   dependencies:
-    "@maz-ui/utils" "4.7.2"
+    "@maz-ui/utils" "4.7.3"
 
-"@maz-ui/translations@4.7.2", "@maz-ui/translations@^4.7.2":
-  version "4.7.2"
-  resolved "https://registry.yarnpkg.com/@maz-ui/translations/-/translations-4.7.2.tgz#55e3a9df092c9c532f3c0fff112b9dc08fc2c4d9"
-  integrity sha512-ybCTECHWUPlUGR6kaq3LImYoFjo+cC8IvMh0AClnk4jcryc1ExD21u91GKjihtKJk8XeWUaryeWA2tod3QmLTg==
+"@maz-ui/translations@4.7.3", "@maz-ui/translations@^4.7.2":
+  version "4.7.3"
+  resolved "https://registry.yarnpkg.com/@maz-ui/translations/-/translations-4.7.3.tgz#80e6bb6423b6a83856bae9f7415c7544907dd7cf"
+  integrity sha512-kb6v3n9pYCECathQu/ARgo9DH2ZnQR/HyrAJddlWdGW5iB93e8Ur1/gLToJRHMzIDn32LKSNrwvyxcT3O4AuTw==
   dependencies:
-    "@maz-ui/utils" "4.7.2"
+    "@maz-ui/utils" "4.7.3"
 
-"@maz-ui/utils@4.7.2":
-  version "4.7.2"
-  resolved "https://registry.yarnpkg.com/@maz-ui/utils/-/utils-4.7.2.tgz#1abc8aa2dc10190824fec00203038051832cf002"
-  integrity sha512-rc1ifDXIe/c9tNpxaXW/cCzQV7hipyFBHfO4x4oaFYVVobKuct4mzMnw2d/ySnRQrdnmcJHT3HCGvhRLctVSfA==
+"@maz-ui/utils@4.7.3":
+  version "4.7.3"
+  resolved "https://registry.yarnpkg.com/@maz-ui/utils/-/utils-4.7.3.tgz#a66849ab991058ab2de02031806f0c38215e69bd"
+  integrity sha512-aW6UuJdCMqZwuZLmX2lTMBHXl9rI4b8rhh0oY8aMii0cs5Be5vOClVeAOBVJ9VDS3QklKayjbyFOJbHV+uJOEA==
 
 "@monodon/rust@2.3.0":
   version "2.3.0"
@@ -3115,7 +3115,7 @@ cosmiconfig@^7.0.0:
     path-type "^4.0.0"
     yaml "^1.10.0"
 
-cosmiconfig@^9.0.0:
+cosmiconfig@^9.0.1:
   version "9.0.1"
   resolved "https://registry.yarnpkg.com/cosmiconfig/-/cosmiconfig-9.0.1.tgz#df110631a8547b5d1a98915271986f06e3011379"
   integrity sha512-hr4ihw+DBqcvrsEDioRO31Z17x71pUYoNe/4h6Z0wB72p7MU7/9gH8Q3s12NFhHPfYBBOV3qyfUxmr/Yn3shnQ==
@@ -4257,7 +4257,7 @@ levn@^0.4.1:
     prelude-ls "^1.2.1"
     type-check "~0.4.0"
 
-libphonenumber-js@^1.12.37:
+libphonenumber-js@^1.12.38:
   version "1.12.38"
   resolved "https://registry.yarnpkg.com/libphonenumber-js/-/libphonenumber-js-1.12.38.tgz#51e70b23cc1f5502e15c56b8ff09c71a91b86c66"
   integrity sha512-vwzxmasAy9hZigxtqTbFEwp8ZdZ975TiqVDwj5bKx5sR+zi5ucUQy9mbVTkKM9GzqdLdxux/hTw2nmN5J7POMA==
@@ -4344,20 +4344,20 @@ math-intrinsics@^1.1.0:
   resolved "https://registry.yarnpkg.com/math-intrinsics/-/math-intrinsics-1.1.0.tgz#a0dd74be81e2aa5c2f27e65ce283605ee4e2b7f9"
   integrity sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==
 
-maz-ui@^4.7.2:
-  version "4.7.2"
-  resolved "https://registry.yarnpkg.com/maz-ui/-/maz-ui-4.7.2.tgz#93e9343495805e7f2e7315c334c1418c14a0081e"
-  integrity sha512-1xTPY2m+hPUCFWQ4/9ug7zea5oyS15mFxaPC8yz8VEm9kUKK4PrTIdZgkF3K6KgsuKpTUaRgNy2et0R9KR2mkw==
+maz-ui@^4.7.3:
+  version "4.7.3"
+  resolved "https://registry.yarnpkg.com/maz-ui/-/maz-ui-4.7.3.tgz#fb057af98f2a5cad1e38016eed3325985b74549b"
+  integrity sha512-QKXtkTHddSpMUyjnVBXkwqUbf+Pd85/kbseUTBp1Ghsrjz0x++zMGLeJufCys/r88Y8Tma35djFrqUM3PsEKwQ==
   dependencies:
-    "@floating-ui/vue" "^1.1.10"
-    "@maz-ui/cli" "4.7.2"
+    "@floating-ui/vue" "^1.1.11"
+    "@maz-ui/cli" "4.7.3"
     "@maz-ui/icons" "4.7.2"
-    "@maz-ui/themes" "4.7.2"
-    "@maz-ui/translations" "4.7.2"
-    "@maz-ui/utils" "4.7.2"
+    "@maz-ui/themes" "4.7.3"
+    "@maz-ui/translations" "4.7.3"
+    "@maz-ui/utils" "4.7.3"
     chart.js "^4.5.1"
     dayjs "^1.11.19"
-    libphonenumber-js "^1.12.37"
+    libphonenumber-js "^1.12.38"
     valibot "^1.2.0"
     vue-chartjs "^5.3.3"
 
