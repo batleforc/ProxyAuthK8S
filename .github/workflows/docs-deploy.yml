@@ -27,13 +27,11 @@ jobs:
         with:
           node-version: "24"
           cache: "yarn" # 🚀 Speed up builds with yarn cache
-      - name: 📂 Install Dependencies
-        run: yarn install --frozen-lockfile
       - name: ⚙️ Setup Pages
         uses: actions/configure-pages@v4
-      - name: Install dependencies
-        run: cd .docs && yarn install
-      - name: Build with VitePress
+      - name: 📂 Install Dependencies
+        run: cd .docs && yarn install --frozen-lockfile
+      - name: Build with Fumadocs
         run: cd .docs && yarn build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
