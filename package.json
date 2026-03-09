@@ -12,7 +12,7 @@
   },
   "private": true,
   "dependencies": {
-    "@eslint/eslintrc": "^3.3.4",
+    "@eslint/eslintrc": "^3.3.5",
     "@eslint/js": "^10.0.1",
     "@maz-ui/icons": "^4.7.2",
     "@maz-ui/themes": "^4.7.2",
