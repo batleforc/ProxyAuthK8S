@@ -15,7 +15,7 @@
     "@eslint/eslintrc": "^3.3.4",
     "@eslint/js": "^10.0.1",
     "@maz-ui/icons": "^4.7.2",
-    "@maz-ui/themes": "^4.7.2",
+    "@maz-ui/themes": "^4.7.3",
     "@maz-ui/translations": "^4.7.2",
     "highlight.js": "^11.11.1",
     "maz-ui": "^4.7.2",

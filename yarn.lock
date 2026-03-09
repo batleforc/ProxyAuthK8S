@@ -1371,12 +1371,19 @@
     consola "^3.4.2"
     figlet "^1.10.0"
 
-"@maz-ui/themes@4.7.2", "@maz-ui/themes@^4.7.2":
+"@maz-ui/themes@4.7.2":
   version "4.7.2"
   resolved "https://registry.yarnpkg.com/@maz-ui/themes/-/themes-4.7.2.tgz#f23e2ac44d38c52231e3e041914c4cb4a7e53dd6"
   integrity sha512-QV/0puFFBZXxhUNjaHOwnX4B8ghiP/EqPWRHN1carLsLKobDZQkVT8b8FV1ZWUCdOknBCHIaakVgyBcWQ10F8g==
   dependencies:
     "@maz-ui/utils" "4.7.2"
+
+"@maz-ui/themes@^4.7.3":
+  version "4.7.3"
+  resolved "https://registry.yarnpkg.com/@maz-ui/themes/-/themes-4.7.3.tgz#e304ec7c917161ae77355b5e190214990f149580"
+  integrity sha512-z4jNmZpwQtAjIFjGBxQjODLofdQ/38GPJnrtpQDBKu4sU+5CsOKLmYVGUjSZayV4+k82fBtcmbWXgeccXOey+g==
+  dependencies:
+    "@maz-ui/utils" "4.7.3"
 
 "@maz-ui/translations@4.7.2", "@maz-ui/translations@^4.7.2":
   version "4.7.2"
@@ -1389,6 +1396,11 @@
   version "4.7.2"
   resolved "https://registry.yarnpkg.com/@maz-ui/utils/-/utils-4.7.2.tgz#1abc8aa2dc10190824fec00203038051832cf002"
   integrity sha512-rc1ifDXIe/c9tNpxaXW/cCzQV7hipyFBHfO4x4oaFYVVobKuct4mzMnw2d/ySnRQrdnmcJHT3HCGvhRLctVSfA==
+
+"@maz-ui/utils@4.7.3":
+  version "4.7.3"
+  resolved "https://registry.yarnpkg.com/@maz-ui/utils/-/utils-4.7.3.tgz#a66849ab991058ab2de02031806f0c38215e69bd"
+  integrity sha512-aW6UuJdCMqZwuZLmX2lTMBHXl9rI4b8rhh0oY8aMii0cs5Be5vOClVeAOBVJ9VDS3QklKayjbyFOJbHV+uJOEA==
 
 "@monodon/rust@2.3.0":
   version "2.3.0"
