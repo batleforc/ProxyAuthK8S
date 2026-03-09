@@ -160,7 +160,7 @@ jobs:
         run: |
           helm plugin install https://github.com/chartmuseum/helm-push || true
       - name: ⎈ Package and push Helm Chart
-        uses: bsord/helm-push@v4.1.0
+        uses: bsord/helm-push@v4.2.0
         with:
           useOCIRegistry: true
           registry-url: oci://${{ env.REGISTRY }}/${{ env.CHART_BASE_ARTEFACT }}/charts-crd
@@ -192,7 +192,7 @@ jobs:
         run: |
           helm plugin install https://github.com/chartmuseum/helm-push || true
       - name: ⎈ Package and push Helm Chart
-        uses: bsord/helm-push@v4.1.0
+        uses: bsord/helm-push@v4.2.0
         with:
           useOCIRegistry: true
           registry-url: oci://${{ env.REGISTRY }}/${{ env.CHART_BASE_ARTEFACT }}/charts
