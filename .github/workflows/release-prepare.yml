@@ -84,7 +84,7 @@ jobs:
           echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
 
       - name: 📋 Generate SBOM for Server
-        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11 # v0.23.0
+        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
         with:
           image: ${{ steps.build_server.outputs.image }}
           format: cyclonedx-json
@@ -129,7 +129,7 @@ jobs:
           echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
 
       - name: 📋 Generate SBOM for Front
-        uses: anchore/sbom-action@17ae1740179002c89186b61233e0f892c3118b11 # v0.23.0
+        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
         with:
           image: ${{ steps.build_front.outputs.image }}
           format: cyclonedx-json
