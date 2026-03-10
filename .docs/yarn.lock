@@ -500,7 +500,7 @@
   resolved "https://registry.yarnpkg.com/@iconify/types/-/types-2.0.0.tgz#ab0e9ea681d6c8a1214f30cd741fe3a20cc57f57"
   integrity sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==
 
-"@iconify/utils@^3.0.1":
+"@iconify/utils@^3.0.2":
   version "3.1.0"
   resolved "https://registry.yarnpkg.com/@iconify/utils/-/utils-3.1.0.tgz#fb41882915f97fee6f91a2fbb8263e8772ca0438"
   integrity sha512-Zlzem1ZXhI1iHeeERabLNzBHdOa4VhQbqAcOQaMKuTuyZCpwKbC2R4Dd0Zo3g9EAc+Y4fiarO8HIHRAth7+skw==
@@ -726,10 +726,10 @@
     unist-util-visit "^5.0.0"
     vfile "^6.0.0"
 
-"@mermaid-js/parser@^1.0.0":
-  version "1.0.0"
-  resolved "https://registry.yarnpkg.com/@mermaid-js/parser/-/parser-1.0.0.tgz#076d01775f841d7578cdc6b68a428c749120e6b3"
-  integrity sha512-vvK0Hi/VWndxoh03Mmz6wa1KDriSPjS2XMZL/1l19HFwygiObEEoEwSDxOqyLzzAI6J2PU3261JjTMTO7x+BPw==
+"@mermaid-js/parser@^1.0.1":
+  version "1.0.1"
+  resolved "https://registry.yarnpkg.com/@mermaid-js/parser/-/parser-1.0.1.tgz#51c5f43c918a37c35904adef40c98e5862effbdf"
+  integrity sha512-opmV19kN1JsK0T6HhhokHpcVkqKpF+x2pPDKKM2ThHtZAB5F4PROopk0amuVYK5qMrIA4erzpNm8gmPNJgMDxQ==
   dependencies:
     langium "^4.0.0"
 
@@ -1423,78 +1423,78 @@
     postcss "^8.5.6"
     tailwindcss "4.2.1"
 
-"@takumi-rs/core-darwin-arm64@0.71.1":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/core-darwin-arm64/-/core-darwin-arm64-0.71.1.tgz#8f6b256de74686ad802a12032215ff8cd82d45e1"
-  integrity sha512-xs1aA3XtHIrfOwZxFZT8LzlKJMduMPGBHMQSe1XvH8kM08kHv3jVWbJ4bdKZvzkie7tm18kjzwlvLW4OdzBryQ==
+"@takumi-rs/core-darwin-arm64@0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/core-darwin-arm64/-/core-darwin-arm64-0.71.7.tgz#7a7c12ad335a4a8131b6f200ca290c304e076b12"
+  integrity sha512-mcW/ikpqj4QToZfvC6JY1nxnCpnvioOUm9QsXiGnjmr7z/zei1Xf4GKl67P/3dEXU6bi7gqsmEf+XOc66E6taQ==
 
-"@takumi-rs/core-darwin-x64@0.71.1":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/core-darwin-x64/-/core-darwin-x64-0.71.1.tgz#4098e22da4416fd82374a875d002d2bfda447d13"
-  integrity sha512-yAMaC4B8vscSkNPjz5LMTid1ySCrFLLm7486I1xa7kDpp+Eycs5iAdiY5Ud8OK6EwbYUItO/HVRSMcN6LWm3ZQ==
+"@takumi-rs/core-darwin-x64@0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/core-darwin-x64/-/core-darwin-x64-0.71.7.tgz#a1f9abd7b64a39864f3dabe00e9cde003cbd3f2c"
+  integrity sha512-xvhulaXxTWxpMsj7Fqm88KpltQstz6cR2gW1CijdPQd/DEi+k5xso3AM/kH/E80qxCXYItbyyZlLlG7gog9mzg==
 
-"@takumi-rs/core-linux-arm64-gnu@0.71.1":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/core-linux-arm64-gnu/-/core-linux-arm64-gnu-0.71.1.tgz#f8f14b26555ffe924ee3204358edfaa74e210e3c"
-  integrity sha512-8C0HRwv3EVEdfF9/XV9/0r+ml1etyxsSqXGdTz5EqmxqaqT0su0XMCND7VFX5g6f9WhtNSxEh59jbnJYfs8SXg==
+"@takumi-rs/core-linux-arm64-gnu@0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/core-linux-arm64-gnu/-/core-linux-arm64-gnu-0.71.7.tgz#9b531d056641c6ef3b793d48fc3891176edec397"
+  integrity sha512-H3JBWt0DlfCMinAMvQyaG3cUF1hI6/f+tSzgXSezg/J8f+vYJaOBOBAE8YXLtBb/+VZe5RzyvMgNsT1+6LNrMw==
 
-"@takumi-rs/core-linux-arm64-musl@0.71.1":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/core-linux-arm64-musl/-/core-linux-arm64-musl-0.71.1.tgz#fa5726ac21cc38811f222968c40cd0966d50572c"
-  integrity sha512-NrCvfDvGHxZf2IsrC8SxIEO81ytruiCS9g9HjSlxFS2X3bWkDWmxYdLoct0Fbkq6KjiB/LrLznxK1gjJvoQKJg==
+"@takumi-rs/core-linux-arm64-musl@0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/core-linux-arm64-musl/-/core-linux-arm64-musl-0.71.7.tgz#09accd521b869a9b19241b26c9cc3156b6f7eef0"
+  integrity sha512-QkFSh0qabNioGGvZYmXqkTCeuyUAlfkhClo7sl6jfnU2wodG2f0sIcvVLPLshRQBUbY6Rf8ktjp75TVQZFw1HQ==
 
-"@takumi-rs/core-linux-x64-gnu@0.71.1":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/core-linux-x64-gnu/-/core-linux-x64-gnu-0.71.1.tgz#04017c244fbb9981c604599b79e568980ebfe1f5"
-  integrity sha512-pkgCddZRlV69gl4WnOfo9R3cOT8PccGQwwVNFpammoAIxhIAwJPp+C55KoT2pSJIs3FwRpwH0m5A+c1LnTX/wQ==
+"@takumi-rs/core-linux-x64-gnu@0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/core-linux-x64-gnu/-/core-linux-x64-gnu-0.71.7.tgz#716ea60a697e898ed6760d6177d31fe44d572dd1"
+  integrity sha512-CNSR1x2OPjlnpqY6nksTsp0bTp+41IbXE85TwippLST5NrRokL9xKJ6EM+AFaSfLH/0gy+XMgtOQoD1C+TFDUA==
 
-"@takumi-rs/core-linux-x64-musl@0.71.1":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/core-linux-x64-musl/-/core-linux-x64-musl-0.71.1.tgz#f040536b4dc1bfaf7e3e5748ec2188f0037d7676"
-  integrity sha512-6gmq+TMeuh7fymGkoahh0dbfEJs0v0ds46yOkrQ2yIPoI5uUnxIevKqKelHvFVdWHYkjTtIcHSBTN+/VqNTEhg==
+"@takumi-rs/core-linux-x64-musl@0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/core-linux-x64-musl/-/core-linux-x64-musl-0.71.7.tgz#8b34900e761733bd3517819851f767a0fbb09551"
+  integrity sha512-xDtS7YuFkr6UtaJ812cxbkx8d0ShzxavQwz59YSTCB1Q0aiW9fnAu7WZeP9rrPRctn3y5sp3DUVyzONvwfCa1w==
 
-"@takumi-rs/core-win32-arm64-msvc@0.71.1":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/core-win32-arm64-msvc/-/core-win32-arm64-msvc-0.71.1.tgz#f30267652b9dc91fddad6d9db7902db5fbd33d7d"
-  integrity sha512-byKSFK9oTsdx+vyVEjGt62IQ7b0iSLwUZ0Scqmaq5RmjlWF1SijwI+kUVI3dyuLoWVE91DVqKiNsPn/dmXD24A==
+"@takumi-rs/core-win32-arm64-msvc@0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/core-win32-arm64-msvc/-/core-win32-arm64-msvc-0.71.7.tgz#eb608f7ed59aaa7aeb9ded99fe80f7d985059900"
+  integrity sha512-2AhdKHby2Hor+d3yrhiZNpght7YXItWN1WXNiK/m/uqKKlmrq7oqgUmdn0/5ks5cZ/JaLjfsLFlgIB2uPReFYA==
 
-"@takumi-rs/core-win32-x64-msvc@0.71.1":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/core-win32-x64-msvc/-/core-win32-x64-msvc-0.71.1.tgz#16d1f9595135aa520b363a1da952083496aed320"
-  integrity sha512-QLagdaCSDQ0jbAZk5LW+ISgpFtsCCmIkHmYrDbQVcGJw/P8iwVi194ZFgl8wzn5t7UHNyqaS4yjBBDHFIugyDw==
+"@takumi-rs/core-win32-x64-msvc@0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/core-win32-x64-msvc/-/core-win32-x64-msvc-0.71.7.tgz#1353413dea38e2984e6ac74a9aed2bc309bcb057"
+  integrity sha512-jZLSrrCv118zP1yAXURjHdHtpWswEiml3mwbJ+ypHKPaLppstpPtQVwRyOUe2GBC/OIGjz1lLl8dEKucJ+P67Q==
 
-"@takumi-rs/core@0.71.1":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/core/-/core-0.71.1.tgz#629d32172817f2624fcf96110965c75627f22261"
-  integrity sha512-UjXHPJurrCbT8VdFD6q8y3Q0hw/aacJJ21ga4z+iDrbldCsY78dCb/ARobwGpnoSNbrdgXN9lBH7yEfBX9FgNA==
+"@takumi-rs/core@0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/core/-/core-0.71.7.tgz#f50f73214d32dd9862b4405b2e55fe688acd8ebd"
+  integrity sha512-5wWs4GNMOcHsJQ6dhpAe0Fk/2mUy40AL2cETSqrt/H21xsGGSsCacGpPpPoIqK4DwdoJyFxoxLwhDGId8WrzOA==
   optionalDependencies:
-    "@takumi-rs/core-darwin-arm64" "0.71.1"
-    "@takumi-rs/core-darwin-x64" "0.71.1"
-    "@takumi-rs/core-linux-arm64-gnu" "0.71.1"
-    "@takumi-rs/core-linux-arm64-musl" "0.71.1"
-    "@takumi-rs/core-linux-x64-gnu" "0.71.1"
-    "@takumi-rs/core-linux-x64-musl" "0.71.1"
-    "@takumi-rs/core-win32-arm64-msvc" "0.71.1"
-    "@takumi-rs/core-win32-x64-msvc" "0.71.1"
+    "@takumi-rs/core-darwin-arm64" "0.71.7"
+    "@takumi-rs/core-darwin-x64" "0.71.7"
+    "@takumi-rs/core-linux-arm64-gnu" "0.71.7"
+    "@takumi-rs/core-linux-arm64-musl" "0.71.7"
+    "@takumi-rs/core-linux-x64-gnu" "0.71.7"
+    "@takumi-rs/core-linux-x64-musl" "0.71.7"
+    "@takumi-rs/core-win32-arm64-msvc" "0.71.7"
+    "@takumi-rs/core-win32-x64-msvc" "0.71.7"
 
-"@takumi-rs/helpers@0.71.1":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/helpers/-/helpers-0.71.1.tgz#2fa4c820b47ddc5e9624c260405c5376e299be1c"
-  integrity sha512-hU3p11oKssyR/ZkFhpshlPMLrZAahAWy9R0ZQ2bWyFh270KCWZlGHEPzlQP/P47uuXUI0MlGniQP89oFlbEnSg==
+"@takumi-rs/helpers@0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/helpers/-/helpers-0.71.7.tgz#7874bb972e757202c0919177903191985106268c"
+  integrity sha512-OipwcnYZjfZz6OJ/sUdvUDkVfe/n5TksdB4sBuSmN+qoCpu42usdd3VPOHHdARZyHgbahxaNmnPSqfE5HGI47w==
 
-"@takumi-rs/image-response@^0.71.0":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/image-response/-/image-response-0.71.1.tgz#6bccd2232a5e303c9f9fb775693907d46ff8ad55"
-  integrity sha512-/8Zmx+WzUP7FhvkKo0yw3xjk+wUZeoxv/JzqgSWuRn12ggCbwxXrde8p4Gu8LokILYCwBwwGel4fOzbeZYOpDw==
+"@takumi-rs/image-response@^0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/image-response/-/image-response-0.71.7.tgz#e651ffd19da0116ea31fd6376196804465f65e1c"
+  integrity sha512-CRdhVEJqKse9+eovVc8CGHisCAXxPNRuZZJ2tUHzrDBFGaNp99+tX6hAim7wUWbo+NEXN7KOkaESqp/MCrhUbw==
   dependencies:
-    "@takumi-rs/core" "0.71.1"
-    "@takumi-rs/helpers" "0.71.1"
-    "@takumi-rs/wasm" "0.71.1"
+    "@takumi-rs/core" "0.71.7"
+    "@takumi-rs/helpers" "0.71.7"
+    "@takumi-rs/wasm" "0.71.7"
 
-"@takumi-rs/wasm@0.71.1":
-  version "0.71.1"
-  resolved "https://registry.yarnpkg.com/@takumi-rs/wasm/-/wasm-0.71.1.tgz#5e9d5d4ee2909cd7a97fd9ec4bba1071c46db10e"
-  integrity sha512-q5Acpz+m1QsH3uBYlj+LYeLSDF571MlS30ZIOZaSlzvlhOb2fnSj+YU7k6uTlQCdHEk2srXzPf3Fna7Q8kDSTw==
+"@takumi-rs/wasm@0.71.7":
+  version "0.71.7"
+  resolved "https://registry.yarnpkg.com/@takumi-rs/wasm/-/wasm-0.71.7.tgz#a9d083394db8b1d4a7838d056fe0e28518ec1c93"
+  integrity sha512-yoau96mSOvG4kSSdypWfpvAacjK4r5tHlg90kOkAcXDp/UFe3npEwNsGe5DzHdKqTpHWsr2tzmEdhjnZW4v2VQ==
 
 "@tybys/wasm-util@^0.10.0", "@tybys/wasm-util@^0.10.1":
   version "0.10.1"
@@ -1771,10 +1771,10 @@
   resolved "https://registry.yarnpkg.com/@types/ms/-/ms-2.1.0.tgz#052aa67a48eccc4309d7f0191b7e41434b90bb78"
   integrity sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==
 
-"@types/node@^25.3.5":
-  version "25.3.5"
-  resolved "https://registry.yarnpkg.com/@types/node/-/node-25.3.5.tgz#beccb5915561f7a9970ace547ad44d6cdbf39b46"
-  integrity sha512-oX8xrhvpiyRCQkG1MFchB09f+cXftgIXb3a7UUa4Y3wpmZPw5tyZGTLWhlESOLq1Rq6oDlc8npVU2/9xiCuXMA==
+"@types/node@^25.4.0":
+  version "25.4.0"
+  resolved "https://registry.yarnpkg.com/@types/node/-/node-25.4.0.tgz#f25d8467984d6667cc4c1be1e2f79593834aaedb"
+  integrity sha512-9wLpoeWuBlcbBpOY3XmzSTG3oscB6xjBEEtn+pYXTfhyXhIxC5FsBer2KTopBlvKEiW9l13po9fq+SJY/5lkhw==
   dependencies:
     undici-types "~7.18.0"
 
@@ -2002,6 +2002,14 @@
   version "1.11.1"
   resolved "https://registry.yarnpkg.com/@unrs/resolver-binding-win32-x64-msvc/-/resolver-binding-win32-x64-msvc-1.11.1.tgz#538b1e103bf8d9864e7b85cc96fa8d6fb6c40777"
   integrity sha512-lrW200hZdbfRtztbygyaq/6jP6AKE8qQN2KvPcJ+x7wiD038YtnYtZ82IMNJ69GJibV7bwL3y9FgK+5w/pYt6g==
+
+"@upsetjs/venn.js@^2.0.0":
+  version "2.0.0"
+  resolved "https://registry.yarnpkg.com/@upsetjs/venn.js/-/venn.js-2.0.0.tgz#3be192038cdda927aa4f8b22ab51af82abf47f34"
+  integrity sha512-WbBhLrooyePuQ1VZxrJjtLvTc4NVfpOyKx0sKqioq9bX1C1m7Jgykkn8gLrtwumBioXIqam8DLxp88Adbue6Hw==
+  optionalDependencies:
+    d3-selection "^3.0.0"
+    d3-transition "^3.0.1"
 
 "@zeit/schemas@2.36.0":
   version "2.36.0"
@@ -2566,7 +2574,7 @@ cytoscape-fcose@^2.2.0:
   dependencies:
     cose-base "^2.2.0"
 
-cytoscape@^3.29.3:
+cytoscape@^3.33.1:
   version "3.33.1"
   resolved "https://registry.yarnpkg.com/cytoscape/-/cytoscape-3.33.1.tgz#449e05d104b760af2912ab76482d24c01cdd4c97"
   integrity sha512-iJc4TwyANnOGR1OmWhsS9ayRS3s+XQ185FmuHObThD+5AeJCakAAbWv8KimMTt08xCCLNgneQwFp+JRJOr9qGQ==
@@ -2746,7 +2754,7 @@ d3-scale@4:
     d3-time "2.1.1 - 3"
     d3-time-format "2 - 4"
 
-"d3-selection@2 - 3", d3-selection@3:
+"d3-selection@2 - 3", d3-selection@3, d3-selection@^3.0.0:
   version "3.0.0"
   resolved "https://registry.yarnpkg.com/d3-selection/-/d3-selection-3.0.0.tgz#c25338207efa72cc5b9bd1458a1a41901f1e1b31"
   integrity sha512-fmTRWbNMmsmWq6xJV8D19U/gw/bwrHfNXxrIN+HfZgnzqTHp9jOmKMhsTUjXOJnZOdZY9Q28y4yebKzqDKlxlQ==
@@ -2784,7 +2792,7 @@ d3-shape@^1.2.0:
   resolved "https://registry.yarnpkg.com/d3-timer/-/d3-timer-3.0.1.tgz#6284d2a2708285b1abb7e201eda4380af35e63b0"
   integrity sha512-ndfJ/JxxMd3nw31uyKoY2naivF+r29V+Lc0svZxe1JvvIRmi8hUsrMvdOwgS1o6uBHmiz91geQ0ylPP0aj1VUA==
 
-"d3-transition@2 - 3", d3-transition@3:
+"d3-transition@2 - 3", d3-transition@3, d3-transition@^3.0.1:
   version "3.0.1"
   resolved "https://registry.yarnpkg.com/d3-transition/-/d3-transition-3.0.1.tgz#6869fdde1448868077fdd5989200cb61b2a1645f"
   integrity sha512-ApKvfjsSR6tg06xrL434C0WydLr7JewBB3V+/39RMHsaXTOG0zmt/OAXeng5M5LBm0ojmxJrpomQVZ1aPvBL4w==
@@ -2842,10 +2850,10 @@ d3@^7.9.0:
     d3-transition "3"
     d3-zoom "3"
 
-dagre-d3-es@7.0.13:
-  version "7.0.13"
-  resolved "https://registry.yarnpkg.com/dagre-d3-es/-/dagre-d3-es-7.0.13.tgz#acfb4b449f6dcdd48d8ea8081a6d8c59bc8128c3"
-  integrity sha512-efEhnxpSuwpYOKRm/L5KbqoZmNNukHa/Flty4Wp62JRvgH2ojwVgPgdYyr4twpieZnyRDdIH7PY2mopX26+j2Q==
+dagre-d3-es@7.0.14:
+  version "7.0.14"
+  resolved "https://registry.yarnpkg.com/dagre-d3-es/-/dagre-d3-es-7.0.14.tgz#1272276e26457cf3b97dac569f8f0531ec33c377"
+  integrity sha512-P4rFMVq9ESWqmOgK+dlXvOtLwYg0i7u0HBGJER0LZDJT2VHIPAMZ/riPxqJceWMStH5+E61QxFra9kIS3AqdMg==
   dependencies:
     d3 "^7.9.0"
     lodash-es "^4.17.21"
@@ -2882,7 +2890,7 @@ data-view-byte-offset@^1.0.1:
     es-errors "^1.3.0"
     is-data-view "^1.0.1"
 
-dayjs@^1.11.18:
+dayjs@^1.11.19:
   version "1.11.19"
   resolved "https://registry.yarnpkg.com/dayjs/-/dayjs-1.11.19.tgz#15dc98e854bb43917f12021806af897c58ae2938"
   integrity sha512-t5EcLVS6QPBNqM2z8fakk/NKel+Xzshgt8FFKAn+qwlD1pzZWxh0nVCrvFK7ZDb6XucZeF9z8C7CBWTRIVApAw==
@@ -2984,7 +2992,7 @@ doctrine@^2.1.0:
   dependencies:
     esutils "^2.0.2"
 
-dompurify@^3.2.5:
+dompurify@^3.3.1:
   version "3.3.2"
   resolved "https://registry.yarnpkg.com/dompurify/-/dompurify-3.3.2.tgz#58c515d0f8508b8749452a028aa589ad80b36325"
   integrity sha512-6obghkliLdmKa56xdbLOpUZ43pAR6xFy1uOrxBaIDjT+yaRuuybLjGS9eVBoSR/UPU5fq3OXClEHLJNGvbxKpQ==
@@ -3373,7 +3381,7 @@ eslint-visitor-keys@^5.0.0:
   resolved "https://registry.yarnpkg.com/eslint-visitor-keys/-/eslint-visitor-keys-5.0.1.tgz#9e3c9489697824d2d4ce3a8ad12628f91e9f59be"
   integrity sha512-tD40eHxA35h0PEIZNeIjkHoDR4YjjJp34biM0mDvplBe//mB+IHCqHDGV7pxF+7MklTvighcCPPZC7ynWyjdTA==
 
-eslint@^9.38.0:
+eslint@^9.39.4:
   version "9.39.4"
   resolved "https://registry.yarnpkg.com/eslint/-/eslint-9.39.4.tgz#855da1b2e2ad66dc5991195f35e262bcec8117b5"
   integrity sha512-XoMjdBOwe/esVgEvLmNsD3IRHkm7fbKIUGvrleloJXUZgDHig2IPWNniv+GwjyJXzuNqVjlr5+4yVUZjycJwfQ==
@@ -3646,10 +3654,10 @@ framer-motion@^12.35.1:
     motion-utils "^12.29.2"
     tslib "^2.4.0"
 
-fumadocs-core@16.6.12:
-  version "16.6.12"
-  resolved "https://registry.yarnpkg.com/fumadocs-core/-/fumadocs-core-16.6.12.tgz#0c253c0e3ed6cf1c43e6ceaa870a5a164311c5c9"
-  integrity sha512-CVh6xDpzBx0CQ+vf65UoJdHHDt7VS4vssg/njoLUdPCxaYc0ts8YV2/FdibRNSEIBSmjNtgzANiNSergB+MoLg==
+fumadocs-core@16.6.14:
+  version "16.6.14"
+  resolved "https://registry.yarnpkg.com/fumadocs-core/-/fumadocs-core-16.6.14.tgz#912f49c5ce0fea7c8aed7ddaf5cd9a606ce5da04"
+  integrity sha512-bvGqR7f3z57DJff6wog1D41n/QBJGCcMXyaIHwfimeOk2vSnTmAYEGxtzpp572k8+ProNoa17Ukf30fkPHgzIQ==
   dependencies:
     "@formatjs/intl-localematcher" "^0.8.1"
     "@orama/orama" "^3.1.18"
@@ -3726,10 +3734,10 @@ fumadocs-openapi@^10.3.17:
     tailwind-merge "^3.5.0"
     xml-js "^1.6.11"
 
-fumadocs-ui@16.6.12:
-  version "16.6.12"
-  resolved "https://registry.yarnpkg.com/fumadocs-ui/-/fumadocs-ui-16.6.12.tgz#92bc6c820a9ba14e20979802f452bd5169832cdf"
-  integrity sha512-nEg7KZygFSuIeK3/ki8i8ntbooQXI3EI3pv5T3zxi8eJhLbm/jrM3Pw2yfjZGGOXE3Y5tgIa7XfnOSx05rHMBg==
+fumadocs-ui@16.6.14:
+  version "16.6.14"
+  resolved "https://registry.yarnpkg.com/fumadocs-ui/-/fumadocs-ui-16.6.14.tgz#38af3edf4e0d3abcbf7ea8320a77f3e57f5bf9cc"
+  integrity sha512-WnAig0xoCNuBCo7nQ2zA2xqkcTXlIxUQXGLl0coCnSCaTU3BZYVe2VdOZkFTaTMHPv+1CsQp0VCfJm7u045/Kw==
   dependencies:
     "@fumadocs/tailwind" "0.0.3"
     "@radix-ui/react-accordion" "^1.2.12"
@@ -4492,7 +4500,7 @@ json5@^2.2.3:
     object.assign "^4.1.4"
     object.values "^1.1.6"
 
-katex@^0.16.22:
+katex@^0.16.25:
   version "0.16.38"
   resolved "https://registry.yarnpkg.com/katex/-/katex-0.16.38.tgz#45f7b9253ac6b6a80fd168ee893fe0209b755338"
   integrity sha512-cjHooZUmIAUmDsHBN+1n8LaZdpmbj03LtYeYPyuYB7OuloiaeaV6N4LcfjcnHVzGWjVQmKrxxTrpDcmSzEZQwQ==
@@ -4684,7 +4692,7 @@ markdown-table@^3.0.0:
   resolved "https://registry.yarnpkg.com/markdown-table/-/markdown-table-3.0.4.tgz#fe44d6d410ff9d6f2ea1797a3f60aa4d2b631c2a"
   integrity sha512-wiYz4+JrLyb/DqW2hkFJxP7Vd7JuTDm77fvbM8VfEQdmSMqcImWeeRbHwZjBjIFki/VaMK2BhFi7oUUZeM5bqw==
 
-marked@^16.2.1:
+marked@^16.3.0:
   version "16.4.2"
   resolved "https://registry.yarnpkg.com/marked/-/marked-16.4.2.tgz#4959a64be6c486f0db7467ead7ce288de54290a3"
   integrity sha512-TI3V8YYWvkVf3KJe1dRkpnjs68JUPyEa5vjKrp1XEEJUAOaQc+Qj+L1qWbPd0SJuAdQkFU0h73sXXqwDYxsiDA==
@@ -4895,27 +4903,28 @@ merge2@^1.3.0:
   resolved "https://registry.yarnpkg.com/merge2/-/merge2-1.4.1.tgz#4368892f885e907455a6fd7dc55c0c9d404990ae"
   integrity sha512-8q7VEgMJW4J8tcfVPy8g09NcQwZdbwFEqhe/WZkoIzjn/3TGDwtOCYtXGxA3O8tPzpczCCDgv+P2P5y00ZJOOg==
 
-mermaid@^11.12.3:
-  version "11.12.3"
-  resolved "https://registry.yarnpkg.com/mermaid/-/mermaid-11.12.3.tgz#e150dae69ca291254fb408cf36d001b2efad62bf"
-  integrity sha512-wN5ZSgJQIC+CHJut9xaKWsknLxaFBwCPwPkGTSUYrTiHORWvpT8RxGk849HPnpUAQ+/9BPRqYb80jTpearrHzQ==
+mermaid@^11.13.0:
+  version "11.13.0"
+  resolved "https://registry.yarnpkg.com/mermaid/-/mermaid-11.13.0.tgz#da1a05337073a3141aa8c7d2608048f5db9ed587"
+  integrity sha512-fEnci+Immw6lKMFI8sqzjlATTyjLkRa6axrEgLV2yHTfv8r+h1wjFbV6xeRtd4rUV1cS4EpR9rwp3Rci7TRWDw==
   dependencies:
     "@braintree/sanitize-url" "^7.1.1"
-    "@iconify/utils" "^3.0.1"
-    "@mermaid-js/parser" "^1.0.0"
+    "@iconify/utils" "^3.0.2"
+    "@mermaid-js/parser" "^1.0.1"
     "@types/d3" "^7.4.3"
-    cytoscape "^3.29.3"
+    "@upsetjs/venn.js" "^2.0.0"
+    cytoscape "^3.33.1"
     cytoscape-cose-bilkent "^4.1.0"
     cytoscape-fcose "^2.2.0"
     d3 "^7.9.0"
     d3-sankey "^0.12.3"
-    dagre-d3-es "7.0.13"
-    dayjs "^1.11.18"
-    dompurify "^3.2.5"
-    katex "^0.16.22"
+    dagre-d3-es "7.0.14"
+    dayjs "^1.11.19"
+    dompurify "^3.3.1"
+    katex "^0.16.25"
     khroma "^2.1.0"
     lodash-es "^4.17.23"
-    marked "^16.2.1"
+    marked "^16.3.0"
     roughjs "^4.6.6"
     stylis "^4.3.6"
     ts-dedent "^2.2.0"

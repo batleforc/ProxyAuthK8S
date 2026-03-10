@@ -10,9 +10,6 @@ registry:
       tag: v0.0.1
       pullPolicy: IfNotPresent
 
-crds:
-  enabled: true
-
 otel:
   enabled: true
   replicas: 1

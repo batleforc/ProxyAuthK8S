@@ -20,7 +20,7 @@ PLACE HOLDER FOR A BRIEF DESCRIPTION OF THE RELEASE, HIGHLIGHTING KEY FEATURES, 
 
 ```bash
 # Install ProxyAuthK8s
-helm install proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s:v{{VERSION}} \
+helm install proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart:{{VERSION}} \
   --namespace proxyauthk8s \
   --create-namespace \
   --values values.yaml
@@ -30,10 +30,10 @@ helm install proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s:v{{VERSION}} \
 
 ```bash
 # Backend/Controller
-docker pull ghcr.io/batleforc/proxyauthk8s/server:v{{VERSION}}
+docker pull ghcr.io/batleforc/proxyauthk8s/server:{{VERSION}}
 
 # Frontend
-docker pull ghcr.io/batleforc/proxyauthk8s/front:v{{VERSION}}
+docker pull ghcr.io/batleforc/proxyauthk8s/front:{{VERSION}}
 
 ```
 
@@ -41,7 +41,7 @@ docker pull ghcr.io/batleforc/proxyauthk8s/front:v{{VERSION}}
 
 ```bash
 # Download the binary
-wget https://github.com/batleforc/ProxyAuthK8S/releases/download/v{{VERSION}}/proxyauthk8s-cli-{{OS}}-{{ARCH}}
+wget https://github.com/batleforc/ProxyAuthK8S/releases/download/{{VERSION}}/proxyauthk8s-cli-{{OS}}-{{ARCH}}
 chmod +x proxyauthk8s-cli-{{OS}}-{{ARCH}}
 sudo mv proxyauthk8s-cli-{{OS}}-{{ARCH}} /usr/local/bin/proxyauthk8s
 
@@ -59,7 +59,7 @@ proxyauthk8s --version
 
 
 # Upgrade the release
-helm upgrade proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s:v{{VERSION}} \
+helm upgrade proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s:{{VERSION}} \
   --namespace proxyauthk8s \
   --values values.yaml
 ```
@@ -68,7 +68,7 @@ helm upgrade proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s:v{{VERSION}} \
 
 ```bash
 # Download and replace the binary
-wget https://github.com/batleforc/ProxyAuthK8S/releases/download/v{{VERSION}}/proxyauthk8s-cli-{{OS}}-{{ARCH}}
+wget https://github.com/batleforc/ProxyAuthK8S/releases/download/{{VERSION}}/proxyauthk8s-cli-{{OS}}-{{ARCH}}
 chmod +x proxyauthk8s-cli-{{OS}}-{{ARCH}}
 sudo mv proxyauthk8s-cli-{{OS}}-{{ARCH}} /usr/local/bin/proxyauthk8s
 ```

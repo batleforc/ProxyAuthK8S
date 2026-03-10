@@ -1,0 +1,28 @@
+---
+title: Quick Started
+description: Mise en place de ProxyAuthK8S
+icon: Rocket
+---
+## WIP: Cette documentation est en cours de rédaction. N'hésitez pas à contribuer ou à directement sur Github.
+
+## Prérequis
+
+- Un cluster Kubernetes (>= v1.30) pour faire tourner ProxyAuthK8S
+- Un noeud Redis/Dragonfly pour le stockage de l'état du backend et du controller
+- Un provider d'identité OIDC/Oauth2 pour l'authentification des utilisateurs
+- Un ou plusieurs clusters Kubernetes cibles à exposer (le cluster maître peut être un cluster cible)
+- kubectl pour interagir avec le cluster Kubernetes
+- Helm pour installer ProxyAuthK8S
+- Une bonne tasse de café pour accompagner le tout ☕
+
+## Installation
+
+L'installation de ProxyAuthK8S se fait via le helm chart exposé via un registry OCI. Vous pouvez installer ProxyAuthK8S en utilisant la commande suivante:
+
+```bash
+# Install the latest version of ProxyAuthK8s CRDs
+helm install proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart-crd:0.1.8 --namespace proxyauthk8s --create-namespace
+# Install the latest version of ProxyAuthK8s
+helm install proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart:0.1.8 --namespace proxyauthk8s --values values.yaml
+```
+//TODO: Creer un exemple de setup minimal a base de dragonfly et d'un provider d'identité selfhosted (ex: Authentik)
