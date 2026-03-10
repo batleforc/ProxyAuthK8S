@@ -72,6 +72,16 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
 
 ### v0.2.0
 
+- [ ] Add documentation
+  - [ ] How to Deploy ProxyAuthK8s
+  - [ ] How to use Kubectl ProxyAuth plugin
+  - [ ] How to use the UI
+  - [ ] How to add new Kubernetes API to ProxyAuthK8S
+  - [ ] Architecture overview
+  - [ ] API documentation
+  - [ ] How to contribute
+  - [ ] How to setup development environment
+  - [ ] How to Release a new version
 - [ ] Create Krew plugin for easier usage
   - <https://github.com/davidB/kubectl-view-allocations/tree/master>
   - <https://github.com/kubernetes-sigs/krew-index/blob/master/plugins/view-allocations.yaml>
@@ -86,17 +96,9 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
 ### v1.0.0
 
 - [ ] Add more tests
-- [ ] Add documentation
-  - [ ] How to Deploy ProxyAuthK8s
-  - [ ] How to use Kubectl ProxyAuth plugin
-  - [ ] How to use the UI
-  - [ ] How to add new Kubernetes API to ProxyAuthK8S
-  - [ ] Architecture overview
-  - [ ] API documentation
-  - [ ] How to contribute
-  - [ ] How to setup development environment
-  - [ ] How to Release a new version
+- [ ] Add [redis cluster](https://docs.rs/deadpool-redis/latest/deadpool_redis/#example-cluster) support for HA and state storage
 - [ ] Add security features (details later)
+  - [ ] Allow getting oidc configuration from an external secrets
 - [ ] Add Oidc token validation
 - [ ] CI/CD
   - [ ] In case of TAG

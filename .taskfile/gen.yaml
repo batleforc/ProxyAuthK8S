@@ -42,6 +42,7 @@ tasks:
     silent: true
     cmds:
       - task gen:swagger > swagger.json
+      - cp swagger.json .docs/swagger.json
   client:
     desc: "Generate Node and Rust API Clients from OpenAPI specification"
     silent: true

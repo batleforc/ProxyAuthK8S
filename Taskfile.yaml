@@ -17,6 +17,8 @@ tasks:
     cmds:
       - echo "Initializing the project"
       - cargo install cargo-set-version
+      - yarn install
+      - cd .docs && yarn install
       - cog install-hook -a -o
   back:
     desc: "Run the backend"
@@ -89,7 +91,13 @@ tasks:
       - echo "Initializing the service task"
       - echo "Generating self-signed certificates for local development"
       - docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)/.compose/authelia":/keys authelia/authelia:latest authelia crypto pair rsa generate --directory /keys
-
+  docs:
+    desc: "Run the documentation server"
+    dir: .docs
+    silent: true
+    cmds:
+      - echo "Running the documentation server"
+      - yarn && yarn dev
   recu:
     desc: "Run all gen jobs"
     silent: true
