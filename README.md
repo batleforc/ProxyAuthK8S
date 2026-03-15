@@ -106,6 +106,7 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
 
 ### v2.0.0
 
+- [ ] Redesign the UI (I hate the current look of it)
 - [ ] Setup Exchange token between IdP and ProxyAuthK8S main auth server
 - [ ] Add ability to go through a proxy (exemple with Netbird)
 - [ ] Setup Agent Mode, Allow to not expose each cluster to the world and just have an agent doing a tunnel between the Cluster ApiServer and ProxyAuthK8S

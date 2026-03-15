@@ -1,0 +1,20 @@
+# From : https://www.dragonflydb.io/docs/getting-started/kubernetes
+
+storage:
+  enabled: true
+  requests: 512Mi # Set a desired volume size for PVC.
+
+extraArgs:
+  - --dbfilename=my-dump-{timestamp} # Only the filename without any file extensions.
+  - --snapshot_cron=* * * * * # Set a valid cron schedule.
+
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
