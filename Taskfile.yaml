@@ -95,6 +95,8 @@ tasks:
     desc: "Run the documentation server"
     dir: .docs
     silent: true
+    env:
+      PROXY_AUTH_K8S_VERSION: 0.1.8
     cmds:
       - echo "Running the documentation server"
       - yarn && yarn dev

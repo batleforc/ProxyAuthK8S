@@ -71,9 +71,9 @@ L'installation de ProxyAuthK8S se fait via le helm chart exposé via un registry
 
 ```bash
 # Install the latest version of ProxyAuthK8s CRDs
-helm install proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart-crd:0.1.8 --namespace proxyauthk8s --create-namespace
+helm install proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart-crd:__APP_VERSION__--namespace proxyauthk8s --create-namespace
 # Install the latest version of ProxyAuthK8s
-helm install proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart:0.1.8 --namespace proxyauthk8s --values values.yaml
+helm install proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart:__APP_VERSION__ --namespace proxyauthk8s --values values.yaml
 ```
 //TODO: Creer un exemple de setup minimal a base de dragonfly et d'un provider d'identité selfhosted (ex: Authentik)
 
