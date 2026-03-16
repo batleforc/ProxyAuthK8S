@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 serde = { workspace = true }
-serde_with = { version = "^3.8", default-features = false, features = [
+serde_with = { version = "^3.18", default-features = false, features = [
   "base64",
   "std",
   "macros",
