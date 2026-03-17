@@ -19,7 +19,7 @@ on:
 env:
   REGISTRY: ghcr.io
   REPO_NAME_LOWER: ${{ format('{0}', github.event.repository.name) }}
-  CHART_BASE_ARTEFACT: ${{ github.repository_owner }}/proxyauthk8s/charts
+  CHART_BASE_ARTEFACT: ${{ github.repository_owner }}/proxyauthk8s
   IMAGE_NAME_SERVER: ${{ github.repository_owner }}/proxyauthk8s/server
   IMAGE_NAME_FRONT: ${{ github.repository_owner }}/proxyauthk8s/front
 
@@ -163,7 +163,7 @@ jobs:
         uses: bsord/helm-push@v4.1.0
         with:
           useOCIRegistry: true
-          registry-url: oci://${{ env.REGISTRY }}/${{ env.CHART_BASE_ARTEFACT }}/charts-crd
+          registry-url: oci://${{ env.REGISTRY }}/${{ env.CHART_BASE_ARTEFACT }}
           username: ${{ github.actor }}
           access-token: ${{ secrets.GITHUB_TOKEN }}
           chart-folder: deploy/chart-crd
@@ -195,7 +195,7 @@ jobs:
         uses: bsord/helm-push@v4.1.0
         with:
           useOCIRegistry: true
-          registry-url: oci://${{ env.REGISTRY }}/${{ env.CHART_BASE_ARTEFACT }}/charts
+          registry-url: oci://${{ env.REGISTRY }}/${{ env.CHART_BASE_ARTEFACT }}
           username: ${{ github.actor }}
           access-token: ${{ secrets.GITHUB_TOKEN }}
           chart-folder: deploy/chart

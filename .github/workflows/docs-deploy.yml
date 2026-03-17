@@ -1,0 +1,56 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches: ["main", "feat/init-doc"]
+    paths:
+      - ".docs/**" # Only trigger on changes to documentation files
+      - ".github/workflows/docs-deploy.yml" # Trigger if the workflow file itself is changed
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy-docs:
+    name: Deploy Documentation to GitHub Pages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # For checking out the repository
+      id-token: write # For authentication with GitHub Pages
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: "24"
+          cache: "yarn" # 🚀 Speed up builds with yarn cache
+      - name: ⚙️ Setup Pages
+        uses: actions/configure-pages@v4
+      - name: 📂 Install Dependencies
+        run: cd .docs && yarn install --frozen-lockfile
+      - name: Build with Fumadocs
+        run: cd .docs && yarn build
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .docs/out
+
+  # Deployment job
+  deploy:
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: deploy-docs
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

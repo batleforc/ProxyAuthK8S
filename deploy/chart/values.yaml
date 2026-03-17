@@ -10,11 +10,8 @@ registry:
       tag: v0.0.1
       pullPolicy: IfNotPresent
 
-crds:
-  enabled: true
-
 otel:
-  enabled: true
+  enabled: false
   replicas: 1
   image:
     repository: otel/opentelemetry-collector-contrib

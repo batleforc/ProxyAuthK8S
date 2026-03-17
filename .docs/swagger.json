@@ -1,0 +1,587 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ProxyAuthK8S",
+    "description": "Reverse Proxy K8s Api.",
+    "contact": {
+      "name": "Batleforc",
+      "url": "https://maxleriche.net",
+      "email": "maxleriche.60@gmail.com"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/license/mit/"
+    },
+    "version": "0.1.8"
+  },
+  "servers": [
+    {
+      "url": "/",
+      "description": "Current usable server."
+    }
+  ],
+  "paths": {
+    "/api/v1/clusters": {
+      "get": {
+        "tags": [
+          "api_clusters"
+        ],
+        "summary": "Get all cluster visible to the user.",
+        "description": "Get all cluster visible to the user,\nif the user is not authenticated return 401,\nif none return an empty array.",
+        "operationId": "get_all_visible_cluster",
+        "responses": {
+          "200": {
+            "description": "Get all visible clusters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAllVisibleClusterBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "User is not authenticated."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/clusters/{ns}/{cluster}/auth/callback": {
+      "get": {
+        "tags": [
+          "auth_clusters"
+        ],
+        "summary": "Callback from the cluster's OIDC provider",
+        "description": "If the cluster is not found or disabled, return 404.",
+        "operationId": "callback_login",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name that should exist in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-front-callback",
+            "in": "header",
+            "description": "If it's from the frontend, this header will be set.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "x-kubectl-callback",
+            "in": "header",
+            "description": "If it's from kubectl plugin, this header will be set.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Authorization code from the OIDC provider.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "State parameter to prevent CSRF.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from remote cluster.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallbackModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
+    "/clusters/{ns}/{cluster}/auth/login": {
+      "get": {
+        "tags": [
+          "auth_clusters"
+        ],
+        "summary": "Redirect to the cluster's login page",
+        "description": "If the cluster is not found or disabled, return 404.",
+        "operationId": "cluster_login",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name that should exist in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-front-callback",
+            "in": "header",
+            "description": "If it's from the frontend, this header will be set.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "x-kubectl-callback",
+            "in": "header",
+            "description": "If it's from kubectl plugin, this header will be set.",
+            "required": true,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from remote cluster.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/clusters/{ns}/{cluster}/{path}": {
+      "get": {
+        "tags": [
+          "proxy_clusters"
+        ],
+        "summary": "Cluster redirect",
+        "description": "Redirect to the cluster if exists.",
+        "operationId": "get_redirect",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name, must match an enabled cluster in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Corresponding path to resource given to the kube api server.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from remote cluster."
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "proxy_clusters"
+        ],
+        "summary": "Cluster redirect",
+        "description": "Redirect to the cluster if exists.",
+        "operationId": "put_redirect",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name, must match an enabled cluster in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Corresponding path to resource given to the kube api server.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from remote cluster."
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "proxy_clusters"
+        ],
+        "summary": "Cluster redirect",
+        "description": "Redirect to the cluster if exists.",
+        "operationId": "post_redirect",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name, must match an enabled cluster in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Corresponding path to resource given to the kube api server.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from remote cluster."
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "proxy_clusters"
+        ],
+        "summary": "Cluster redirect",
+        "description": "Redirect to the cluster if exists.",
+        "operationId": "delete_redirect",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name, must match an enabled cluster in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Corresponding path to resource given to the kube api server.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from remote cluster."
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "proxy_clusters"
+        ],
+        "summary": "Cluster redirect",
+        "description": "Redirect to the cluster if exists.",
+        "operationId": "patch_redirect",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name, must match an enabled cluster in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "description": "Corresponding path to resource given to the kube api server.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Response from remote cluster."
+          },
+          "404": {
+            "description": "Cluster not found or disabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
+    "/management/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Base path just to answer if the server is up and running.",
+        "description": "This is also used for health checks.",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "If the server is healthy."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CallbackModel": {
+        "type": "object",
+        "description": "Model for the callback response after successful authentication with the cluster.\n\nThis model contains the access token, refresh token, cluster URL, subject, and ID token returned by the cluster after successful authentication.",
+        "required": [
+          "access_token",
+          "refresh_token",
+          "cluster_url",
+          "subject",
+          "id_token"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "cluster_url": {
+            "type": "string"
+          },
+          "id_token": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        }
+      },
+      "GetAllVisibleClusterBody": {
+        "type": "object",
+        "description": "Body of the response for the get_all_visible_cluster endpoint.\n\nContains a list of clusters visible to the user.\nWill be empty if the user has no clusters visible to them.",
+        "required": [
+          "clusters"
+        ],
+        "properties": {
+          "clusters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisibleCluster"
+            }
+          }
+        }
+      },
+      "VisibleCluster": {
+        "type": "object",
+        "description": "Model representing a cluster visible to the user.",
+        "required": [
+          "enabled",
+          "namespace",
+          "name",
+          "sso_enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "is_reachable": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "sso_enabled": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer_auth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "api_clusters",
+      "description": "API endpoints used by the front."
+    },
+    {
+      "name": "auth_clusters",
+      "description": "Authentication endpoints for clusters."
+    },
+    {
+      "name": "health",
+      "description": "Health check endpoints."
+    },
+    {
+      "name": "proxy_clusters",
+      "description": "Proxy cluster endpoints."
+    }
+  ]
+}

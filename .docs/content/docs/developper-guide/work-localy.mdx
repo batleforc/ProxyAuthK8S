@@ -1,0 +1,57 @@
+---
+title: Work Localy
+icon: LaptopMinimal
+---
+
+## Setup the development environment
+
+### Prerequisites
+
+- [Mise](https://mise.jdx.dev/)
+- [Podman](https://podman.io/)
+
+### Run the development environment
+
+```bash
+mise install
+task init
+```
+
+This command will install all the necessary dependencies and tools for the development environment, including the Rust toolchain, Node.js, and any other required CLI.
+
+The `task init` command will set up the development environment, install basic dependencies and Git Hooks.
+
+### Start the services
+
+```bash
+# Generate locally trusted tls certificates
+task gen:tls
+task gen:tls-wildcard
+```
+
+Once the certificates are generated, you can start the services with the following command:
+
+```bash
+task service
+```
+
+### Start the Kubernetes cluster
+
+```bash
+task k3d:up
+```
+
+This command will start a local Kubernetes cluster using K3D, which is a lightweight Kubernetes distribution. This cluster is will be used to test the ProxyAuthK8S project locally and is already configured to trust the oauth2 server and certificates.
+
+### Start the applicance
+
+```bash
+task back:tls
+task front:tls
+```
+
+Each command will start in different terminal and exposed tls services for the backend and frontend of the ProxyAuthK8S project.
+
+## Setup CDE
+
+SOON TM

@@ -18,5 +18,5 @@
       "@proxy-auth-k8s/front-api": ["libs/front/front-api/src/index.ts"]
     }
   },
-  "exclude": ["node_modules", "tmp"]
+  "exclude": ["node_modules", "tmp", ".docs"]
 }

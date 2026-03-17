@@ -56,7 +56,7 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
   - [x] Validate the token either against the OIDC provider or kube itself before redirecting the request
   - [x] Handle HA of the backend with state storage in Redis
   - [x] Generate the Swagger documentation for the API
-- [ ] CI/CD
+- [x] CI/CD
   - [x] On each commit
     - [x] Run CodeQL analysis
     - [x] Rust Deeper analysis including CVE
@@ -72,6 +72,16 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
 
 ### v0.2.0
 
+- [ ] Add documentation
+  - [x] How to Deploy ProxyAuthK8s
+  - [ ] How to use Kubectl ProxyAuth plugin
+  - [ ] How to use the UI
+  - [ ] How to add new Kubernetes API to ProxyAuthK8S
+  - [x] Architecture overview
+  - [x] API documentation
+  - [x] How to contribute
+  - [x] How to setup development environment
+  - [x] How to Release a new version
 - [ ] Create Krew plugin for easier usage
   - <https://github.com/davidB/kubectl-view-allocations/tree/master>
   - <https://github.com/kubernetes-sigs/krew-index/blob/master/plugins/view-allocations.yaml>
@@ -86,17 +96,9 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
 ### v1.0.0
 
 - [ ] Add more tests
-- [ ] Add documentation
-  - [ ] How to Deploy ProxyAuthK8s
-  - [ ] How to use Kubectl ProxyAuth plugin
-  - [ ] How to use the UI
-  - [ ] How to add new Kubernetes API to ProxyAuthK8S
-  - [ ] Architecture overview
-  - [ ] API documentation
-  - [ ] How to contribute
-  - [ ] How to setup development environment
-  - [ ] How to Release a new version
+- [ ] Add [redis cluster](https://docs.rs/deadpool-redis/latest/deadpool_redis/#example-cluster) support for HA and state storage
 - [ ] Add security features (details later)
+  - [ ] Allow getting oidc configuration from an external secrets
 - [ ] Add Oidc token validation
 - [ ] CI/CD
   - [ ] In case of TAG
@@ -104,6 +106,7 @@ N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la bri
 
 ### v2.0.0
 
+- [ ] Redesign the UI (I hate the current look of it)
 - [ ] Setup Exchange token between IdP and ProxyAuthK8S main auth server
 - [ ] Add ability to go through a proxy (exemple with Netbird)
 - [ ] Setup Agent Mode, Allow to not expose each cluster to the world and just have an agent doing a tunnel between the Cluster ApiServer and ProxyAuthK8S
