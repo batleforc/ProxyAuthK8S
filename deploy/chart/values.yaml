@@ -11,7 +11,7 @@ registry:
       pullPolicy: IfNotPresent
 
 otel:
-  enabled: true
+  enabled: false
   replicas: 1
   image:
     repository: otel/opentelemetry-collector-contrib

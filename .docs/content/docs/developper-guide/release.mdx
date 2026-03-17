@@ -1,0 +1,13 @@
+---
+title: Préparer une versions
+icon: CodeXml
+---
+
+## Créer le tag d'une release
+
+```bash
+cog bump --patch / --minor / --major
+git push origin tags $(git describe --tags --abbrev=0)
+```
+
+Une fois le tag créé, la CI va se déclencher et créer une release draft sur GitHub avec le changelog généré automatiquement. Il ne restera plus qu'à ajouter un nom à la release et à la publier.

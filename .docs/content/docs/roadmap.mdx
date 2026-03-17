@@ -1,0 +1,235 @@
+---
+title: Roadmap
+icon: Map
+description: Vue d'ensemble de la progression et des objectifs du projet ProxyAuthK8S
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## Vue d'ensemble
+
+<Mermaid chart={`timeline
+    title ProxyAuthK8S Roadmap
+    section v0.1.0 ✅
+      CRD & Controller : Création et validation des CRD
+                       : Reconciliation et leader election
+      Backend          : API, Proxy, Redis HA
+                       : Swagger, OIDC validation
+      Frontend         : Dashboard, Kubeconfig
+                       : Client API auto-généré
+      CI/CD            : CodeQL, CVE, Lint
+                       : Build Docker/Helm, Release
+    section v0.2.0 🚧
+      Documentation    : Guides d'utilisation
+                       : Architecture et API docs
+      Krew Plugin      : Publication sur Krew Index
+    section v1.0.0 📋
+      Tests & Sécurité : Tests approfondis
+                       : Redis cluster HA
+                       : Secrets externes, OIDC validation
+    section v2.0.0 🔮
+      Redesign UI      : Nouvelle interface
+      Exchange Token   : Federation IdP
+      Proxy & Agent    : Mode agent, tunnel
+`} />
+
+---
+
+## v0.1.0 — Fondations {"\u2705"}
+
+<Callout type="info">
+  Toutes les fonctionnalités de cette version sont terminées et livrées.
+</Callout>
+
+<Steps>
+
+<Step>
+### CRD & Validation
+
+Création d'une CRD pour stocker les clusters cibles et validation contre des règles définies.
+
+</Step>
+
+<Step>
+### Authentification OIDC
+
+Authentification des utilisateurs via un provider OIDC pour l'UI avec filtrage du dashboard basé sur les groupes utilisateurs.
+
+</Step>
+
+<Step>
+### Interface utilisateur
+
+- Liste des clusters accessibles par l'utilisateur
+- Connexion OIDC vers les clusters et affichage du kubeconfig
+- Affichage du kubeconfig pour les providers non-OIDC
+- Client API auto-généré depuis la documentation Swagger
+
+</Step>
+
+<Step>
+### Controller Kubernetes
+
+- Réconciliation des CRD et mise à jour du statut des clusters
+- Gestion des callbacks OIDC
+- Haute disponibilité via élection de leader
+
+</Step>
+
+<Step>
+### Backend & Proxy
+
+- API exposée pour l'UI
+- Redirection des requêtes vers le bon cluster selon les droits d'accès
+- Validation des tokens contre le provider OIDC ou Kubernetes
+- Haute disponibilité via stockage d'état dans Redis
+- Documentation Swagger auto-générée
+
+</Step>
+
+<Step>
+### CI/CD
+
+- **À chaque commit :** CodeQL, analyse CVE Rust, Lint front
+- **Sur TAG (vX.X.X) :** Build Docker → GHCR, Helm → GHCR, Draft release GitHub
+- **Pré-TAG :** Format vX.X.X, cog par contributeur humain, changelog obligatoire
+
+</Step>
+
+</Steps>
+
+---
+
+## v0.2.0 — Documentation & CLI {"\uD83D\uDEA7"}
+
+<Callout type="warn">
+  Cette version est en cours de développement.
+</Callout>
+
+<Steps>
+
+<Step>
+### Documentation
+
+| Guide | Statut |
+|-------|--------|
+| Comment déployer ProxyAuthK8S | ✅ Terminé |
+| Comment utiliser le plugin Kubectl ProxyAuth | ⏳ En cours |
+| Comment utiliser l'UI | ⏳ En cours |
+| Comment ajouter une nouvelle API Kubernetes | ⏳ En cours |
+| Vue d'ensemble de l'architecture | ✅ Terminé |
+| Documentation API | ✅ Terminé |
+| Comment contribuer | ✅ Terminé |
+| Environnement de développement | ✅ Terminé |
+| Comment publier une nouvelle version | ✅ Terminé |
+
+</Step>
+
+<Step>
+### Plugin Krew
+
+Création d'un plugin Krew (`proxyauthk8s`) pour faciliter l'utilisation en CLI.
+
+- ✅ Client auto-généré depuis l'OpenAPI spec
+- ⏳ Publication sur le Krew Index
+
+</Step>
+
+<Step>
+### CI/CD
+
+- ⏳ Build et publication du plugin Krew lors d'un TAG
+
+</Step>
+
+<Step>
+### Qualité
+
+- ⏳ Nettoyage de l'historique Git
+
+</Step>
+
+</Steps>
+
+---
+
+## v1.0.0 — Production Ready {"\uD83D\uDCCB"}
+
+<Callout>
+  Objectif : rendre ProxyAuthK8S prêt pour la production avec des garanties de sécurité et de fiabilité.
+</Callout>
+
+<Steps>
+
+<Step>
+### Tests approfondis
+
+Ajout de tests unitaires et d'intégration pour couvrir l'ensemble des fonctionnalités.
+
+</Step>
+
+<Step>
+### Redis Cluster HA
+
+Support du [mode cluster Redis](https://docs.rs/deadpool-redis/latest/deadpool_redis/#example-cluster) pour la haute disponibilité et le stockage d'état.
+
+</Step>
+
+<Step>
+### Sécurité renforcée
+
+- Récupération de la configuration OIDC depuis des secrets externes (ex: Vault)
+- Validation des tokens OIDC renforcée
+
+</Step>
+
+<Step>
+### CI/CD
+
+- Publication automatique de la documentation sur GitHub Pages lors d'un TAG
+
+</Step>
+
+</Steps>
+
+---
+
+## v2.0.0 — Évolutions majeures {"\uD83D\uDD2E"}
+
+<Callout>
+  Vision à long terme pour ProxyAuthK8S.
+</Callout>
+
+<Steps>
+
+<Step>
+### Redesign complet de l'UI
+
+Refonte de l'interface utilisateur pour une meilleure expérience.
+
+</Step>
+
+<Step>
+### Exchange Token
+
+Mise en place de l'échange de tokens entre les IdP et le serveur d'authentification principal de ProxyAuthK8S.
+
+</Step>
+
+<Step>
+### Support Proxy
+
+Ajout de la possibilité de passer par un proxy (ex: Netbird) pour les connexions aux clusters.
+
+</Step>
+
+<Step>
+### Mode Agent
+
+Permet de ne pas exposer chaque cluster directement mais d'utiliser un agent qui crée un tunnel entre l'API Server du cluster et ProxyAuthK8S.
+
+</Step>
+
+</Steps>
+
