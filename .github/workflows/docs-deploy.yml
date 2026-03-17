@@ -12,6 +12,9 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   deploy-docs:
     name: Deploy Documentation to GitHub Pages
@@ -28,13 +31,13 @@ jobs:
           node-version: "24"
           cache: "yarn" # 🚀 Speed up builds with yarn cache
       - name: ⚙️ Setup Pages
-        uses: actions/configure-pages@v4
+        uses: actions/configure-pages@1f0c5cde4bc74cd7e1254d0cb4de8d49e9068c7d # v4.0.0
       - name: 📂 Install Dependencies
         run: cd .docs && yarn install --frozen-lockfile
       - name: Build with Fumadocs
         run: cd .docs && yarn build
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: .docs/out
 
@@ -53,4 +56,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

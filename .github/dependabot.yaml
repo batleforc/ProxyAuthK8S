@@ -19,3 +19,8 @@ updates:
     directory: /libs/front/front-api
     schedule:
       interval: daily
+
+  - package-ecosystem: npm
+    directory: /.docs
+    schedule:
+      interval: daily
