@@ -6,9 +6,9 @@ tasks:
     silent: true
     cmds:
       - cmd: docker inspect traefik | jq -r '.[0].NetworkSettings.Networks["proxy-auth-k8s"].IPAddress'
-        if: 'command -v docker'
+        if: "command -v docker"
       - cmd: podman inspect traefik | jq -r '.[0].NetworkSettings.Networks["proxy-auth-k8s"].IPAddress'
-        if: 'command -v podman'
+        if: "command -v podman"
   create-kubeconfig-oidc:
     desc: "Create kubeconfig to use with OIDC and ProxyauthK8s"
     silent: true
@@ -34,3 +34,22 @@ tasks:
       - yq e -i 'del(.users[0].user."client-certificate-data")' kubeconfig.local-proxy-{{ .prefix }}.yaml
       - yq e -i 'del(.users[0].user."client-key-data")' kubeconfig.local-proxy-{{ .prefix }}.yaml
       # https://docs.siderolabs.com/talos/v1.6/reference/configuration/v1alpha1/config#extrahostentries%5B%5D
+  upgrade-docs:
+    desc: "Upgrade documentation dependencies"
+    dir: .docs
+    cmds:
+      - yarn upgrade
+  upgrade-front:
+    desc: "Upgrade frontend dependencies"
+    cmds:
+      - yarn upgrade
+  upgrade-back:
+    desc: "Upgrade backend dependencies"
+    cmds:
+      - cargo update
+  upgrade:
+    desc: "Upgrade all dependencies"
+    deps:
+      - upgrade-docs
+      - upgrade-front
+      - upgrade-back
