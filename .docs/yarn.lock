@@ -509,10 +509,10 @@
     "@iconify/types" "^2.0.0"
     mlly "^1.8.0"
 
-"@icons-pack/react-simple-icons@^13.12.0":
-  version "13.12.0"
-  resolved "https://registry.yarnpkg.com/@icons-pack/react-simple-icons/-/react-simple-icons-13.12.0.tgz#97fb4f4c708b3dc28497a8477919551b267c4cc2"
-  integrity sha512-RCtXJw+tTG8fmBieqBJSRA5BItVcXCPN6QOIqIJMmLD7ESLr8nB78JrahheXofy8ZWH+Fpwxou0oElseObu1dw==
+"@icons-pack/react-simple-icons@^13.13.0":
+  version "13.13.0"
+  resolved "https://registry.yarnpkg.com/@icons-pack/react-simple-icons/-/react-simple-icons-13.13.0.tgz#71cf5f87809a2098506108960bdc746011c21bf5"
+  integrity sha512-B5HhQMIpcSH4z8IZ8HFhD59CboHceKYMpPC9kAwGyKntvPdyJJv26DLu4Z1wAjcCLyrJhf11tMhiQGom9Rxb9g==
 
 "@img/colour@^1.0.0":
   version "1.1.0"
