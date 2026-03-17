@@ -2,7 +2,7 @@
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/batleforc/ProxyAuthK8S/badge)](https://scorecard.dev/viewer/?uri=github.com/batleforc/ProxyAuthK8S)
 
-![ProxyAuthK8s Logo](.docs/assets/art.png)
+![ProxyAuthK8s Logo](.docs/public/art.png)
 
 ProxyAuthK8S is a part of the Weebo Si project, this project is focused on exposing Kube api server with focus on security and ease of use.
 
@@ -10,7 +10,7 @@ In addition to the secured exposure, this project also eases the sharing of kube
 
 The base specification of the [project can be found here](https://batleforc.github.io/weebo-si/0.projects/reverse-api-kube-oidc-based.html).
 
-![ProxyAuthK8s Demo](.docs/assets/demo-1.gif)
+![ProxyAuthK8s Demo](.docs/public/demo-1.gif)
 
 ## Architecture
 
