@@ -28,7 +28,7 @@
   "devDependencies": {
     "@hey-api/openapi-ts": "0.94.2",
     "@monodon/rust": "2.3.0",
-    "@nx/eslint": "22.5.4",
+    "@nx/eslint": "22.6.0",
     "@nx/eslint-plugin": "22.5.4",
     "@nx/js": "22.5.4",
     "@nx/vite": "22.5.4",
