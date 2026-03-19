@@ -1242,17 +1242,17 @@
     consola "^3.4.2"
     figlet "^1.10.0"
 
-"@maz-ui/themes@4.7.9", "@maz-ui/themes@^4.7.9":
-  version "4.7.9"
-  resolved "https://registry.yarnpkg.com/@maz-ui/themes/-/themes-4.7.9.tgz#728a29d309579be04cf4335a962c90d6a7a20ff9"
-  integrity sha512-/sW+EUj13IsyqIFveM2xVdmjR2gtMIFumJNbjfKm7EuwX9Hs4BzF4XG1+FgXw6q+sy2DqQMM6o+VTjVbbVfseA==
+"@maz-ui/themes@4.9.0", "@maz-ui/themes@^4.7.9":
+  version "4.9.0"
+  resolved "https://registry.yarnpkg.com/@maz-ui/themes/-/themes-4.9.0.tgz#17532ba082cb413c50f67a0410ca194b93189dd6"
+  integrity sha512-Den9CRkgGePdHHuhuw1bpf4LYKjWisJr0ezmyErqQcw0jSVBzXpeDX80dK7vJsSpaO2Fegj7qw3/zXzkH8ebLg==
   dependencies:
     "@maz-ui/utils" "4.7.6"
 
-"@maz-ui/translations@4.7.6", "@maz-ui/translations@^4.7.6":
-  version "4.7.6"
-  resolved "https://registry.yarnpkg.com/@maz-ui/translations/-/translations-4.7.6.tgz#9f1c306e12f28869fbe34f2885bac1961fe75026"
-  integrity sha512-otXgPxgg4hy0C9atn6lY6Ty5W3FCnG/w6AazQwZvc0Hv4aNm4VsnPQc3OCG1rbvJNfO44iia8fS6TuLWmLhxmA==
+"@maz-ui/translations@4.8.0", "@maz-ui/translations@^4.7.6":
+  version "4.8.0"
+  resolved "https://registry.yarnpkg.com/@maz-ui/translations/-/translations-4.8.0.tgz#521fd6e078f85b909362e55ffbbb216dc50dedfc"
+  integrity sha512-u99aDVyzLmwF6GIA0EtQ5Xqhazu0A1Ay9mNxtmsnQUcmVyLh4mUv96cEyMw3lvaT9ZYEM2jxOtLN4aYgjLlfrw==
   dependencies:
     "@maz-ui/utils" "4.7.6"
 
@@ -4238,16 +4238,16 @@ math-intrinsics@^1.1.0:
   resolved "https://registry.yarnpkg.com/math-intrinsics/-/math-intrinsics-1.1.0.tgz#a0dd74be81e2aa5c2f27e65ce283605ee4e2b7f9"
   integrity sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==
 
-maz-ui@^4.7.9:
-  version "4.7.9"
-  resolved "https://registry.yarnpkg.com/maz-ui/-/maz-ui-4.7.9.tgz#a6e645a34aea2f1a41bd1943f21a9986d9cf850c"
-  integrity sha512-kZg3a26NP2keaa6Zh79HWlhYQi73ondnWhq2etCJwGUhvcxYiHvgUpbkj6EFsoPd6cV/F1YtsvVaXJsP4SoDPQ==
+maz-ui@^4.9.0:
+  version "4.9.0"
+  resolved "https://registry.yarnpkg.com/maz-ui/-/maz-ui-4.9.0.tgz#2f1917a94eab5ba78bad25a55516f60da2f68669"
+  integrity sha512-8E9UDiV3xOuwbWanvsdWjceGxgtQV0Af14w7Ggvt+X8IQ56B2TtkQbM/Kkj9z1OKlR0dhuGPkLjz5ni0js/WuQ==
   dependencies:
     "@floating-ui/vue" "^1.1.11"
     "@maz-ui/cli" "4.7.3"
     "@maz-ui/icons" "4.7.6"
-    "@maz-ui/themes" "4.7.9"
-    "@maz-ui/translations" "4.7.6"
+    "@maz-ui/themes" "4.9.0"
+    "@maz-ui/translations" "4.8.0"
     "@maz-ui/utils" "4.7.6"
     chart.js "^4.5.1"
     dayjs "^1.11.20"
