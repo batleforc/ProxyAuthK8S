@@ -66,3 +66,6 @@ vitest.config.*.timestamp*
 /helm-packages
 
 release.md
+
+.claude/worktrees
+.claude/settings.local.json
