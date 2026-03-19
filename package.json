@@ -33,7 +33,7 @@
     "@nx/js": "22.5.4",
     "@nx/vite": "22.5.4",
     "@nx/vitest": "22.5.4",
-    "@nx/vue": "22.5.4",
+    "@nx/vue": "22.6.0",
     "@nx/web": "22.5.4",
     "@nx/workspace": "22.5.4",
     "@swc-node/register": "1.11.1",
