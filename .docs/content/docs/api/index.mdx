@@ -1,0 +1,14 @@
+---
+title: Api
+description: Api documentation for ProxyAuthK8s
+icon: Network
+---
+
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+<Cards>
+  <Card title="API Clusters" href="/docs/api/api_clusters/get_all_visible_cluster" description="Retrieve cluster information visible to the authenticated user." />
+  <Card title="Auth Clusters" href="/docs/api/auth_clusters/callback_login" description="OIDC authentication flow: login and callback endpoints." />
+  <Card title="Health" href="/docs/api/health/health" description="Health check endpoint to verify the server is running." />
+  <Card title="Proxy Clusters" href="/docs/api/proxy_clusters/get_redirect" description="Proxy requests to Kubernetes clusters." />
+</Cards>

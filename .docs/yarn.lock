@@ -3665,10 +3665,10 @@ framer-motion@^12.38.0:
     motion-utils "^12.36.0"
     tslib "^2.4.0"
 
-fumadocs-core@16.7.0:
-  version "16.7.0"
-  resolved "https://registry.yarnpkg.com/fumadocs-core/-/fumadocs-core-16.7.0.tgz#b42927f9611c9a0e0244b57dcac0f03c06d2b65e"
-  integrity sha512-6QkOLy3LZfVin5/SOYMnVoKHJRO8vGtGbG4seWTYlaLj3jAhlRiefxIUilP+px1tpDTr6G6jGv6TeWtU0aP71Q==
+fumadocs-core@16.7.2:
+  version "16.7.2"
+  resolved "https://registry.yarnpkg.com/fumadocs-core/-/fumadocs-core-16.7.2.tgz#b769d0390047b10f99f6dd780e94f6cfea4a4e3c"
+  integrity sha512-dPOp4KdaqKVTnCvwMp5XKAushq1rb9IeH20Nbtp8ocG0RhtL7QtE17UC6qXEbmcCFL5NgxRhG+MW2RS7kFFKGw==
   dependencies:
     "@formatjs/intl-localematcher" "^0.8.2"
     "@orama/orama" "^3.1.18"
@@ -3717,10 +3717,10 @@ fumadocs-mdx@14.2.11:
     vfile "^6.0.3"
     zod "^4.3.6"
 
-fumadocs-openapi@^10.4.0:
-  version "10.4.0"
-  resolved "https://registry.yarnpkg.com/fumadocs-openapi/-/fumadocs-openapi-10.4.0.tgz#6d215478ca461a35667244c1e01827d05b7ef56a"
-  integrity sha512-DI5C1N3MHmKyegPebgnD1/ULzBtdnhOC2bj3J3LgQ7gqC+WEql+UYKfqVr1CoM7WRfn0vQ4sGfZhfjA42+mmPQ==
+fumadocs-openapi@^10.4.1:
+  version "10.4.1"
+  resolved "https://registry.yarnpkg.com/fumadocs-openapi/-/fumadocs-openapi-10.4.1.tgz#c0be495508242c43e7379b04490230a08f27d429"
+  integrity sha512-iMEDyANcikDePUFlBE5sffjTbrUI5LELuIla+6kTZJYEuoQMLUK+plOnXq1iacPBMeCS7cSFadvE/Vp/h7oA+g==
   dependencies:
     "@fastify/deepmerge" "^3.2.1"
     "@fumari/json-schema-ts" "^0.0.2"
@@ -3746,10 +3746,10 @@ fumadocs-openapi@^10.4.0:
     tailwind-merge "^3.5.0"
     xml-js "^1.6.11"
 
-fumadocs-ui@16.7.0:
-  version "16.7.0"
-  resolved "https://registry.yarnpkg.com/fumadocs-ui/-/fumadocs-ui-16.7.0.tgz#641b3811012e6b6c697d190b642449981a4dd982"
-  integrity sha512-EHxijMwafP96sVDPh+8x2yrolcC9VCz/Xnm8a8pY/fjzO8i2gEXwnQ3Fy2KiiBji/ClRp5XjmnYo1uQO35hzLQ==
+fumadocs-ui@16.7.2:
+  version "16.7.2"
+  resolved "https://registry.yarnpkg.com/fumadocs-ui/-/fumadocs-ui-16.7.2.tgz#b9956288c8547675d44564fea2e90dea6500a068"
+  integrity sha512-k4/QlWUMEL3WuzdO36gyrVSrr7ePGMhvD5/Zqaoqb8PMun8HWn8sAzg0FnHtWwn4kO6YrIw1puaA2U5vUCH6iA==
   dependencies:
     "@fumadocs/tailwind" "0.0.3"
     "@radix-ui/react-accordion" "^1.2.12"
@@ -6279,7 +6279,7 @@ shebang-regex@^3.0.0:
   resolved "https://registry.yarnpkg.com/shebang-regex/-/shebang-regex-3.0.0.tgz#ae16f1644d873ecad843b0307b143362d4c42172"
   integrity sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==
 
-shiki@4.0.2, shiki@^4.0.1, shiki@^4.0.2:
+shiki@4.0.2, shiki@^4.0.2:
   version "4.0.2"
   resolved "https://registry.yarnpkg.com/shiki/-/shiki-4.0.2.tgz#d81495df11e1cb8a05907310a6d051e054435586"
   integrity sha512-eAVKTMedR5ckPo4xne/PjYQYrU3qx78gtJZ+sHlXEg5IHhhoQhMfZVzetTYuaJS0L2Ef3AcCRzCHV8T0WI6nIQ==

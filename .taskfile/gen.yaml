@@ -75,3 +75,13 @@ tasks:
     cmds:
       - echo "Linting the OpenAPI specification with Spectral"
       - yarn spectral lint -f sarif -o ./spectral-report.sarif ./swagger.json
+  docs:crd:
+    desc: "Generate documentation for Custom Resource Definitions"
+    silent: true
+    cmds:
+      - echo "Generating documentation for Custom Resource Definitions"
+      - podman run -u $(id -u):$(id -g) --rm -v ${PWD}:/workdir ghcr.io/fybrik/crdoc:latest --resources /workdir/deploy/crds.yaml --output /workdir/.docs/content/docs/crds.mdx
+      - echo "Replacing all curly braces with escaped version in the generated documentation"
+      - sed -i -e 's/{{ "{{" }}/\\{\\{/g' -e 's/{{ "}}" }}/\\}\\}/g' .docs/content/docs/crds.mdx
+      - echo "Add front matter to the generated documentation"
+      - .docs/scripts/add-frontmatter.sh --title "Custom Resource Definitions" --icon DraftingCompass --output .docs/content/docs/crds.mdx .docs/content/docs/crds.mdx

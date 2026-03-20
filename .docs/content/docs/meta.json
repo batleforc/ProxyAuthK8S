@@ -1,0 +1,12 @@
+{
+  "root": true,
+  "pages": [
+    "index.mdx",
+    "quick-started.mdx",
+    "roadmap.mdx",
+    "architecture.mdx",
+    "crds.mdx",
+    "api",
+    "developper-guide"
+  ]
+}

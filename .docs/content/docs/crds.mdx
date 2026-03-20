@@ -1,0 +1,1051 @@
+---
+title: Custom Resource Definitions
+icon: DraftingCompass
+---
+
+# API Reference
+
+Packages:
+
+- [weebo.si.rs/v1](#weebosirsv1)
+
+# weebo.si.rs/v1
+
+Resource Types:
+
+- [ProxyKubeApi](#proxykubeapi)
+
+
+
+
+## ProxyKubeApi
+<sup><sup>[↩ Parent](#weebosirsv1 )</sup></sup>
+
+
+
+
+
+
+Auto-generated derived type for ProxyKubeApiSpec via `CustomResource`
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+      <td><b>apiVersion</b></td>
+      <td>string</td>
+      <td>weebo.si.rs/v1</td>
+      <td>true</td>
+      </tr>
+      <tr>
+      <td><b>kind</b></td>
+      <td>string</td>
+      <td>ProxyKubeApi</td>
+      <td>true</td>
+      </tr>
+      <tr>
+      <td><b><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.20/#objectmeta-v1-meta">metadata</a></b></td>
+      <td>object</td>
+      <td>Refer to the Kubernetes API documentation for the fields of the `metadata` field.</td>
+      <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispec">spec</a></b></td>
+        <td>object</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapistatus">status</a></b></td>
+        <td>object</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec
+<sup><sup>[↩ Parent](#proxykubeapi)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispeccert">cert</a></b></td>
+        <td>object</td>
+        <td>
+          Certificate for the Kubernetes API<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecservice">service</a></b></td>
+        <td>object</td>
+        <td>
+          Service to expose the proxy<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecauth_config">auth_config</a></b></td>
+        <td>object</td>
+        <td>
+          Main configuration for authentication<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>dashboard_group</b></td>
+        <td>string</td>
+        <td>
+          If the proxy exposition is accessible via the dashboard
+the oidc group that allow access to the dashboard, should be unique
+Default: to the resource namespace + resource name<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>enabled</b></td>
+        <td>boolean</td>
+        <td>
+          Enable or disable the proxy<br/>
+          <br/>
+            <i>Default</i>: true<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>expose_via_dashboard</b></td>
+        <td>boolean</td>
+        <td>
+          If the proxy exposition should be accessible via the Dashboard
+Default: false<br/>
+          <br/>
+            <i>Default</i>: true<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_config">security_config</a></b></td>
+        <td>object</td>
+        <td>
+          Security configuration<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.cert
+<sup><sup>[↩ Parent](#proxykubeapispec)</sup></sup>
+
+
+
+Certificate for the Kubernetes API
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>Cert</b></td>
+        <td>string</td>
+        <td>
+          Base64 encoded cert<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispeccertconfigmap">ConfigMap</a></b></td>
+        <td>object</td>
+        <td>
+          Configmap<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>Insecure</b></td>
+        <td>boolean</td>
+        <td>
+          Insecure, do not use TLS<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispeccertsecret">Secret</a></b></td>
+        <td>object</td>
+        <td>
+          Use a cert from a secret<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.cert.ConfigMap
+<sup><sup>[↩ Parent](#proxykubeapispeccert)</sup></sup>
+
+
+
+Configmap
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>key</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>name</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>namespace</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.cert.Secret
+<sup><sup>[↩ Parent](#proxykubeapispeccert)</sup></sup>
+
+
+
+Use a cert from a secret
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>key</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>name</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>namespace</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.service
+<sup><sup>[↩ Parent](#proxykubeapispec)</sup></sup>
+
+
+
+Service to expose the proxy
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispecserviceexternalservice">ExternalService</a></b></td>
+        <td>object</td>
+        <td>
+          External service<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecservicekubernetesservice">KubernetesService</a></b></td>
+        <td>object</td>
+        <td>
+          Kubernetes service<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.service.ExternalService
+<sup><sup>[↩ Parent](#proxykubeapispecservice)</sup></sup>
+
+
+
+External service
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>url</b></td>
+        <td>string</td>
+        <td>
+          URL of the external service (e.g. https://example.com)<br/>
+        </td>
+        <td>true</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.service.KubernetesService
+<sup><sup>[↩ Parent](#proxykubeapispecservice)</sup></sup>
+
+
+
+Kubernetes service
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>name</b></td>
+        <td>string</td>
+        <td>
+          Name of the service<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>namespace</b></td>
+        <td>string</td>
+        <td>
+          If not set, will use the resource namespace<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>port</b></td>
+        <td>integer</td>
+        <td>
+          Port of the service<br/>
+          <br/>
+            <i>Format</i>: uint16<br/>
+            <i>Minimum</i>: 0<br/>
+            <i>Maximum</i>: 65535<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>port_name</b></td>
+        <td>string</td>
+        <td>
+          Port name of the service<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config
+<sup><sup>[↩ Parent](#proxykubeapispec)</sup></sup>
+
+
+
+Main configuration for authentication
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispecauth_configoidc_provider">oidc_provider</a></b></td>
+        <td>object</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>disable_validation</b></td>
+        <td>boolean</td>
+        <td>
+          Disable validation of the token against the configured JWT authenticators, OIDC provider or Kubernetes API
+If the AuthenticationConfiguration is not provided, does not validate the token against any of the configured JWT authenticators, OIDC provider or Kubernetes API
+Default : false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecauth_configjwtindex">jwt</a></b></td>
+        <td>[]object</td>
+        <td>
+          <br/>
+          <br/>
+            <i>Default</i>: []<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>validate_against</b></td>
+        <td>enum</td>
+        <td>
+          Validate against the configured JWT authenticators, OIDC provider or Kubernetes API
+Default : OidcProvider if enabled, otherwise JwtAuthenticators if configured, otherwise Kubernetes<br/>
+          <br/>
+            <i>Enum</i>: OidcProvider, Kubernetes<br/>
+            <i>Default</i>: Kubernetes<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.oidc_provider
+<sup><sup>[↩ Parent](#proxykubeapispecauth_config)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>client_id</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>issuer_url</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>client_secret</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>enabled</b></td>
+        <td>boolean</td>
+        <td>
+          <br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>extra_scope</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+          <br/>
+            <i>Default</i>: <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.jwt[index]
+<sup><sup>[↩ Parent](#proxykubeapispecauth_config)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_mappings">claim_mappings</a></b></td>
+        <td>object</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_validation_rulesindex">claim_validation_rules</a></b></td>
+        <td>[]object</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecauth_configjwtindexissuer">issuer</a></b></td>
+        <td>object</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecauth_configjwtindexuser_validation_rulesindex">user_validation_rules</a></b></td>
+        <td>[]object</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.jwt[index].claim_mappings
+<sup><sup>[↩ Parent](#proxykubeapispecauth_configjwtindex)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_mappingsextraindex">extra</a></b></td>
+        <td>[]object</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_mappingsgroups">groups</a></b></td>
+        <td>object</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_mappingsuid">uid</a></b></td>
+        <td>object</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_mappingsusername">username</a></b></td>
+        <td>object</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.jwt[index].claim_mappings.extra[index]
+<sup><sup>[↩ Parent](#proxykubeapispecauth_configjwtindexclaim_mappings)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>key</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>value_expression</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.jwt[index].claim_mappings.groups
+<sup><sup>[↩ Parent](#proxykubeapispecauth_configjwtindexclaim_mappings)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>claim</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>expression</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>prefix</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.jwt[index].claim_mappings.uid
+<sup><sup>[↩ Parent](#proxykubeapispecauth_configjwtindexclaim_mappings)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>claim</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>expression</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.jwt[index].claim_mappings.username
+<sup><sup>[↩ Parent](#proxykubeapispecauth_configjwtindexclaim_mappings)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>claim</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>expression</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>prefix</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.jwt[index].claim_validation_rules[index]
+<sup><sup>[↩ Parent](#proxykubeapispecauth_configjwtindex)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>claim</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>expression</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>message</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>required_value</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.jwt[index].issuer
+<sup><sup>[↩ Parent](#proxykubeapispecauth_configjwtindex)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>audience_match_policy</b></td>
+        <td>enum</td>
+        <td>
+          <br/>
+          <br/>
+            <i>Enum</i>: MatchAny<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>audiences</b></td>
+        <td>[]string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>egress_selector</b></td>
+        <td>enum</td>
+        <td>
+          <br/>
+          <br/>
+            <i>Enum</i>: controlplane, cluster<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>url</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>certificate_authority</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>discovery_url</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.jwt[index].user_validation_rules[index]
+<sup><sup>[↩ Parent](#proxykubeapispecauth_configjwtindex)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>expression</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>message</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config
+<sup><sup>[↩ Parent](#proxykubeapispec)</sup></sup>
+
+
+
+Security configuration
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindex">allowed_ressources</a></b></td>
+        <td>[]object</td>
+        <td>
+          Allowed resources, limit the access to the proxy to only these resources, if empty all resources are allowed<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>enabled</b></td>
+        <td>boolean</td>
+        <td>
+          Whether the token is validated beforehand<br/>
+          <br/>
+            <i>Default</i>: true<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.allowed_ressources[index]
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_config)</sup></sup>
+
+
+
+Enum of the allowed paths configuration, currently only supports path and crd, but can be extended in the future
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindexpath">Path</a></b></td>
+        <td>object</td>
+        <td>
+          Allowed path configuration, used in conjunction with the allowed_paths configuration<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.allowed_ressources[index].Path
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_ressourcesindex)</sup></sup>
+
+
+
+Allowed path configuration, used in conjunction with the allowed_paths configuration
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>path</b></td>
+        <td>string</td>
+        <td>
+          The path to allow, if the request path equals this path, it will be allowed<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>parametised</b></td>
+        <td>boolean</td>
+        <td>
+          Wether or not the path is parametised
+if true, the path will be treated as a template, it either handle wildcard parameters, like "*" or "dev-*", or mustache-like parameters, like "\{\{username\}\}" or "\{\{group\}\}"
+for example, if the path is "/api/v1/namespaces/*/pods", it will allow all requests to pods in any namespace
+if the path is "/api/v1/namespaces/dev-*/pods", it will allow all requests to pods in namespaces that start with "dev-"
+It will also try to detect mustache-like parameters, for example, if the path is "/api/v1/namespaces/\{\{username\}\}/pods"
+it will allow all requests to pods in namespaces carrying the username as a parameter
+if the selected field is an array, like the groups claim, it will try to match any of the values in the array
+for example, if the groups claim is ["dev-alice", "dev-bob"] and the path is "/api/v1/namespaces/\{\{group\}\}/pods", it will allow all requests to pods in namespaces that match either "dev-alice" or "dev-bob"
+Allowed parameters are : \{\{username\}\} and \{\{group\}\}
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.status
+<sup><sup>[↩ Parent](#proxykubeapi)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>exposed</b></td>
+        <td>boolean</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>error</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>path</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
