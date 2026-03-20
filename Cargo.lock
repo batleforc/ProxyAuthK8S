@@ -337,7 +337,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "api"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "actix-web",
  "common",
@@ -599,7 +599,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "cli"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "clap",
  "cli_trace",
@@ -619,7 +619,7 @@ dependencies = [
 
 [[package]]
 name = "cli_trace"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "serde",
  "serde_json",
@@ -633,7 +633,7 @@ dependencies = [
 
 [[package]]
 name = "client_api"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "reqwest",
  "serde",
@@ -676,7 +676,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "deadpool-redis",
  "k8s-openapi",
@@ -706,7 +706,7 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
 name = "controller"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "chrono",
@@ -795,7 +795,7 @@ dependencies = [
 
 [[package]]
 name = "crd"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "crdgen"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "crd",
  "kube",
@@ -2173,7 +2173,7 @@ dependencies = [
 
 [[package]]
 name = "kubectl_proxyauth"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "clap",
  "cli",
@@ -3585,7 +3585,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "actix-cors",
  "actix-web",
@@ -3742,7 +3742,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "swaggergen"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "api",
  "utoipa",
@@ -4082,7 +4082,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "trace"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "opentelemetry",
  "opentelemetry-appender-tracing",

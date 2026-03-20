@@ -1,6 +1,6 @@
 [package]
 name = "client_api"
-version = "0.1.8"
+version = "0.1.9"
 authors = ["maxleriche.60@gmail.com"]
 description = "Reverse Proxy K8s Api"
 license = "MIT"

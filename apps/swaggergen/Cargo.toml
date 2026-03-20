@@ -1,12 +1,12 @@
 [package]
 name = "swaggergen"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 
 
 [dependencies]
 utoipa = { workspace = true }
-api = { path = "../../libs/server/api" , version = "0.1.8" }
+api = { path = "../../libs/server/api" , version = "0.1.9" }
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
