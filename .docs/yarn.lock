@@ -3717,10 +3717,10 @@ fumadocs-mdx@14.2.11:
     vfile "^6.0.3"
     zod "^4.3.6"
 
-fumadocs-openapi@^10.4.0:
-  version "10.4.0"
-  resolved "https://registry.yarnpkg.com/fumadocs-openapi/-/fumadocs-openapi-10.4.0.tgz#6d215478ca461a35667244c1e01827d05b7ef56a"
-  integrity sha512-DI5C1N3MHmKyegPebgnD1/ULzBtdnhOC2bj3J3LgQ7gqC+WEql+UYKfqVr1CoM7WRfn0vQ4sGfZhfjA42+mmPQ==
+fumadocs-openapi@^10.4.1:
+  version "10.4.1"
+  resolved "https://registry.yarnpkg.com/fumadocs-openapi/-/fumadocs-openapi-10.4.1.tgz#c0be495508242c43e7379b04490230a08f27d429"
+  integrity sha512-iMEDyANcikDePUFlBE5sffjTbrUI5LELuIla+6kTZJYEuoQMLUK+plOnXq1iacPBMeCS7cSFadvE/Vp/h7oA+g==
   dependencies:
     "@fastify/deepmerge" "^3.2.1"
     "@fumari/json-schema-ts" "^0.0.2"
