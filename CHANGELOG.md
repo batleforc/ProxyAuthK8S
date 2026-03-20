@@ -2,6 +2,27 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.1.9](https://github.com/batleforc/proxyauthK8s/compare/6af8b40b9390a29f1fcd73545ec4a5214bbef935..v0.1.9) - 2026-03-20
+#### Features
+- add crd docs page - ([9519ec0](https://github.com/batleforc/proxyauthK8s/commit/9519ec0ffc3f25b5140d4891491266911a9774b3)) - Max Batleforc
+- upgrade package - ([e2fd966](https://github.com/batleforc/proxyauthK8s/commit/e2fd966df0eff216d91002b0712271171334abe1)) - Max Batleforc
+- [StepSecurity] Apply security best practices (#118) - ([d4631e3](https://github.com/batleforc/proxyauthK8s/commit/d4631e36bb7b4b365ac2c8a596a5d45ddca7cbce)) - StepSecurity Bot
+- Mise en place de la doc (#101) - ([6af8b40](https://github.com/batleforc/proxyauthK8s/commit/6af8b40b9390a29f1fcd73545ec4a5214bbef935)) - Maxime
+#### Bug Fixes
+- upgrade front - ([dc206fd](https://github.com/batleforc/proxyauthK8s/commit/dc206fd4ab9915655bc33e2e60682a7355927537)) - Max Batleforc
+- change path in the readme to public path - ([b095552](https://github.com/batleforc/proxyauthK8s/commit/b0955520adc4373d93632153bd45dff43f872e23)) - Max Batleforc
+- revert output change and make the doc build - ([d011fe3](https://github.com/batleforc/proxyauthK8s/commit/d011fe3943069ea31df7a3a03bbbc849f3d1f18c)) - Max Batleforc
+#### Build system
+- (**deps**) bump actions/upload-pages-artifact from 3.0.1 to 4.0.0 (#121) - ([f1c0515](https://github.com/batleforc/proxyauthK8s/commit/f1c051596e7b7f916a6eff90f0648ae47de30678)) - dependabot[bot]
+- (**deps**) bump go-task/setup-task from 1.0.0 to 1.1.0 (#120) - ([ffb88fa](https://github.com/batleforc/proxyauthK8s/commit/ffb88fae42e36f3853222d4a05f36ebc7f4bb267)) - dependabot[bot]
+- (**deps**) bump actions/configure-pages from 4.0.0 to 5.0.0 (#119) - ([0297a17](https://github.com/batleforc/proxyauthK8s/commit/0297a177087916e39a42d5b03592566cfdfe9ce7)) - dependabot[bot]
+- (**deps**) bump bsord/helm-push from 4.1.0 to 4.2.0 (#102) - ([6aca380](https://github.com/batleforc/proxyauthK8s/commit/6aca38080971ed5a27e95d04abb0dfb3ba05b6d8)) - dependabot[bot]
+- (**deps**) bump github/codeql-action from 4.32.6 to 4.33.0 (#115) - ([1f2307c](https://github.com/batleforc/proxyauthK8s/commit/1f2307c66be03e5ef0513984acd766f4bbb0ad2f)) - dependabot[bot]
+- (**deps**) bump softprops/action-gh-release from 2.5.0 to 2.6.1 (#114) - ([c2b12c9](https://github.com/batleforc/proxyauthK8s/commit/c2b12c9a912387b52724e86cabcd2aff399c60c7)) - dependabot[bot]
+- (**deps**) bump anchore/sbom-action from 0.23.0 to 0.23.1 (#109) - ([85d5ce4](https://github.com/batleforc/proxyauthK8s/commit/85d5ce4643f3f9bc0dbf9b66a10df11443541741)) - dependabot[bot]
+
+- - -
+
 ## [v0.1.8](https://github.com/batleforc/proxyauthK8s/compare/ba4825e3234c1266d39344b66a1f50a37973b329..v0.1.8) - 2026-03-07
 #### Features
 - pre bump commit - ([afa1033](https://github.com/batleforc/proxyauthK8s/commit/afa1033f1dd0bf8a3dfa8725393fa10a93a089f6)) - Max Batleforc

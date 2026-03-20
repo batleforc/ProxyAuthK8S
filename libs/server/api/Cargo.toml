@@ -1,6 +1,6 @@
 [package]
 name = "api"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 
 [dependencies]
@@ -20,8 +20,8 @@ openidconnect = { workspace = true }
 thiserror = { workspace = true }
 serde_json = { workspace = true }
 
-common = { path = "../common" , version = "0.1.8" }
-crd = { path = "../crd" , version = "0.1.8" }
+common = { path = "../common" , version = "0.1.9" }
+crd = { path = "../crd" , version = "0.1.9" }
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

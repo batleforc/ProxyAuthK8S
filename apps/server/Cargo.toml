@@ -1,6 +1,6 @@
 [package]
 name = "server"
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 
 
@@ -27,9 +27,9 @@ utoipa-scalar = { version = "0.3", features = ["actix-web"] }
 actix-cors = { version = "0.7" }
 tracing-actix-web = { version = "0.7", features = ["opentelemetry_0_31"] }
 
-api = { path = "../../libs/server/api" , version = "0.1.8" }
-trace = { path = "../../libs/server/trace" , version = "0.1.8" }
-common = { path = "../../libs/server/common" , version = "0.1.8" }
-controller = { path = "../../libs/server/controller" , version = "0.1.8" }
+api = { path = "../../libs/server/api" , version = "0.1.9" }
+trace = { path = "../../libs/server/trace" , version = "0.1.9" }
+common = { path = "../../libs/server/common" , version = "0.1.9" }
+controller = { path = "../../libs/server/controller" , version = "0.1.9" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

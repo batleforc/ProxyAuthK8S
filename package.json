@@ -1,6 +1,6 @@
 {
   "name": "@proxy-auth-k8s/source",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "license": "MIT",
   "scripts": {
     "nx": "nx",
