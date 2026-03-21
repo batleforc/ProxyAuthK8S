@@ -90,7 +90,7 @@ pub async fn callback_login(
                 return HttpResponse::InternalServerError().finish();
             }
         };
-    let client_reqwest = oidc_conf.get_reqwest_client();
+    let client_reqwest = oidc_conf.get_oidc_reqwest_client();
     let client_oidc = match oidc_conf.get_oidc_core().await {
         Ok(client) => client,
         Err(e) => {

@@ -185,7 +185,7 @@ impl User {
             tracing::error!("Error while getting OIDC core client: {}", e);
             format!("Error while getting OIDC core client: {}", e)
         })?;
-        let http_client = oidc_conf.get_reqwest_client();
+        let http_client = oidc_conf.get_oidc_reqwest_client();
 
         let user_claim_req = match oidc_core.user_info(AccessToken::new(token.to_owned()), None) {
             Ok(req) => req,

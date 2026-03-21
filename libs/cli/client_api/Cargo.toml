@@ -2,12 +2,12 @@
 name = "client_api"
 version = "0.1.9"
 authors = ["maxleriche.60@gmail.com"]
-description = "Reverse Proxy K8s Api"
+description = "Reverse Proxy K8s Api."
 license = "MIT"
 edition = "2021"
 
 [dependencies]
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_with = { version = "^3.8", default-features = false, features = [
   "base64",
   "std",
@@ -16,9 +16,14 @@ serde_with = { version = "^3.8", default-features = false, features = [
 serde_json = { workspace = true }
 serde_repr = "^0.1"
 url = "^2.5"
-reqwest = { workspace = true, features = ["multipart"] }
+reqwest = { workspace = true, default-features = false, features = [
+  "json",
+  "multipart",
+  "query",
+  "form",
+] }
 
 [features]
-default = ["rustls-tls"]
+default = ["native-tls"]
 native-tls = ["reqwest/native-tls"]
-rustls-tls = ["reqwest/rustls-tls"]
+rustls = ["reqwest/rustls"]

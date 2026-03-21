@@ -38,10 +38,12 @@ tasks:
     desc: "Upgrade documentation dependencies"
     dir: .docs
     cmds:
+      - yarn
       - yarn upgrade
   upgrade-front:
     desc: "Upgrade frontend dependencies"
     cmds:
+      - yarn
       - yarn upgrade
   upgrade-back:
     desc: "Upgrade backend dependencies"

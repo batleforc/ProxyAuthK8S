@@ -30,7 +30,7 @@ serde_json = '1'
 serde_yaml = '0.9'
 tracing = { version = '0.1', features = ['std'] }
 kube = { version = '3', features = ['derive', 'runtime', 'client'] }
-reqwest = { version = '0.12', features = ['json', 'rustls-tls', 'stream'] }
+reqwest = { version = '0.13.2', features = ['json', 'rustls', 'stream'] }
 schemars = { version = '1' }
 futures = '0.3'
 futures-util = '0.3'
@@ -58,7 +58,8 @@ tracing-subscriber = { version = '0.3', features = [
 ] }
 tracing-opentelemetry = { version = '0.32' }
 rustls = { version = '0.23', features = ['ring'], default-features = false }
-openidconnect = '4.0.1'
+openidconnect = { version = '4.0.1', default-features = false }
+oauth2-reqwest = "0.1.0-alpha.3"
 thiserror = { version = '2' }
 regex = "1.12.3"
 

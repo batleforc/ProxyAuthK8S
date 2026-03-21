@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 
+use oauth2_reqwest::ReqwestClient;
 use openidconnect::{
     core::{CoreClient, CoreProviderMetadata},
     ClientId, ClientSecret, EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, RedirectUrl,
@@ -72,10 +73,14 @@ impl OidcConf {
             .expect("Client should build")
     }
 
+    pub fn get_oidc_reqwest_client(&self) -> ReqwestClient {
+        ReqwestClient::from(self.get_reqwest_client())
+    }
+
     pub async fn get_oidc_core(&self) -> Result<CoreClientFront, OidcError> {
         let provider_metadata = CoreProviderMetadata::discover_async(
             IssuerUrl::new(self.issuer_url.clone())?,
-            &self.get_reqwest_client(),
+            &self.get_oidc_reqwest_client(),
         )
         .await?;
         let client_secret = self
