@@ -37,6 +37,7 @@ tasks:
     cmds:
       - task gen:crds > deploy/crds.yaml
       - cp deploy/crds.yaml deploy/chart-crd/templates/crds.yaml
+      - sed -i -e 's/{{ "{{" }}/\\{\\{/g' -e 's/{{ "}}" }}/\\}\\}/g' deploy/chart-crd/templates/crds.yaml
   swagger-file:
     desc: "Generate Swagger documentation and save to file"
     silent: true

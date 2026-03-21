@@ -1,0 +1,23 @@
+version: "3"
+
+tasks:
+  rust:
+    desc: "Run Rust linter"
+    silent: true
+    cmds:
+      - echo "Running cargo lint"
+      - cargo fmt --all -- --check
+      - cargo clippy --all -- -D warnings
+  helm:
+    desc: "Run Helm linter"
+    silent: true
+    cmds:
+      - echo "Running lint on helm charts"
+      - helm lint deploy/chart-crd
+      - helm lint deploy/chart
+  all:
+    desc: "Run nx linters"
+    silent: true
+    cmds:
+      - echo "Running main linters"
+      - yarn nx run-many --target=lint --all

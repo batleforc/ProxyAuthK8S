@@ -270,14 +270,14 @@ spec:
                               default: false
                               description: |-
                                 Wether or not the path is parametised
-                                if true, the path will be treated as a template, it either handle wildcard parameters, like "*" or "dev-*", or mustache-like parameters, like "{{username}}" or "{{group}}"
+                                if true, the path will be treated as a template, it either handle wildcard parameters, like "*" or "dev-*", or mustache-like parameters, like "\{\{username\}\}" or "\{\{group\}\}"
                                 for example, if the path is "/api/v1/namespaces/*/pods", it will allow all requests to pods in any namespace
                                 if the path is "/api/v1/namespaces/dev-*/pods", it will allow all requests to pods in namespaces that start with "dev-"
-                                It will also try to detect mustache-like parameters, for example, if the path is "/api/v1/namespaces/{{username}}/pods"
+                                It will also try to detect mustache-like parameters, for example, if the path is "/api/v1/namespaces/\{\{username\}\}/pods"
                                 it will allow all requests to pods in namespaces carrying the username as a parameter
                                 if the selected field is an array, like the groups claim, it will try to match any of the values in the array
-                                for example, if the groups claim is ["dev-alice", "dev-bob"] and the path is "/api/v1/namespaces/{{group}}/pods", it will allow all requests to pods in namespaces that match either "dev-alice" or "dev-bob"
-                                Allowed parameters are : {{username}} and {{group}}
+                                for example, if the groups claim is ["dev-alice", "dev-bob"] and the path is "/api/v1/namespaces/\{\{group\}\}/pods", it will allow all requests to pods in namespaces that match either "dev-alice" or "dev-bob"
+                                Allowed parameters are : \{\{username\}\} and \{\{group\}\}
                                 default: false
                               type: boolean
                             path:

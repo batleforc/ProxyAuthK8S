@@ -16,7 +16,7 @@ serde_with = { version = "^3.8", default-features = false, features = [
 serde_json = { workspace = true }
 serde_repr = "^0.1"
 url = "^2.5"
-reqwest = { workspace = true, default-features = false, features = [
+reqwest = { workspace = true, features = [
   "json",
   "multipart",
   "query",
