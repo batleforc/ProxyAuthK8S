@@ -57,6 +57,14 @@ tasks:
     cmds:
       - echo "Running the frontend in development mode with TLS"
       - VITE_TLS_ENABLE=true yarn nx run front:dev
+  aio:
+    desc: "Run the backend and frontend in development mode"
+    silent: true
+    deps:
+      - back:tls
+      - front:tls
+      - service
+      - k3d:start
   service:
     desc: "Run the service task"
     silent: true

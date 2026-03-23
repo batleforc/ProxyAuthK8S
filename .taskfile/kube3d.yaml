@@ -22,7 +22,7 @@ tasks:
     cmds:
       - k3d cluster delete --config .k3d/k3d.cluster.yaml
   start:
-    desc: "Start the cluster and open k9s"
+    desc: "Start the cluster"
     cmds:
       - DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock DOCKER_SOCK=$XDG_RUNTIME_DIR/podman/podman.sock k3d cluster start proxy-auth-k8s
   stop:

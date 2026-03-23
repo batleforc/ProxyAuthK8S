@@ -1,4 +1,4 @@
-FROM registry.hub.docker.com/library/rust:1.93-alpine AS build_base
+FROM registry.hub.docker.com/library/rust:1.94-alpine AS build_base
 
 WORKDIR /app
 RUN apk add --no-cache clang lld musl-dev git openssl-dev libcrypto3 perl dbus-dev pkgconf

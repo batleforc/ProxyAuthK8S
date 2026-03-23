@@ -11,6 +11,9 @@ use utoipa_scalar::{Scalar, Servable};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install default CryptoProvider");
     println!(include_str!("../../../.docs/public/banner.art"));
     let tracing_output = start_tracing(&trace::Context {
         pod_name: std::env::var("POD_NAME").unwrap_or_else(|_| "not_a_pod".to_string()),
