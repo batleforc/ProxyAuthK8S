@@ -7,6 +7,7 @@ includes:
   k3d: .taskfile/kube3d.yaml
   tool: .taskfile/tool.yaml
   lint: .taskfile/lint.yaml
+  tmux: .taskfile/tmux.yaml
 
 dotenv:
   - .env
@@ -130,6 +131,8 @@ tasks:
   cli:
     desc: "Run kubectl_proxyauth with args"
     silent: true
+    env:
+      KUBECONFIG: ./kubeconfig.proxy-dev.yaml
     cmds:
       - cargo run --bin kubectl_proxyauth -- --proxy-auth-config="proxyauth_config.dev.yaml" {{ .CLI_ARGS }}
 

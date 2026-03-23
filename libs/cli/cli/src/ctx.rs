@@ -39,13 +39,17 @@ impl From<super::Cli> for CliCtx {
             }
         };
         if !kubeconfig_path.exists() {
-            panic!(
-                "{}",
-                ProxyAuthK8sError::KubeconfigReadError(format!(
-                    "Kubeconfig file does not exist at path: {}",
-                    kubeconfig_path.to_string_lossy()
-                ))
-            );
+            // If the kubeconfig file does not exist, create an empty kubeconfig file at the path
+            if let Err(e) = fs::write(&kubeconfig_path, "") {
+                panic!(
+                    "{}",
+                    ProxyAuthK8sError::KubeconfigWriteError(format!(
+                        "Failed to create kubeconfig file at {}: {}",
+                        kubeconfig_path.to_string_lossy(),
+                        e
+                    ))
+                )
+            }
         }
         let kubeconfig = match fs::read_to_string(kubeconfig_path.clone()) {
             Ok(content) => Kubeconfig::from_yaml(&content).unwrap_or_else(|e| {

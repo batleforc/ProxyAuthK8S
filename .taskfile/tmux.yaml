@@ -1,0 +1,45 @@
+version: "3"
+
+tasks:
+  dev:
+    desc: "Launch a tmux session with all dev logs (k9s, backend, frontend, compose)"
+    silent: true
+    vars:
+      SESSION: proxyauth-dev
+      K9S: '{{ .K9S | default "false" }}'
+    cmds:
+      - |
+        # Kill existing session if any
+        tmux kill-session -t {{ .SESSION }} 2>/dev/null || true
+
+        # Create session with first window: podman compose
+        tmux new-session -d -s {{ .SESSION }} -n compose \
+          'echo "=== Compose ===" && task service'
+
+        # Split for backend (top-right)
+        tmux split-window -h -t {{ .SESSION }}:compose \
+          'echo "=== Backend ===" && task back:tls && read -p "Press Enter to exit..."'
+
+        # Split for frontend (bottom-left)
+        tmux split-window -v -t {{ .SESSION }}:compose.0 \
+          'echo "=== Frontend ===" && task front:tls'
+
+        # Split for k9s (bottom-right) only if K9S=true
+        if [ "{{ .K9S }}" = "true" ]; then
+          tmux split-window -v -t {{ .SESSION }}:compose.1 \
+            'echo "=== K9s ===" && task k3d:k9s'
+        fi
+
+        # Even out the panes
+        tmux select-layout -t {{ .SESSION }}:compose tiled
+
+        # Attach to the session
+        tmux attach-session -t {{ .SESSION }}
+
+  kill:
+    desc: "Kill the tmux dev session"
+    silent: true
+    vars:
+      SESSION: proxyauth-dev
+    cmds:
+      - tmux kill-session -t {{ .SESSION }} 2>/dev/null || echo "No session to kill"
