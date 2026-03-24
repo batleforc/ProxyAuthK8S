@@ -84,7 +84,7 @@ jobs:
           echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
 
       - name: 📋 Generate SBOM for Server
-        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ steps.build_server.outputs.image }}
           format: cyclonedx-json
@@ -129,7 +129,7 @@ jobs:
           echo "image=$IMAGE_TAG" >> $GITHUB_OUTPUT
 
       - name: 📋 Generate SBOM for Front
-        uses: anchore/sbom-action@57aae528053a48a3f6235f2d9461b05fbcb7366d # v0.23.1
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
           image: ${{ steps.build_front.outputs.image }}
           format: cyclonedx-json
@@ -147,7 +147,7 @@ jobs:
       - name: 🔍 Checkout release branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: ⎈ Install Helm
-        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
         with:
           version: "latest"
       - name: 🔐 Login to Container Registry
@@ -179,7 +179,7 @@ jobs:
       - name: 🔍 Checkout release branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: ⎈ Install Helm
-        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
         with:
           version: "latest"
       - name: 🔐 Login to Container Registry
