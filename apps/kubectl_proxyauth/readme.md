@@ -123,6 +123,111 @@ servers:
 
 ```
 
+## Basic Workflow
+
+### Login to a Cluster with SSO
+
+```mermaid
+
+sequenceDiagram
+    participant User
+    participant KubectlProxyAuth
+    participant ProxyAuthK8sService
+    participant SSOProvider
+    participant KubernetesAPI
+
+    User->>KubectlProxyAuth: kubectl proxyauth login <cluster-name>
+    KubectlProxyAuth->>ProxyAuthK8sService: Request authentication for <cluster-name> providing user's ProxyAuthK8s token
+    ProxyAuthK8sService-->>SSOProvider: Redirect user to SSO provider for authentication
+    SSOProvider-->>User: User authenticates and grants access
+    SSOProvider-->>ProxyAuthK8sService: Return authentication code for <cluster-name>
+    ProxyAuthK8sService-->>SSOProvider: Exchange authentication code for access token
+    SSOProvider-->>ProxyAuthK8sService: Return access token for <cluster-name>
+    ProxyAuthK8sService-->>KubectlProxyAuth: Return access token for <cluster-name>
+    KubectlProxyAuth-->>KubectlProxyAuth: Store access token and update kubeconfig with new context for <cluster-name>
+    KubectlProxyAuth-->>User: Display success message and new context information
+```
+
+### Login to ProxyAuthK8s Service
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant KubectlProxyAuth
+    participant ProxyAuthK8sService
+    participant SSOProvider
+
+    User->>KubectlProxyAuth: kubectl proxyauth login --server-url <url>
+    KubectlProxyAuth->>ProxyAuthK8sService: Request authentication for <url> providing user's credentials or token
+    ProxyAuthK8sService-->>SSOProvider: Redirect user to SSO provider for authentication
+    SSOProvider-->>User: User authenticates and grants access
+    SSOProvider-->>ProxyAuthK8sService: Return authentication code for <url>
+    ProxyAuthK8sService-->>SSOProvider: Exchange authentication code for access token
+    SSOProvider-->>ProxyAuthK8sService: Return access token for <url>
+    ProxyAuthK8sService-->>KubectlProxyAuth: Return access token for <url>
+    KubectlProxyAuth-->>KubectlProxyAuth: Store instance access
+    KubectlProxyAuth-->>User: Display success message and instance information
+```
+
+### Get resources from a Cluster
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant KubectlProxyAuth
+    participant ProxyAuthK8sService
+    participant KubernetesAPI
+
+    User-->>KubectlProxyAuth: kubectl get pods --context <cluster-name>
+    KubectlProxyAuth->>ProxyAuthK8sService: Validate access token for <cluster-name>
+    alt Token Valid
+        ProxyAuthK8sService-->>KubernetesAPI: Redirect request to Kubernetes API with valid token
+        KubernetesAPI-->>ProxyAuthK8sService: Return requested resources
+        ProxyAuthK8sService-->>KubectlProxyAuth: Return requested resources
+        KubectlProxyAuth-->>User: Display requested resources
+    else Token Invalid or Expired
+        ProxyAuthK8sService-->>KubectlProxyAuth: Return error response indicating token is invalid or expired
+        KubectlProxyAuth-->>User: Display error message and prompt for re-authentication
+    end
+```
+
+### Switching Clusters
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant KubectlProxyAuth
+    participant ProxyAuthK8sService
+
+    User->>KubectlProxyAuth: kubectl proxyauth ctx --set <cluster-name>
+    KubectlProxyAuth->>ProxyAuthK8sService: Validate access token for <cluster-name>
+    alt Token Valid
+        ProxyAuthK8sService-->>KubectlProxyAuth: Return success response
+        KubectlProxyAuth-->>User: Display success message and new context information
+    else Token Invalid or Expired
+        ProxyAuthK8sService-->>KubectlProxyAuth: Return error response indicating token is invalid or expired
+        KubectlProxyAuth-->>User: Display error message and prompt for re-authentication
+    end
+```
+
+### Get Available Clusters
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant KubectlProxyAuth
+    participant ProxyAuthK8sService
+
+    User->>KubectlProxyAuth: kubectl proxyauth get
+    alt Instance token valid
+        KubectlProxyAuth->>ProxyAuthK8sService: Request list of available clusters with authentication status
+        ProxyAuthK8sService-->>KubectlProxyAuth: Return list of available clusters with authentication status
+        KubectlProxyAuth-->>User: Display list of available clusters with authentication status
+    else Instance token invalid or expired
+         KubectlProxyAuth->>User: Display error message and prompt for re-authentication
+    end
+```
+
 ## Useful Links
 
 - [Kubectl Plugin Development Guide](https://kubernetes.io/docs/tasks/extend-kubectl/kubectl-plugins/)
