@@ -2,6 +2,7 @@
   "compileOnSave": false,
   "compilerOptions": {
     "rootDir": ".",
+    "ignoreDeprecations": "6.0",
     "sourceMap": true,
     "declaration": false,
     "moduleResolution": "node",
@@ -13,9 +14,8 @@
     "lib": ["es2020", "dom"],
     "skipLibCheck": true,
     "skipDefaultLibCheck": true,
-    "baseUrl": ".",
     "paths": {
-      "@proxy-auth-k8s/front-api": ["libs/front/front-api/src/index.ts"]
+      "@proxy-auth-k8s/front-api": ["./libs/front/front-api/src/index.ts"]
     }
   },
   "exclude": ["node_modules", "tmp", ".docs"]

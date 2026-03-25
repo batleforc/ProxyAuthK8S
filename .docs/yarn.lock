@@ -1213,7 +1213,7 @@
   dependencies:
     zod "^4.3.5"
 
-"@scalar/openapi-upgrader@^0.2.1":
+"@scalar/openapi-upgrader@^0.2.2":
   version "0.2.2"
   resolved "https://registry.yarnpkg.com/@scalar/openapi-upgrader/-/openapi-upgrader-0.2.2.tgz#a2a535e6eef8ce932b967b6e05de6c817939e974"
   integrity sha512-bIFfdiDyHVcUQHY2iTsmtDwhUHX09F/xCM5cGp1cVSbbahMiMmdKaxf/PnNsGSR5wGHfYknV1X1KS1brtXxrnw==
@@ -3020,9 +3020,9 @@ eastasianwidth@^0.2.0:
   integrity sha512-I88TYZWc9XiYHRQ4/3c5rjjfgkjhLyW2luGIheGERbNQ6OY7yTybanSpDXZa8y7VUP9YmDcYa+eyq4ca7iLqWA==
 
 electron-to-chromium@^1.5.263:
-  version "1.5.322"
-  resolved "https://registry.yarnpkg.com/electron-to-chromium/-/electron-to-chromium-1.5.322.tgz#9c24e49f7098ca19bc87c0e9c7e0ad6ffe4fddca"
-  integrity sha512-vFU34OcrvMcH66T+dYC3G4nURmgfDVewMIu6Q2urXpumAPSMmzvcn04KVVV8Opikq8Vs5nUbO/8laNhNRqSzYw==
+  version "1.5.325"
+  resolved "https://registry.yarnpkg.com/electron-to-chromium/-/electron-to-chromium-1.5.325.tgz#c2b3d510435a2b65dd65e891dde7eac0362edfb7"
+  integrity sha512-PwfIw7WQSt3xX7yOf5OE/unLzsK9CaN2f/FvV3WjPR1Knoc1T9vePRVV4W1EM301JzzysK51K7FNKcusCr0zYA==
 
 emoji-regex@^8.0.0:
   version "8.0.0"
@@ -3718,9 +3718,9 @@ fumadocs-mdx@14.2.11:
     zod "^4.3.6"
 
 fumadocs-openapi@^10.4.1:
-  version "10.4.1"
-  resolved "https://registry.yarnpkg.com/fumadocs-openapi/-/fumadocs-openapi-10.4.1.tgz#c0be495508242c43e7379b04490230a08f27d429"
-  integrity sha512-iMEDyANcikDePUFlBE5sffjTbrUI5LELuIla+6kTZJYEuoQMLUK+plOnXq1iacPBMeCS7cSFadvE/Vp/h7oA+g==
+  version "10.5.0"
+  resolved "https://registry.yarnpkg.com/fumadocs-openapi/-/fumadocs-openapi-10.5.0.tgz#8cae5ef1afd2c9807f4e5844303b44f825a0702b"
+  integrity sha512-EG3/U/NI/ha0xhIUiUIKiRSmLS4AOjn+4xkZXOoiLB5rlV+HyHsq9qcN+wKgbK9u4qoNuAcMzTEYUXScoSUbXA==
   dependencies:
     "@fastify/deepmerge" "^3.2.1"
     "@fumari/json-schema-ts" "^0.0.2"
@@ -3730,17 +3730,17 @@ fumadocs-openapi@^10.4.1:
     "@radix-ui/react-select" "^2.2.6"
     "@radix-ui/react-slot" "^1.2.4"
     "@scalar/json-magic" "^0.12.4"
-    "@scalar/openapi-upgrader" "^0.2.1"
+    "@scalar/openapi-upgrader" "^0.2.2"
     ajv "^8.18.0"
     class-variance-authority "^0.7.1"
     dereference-json-schema "^0.2.2"
     github-slugger "^2.0.0"
     hast-util-to-jsx-runtime "^2.3.6"
     js-yaml "^4.1.1"
-    lucide-react "^0.577.0"
+    lucide-react "^1.6.0"
     next-themes "^0.4.6"
     openapi-sampler "^1.7.2"
-    react-hook-form "^7.71.2"
+    react-hook-form "^7.72.0"
     remark "^15.0.1"
     remark-rehype "^11.1.2"
     tailwind-merge "^3.5.0"
@@ -4513,9 +4513,9 @@ json5@^2.2.3:
     object.values "^1.1.6"
 
 katex@^0.16.25:
-  version "0.16.41"
-  resolved "https://registry.yarnpkg.com/katex/-/katex-0.16.41.tgz#21d5b950ddec764d2c6f445cded96406d8701ba3"
-  integrity sha512-AdDAqox1xU1h5yGai/uksjxwXby0gbRkwQaWvaE6Esp2wDX/Y/lL6qxQhVg84gzFsriyIv+WVg7bXaVy1PbcJg==
+  version "0.16.42"
+  resolved "https://registry.yarnpkg.com/katex/-/katex-0.16.42.tgz#444e81ad095e1c14e54229f65c26b5ea4e5e153c"
+  integrity sha512-sZ4jqyEXfHTLEFK+qsFYToa3UZ0rtFcPGwKpyiRYh2NJn8obPWOQ+/u7ux0F6CAU/y78+Mksh1YkxTPXTh47TQ==
   dependencies:
     commander "^8.3.0"
 
@@ -4688,9 +4688,9 @@ lucide-react@^0.577.0:
   integrity sha512-4LjoFv2eEPwYDPg/CUdBJQSDfPyzXCRrVW1X7jrx/trgxnxkHFjnVZINbzvzxjN70dxychOfg+FTYwBiS3pQ5A==
 
 lucide-react@^1.6.0:
-  version "1.6.0"
-  resolved "https://registry.yarnpkg.com/lucide-react/-/lucide-react-1.6.0.tgz#9a58e90f4e278af0fc1e84a3ac6ced51186e3481"
-  integrity sha512-YxLKVCOF5ZDI1AhKQE5IBYMY9y/Nr4NT15+7QEWpsTSVCdn4vmZhww+6BP76jWYjQx8rSz1Z+gGme1f+UycWEw==
+  version "1.7.0"
+  resolved "https://registry.yarnpkg.com/lucide-react/-/lucide-react-1.7.0.tgz#ad72fe48ebe1e5631a9cffdc94fc99dd853aa247"
+  integrity sha512-yI7BeItCLZJTXikmK4KNUGCKoGzSvbKlfCvw44bU4fXAL6v3gYS4uHD1jzsLkfwODYwI6Drw5Tu9Z5ulDe0TSg==
 
 magic-string@^0.30.21:
   version "0.30.21"
@@ -5814,7 +5814,7 @@ react-dom@^19.2.4:
   dependencies:
     scheduler "^0.27.0"
 
-react-hook-form@^7.71.2:
+react-hook-form@^7.72.0:
   version "7.72.0"
   resolved "https://registry.yarnpkg.com/react-hook-form/-/react-hook-form-7.72.0.tgz#995a655b894249fd8798f36383e43f55ed66ae25"
   integrity sha512-V4v6jubaf6JAurEaVnT9aUPKFbNtDgohj5CIgVGyPHvT9wRx5OZHVjz31GsxnPNI278XMu+ruFz+wGOscHaLKw==
