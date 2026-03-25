@@ -1213,7 +1213,7 @@
   dependencies:
     zod "^4.3.5"
 
-"@scalar/openapi-upgrader@^0.2.1":
+"@scalar/openapi-upgrader@^0.2.2":
   version "0.2.2"
   resolved "https://registry.yarnpkg.com/@scalar/openapi-upgrader/-/openapi-upgrader-0.2.2.tgz#a2a535e6eef8ce932b967b6e05de6c817939e974"
   integrity sha512-bIFfdiDyHVcUQHY2iTsmtDwhUHX09F/xCM5cGp1cVSbbahMiMmdKaxf/PnNsGSR5wGHfYknV1X1KS1brtXxrnw==
@@ -3717,10 +3717,10 @@ fumadocs-mdx@14.2.11:
     vfile "^6.0.3"
     zod "^4.3.6"
 
-fumadocs-openapi@^10.4.1:
-  version "10.4.1"
-  resolved "https://registry.yarnpkg.com/fumadocs-openapi/-/fumadocs-openapi-10.4.1.tgz#c0be495508242c43e7379b04490230a08f27d429"
-  integrity sha512-iMEDyANcikDePUFlBE5sffjTbrUI5LELuIla+6kTZJYEuoQMLUK+plOnXq1iacPBMeCS7cSFadvE/Vp/h7oA+g==
+fumadocs-openapi@^10.5.0:
+  version "10.5.0"
+  resolved "https://registry.yarnpkg.com/fumadocs-openapi/-/fumadocs-openapi-10.5.0.tgz#8cae5ef1afd2c9807f4e5844303b44f825a0702b"
+  integrity sha512-EG3/U/NI/ha0xhIUiUIKiRSmLS4AOjn+4xkZXOoiLB5rlV+HyHsq9qcN+wKgbK9u4qoNuAcMzTEYUXScoSUbXA==
   dependencies:
     "@fastify/deepmerge" "^3.2.1"
     "@fumari/json-schema-ts" "^0.0.2"
@@ -3730,17 +3730,17 @@ fumadocs-openapi@^10.4.1:
     "@radix-ui/react-select" "^2.2.6"
     "@radix-ui/react-slot" "^1.2.4"
     "@scalar/json-magic" "^0.12.4"
-    "@scalar/openapi-upgrader" "^0.2.1"
+    "@scalar/openapi-upgrader" "^0.2.2"
     ajv "^8.18.0"
     class-variance-authority "^0.7.1"
     dereference-json-schema "^0.2.2"
     github-slugger "^2.0.0"
     hast-util-to-jsx-runtime "^2.3.6"
     js-yaml "^4.1.1"
-    lucide-react "^0.577.0"
+    lucide-react "^1.6.0"
     next-themes "^0.4.6"
     openapi-sampler "^1.7.2"
-    react-hook-form "^7.71.2"
+    react-hook-form "^7.72.0"
     remark "^15.0.1"
     remark-rehype "^11.1.2"
     tailwind-merge "^3.5.0"
@@ -5814,7 +5814,7 @@ react-dom@^19.2.4:
   dependencies:
     scheduler "^0.27.0"
 
-react-hook-form@^7.71.2:
+react-hook-form@^7.72.0:
   version "7.72.0"
   resolved "https://registry.yarnpkg.com/react-hook-form/-/react-hook-form-7.72.0.tgz#995a655b894249fd8798f36383e43f55ed66ae25"
   integrity sha512-V4v6jubaf6JAurEaVnT9aUPKFbNtDgohj5CIgVGyPHvT9wRx5OZHVjz31GsxnPNI278XMu+ruFz+wGOscHaLKw==
