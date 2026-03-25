@@ -26,7 +26,7 @@
     "vue-router": "^5.0.4"
   },
   "devDependencies": {
-    "@hey-api/openapi-ts": "0.94.4",
+    "@hey-api/openapi-ts": "0.94.5",
     "@monodon/rust": "2.3.0",
     "@nx/eslint": "22.6.1",
     "@nx/eslint-plugin": "22.6.1",
