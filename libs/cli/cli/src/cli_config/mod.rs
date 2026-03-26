@@ -177,10 +177,7 @@ impl CliConfig {
         server_url: Option<String>,
     ) -> Result<&CliServerConfig, CliConfigError> {
         let server_name = match server_url {
-            Some(url) => {
-                let url_info = Self::proxy_url_to_tuple(&url)?;
-                url_info.server_name
-            }
+            Some(url) => CliServerConfig::url_to_name_from_string(url),
             None => self.default_server_name.clone(),
         };
         self.servers

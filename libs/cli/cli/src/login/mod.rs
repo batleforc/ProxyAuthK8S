@@ -1,4 +1,5 @@
 use client_api::apis::{api_clusters_api::get_all_visible_cluster, configuration::Configuration};
+use std::io::{self, Write};
 use tracing::{debug, error, info};
 
 use crate::{
@@ -6,6 +7,23 @@ use crate::{
 };
 
 impl CliCtx {
+    fn prompt_for_token(prompt: &str) -> Option<String> {
+        print!("{}", prompt);
+        if io::stdout().flush().is_err() {
+            return None;
+        }
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_err() {
+            return None;
+        }
+        let token = input.trim().to_string();
+        if token.is_empty() {
+            None
+        } else {
+            Some(token)
+        }
+    }
+
     pub async fn handle_login(&mut self, cluster_name: Option<String>, token: Option<String>) {
         // if server_url is not provided and none exist in config, return error
         if self.server_url.is_empty() && self.config.default_server_name.is_empty() {
@@ -41,37 +59,50 @@ impl CliCtx {
         } else {
             self.namespace.clone()
         };
-        if let Some(tok) = token {
-            info!("Using provided token for authentication. {}", tok);
-            match server_config.get_clusters_from_remote().await {
-                Ok(clusters) => {
-                    info!("Successfully retrieved clusters: {:?}", clusters);
-                    if !clusters
-                        .clusters
-                        .iter()
-                        .any(|c| c.name == cluster && c.namespace == namespace)
-                    {
-                        error!("Cluster {} not found on server.", cluster);
-                        return;
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to retrieve clusters, : {}", e);
-                    match e {
-                        ProxyAuthK8sError::Unauthenticated(_) => {
-                            error!("Authentication failed: Invalid server token, please re-login to the server.");
-                            // TODO: Trigger re-login flow when implemented
-                        }
-                        ProxyAuthK8sError::RemoteServerError(_) => {
-                            error!("Server error occurred while retrieving clusters.");
-                        }
-                        _ => {
-                            error!("An unknown error occurred while retrieving clusters.");
-                        }
-                    }
-                    return;
-                }
+        let clusters = match server_config.get_clusters_from_remote().await {
+            Ok(clusters) => {
+                info!("Successfully retrieved clusters: {:?}", clusters);
+                clusters
             }
+            Err(e) => {
+                error!("Failed to retrieve clusters, : {}", e);
+                match e {
+                    ProxyAuthK8sError::Unauthenticated(_) => {
+                        error!("Authentication failed: Invalid server token, please re-login to the server.");
+                        // TODO: Trigger re-login flow when implemented
+                    }
+                    ProxyAuthK8sError::RemoteServerError(_) => {
+                        error!("Server error occurred while retrieving clusters.");
+                    }
+                    _ => {
+                        error!("An unknown error occurred while retrieving clusters.");
+                    }
+                }
+                return;
+            }
+        };
+
+        let target_cluster = clusters
+            .clusters
+            .iter()
+            .find(|c| c.name == cluster && c.namespace == namespace);
+
+        let is_sso_enabled = match target_cluster {
+            Some(cluster_config) => cluster_config.sso_enabled,
+            None => {
+                error!("Cluster {} not found on server.", cluster);
+                return;
+            }
+        };
+
+        let token = match token {
+            Some(token) => Some(token),
+            None if is_sso_enabled => None,
+            None => Self::prompt_for_token("Cluster token not provided. Enter cluster token: "),
+        };
+
+        if let Some(tok) = token {
+            info!("Using token for cluster authentication.");
             //TODO: Validate token against cluster here
             // Validation has to be done by calling the /api?timeout=32s used by kubectl to ensure token is valid for the cluster
 
@@ -87,16 +118,26 @@ impl CliCtx {
                 Err(e) => error!("Failed to update config file: {}", e),
             };
             info!("Login to cluster {} successful.", cluster);
+        } else if is_sso_enabled {
+            info!(
+                "Cluster '{}' has SSO enabled. Token prompt is skipped for SSO clusters.",
+                cluster
+            );
+            info!(
+                "Interactive SSO login is not implemented yet. Please use --token if your flow requires a cluster token."
+            );
         } else {
-            info!("No token provided, this workflow is not yet implemented.");
-            // Proceed without a token
+            error!("No token provided. Cluster login requires a token.");
         }
     }
 
     pub async fn handle_login_servers(&mut self, token: Option<String>) {
         debug!("Logging in to ProxyAuthK8S server.");
+        let token = token
+            .or_else(|| Self::prompt_for_token("Server token not provided. Enter server token: "));
+
         if let Some(tok) = token {
-            info!("Using provided token for authentication. {}", tok);
+            info!("Using token for server authentication.");
             // Use the token for authentication
             // Try to get cluster info from server using the token
             let output = get_all_visible_cluster(&Configuration {
@@ -135,10 +176,16 @@ impl CliCtx {
                             self.config.default_server_name.clone(),
                         )
                     };
+                    let server_name_clone = server_name.clone();
                     let server_config = self
                         .config
                         .get_or_insert_server_config(server_name, server_url);
                     let server_config_clone = server_config.clone();
+
+                    if self.config.default_server_name.is_empty() {
+                        self.config.default_server_name = server_name_clone;
+                    }
+
                     match self.config.write_to_file(self.config_path.clone()) {
                         Ok(_) => info!("Config file updated successfully."),
                         Err(e) => error!("Failed to update config file: {}", e),
@@ -174,8 +221,7 @@ impl CliCtx {
                 }
             }
         } else {
-            info!("No token provided, this workflow is not yet implemented.");
-            // Proceed without a token
+            error!("No token provided. Server login requires a token.");
         }
     }
 }

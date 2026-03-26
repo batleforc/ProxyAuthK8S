@@ -13,6 +13,7 @@ pub mod config;
 pub mod context;
 pub mod ctx;
 pub mod error;
+pub mod get;
 pub mod login;
 
 /// Kubectl ProxyAuth CLI
@@ -136,8 +137,8 @@ impl Cli {
         // Match and execute the appropriate command
         match &self.command {
             Some(Commands::Get { cluster_name }) => {
-                //ctx.handle_get_clusters(cluster_name.clone());
                 debug!("Getting cluster info for: {:?}", cluster_name);
+                ctx.handle_get_clusters(cluster_name.clone()).await;
             }
             Some(Commands::Login {
                 cluster_name,
