@@ -2969,11 +2969,6 @@ dequal@^2.0.0:
   resolved "https://registry.yarnpkg.com/dequal/-/dequal-2.0.3.tgz#2644214f1997d39ed0ee0ece72335490a7ac67be"
   integrity sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==
 
-dereference-json-schema@^0.2.2:
-  version "0.2.2"
-  resolved "https://registry.yarnpkg.com/dereference-json-schema/-/dereference-json-schema-0.2.2.tgz#7bac93bf5f6e8d5803e6f54540648c24fc9bc49b"
-  integrity sha512-w8dUsJyrzH4Zsj8W/tKcjLsmcTKXfdNf+n3BBm1SAfnqpaCodgEUWqQGJ+pNb9NOqPwYMGvUnZZ8nQfeFjJlbQ==
-
 detect-libc@^2.0.3, detect-libc@^2.1.2:
   version "2.1.2"
   resolved "https://registry.yarnpkg.com/detect-libc/-/detect-libc-2.1.2.tgz#689c5dcdc1900ef5583a4cb9f6d7b473742074ad"
@@ -3717,10 +3712,10 @@ fumadocs-mdx@14.2.11:
     vfile "^6.0.3"
     zod "^4.3.6"
 
-fumadocs-openapi@^10.4.1:
-  version "10.5.0"
-  resolved "https://registry.yarnpkg.com/fumadocs-openapi/-/fumadocs-openapi-10.5.0.tgz#8cae5ef1afd2c9807f4e5844303b44f825a0702b"
-  integrity sha512-EG3/U/NI/ha0xhIUiUIKiRSmLS4AOjn+4xkZXOoiLB5rlV+HyHsq9qcN+wKgbK9u4qoNuAcMzTEYUXScoSUbXA==
+fumadocs-openapi@^10.6.0:
+  version "10.6.0"
+  resolved "https://registry.yarnpkg.com/fumadocs-openapi/-/fumadocs-openapi-10.6.0.tgz#e6f154dedd87eb2c1b84a33d2dbfe668e3ee19e5"
+  integrity sha512-1UYG/IFO+0EcDfvTzhQzmzTiV2OweTcx1ZvB/Dmiasath/w9oPb1+tWKVpNbBNKk80INorAnpaeM1eOQUxoNYg==
   dependencies:
     "@fastify/deepmerge" "^3.2.1"
     "@fumari/json-schema-ts" "^0.0.2"
@@ -3732,8 +3727,8 @@ fumadocs-openapi@^10.4.1:
     "@scalar/json-magic" "^0.12.4"
     "@scalar/openapi-upgrader" "^0.2.2"
     ajv "^8.18.0"
+    chokidar "^5.0.0"
     class-variance-authority "^0.7.1"
-    dereference-json-schema "^0.2.2"
     github-slugger "^2.0.0"
     hast-util-to-jsx-runtime "^2.3.6"
     js-yaml "^4.1.1"
