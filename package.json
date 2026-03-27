@@ -34,7 +34,7 @@
     "@nx/vite": "22.6.1",
     "@nx/vitest": "22.6.1",
     "@nx/vue": "22.6.1",
-    "@nx/web": "22.6.1",
+    "@nx/web": "22.6.2",
     "@nx/workspace": "22.6.1",
     "@swc-node/register": "1.11.1",
     "@swc/core": "1.15.21",
