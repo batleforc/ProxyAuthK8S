@@ -2,6 +2,8 @@ use client_api::apis::{api_clusters_api::get_all_visible_cluster, configuration:
 use std::io::{self, Write};
 use tracing::{debug, error, info};
 
+pub mod get_token;
+
 use crate::{
     cli_config::cli_server_config::CliServerConfig, ctx::CliCtx, error::ProxyAuthK8sError,
 };

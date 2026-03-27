@@ -162,6 +162,7 @@ impl Cli {
                 //ctx.handle_get_token(cluster_name.clone());
                 // Detect if env var KUBERNETES_EXEC_INFO is set, change context accordingly
                 debug!("Getting token for cluster: {:?}", cluster_name);
+                ctx.handle_get_token(cluster_name.clone()).await;
             }
             Some(Commands::Context {
                 context_name,
