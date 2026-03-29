@@ -17,6 +17,7 @@ tasks:
       - task k3d:k -- apply -f ./deploy/exemple/min-local-talos.crd.yaml
       - task tool:create-kubeconfig-proxy
       - task tool:create-kubeconfig-oidc
+      - task tool:create-kubeconfig-sa
   delete:
     desc: "Destroy the cluster"
     cmds:
@@ -56,7 +57,8 @@ tasks:
     env:
       KUBECONFIG: kubeconfig.local-proxy-k3d.yaml
     cmds:
-      - kubectl --cache-dir=/tmp/.kube/cache {{ .CLI_ARGS }}
+      - task tool:create-kubeconfig-proxy
+      - kubectl --cache-dir=/tmp/.kube/cache/proxy-k3d {{ .CLI_ARGS }}
   k-oidc:
     desc: "Shortcut for kubectl using OIDC"
     silent: true
@@ -77,6 +79,15 @@ tasks:
     silent: true
     env:
       KUBECONFIG: kubeconfig.local-proxy-k3d.yaml
+      KUBECACHEDIR: /tmp/.kube/cache/proxy-k3d
+    cmds:
+      - task tool:create-kubeconfig-proxy
+      - k9s --all-namespaces --command v1/pods {{ .CLI_ARGS }}
+  k9s-sa:
+    desc: "Open k9s for the cluster using Service Account"
+    silent: true
+    env:
+      KUBECONFIG: kubeconfig.local-sa-k3d.yaml
       KUBECACHEDIR: /tmp/.kube/cache
     cmds:
       - k9s {{ .CLI_ARGS }}
