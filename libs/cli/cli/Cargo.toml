@@ -7,10 +7,9 @@ edition = "2021"
 clap = { version = "4.5", features = ["derive"] }
 
 tracing = { workspace = true }
-k8s-openapi = { workspace = true }
 kube = { workspace = true }
+k8s-openapi = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }
@@ -22,7 +21,10 @@ keyring = { version = "3", features = [
   "sync-secret-service",
 ] }
 
-cli_trace = { path = "../cli_trace" , version = "0.1.9" }
-client_api = { path = "../client_api" , version = "0.1.9" }
+cli_trace = { path = "../cli_trace", version = "0.1.9" }
+client_api = { path = "../client_api", version = "0.1.9" }
 comfy-table = "7.2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[package.metadata.cargo-machete]
+ignored = ["k8s-openapi"]

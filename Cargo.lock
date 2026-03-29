@@ -346,11 +346,9 @@ dependencies = [
  "futures-util",
  "k8s-openapi",
  "kube",
- "oauth2-reqwest",
  "openidconnect",
  "reqwest 0.13.2",
  "rustls",
- "rustls-pki-types",
  "rustls-platform-verifier",
  "serde",
  "serde_json",
@@ -657,7 +655,6 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "thiserror 2.0.18",
- "tokio",
  "tracing",
 ]
 
@@ -669,9 +666,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "time",
- "tokio",
  "tracing",
- "tracing-bunyan-formatter",
  "tracing-subscriber",
 ]
 
@@ -762,8 +757,6 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 name = "controller"
 version = "0.1.9"
 dependencies = [
- "anyhow",
- "chrono",
  "common",
  "crd",
  "deadpool-redis",
@@ -772,15 +765,11 @@ dependencies = [
  "kube",
  "kube-leader-election",
  "opentelemetry",
- "schemars 1.2.1",
- "serde",
  "serde_json",
- "serde_yaml",
  "thiserror 2.0.18",
  "tokio",
  "trace",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -852,19 +841,15 @@ name = "crd"
 version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
- "chrono",
  "common",
- "futures",
  "k8s-openapi",
  "kube",
- "openidconnect",
  "regex",
  "reqwest 0.13.2",
  "schemars 1.2.1",
  "secrecy",
  "serde",
  "serde_json",
- "serde_yaml",
  "tracing",
 ]
 
@@ -874,7 +859,6 @@ version = "0.1.9"
 dependencies = [
  "crd",
  "kube",
- "serde",
  "serde_yaml",
 ]
 
@@ -1457,16 +1441,6 @@ dependencies = [
  "typenum",
  "version_check",
  "zeroize",
-]
-
-[[package]]
-name = "gethostname"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1ebd34e35c46e00bb73e81363248d627782724609fe1b6396f553f68fe3862e"
-dependencies = [
- "libc",
- "winapi",
 ]
 
 [[package]]
@@ -2679,18 +2653,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry-appender-tracing"
-version = "0.31.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef6a1ac5ca3accf562b8c306fa8483c85f4390f768185ab775f242f7fe8fdcc2"
-dependencies = [
- "opentelemetry",
- "tracing",
- "tracing-core",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "opentelemetry-http"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3786,22 +3748,13 @@ dependencies = [
  "api",
  "common",
  "controller",
- "kube",
- "opentelemetry",
- "opentelemetry-appender-tracing",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "reqwest 0.13.2",
  "rustls",
  "tokio",
  "trace",
- "tracing",
  "tracing-actix-web",
- "tracing-subscriber",
  "utoipa",
  "utoipa-actix-web",
  "utoipa-scalar",
- "uuid",
 ]
 
 [[package]]
@@ -3938,7 +3891,6 @@ name = "swaggergen"
 version = "0.1.9"
 dependencies = [
  "api",
- "utoipa",
 ]
 
 [[package]]
@@ -4278,11 +4230,8 @@ name = "trace"
 version = "0.1.9"
 dependencies = [
  "opentelemetry",
- "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "serde",
- "tokio",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -4327,24 +4276,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tracing-bunyan-formatter"
-version = "0.3.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d637245a0d8774bd48df6482e086c59a8b5348a910c3b0579354045a9d82411"
-dependencies = [
- "ahash",
- "gethostname",
- "log",
- "serde",
- "serde_json",
- "time",
- "tracing",
- "tracing-core",
- "tracing-log 0.1.4",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "tracing-core"
 version = "0.1.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4352,17 +4283,6 @@ checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
  "valuable",
-]
-
-[[package]]
-name = "tracing-log"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f751112709b4e791d8ce53e32c4ed2d353565a795ce84da2285393f41557bdf2"
-dependencies = [
- "log",
- "once_cell",
- "tracing-core",
 ]
 
 [[package]]
@@ -4387,7 +4307,7 @@ dependencies = [
  "smallvec",
  "tracing",
  "tracing-core",
- "tracing-log 0.2.0",
+ "tracing-log",
  "tracing-subscriber",
  "web-time",
 ]
@@ -4408,7 +4328,7 @@ dependencies = [
  "time",
  "tracing",
  "tracing-core",
- "tracing-log 0.2.0",
+ "tracing-log",
 ]
 
 [[package]]

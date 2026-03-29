@@ -9,27 +9,18 @@ actix-web = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 utoipa = { workspace = true }
-tracing = { workspace = true }
-uuid = { workspace = true }
-kube = { workspace = true }
-reqwest = { workspace = true }
 rustls = { workspace = true }
 
 utoipa-actix-web = { workspace = true }
 
-opentelemetry = { workspace = true }
-opentelemetry_sdk = { workspace = true }
-opentelemetry-otlp = { workspace = true }
-opentelemetry-appender-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
 
 utoipa-scalar = { version = "0.3", features = ["actix-web"] }
 actix-cors = { version = "0.7" }
 tracing-actix-web = { version = "0.7", features = ["opentelemetry_0_31"] }
 
-api = { path = "../../libs/server/api" , version = "0.1.9" }
-trace = { path = "../../libs/server/trace" , version = "0.1.9" }
-common = { path = "../../libs/server/common" , version = "0.1.9" }
-controller = { path = "../../libs/server/controller" , version = "0.1.9" }
+api = { path = "../../libs/server/api", version = "0.1.9" }
+trace = { path = "../../libs/server/trace", version = "0.1.9" }
+common = { path = "../../libs/server/common", version = "0.1.9" }
+controller = { path = "../../libs/server/controller", version = "0.1.9" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

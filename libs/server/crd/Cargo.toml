@@ -7,19 +7,15 @@ edition = "2021"
 k8s-openapi = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 tracing = { workspace = true }
 kube = { workspace = true }
 schemars = { workspace = true }
-futures = { workspace = true }
-chrono = { workspace = true }
 reqwest = { workspace = true }
-openidconnect = { workspace = true }
 regex = { workspace = true }
 
 base64 = "0.22"
 
-common = { path = "../common" , version = "0.1.9" }
+common = { path = "../common", version = "0.1.9" }
 secrecy = "0.10.3"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

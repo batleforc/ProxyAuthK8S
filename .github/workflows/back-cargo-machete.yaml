@@ -1,0 +1,36 @@
+name: 🦀 Rust dependency machete
+
+on:
+  push:
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/back-cargo-machete.yaml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/back-cargo-machete.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-machete:
+    name: Check for unused Rust dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+        with:
+          toolchain: stable
+
+      - name: Machete
+        uses: bnjbvr/cargo-machete@7959c845782fed02ee69303126d4a12d64f1db18 # v0.9.1
