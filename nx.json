@@ -12,6 +12,7 @@
     ],
     "sharedGlobals": []
   },
+  "parallel": 5,
   "plugins": [
     "@monodon/rust",
     {

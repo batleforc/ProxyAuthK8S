@@ -6,6 +6,7 @@ on:
       - "**/*.rs"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+      - ".github/scripts/check-workspace-deps.py"
       - ".github/workflows/back-cargo-machete.yaml"
   pull_request:
     branches: ["main"]
@@ -13,6 +14,7 @@ on:
       - "**/*.rs"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+      - ".github/scripts/check-workspace-deps.py"
       - ".github/workflows/back-cargo-machete.yaml"
   workflow_dispatch:
 
@@ -34,3 +36,6 @@ jobs:
 
       - name: Machete
         uses: bnjbvr/cargo-machete@7959c845782fed02ee69303126d4a12d64f1db18 # v0.9.1
+
+      - name: Check unused workspace dependencies
+        run: python3 .github/scripts/check-workspace-deps.py
