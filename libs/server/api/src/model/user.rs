@@ -5,7 +5,7 @@ use actix_web::{
 use common::{oidc_conf::OidcConf, State};
 use crd::ProxyKubeApi;
 use k8s_openapi::api::authentication::v1::SelfSubjectReview;
-use kube::Api;
+use kube::{api::PostParams, Api};
 use openidconnect::{AccessToken, UserInfoError};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -89,6 +89,7 @@ impl User {
         User::get_user_info_with_proxy(state, proxy, token).await
     }
 
+    #[instrument(skip(state, proxy, token))]
     pub async fn get_user_info_with_proxy(
         state: State,
         proxy: ProxyKubeApi,
@@ -108,6 +109,7 @@ impl User {
         }
     }
 
+    #[instrument(skip(state, proxy, token))]
     pub async fn auth_against_kubernetes(
         state: State,
         proxy: ProxyKubeApi,
@@ -126,8 +128,12 @@ impl User {
                 format!("Error while creating Kubernetes client: {}", e)
             })?;
 
-        let review: Api<SelfSubjectReview> = Api::all_with(client, &());
-        match review.get("").await {
+        let review: Api<SelfSubjectReview> = Api::all(client);
+
+        match review
+            .create(&PostParams::default(), &SelfSubjectReview::default())
+            .await
+        {
             Ok(review_content) => {
                 let user_info = review_content
                     .status
@@ -159,6 +165,7 @@ impl User {
         }
     }
 
+    #[instrument(skip(state, proxy, token))]
     pub async fn auth_against_oidc_provider(
         state: State,
         proxy: ProxyKubeApi,
@@ -177,6 +184,7 @@ impl User {
         Self::get_user_info_from_oidc_token(token, oidc_conf).await
     }
 
+    #[instrument(skip(token, oidc_conf))]
     pub async fn get_user_info_from_oidc_token(
         token: String,
         oidc_conf: OidcConf,

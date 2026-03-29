@@ -17,6 +17,7 @@ pub fn init_tracing(verbose_level: level::VerboseLevel, name: String) {
         .from_env()
         .unwrap();
     let terminal_out = fmt::layer()
+        .with_writer(std::io::stderr)
         .with_thread_names(false)
         .with_timer(timer)
         .with_target(false)

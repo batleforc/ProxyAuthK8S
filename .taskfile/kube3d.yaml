@@ -1,7 +1,7 @@
 version: "3"
 
 tasks:
-  up:
+  create:
     # https://k3d.io/v5.8.3/usage/advanced/podman/#using-podman
     desc: "Start the cluster"
     vars:
@@ -17,7 +17,7 @@ tasks:
       - task k3d:k -- apply -f ./deploy/exemple/min-local-talos.crd.yaml
       - task tool:create-kubeconfig-proxy
       - task tool:create-kubeconfig-oidc
-  down:
+  delete:
     desc: "Destroy the cluster"
     cmds:
       - k3d cluster delete --config .k3d/k3d.cluster.yaml

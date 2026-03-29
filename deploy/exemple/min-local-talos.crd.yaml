@@ -12,7 +12,7 @@ spec:
       namespace: default
   service:
     ExternalService:
-      url: "https://localhost:41625"
+      url: "https://localhost:36859"
 ---
 apiVersion: weebo.si.rs/v1
 kind: ProxyKubeApi
@@ -40,7 +40,7 @@ spec:
       namespace: default
   service:
     ExternalService:
-      url: "https://localhost:41625"
+      url: "https://localhost:36859"
 ---
 apiVersion: weebo.si.rs/v1
 kind: ProxyKubeApi
@@ -52,13 +52,15 @@ spec:
     Insecure: false
   service:
     ExternalService:
-      url: "https://localhost:41625"
+      url: "https://localhost:36859"
 ---
 apiVersion: weebo.si.rs/v1
 kind: ProxyKubeApi
 metadata:
   name: local-sso
   namespace: default
+  labels:
+    auth: sso
 spec:
   cert:
     ConfigMap:
@@ -67,7 +69,7 @@ spec:
       namespace: default
   service:
     ExternalService:
-      url: "https://localhost:41625"
+      url: "https://localhost:36859"
   auth_config:
     oidc_provider:
       enabled: true

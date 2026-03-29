@@ -46,6 +46,10 @@ tasks:
     cmds:
       - echo "Running the backend"
       - cargo run --bin server
+  back:tls2:
+    desc: "Run a second instance if the backend with TLS"
+    cmds:
+      - HOSTNAME="BACK2" SERVER_PORT="5438" task back:tls
   front:
     desc: "Run the frontend in development mode"
     silent: true
@@ -133,8 +137,21 @@ tasks:
     silent: true
     env:
       KUBECONFIG: ./kubeconfig.proxy-dev.yaml
+    vars:
+      CLI: "./tmp/kubectl_proxyauth" #"cargo run --bin kubectl_proxyauth --"
     cmds:
-      - cargo run --bin kubectl_proxyauth -- --proxy-auth-config="proxyauth_config.dev.yaml" {{ .CLI_ARGS }}
+      - '{{ .CLI }} {{ .CLI_ARGS }} --proxy-auth-config="proxyauth_config.dev.yaml"'
+  cli:get-token:
+    desc: "Run kubectl_proxyauth to get a token for a cluster"
+    silent: true
+    env:
+      KUBECONFIG: ./kubeconfig.proxy-dev.yaml
+      KUBERNETES_EXEC_INFO: '{ "apiVersion": "client.authentication.k8s.io/v1beta1", "kind": "ExecCredential", "spec": { "cluster": { "server": "https://localhost:5437/clusters/default/local-sso" } } }'
+
+    vars:
+      CLI_ARGS: "cargo run --bin kubectl_proxyauth --"
+    cmds:
+      - '{{ .CLI_ARGS }} --proxy-auth-config="proxyauth_config.dev.yaml" get-token'
 
   bump:
     desc: "Bump the version of the project"
