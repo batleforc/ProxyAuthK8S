@@ -1,0 +1,17 @@
+---
+title: ProxyKubeApi Generator
+description: Dynamic CRD-driven form to build a ProxyKubeApi manifest
+icon: WandSparkles
+full: true
+---
+
+Generate a `ProxyKubeApi` resource directly from the CRD schema in `deploy/crds.yaml`.
+
+- Source of truth: `weebo.si.rs/v1` CRD definition
+- Supports nested objects, arrays, and `oneOf` variants
+- Includes preset examples for common ProxyKubeApi setups
+- Output: ready-to-apply Kubernetes YAML
+
+Start with a preset if you want a realistic baseline, then expand the generated sections you need to adjust.
+
+<ProxyKubeApiGenerator />
