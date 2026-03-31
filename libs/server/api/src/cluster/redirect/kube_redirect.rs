@@ -1,7 +1,7 @@
 use actix_web::{dev::PeerAddr, http, web, HttpRequest, HttpResponse, Responder};
 use common::State;
 use crd::ProxyKubeApi;
-use tracing::{error, info, instrument};
+use tracing::{debug, error, info, instrument};
 
 use crate::model::user::User;
 
@@ -42,6 +42,9 @@ pub async fn redirect(
     }
 
     let is_upgrade = is_upgrade_request(&req);
+
+    debug!(proxy = ?proxy, "Proxy found for cluster");
+    debug!(is_upgrade, "Is upgrade request");
 
     let _user = if proxy.need_token_validation() {
         if req.headers().clone().get("authorization").is_none() {

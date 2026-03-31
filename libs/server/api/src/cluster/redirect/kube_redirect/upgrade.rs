@@ -12,7 +12,7 @@ use tokio::{
 };
 use tokio_rustls::TlsConnector;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::error;
+use tracing::{error, instrument};
 
 use super::tls::build_tls_config;
 
@@ -23,8 +23,11 @@ pub(super) fn is_upgrade_request(req: &HttpRequest) -> bool {
         .get(http::header::CONNECTION)
         .and_then(|v| v.to_str().ok())
         .map(|v| {
-            v.split(',')
-                .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
+            v.split(',').any(|token| {
+                token
+                    .trim()
+                    .eq_ignore_ascii_case(http::header::UPGRADE.as_str())
+            })
         })
         .unwrap_or(false);
 
@@ -150,6 +153,7 @@ async fn read_upgrade_response_headers(
     }
 }
 
+#[instrument(skip(req, data, payload))]
 pub(super) async fn upgrade_redirect(
     req: HttpRequest,
     data: web::Data<State>,
