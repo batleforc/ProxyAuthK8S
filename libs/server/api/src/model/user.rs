@@ -127,7 +127,6 @@ impl User {
                 tracing::error!("Error while creating Kubernetes client: {}", e);
                 format!("Error while creating Kubernetes client: {}", e)
             })?;
-
         let review: Api<SelfSubjectReview> = Api::all(client);
 
         match review
@@ -140,8 +139,6 @@ impl User {
                     .unwrap_or_default()
                     .user_info
                     .unwrap_or_default();
-                // In a real implementation, extract user info from the SelfSubjectReview response
-                // Here we return a dummy user for illustration
                 Ok(Some(User {
                     username: user_info.username.unwrap_or_default(),
                     email: user_info
@@ -156,11 +153,8 @@ impl User {
                 }))
             }
             Err(e) => {
-                tracing::warn!(
-                    "Error while executing SelfSubjectAccessReview request: {}",
-                    e
-                );
-                Err("Invalid SelfSubjectAccessReview response".to_string())
+                tracing::warn!("Error while executing SelfSubjectReview request: {}", e);
+                Err("Invalid SelfSubjectReview response".to_string())
             }
         }
     }

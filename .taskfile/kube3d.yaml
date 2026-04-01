@@ -65,7 +65,7 @@ tasks:
     env:
       KUBECONFIG: kubeconfig.local-oidc-k3d.yaml
     cmds:
-      - kubectl {{ .CLI_ARGS }}
+      - kubectl --cache-dir=/tmp/.kube/cache/proxy-k3d-oidc {{ .CLI_ARGS }}
   crd:
     desc: "Apply CRD for the cluster"
     cmds:

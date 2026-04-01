@@ -3,6 +3,7 @@ use common::State;
 use crd::ProxyKubeApi;
 use tracing::{debug, error, info, instrument};
 
+use crate::helper::extract_authorization_header;
 use crate::model::user::User;
 
 mod standard;
@@ -47,17 +48,10 @@ pub async fn redirect(
     debug!(is_upgrade, "Is upgrade request");
 
     let _user = if proxy.need_token_validation() {
-        if req.headers().clone().get("authorization").is_none() {
-            return HttpResponse::Unauthorized().finish();
-        }
-        let token = match req
-            .headers()
-            .get("authorization")
-            .and_then(|h| h.to_str().ok())
-        {
-            Some(token) => token,
-            None => {
-                tracing::warn!("Authorization header is not a valid string");
+        let token = match extract_authorization_header(&req) {
+            Ok(token) => token,
+            Err(e) => {
+                tracing::warn!("Authorization header extraction failed: {}", e);
                 return HttpResponse::Unauthorized().finish();
             }
         };

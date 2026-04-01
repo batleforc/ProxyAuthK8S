@@ -153,6 +153,14 @@ tasks:
       CLI_ARGS: "cargo run --bin kubectl_proxyauth --"
     cmds:
       - '{{ .CLI_ARGS }} --proxy-auth-config="proxyauth_config.dev.yaml" get-token'
+  cli:login:
+    desc: "Run kubectl_proxyauth to get a token for a cluster"
+    silent: true
+    env:
+      KUBECONFIG: ./kubeconfig.proxy-dev.yaml
+      KUBERNETES_EXEC_INFO: '{ "apiVersion": "client.authentication.k8s.io/v1beta1", "kind": "ExecCredential", "spec": { "cluster": { "server": "https://localhost:5437/clusters/default/local-sso" } } }'
+    cmds:
+      - kubectl oidc-login get-token --oidc-issuer-url=https://authelia.k8s.localhost --oidc-client-id=kube_login --oidc-client-secret=insecure_secret --oidc-extra-scope=groups --insecure-skip-tls-verify=true
 
   bump:
     desc: "Bump the version of the project"
