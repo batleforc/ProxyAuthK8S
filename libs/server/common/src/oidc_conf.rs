@@ -6,6 +6,7 @@ use openidconnect::{
     ClientId, ClientSecret, EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, RedirectUrl,
 };
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 use crate::oidc_error::OidcError;
 
@@ -77,6 +78,7 @@ impl OidcConf {
         ReqwestClient::from(self.get_reqwest_client())
     }
 
+    #[instrument(skip(self))]
     pub async fn get_oidc_core(&self) -> Result<CoreClientFront, OidcError> {
         let provider_metadata = CoreProviderMetadata::discover_async(
             IssuerUrl::new(self.issuer_url.clone())?,

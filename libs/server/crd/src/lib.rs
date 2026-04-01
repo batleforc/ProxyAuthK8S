@@ -234,6 +234,11 @@ impl ProxyKubeApi {
             }
             tracing::info!("Valid redirect uri: {}", redirect_kubectl_uri);
         }
+        let redirect_url = if redirect_front || redirect_kubectl.is_some() {
+            Some(self.get_redirect_oidc_url(state.clone(), redirect_front, redirect_kubectl))
+        } else {
+            None
+        };
         match &self.spec.auth_config {
             Some(auth_config) => {
                 if auth_config.oidc_provider.enabled {
@@ -243,11 +248,7 @@ impl ProxyKubeApi {
                         issuer_url: auth_config.oidc_provider.issuer_url.clone(),
                         scopes: auth_config.oidc_provider.extra_scope.clone(),
                         audience: auth_config.oidc_provider.client_id.clone(),
-                        redirect_url: Some(self.get_redirect_oidc_url(
-                            state,
-                            redirect_front,
-                            redirect_kubectl,
-                        )),
+                        redirect_url,
                     });
                 }
                 None

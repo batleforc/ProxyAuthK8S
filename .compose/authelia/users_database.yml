@@ -20,3 +20,4 @@ users:
       - "dashboard-default-local-secure-without-cert"
       - "dashboard-default-local-unreachable"
       - "dashboard-default-local-sso"
+      - "dashboard-default-local-sso-validate"

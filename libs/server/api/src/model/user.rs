@@ -175,6 +175,7 @@ impl User {
                 return Err("No OIDC configuration found for this proxy".to_string());
             }
         };
+        tracing::debug!("OIDC configuration found for proxy: {:?}", oidc_conf);
         Self::get_user_info_from_oidc_token(token, oidc_conf).await
     }
 
@@ -189,10 +190,14 @@ impl User {
         })?;
         let http_client = oidc_conf.get_oidc_reqwest_client();
 
+        tracing::debug!(
+            "Creating user info request for OIDC provider with token of length: {}",
+            token.len()
+        );
         let user_claim_req = match oidc_core.user_info(AccessToken::new(token.to_owned()), None) {
             Ok(req) => req,
             Err(e) => {
-                tracing::warn!("Error while getting user info: {}", e);
+                tracing::warn!("Error while creating user info request: {}", e);
                 return Err("Invalid user info request".to_string());
             }
         };
@@ -204,7 +209,7 @@ impl User {
                 return Err("Invalid user info response".to_string());
             }
             Err(e) => {
-                tracing::warn!("Error while executing user info request: {}", e);
+                tracing::warn!("Error while executing user info request: {:#?}", e);
                 return Err("Invalid user info response".to_string());
             }
         };

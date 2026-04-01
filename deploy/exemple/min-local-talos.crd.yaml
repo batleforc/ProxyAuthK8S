@@ -76,4 +76,29 @@ spec:
       issuer_url: "https://authelia.k8s.localhost"
       client_id: "kube_login"
       client_secret: "insecure_secret"
-      extra_scope: "groups email profile"
+      extra_scope: "openid profile email groups"
+    validate_against: OidcProvider
+---
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+metadata:
+  name: local-sso-validate
+  namespace: default
+  labels:
+    auth: sso
+spec:
+  cert:
+    ConfigMap:
+      name: kube-root-ca.crt
+      key: ca.crt
+      namespace: default
+  service:
+    ExternalService:
+      url: "https://localhost:33695"
+  auth_config:
+    oidc_provider:
+      enabled: true
+      issuer_url: "https://authelia.k8s.localhost"
+      client_id: "kube_login"
+      client_secret: "insecure_secret"
+      extra_scope: "openid profile email groups"
