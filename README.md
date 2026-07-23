@@ -34,6 +34,30 @@ flowchart LR
 
 N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la brique ProxyAuthK8S.
 
+## Local dev with Keycloak (alternative IdP)
+
+You can run ProxyAuthK8S with Keycloak instead of Authelia for local OIDC testing.
+
+1. Enable Keycloak include in [compose.yaml](compose.yaml) and disable Authelia include.
+
+1. Use the Keycloak env file.
+
+1. Start the stack.
+
+```sh
+cp .env.keycloak .env
+docker compose up -d
+```
+
+Keycloak URL (via Traefik): `https://keycloak.k8s.localhost`
+
+The imported realm is [realm-proxyauthk8s.json](.compose/keycloak/realm-proxyauthk8s.json) and already contains:
+
+- realm: `proxyauthk8s`
+- client `proxyauthk8s` (front login)
+- client `kube_login` (cluster OIDC)
+- users `dev-admin` / `dev-user`
+
 ## Left to do
 
 ### v0.1.0

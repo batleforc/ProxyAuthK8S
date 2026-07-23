@@ -1,0 +1,118 @@
+{
+  "realm": "proxyauthk8s",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": true,
+  "groups": [
+    {
+      "name": "admins"
+    },
+    {
+      "name": "developers"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "proxyauthk8s",
+      "name": "ProxyAuthK8S Front",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:4200/auth/callback",
+        "https://localhost:4200/auth/callback",
+        "http://localhost:18000"
+      ],
+      "webOrigins": [
+        "http://localhost:4200",
+        "https://localhost:4200",
+        "https://localhost:5437"
+      ],
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "web-origins"
+      ],
+      "optionalClientScopes": [
+        "groups"
+      ]
+    },
+    {
+      "clientId": "kube_login",
+      "name": "Kubernetes Cluster Access",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "insecure_secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8000",
+        "http://localhost:18000",
+        "https://localhost:5437/clusters/default/local-sso/auth/callback",
+        "https://localhost:5437/clusters/default/local-sso-validate/auth/callback",
+        "https://localhost:4200/auth/callback/default/local-sso",
+        "https://localhost:4200/auth/callback/default/local-sso-validate"
+      ],
+      "webOrigins": [
+        "*"
+      ],
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles"
+      ],
+      "optionalClientScopes": [
+        "groups"
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "dev-admin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Dev",
+      "lastName": "Admin",
+      "email": "dev-admin@local.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-admin",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/admins"
+      ]
+    },
+    {
+      "username": "dev-user",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Dev",
+      "lastName": "User",
+      "email": "dev-user@local.test",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dev-user",
+          "temporary": false
+        }
+      ],
+      "groups": [
+        "/developers"
+      ]
+    }
+  ]
+}

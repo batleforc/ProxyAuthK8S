@@ -3,7 +3,9 @@ include:
   - .compose/compose.otel.yaml
   - .compose/compose.redis.yaml
   - .compose/compose.traefik.yaml
+  # Choose one identity provider include (Authelia or Keycloak)
   - .compose/compose.authelia.yaml
+  - .compose/compose.keycloak.yaml
 
 networks:
   default:

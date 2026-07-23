@@ -1,0 +1,23 @@
+services:
+  keycloak:
+    image: "quay.io/keycloak/keycloak:26.2"
+    container_name: keycloak
+    command: [ "start-dev", "--import-realm" ]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.keycloak.rule: "Host(`keycloak.k8s.localhost`)"
+      traefik.http.routers.keycloak.entrypoints: "https"
+      traefik.http.routers.keycloak.tls: "true"
+      traefik.http.routers.keycloak.tls.options: "default"
+      traefik.http.services.keycloak.loadbalancer.server.port: "8080"
+    environment:
+      KEYCLOAK_ADMIN: "admin"
+      KEYCLOAK_ADMIN_PASSWORD: "admin"
+      KC_DB: "dev-file"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME: "keycloak.k8s.localhost"
+      KC_HOSTNAME_STRICT: "false"
+      KC_PROXY_HEADERS: "xforwarded"
+    volumes:
+      - "./keycloak/realm-proxyauthk8s.json:/opt/keycloak/data/import/realm-proxyauthk8s.json:ro"
+    restart: "unless-stopped"

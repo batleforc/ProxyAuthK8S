@@ -4,67 +4,67 @@ metadata:
   language: rust
   version: 1.0.0
 parent:
-  uri: https://raw.githubusercontent.com/batleforc/WeeboDevImage/refs/heads/main/che-rust/devfile.yaml
+  uri: https://raw.githubusercontent.com/batleforc/WeeboDevImage/main/che-min-mise/devfile.yaml
 
 variables:
   REDIS_PASSWORD: "Complexpass#123"
   AUTHELIA_TZ: "Europe/Paris"
 
 components:
-- name: redis
-  container:
-    image: redis
-    memoryLimit: 2Gi
-    memoryRequest: 512Mi
-    mountSources: false
-    command:
-      - redis-server
-    args:
-      - --requirepass {{ REDIS_PASSWORD }}
-    env:
-      - name: REDIS_HOST_PASSWORD
-        value: "{{ REDIS_PASSWORD }}"
-    endpoints:
-    - name: redis
-      targetPort: 6379
-      exposure: public
-      protocol: tcp
-    volumeMounts:
-      - name: redis-volume
-        path: /data
-- name: redis-volume
-  volume:
-    size: 2Gi
-- name: dbgate
-  container:
-    image: dbgate/dbgate:latest
-    memoryLimit: 2Gi
-    memoryRequest: 512Mi
-    mountSources: false
-    endpoints:
-    - name: dbgate
-      targetPort: 3000
-      exposure: public
-      protocol: http
-    volumeMounts:
-      - name: dbgate-volume
-        path: /.dbgate
-    env:
-      - name: CONNECTIONS
-        value: "redis"
-      - name: LABEL_redis
-        value: "Redis"
-      - name: ENGINE_redis
-        value: "redis@dbgate-plugin-redis"
-      - name: SERVER_redis
-        value: "localhost"
-      - name: PASSWORD_redis
-        value: "{{ REDIS_PASSWORD }}"
-      - name: PORT_redis
-        value: "6379"
-- name: dbgate-volume
-  volume:
-    size: 1Gi
+  - name: redis
+    container:
+      image: redis
+      memoryLimit: 2Gi
+      memoryRequest: 512Mi
+      mountSources: false
+      command:
+        - redis-server
+      args:
+        - --requirepass {{ REDIS_PASSWORD }}
+      env:
+        - name: REDIS_HOST_PASSWORD
+          value: "{{ REDIS_PASSWORD }}"
+      endpoints:
+        - name: redis
+          targetPort: 6379
+          exposure: public
+          protocol: tcp
+      volumeMounts:
+        - name: redis-volume
+          path: /data
+  - name: redis-volume
+    volume:
+      size: 2Gi
+  - name: dbgate
+    container:
+      image: dbgate/dbgate:latest
+      memoryLimit: 2Gi
+      memoryRequest: 512Mi
+      mountSources: false
+      endpoints:
+        - name: dbgate
+          targetPort: 3000
+          exposure: public
+          protocol: http
+      volumeMounts:
+        - name: dbgate-volume
+          path: /.dbgate
+      env:
+        - name: CONNECTIONS
+          value: "redis"
+        - name: LABEL_redis
+          value: "Redis"
+        - name: ENGINE_redis
+          value: "redis@dbgate-plugin-redis"
+        - name: SERVER_redis
+          value: "localhost"
+        - name: PASSWORD_redis
+          value: "{{ REDIS_PASSWORD }}"
+        - name: PORT_redis
+          value: "6379"
+  - name: dbgate-volume
+    volume:
+      size: 1Gi
 # - name: authelia
 #   container:
 #     image: authelia/authelia
