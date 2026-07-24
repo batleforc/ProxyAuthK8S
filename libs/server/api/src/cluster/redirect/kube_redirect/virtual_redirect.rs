@@ -50,6 +50,9 @@ pub(super) enum VirtualPlan {
     MergeApiGroups,
     /// Rewrite the request onto `upstream_path` and translate the response.
     Mapped { upstream_path: String },
+    /// The path is a known virtual resource but the method is not one it
+    /// supports; answer `405` (with this `Allow` header) without any upstream call.
+    MethodNotAllowed { allow: String },
 }
 
 impl VirtualPlan {
@@ -62,6 +65,7 @@ impl VirtualPlan {
             VirtualPlan::Direct(_) => None,
             VirtualPlan::MergeApiGroups => Some("/apis"),
             VirtualPlan::Mapped { upstream_path } => Some(upstream_path),
+            VirtualPlan::MethodNotAllowed { .. } => None,
         }
     }
 }
@@ -91,6 +95,9 @@ pub(super) fn plan(registry: &MapperRegistry, path: &str, method: &str) -> Optio
 
     let (mapper, mut route) = registry.resolve(path)?;
     route.method = method.to_ascii_uppercase();
+    if let Some(allow) = mapper.method_not_allowed(&route) {
+        return Some(VirtualPlan::MethodNotAllowed { allow });
+    }
     Some(VirtualPlan::Mapped {
         upstream_path: mapper.map_request(&route).path,
     })
@@ -122,6 +129,40 @@ async fn read_client_body(payload: &mut web::Payload, limit: usize) -> Result<we
     Ok(body.freeze())
 }
 
+/// Why a capped upstream read stopped short.
+enum ReadCapError {
+    /// The body exceeded `limit`; aborted without buffering the rest.
+    TooLarge,
+    /// The upstream connection failed mid-read.
+    Upstream(String),
+}
+
+/// Read an upstream response into memory, aborting as soon as it exceeds `limit`
+/// instead of buffering the whole body first. A translated response must be held
+/// in full, so without an incremental cap a multi-GB `NamespaceList` (or a
+/// hostile upstream) would be read entirely into RAM before the size was checked.
+async fn read_response_capped(
+    res: reqwest::Response,
+    limit: usize,
+) -> Result<web::Bytes, ReadCapError> {
+    // Reject early when the upstream announced an oversized body.
+    if let Some(len) = res.content_length() {
+        if len > limit as u64 {
+            return Err(ReadCapError::TooLarge);
+        }
+    }
+    let mut body = web::BytesMut::new();
+    let mut stream = res.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|err| ReadCapError::Upstream(err.to_string()))?;
+        if body.len() + chunk.len() > limit {
+            return Err(ReadCapError::TooLarge);
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body.freeze())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn virtual_redirect(
     req: HttpRequest,
@@ -142,6 +183,16 @@ pub(super) async fn virtual_redirect(
         debug!(path = %upstream_path, "answering virtual discovery locally");
         audit.emit(200);
         return json_response(http::StatusCode::OK, body);
+    }
+
+    // A verb the virtual resource does not support: refuse before forwarding, so
+    // it cannot be mapped onto an unrelated upstream operation.
+    if let VirtualPlan::MethodNotAllowed { allow } = &plan {
+        debug!(path = %upstream_path, method = %method.as_str(), "method not allowed on virtual resource");
+        audit.emit(405);
+        return HttpResponse::MethodNotAllowed()
+            .insert_header(("allow", allow.clone()))
+            .finish();
     }
 
     let limit = max_buffered_bytes();
@@ -182,7 +233,9 @@ pub(super) async fn virtual_redirect(
 
             (mapped.clone(), body)
         }
-        VirtualPlan::Direct(_) => unreachable!("handled above"),
+        VirtualPlan::Direct(_) | VirtualPlan::MethodNotAllowed { .. } => {
+            unreachable!("handled above")
+        }
     };
 
     let query_string = req.query_string();
@@ -197,7 +250,7 @@ pub(super) async fn virtual_redirect(
         Err(err) => {
             error!(err, " couldn't build the upstream client");
             audit.emit(503);
-            return HttpResponse::ServiceUnavailable().body(err);
+            return HttpResponse::ServiceUnavailable().body("upstream unavailable");
         }
     };
 
@@ -225,7 +278,7 @@ pub(super) async fn virtual_redirect(
         Err(err) => {
             error!(error = %err, "error forwarding a virtual API request");
             audit.emit(503);
-            return HttpResponse::ServiceUnavailable().body(err.to_string());
+            return HttpResponse::ServiceUnavailable().body("upstream unavailable");
         }
     };
 
@@ -238,19 +291,16 @@ pub(super) async fn virtual_redirect(
         return stream_watch(res, status, registry, upstream_path);
     }
 
-    let body = match res.bytes().await {
-        Ok(body) if body.len() <= limit => body,
-        Ok(body) => {
-            error!(
-                len = body.len(),
-                limit, "virtual API response is too large to translate"
-            );
+    let body = match read_response_capped(res, limit).await {
+        Ok(body) => body,
+        Err(ReadCapError::TooLarge) => {
+            error!(limit, "virtual API response is too large to translate");
             audit.emit(502);
             return HttpResponse::BadGateway().body("upstream response is too large to translate");
         }
-        Err(err) => {
+        Err(ReadCapError::Upstream(err)) => {
             error!(error = %err, "error reading the upstream response");
-            return HttpResponse::ServiceUnavailable().body(err.to_string());
+            return HttpResponse::ServiceUnavailable().body("upstream unavailable");
         }
     };
 
@@ -269,7 +319,9 @@ pub(super) async fn virtual_redirect(
             Some((mapper, _)) => mapper.map_response(json),
             None => json,
         },
-        VirtualPlan::Direct(_) => unreachable!("handled above"),
+        VirtualPlan::Direct(_) | VirtualPlan::MethodNotAllowed { .. } => {
+            unreachable!("handled above")
+        }
     };
 
     json_response(status, &translated)
@@ -283,6 +335,9 @@ fn stream_watch(
     upstream_path: String,
 ) -> HttpResponse {
     let mut buffer = web::BytesMut::new();
+    // Cap a single unterminated line: a watch that never emits a newline (a
+    // hostile or stuck upstream) would otherwise grow `buffer` without bound.
+    let line_limit = max_buffered_bytes();
     let translated = res.bytes_stream().map(move |chunk| {
         let chunk = chunk.map_err(actix_web::error::ErrorBadGateway)?;
         buffer.extend_from_slice(&chunk);
@@ -315,6 +370,14 @@ fn stream_watch(
             }
         }
 
+        // Whatever is left is an as-yet-unterminated line; refuse to let it grow
+        // past the limit.
+        if buffer.len() > line_limit {
+            return Err(actix_web::error::ErrorBadGateway(
+                "watch line exceeds the size limit",
+            ));
+        }
+
         Ok::<web::Bytes, actix_web::Error>(out.freeze())
     });
 
@@ -337,6 +400,21 @@ mod tests {
     #[test]
     fn an_empty_registry_plans_nothing() {
         assert!(plan(&MapperRegistry::new(), "/apis", "GET").is_none());
+    }
+
+    #[test]
+    fn an_unsupported_verb_plans_a_405() {
+        let plan = plan(
+            &registry(),
+            "/apis/project.openshift.io/v1/projectrequests",
+            "DELETE",
+        )
+        .expect("a known virtual path should still be planned");
+        match &plan {
+            VirtualPlan::MethodNotAllowed { allow } => assert_eq!(allow, "GET, POST"),
+            _ => panic!("DELETE on projectrequests must be refused"),
+        }
+        assert_eq!(plan.upstream_path(), None);
     }
 
     #[test]

@@ -8,6 +8,7 @@ use tracing::info;
 use super::tls::build_tls_config;
 use crate::cluster::redirect::forwarded::{
     forwarded_for_value, identity_headers, is_hop_by_hop, is_proxy_owned_header,
+    is_upstream_auth_header,
 };
 use crate::model::user::User;
 
@@ -19,6 +20,11 @@ pub(super) async fn upstream_client(
     let tls_config = build_tls_config(proxy, data).await?;
     reqwest::ClientBuilder::new()
         .use_preconfigured_tls(tls_config)
+        // Never follow redirects to the upstream: a Kubernetes apiserver does not
+        // 30x proxied API calls, and following one would let a configured target
+        // bounce the request (and the forwarded bearer token) to an unintended
+        // host — e.g. the cloud metadata endpoint.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|err| err.to_string())
 }
@@ -36,8 +42,9 @@ pub(super) fn apply_forward_headers(
     for (name, value) in req.headers().iter() {
         let name = name.as_str();
         // Skip headers that must not be forwarded or are managed by reqwest when
-        // streaming, and any header the proxy itself is authoritative for.
-        if is_hop_by_hop(name) || is_proxy_owned_header(name) {
+        // streaming, any header the proxy itself is authoritative for, and any
+        // client-supplied upstream-auth/impersonation header.
+        if is_hop_by_hop(name) || is_proxy_owned_header(name) || is_upstream_auth_header(name) {
             continue;
         }
 

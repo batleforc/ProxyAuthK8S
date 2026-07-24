@@ -17,25 +17,59 @@ fn split_segments(value: &str) -> Vec<&str> {
     value.split('/').filter(|s| !s.is_empty()).collect()
 }
 
+/// Percent-decode a segment a single pass, mirroring what the upstream apiserver
+/// does before it path-cleans the request. `%2e` becomes `.`, `%2f` becomes `/`,
+/// and so on; invalid or truncated escapes are left untouched. A single pass is
+/// deliberate: the apiserver decodes once, so `%252e` reaches it as `%2e` (not a
+/// dot) and must not be treated as traversal here.
+fn percent_decode_once(segment: &str) -> String {
+    let bytes = segment.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// A request segment that carries no authorization meaning by itself but changes
 /// the effective resource once the upstream apiserver path-cleans it.
 ///
-/// `..`/`.` (and their common percent-encodings) let a request such as
-/// `/api/v1/namespaces/dev/../prod/secrets` slip past an allow rule scoped to
-/// `dev` while the apiserver resolves it to `prod`. Encoded slashes (`%2f`) are
-/// equally dangerous because they hide a segment boundary from the matcher.
+/// `..`/`.` (and their percent-encodings, including mixed forms such as `.%2e`)
+/// let a request like `/api/v1/namespaces/dev/../prod/secrets` slip past an allow
+/// rule scoped to `dev` while the apiserver resolves it to `prod`. Encoded
+/// slashes (`%2f`) and backslashes (`%5c`) are equally dangerous because they
+/// hide a segment boundary from the matcher. We decode the segment the same way
+/// the apiserver will, then test the result — so any encoding that resolves to a
+/// dot-segment or a separator is caught, not just the exact spellings.
 fn is_traversal_segment(segment: &str) -> bool {
-    if segment == "." || segment == ".." {
-        return true;
-    }
-    let lower = segment.to_ascii_lowercase();
-    lower == "%2e" || lower == "%2e%2e" || lower.contains("%2f") || lower.contains("%5c")
+    let decoded = percent_decode_once(segment);
+    decoded == "." || decoded == ".." || decoded.contains('/') || decoded.contains('\\')
 }
 
 /// Reject any request path that contains a traversal / encoded-separator segment
 /// so the matcher and the upstream agree on which resource is addressed.
 fn request_path_is_safe(path_segments: &[&str]) -> bool {
     !path_segments.iter().any(|segment| is_traversal_segment(segment))
+}
+
+/// Whether `path` is free of traversal / encoded-separator segments.
+///
+/// Exposed so matchers that do their own positional path parsing (the CRD rule
+/// matcher) can apply the exact same guard the pattern matchers use, instead of
+/// silently ignoring segments that change which resource is really addressed.
+pub fn path_has_no_traversal(path: &str) -> bool {
+    request_path_is_safe(&split_segments(path))
 }
 
 /// Match a single segment against a pattern segment that may contain `*`.
@@ -254,7 +288,17 @@ mod tests {
         // Percent-encoded dot segments and encoded slashes are refused too.
         assert!(!path_matches_pattern("/**", "/api/v1/%2e%2e/secrets"));
         assert!(!path_matches_pattern("/**", "/api/v1/namespaces%2fprod/secrets"));
+        // Mixed literal/encoded dot segments decode to `..` upstream and must be
+        // refused as well (uppercase and lowercase hex).
+        assert!(!path_matches_pattern("/**", "/api/v1/.%2e/secrets"));
+        assert!(!path_matches_pattern("/**", "/api/v1/%2e./secrets"));
+        assert!(!path_matches_pattern("/**", "/api/v1/.%2E/secrets"));
+        assert!(!path_matches_pattern("/**", "/api/v1/namespaces%2Fprod/secrets"));
+        assert!(!path_matches_pattern("/**", "/api/v1/dir%5c..%5csecrets"));
         // `path_equals` is guarded identically.
         assert!(!path_equals("/api/v1/../secrets", "/api/v1/../secrets"));
+        // A double-encoded dot (`%252e`) reaches the apiserver as `%2e`, not a
+        // dot, so it is not traversal and must NOT be rejected here.
+        assert!(path_matches_pattern("/api/v1/%252e/pods", "/api/v1/%252e/pods"));
     }
 }

@@ -7,7 +7,7 @@ mod client_certificate;
 
 pub use client_certificate::ClientCertificate;
 
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, JsonSchema)]
 pub enum CertSource {
     /// Use a cert from a secret
     Secret {
@@ -27,17 +27,57 @@ pub enum CertSource {
     Insecure(bool),
 }
 
+/// Hand-written so the inline `Cert(_)` payload — which may hold a base64 private
+/// key (a client cert's `key` is a `CertSource`) — is never written to logs when
+/// a `ProxyKubeApi` is `Debug`-formatted (e.g. `debug!(proxy = ?proxy)`). The
+/// Secret/ConfigMap variants only carry references (names), so they stay visible.
+impl std::fmt::Debug for CertSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CertSource::Secret {
+                name,
+                key,
+                namespace,
+            } => f
+                .debug_struct("Secret")
+                .field("name", name)
+                .field("key", key)
+                .field("namespace", namespace)
+                .finish(),
+            CertSource::Cert(_) => f.write_str("Cert(<redacted>)"),
+            CertSource::ConfigMap {
+                name,
+                key,
+                namespace,
+            } => f
+                .debug_struct("ConfigMap")
+                .field("name", name)
+                .field("key", key)
+                .field("namespace", namespace)
+                .finish(),
+            CertSource::Insecure(value) => f.debug_tuple("Insecure").field(value).finish(),
+        }
+    }
+}
+
 /// Whether a `CertSource` may read a Secret/ConfigMap from a namespace other
 /// than the owning `ProxyKubeApi`'s namespace.
 ///
-/// Defaults to `true` (the historical behaviour, non-breaking). Set
-/// `PROXYAUTH_ALLOW_CROSS_NS_CERT=false` to pin every cert read to the CR's own
-/// namespace, so a tenant that can create `ProxyKubeApi` objects cannot turn the
-/// controller's ServiceAccount into a cross-namespace read oracle.
+/// Defaults to `false` (secure by default): a cert read uses the controller's
+/// cluster-wide ServiceAccount, and the resolved bytes are handed back in the
+/// generated kubeconfig's `certificate_authority_data`, so allowing an arbitrary
+/// `namespace` turns a tenant who can create `ProxyKubeApi` objects into a
+/// cross-namespace Secret read oracle. Set `PROXYAUTH_ALLOW_CROSS_NS_CERT=true`
+/// only on a single-tenant cluster where every CR author is already trusted.
 fn cross_namespace_cert_allowed() -> bool {
     std::env::var("PROXYAUTH_ALLOW_CROSS_NS_CERT")
-        .map(|value| !value.trim().eq_ignore_ascii_case("false"))
-        .unwrap_or(true)
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "true" | "1" | "yes" | "on" | "enabled"
+            )
+        })
+        .unwrap_or(false)
 }
 
 /// Resolve the namespace a cert is actually read from, applying the

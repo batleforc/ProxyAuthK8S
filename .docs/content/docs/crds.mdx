@@ -5,8 +5,6 @@ icon: DraftingCompass
 
 # API Reference
 
-Create a new resource with the interactive form: [ProxyKubeApi Generator](/docs/proxykubeapi-generator).
-
 Packages:
 
 - [weebo.si.rs/v1](#weebosirsv1)
@@ -52,7 +50,7 @@ Auto-generated derived type for ProxyKubeApiSpec via `CustomResource`
       <td>true</td>
       </tr>
       <tr>
-      <td><b><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.20/#objectmeta-v1-meta">metadata</a></b></td>
+      <td><b><a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.27/#objectmeta-v1-meta">metadata</a></b></td>
       <td>object</td>
       <td>Refer to the Kubernetes API documentation for the fields of the `metadata` field.</td>
       <td>true</td>
@@ -61,6 +59,8 @@ Auto-generated derived type for ProxyKubeApiSpec via `CustomResource`
         <td>object</td>
         <td>
           <br/>
+          <br/>
+            <i>Validations</i>:<li>!has(self.dashboard_group) || self.dashboard_group != '': dashboard_group must not be empty when it is set</li><li>!has(self.proxy_group) || self.proxy_group != '': proxy_group must not be empty when it is set</li>
         </td>
         <td>true</td>
       </tr><tr>
@@ -109,6 +109,16 @@ Auto-generated derived type for ProxyKubeApiSpec via `CustomResource`
         <td>object</td>
         <td>
           Main configuration for authentication<br/>
+          <br/>
+            <i>Validations</i>:<li>self.validate_against != 'OidcProvider' || self.oidc_provider.enabled: validate_against is set to OidcProvider but the OIDC provider is not enabled</li>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecclient_cert">client_cert</a></b></td>
+        <td>object</td>
+        <td>
+          Client certificate presented to the Kubernetes API for mutual TLS
+Leave unset when the cluster does not require client certificates<br/>
         </td>
         <td>false</td>
       </tr><tr>
@@ -145,7 +155,8 @@ Default: false<br/>
         <td>
           The oidc group required to proxy requests to this cluster
 Set it to decouple proxy access from dashboard access
-Default: the dashboard group when expose_via_dashboard is true, otherwise no group is required<br/>
+Default: the dashboard group when expose_via_dashboard is true,
+otherwise no group is required<br/>
         </td>
         <td>false</td>
       </tr><tr>
@@ -164,43 +175,6 @@ A virtual API is an API the cluster does not serve, that the proxy
 synthesises by translating requests and responses<br/>
           <br/>
             <i>Default</i>: []<br/>
-        </td>
-        <td>false</td>
-      </tr></tbody>
-</table>
-
-
-### ProxyKubeApi.spec.virtual_apis[index]
-<sup><sup>[↩ Parent](#proxykubeapispec)</sup></sup>
-
-
-
-<table>
-    <thead>
-        <tr>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Description</th>
-            <th>Required</th>
-        </tr>
-    </thead>
-    <tbody><tr>
-        <td><b>kind</b></td>
-        <td>enum</td>
-        <td>
-          Which virtual API to expose<br/>
-          <br/>
-            <i>Enum</i>: OpenShiftProject<br/>
-        </td>
-        <td>true</td>
-      </tr><tr>
-        <td><b>enabled</b></td>
-        <td>boolean</td>
-        <td>
-          Enable or disable this virtual API
-Default: true<br/>
-          <br/>
-            <i>Default</i>: true<br/>
         </td>
         <td>false</td>
       </tr></tbody>
@@ -470,7 +444,10 @@ Main configuration for authentication
         <td><b><a href="#proxykubeapispecauth_configoidc_provider">oidc_provider</a></b></td>
         <td>object</td>
         <td>
+          An enabled provider that cannot be contacted is a cluster that never
+authenticates anyone, so the apiserver refuses the CR outright.<br/>
           <br/>
+            <i>Validations</i>:<li>!self.enabled || (self.issuer_url != '' && self.client_id != ''): an enabled OIDC provider requires a non-empty issuer_url and client_id</li>
         </td>
         <td>true</td>
       </tr><tr>
@@ -513,7 +490,8 @@ Default : OidcProvider if enabled, otherwise JwtAuthenticators if configured, ot
 
 
 
-
+An enabled provider that cannot be contacted is a cluster that never
+authenticates anyone, so the apiserver refuses the CR outright.
 
 <table>
     <thead>
@@ -538,6 +516,35 @@ Default : OidcProvider if enabled, otherwise JwtAuthenticators if configured, ot
           <br/>
         </td>
         <td>true</td>
+      </tr><tr>
+        <td><b>accept_authorized_party</b></td>
+        <td>boolean</td>
+        <td>
+          Accept a token whose `aud` does not name this service but whose
+`azp`/`client_id` does.
+
+Off by default: `azp`/`client_id` identify the client the token was issued
+to, not the resource, so accepting them weakens audience validation.
+Enable only for providers (e.g. Keycloak) that mint self-audience tokens
+carrying the client only in `azp`.<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>audience</b></td>
+        <td>string</td>
+        <td>
+          Audience the access token must carry (its `aud` claim) to be accepted.
+
+When empty, `client_id` is used — correct for providers that put the
+client id in `aud`. Set it explicitly when the provider mints tokens for a
+distinct resource audience, so `client_id` (who the token is for) and the
+expected audience (what the token is for) are configured independently.<br/>
+          <br/>
+            <i>Default</i>: <br/>
+        </td>
+        <td>false</td>
       </tr><tr>
         <td><b>client_secret</b></td>
         <td>string</td>
@@ -961,6 +968,301 @@ Default : OidcProvider if enabled, otherwise JwtAuthenticators if configured, ot
 </table>
 
 
+### ProxyKubeApi.spec.client_cert
+<sup><sup>[↩ Parent](#proxykubeapispec)</sup></sup>
+
+
+
+Client certificate presented to the Kubernetes API for mutual TLS
+Leave unset when the cluster does not require client certificates
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispecclient_certcert">cert</a></b></td>
+        <td>object</td>
+        <td>
+          PEM client certificate chain<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecclient_certkey">key</a></b></td>
+        <td>object</td>
+        <td>
+          PEM private key matching the certificate<br/>
+        </td>
+        <td>true</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.client_cert.cert
+<sup><sup>[↩ Parent](#proxykubeapispecclient_cert)</sup></sup>
+
+
+
+PEM client certificate chain
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>Cert</b></td>
+        <td>string</td>
+        <td>
+          Base64 encoded cert<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecclient_certcertconfigmap">ConfigMap</a></b></td>
+        <td>object</td>
+        <td>
+          Configmap<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>Insecure</b></td>
+        <td>boolean</td>
+        <td>
+          Insecure, do not use TLS<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecclient_certcertsecret">Secret</a></b></td>
+        <td>object</td>
+        <td>
+          Use a cert from a secret<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.client_cert.cert.ConfigMap
+<sup><sup>[↩ Parent](#proxykubeapispecclient_certcert)</sup></sup>
+
+
+
+Configmap
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>key</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>name</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>namespace</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.client_cert.cert.Secret
+<sup><sup>[↩ Parent](#proxykubeapispecclient_certcert)</sup></sup>
+
+
+
+Use a cert from a secret
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>key</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>name</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>namespace</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.client_cert.key
+<sup><sup>[↩ Parent](#proxykubeapispecclient_cert)</sup></sup>
+
+
+
+PEM private key matching the certificate
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>Cert</b></td>
+        <td>string</td>
+        <td>
+          Base64 encoded cert<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecclient_certkeyconfigmap">ConfigMap</a></b></td>
+        <td>object</td>
+        <td>
+          Configmap<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>Insecure</b></td>
+        <td>boolean</td>
+        <td>
+          Insecure, do not use TLS<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecclient_certkeysecret">Secret</a></b></td>
+        <td>object</td>
+        <td>
+          Use a cert from a secret<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.client_cert.key.ConfigMap
+<sup><sup>[↩ Parent](#proxykubeapispecclient_certkey)</sup></sup>
+
+
+
+Configmap
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>key</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>name</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>namespace</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.client_cert.key.Secret
+<sup><sup>[↩ Parent](#proxykubeapispecclient_certkey)</sup></sup>
+
+
+
+Use a cert from a secret
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>key</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>name</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>namespace</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
 ### ProxyKubeApi.spec.security_config
 <sup><sup>[↩ Parent](#proxykubeapispec)</sup></sup>
 
@@ -978,10 +1280,13 @@ Security configuration
         </tr>
     </thead>
     <tbody><tr>
-        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindex">allowed_resources</a></b></td>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_resourcesindex">allowed_resources</a></b></td>
         <td>[]object</td>
         <td>
-          Allowed resources, limit the access to the proxy to only these resources, if empty all resources are allowed<br/>
+          Allowed resources, limit the access to the proxy to only these resources, if empty all resources are allowed
+
+The bound keeps the estimated cost of the per-item CEL rules within the
+budget the apiserver allows for a whole CRD schema.<br/>
           <br/>
             <i>Default</i>: []<br/>
         </td>
@@ -990,7 +1295,12 @@ Security configuration
         <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindex">allowed_ressources</a></b></td>
         <td>[]object</td>
         <td>
-          Deprecated misspelling of allowed_resources, merged with it<br/>
+          Deprecated misspelling of allowed_resources, merged with it
+
+Kept as a real field rather than a serde alias on purpose: the apiserver
+prunes fields absent from the schema, so an alias alone would silently
+drop the security configuration of every existing resource. Remove it in
+the next major, once resources have been migrated.<br/>
           <br/>
             <i>Default</i>: []<br/>
         </td>
@@ -1004,16 +1314,48 @@ Security configuration
             <i>Default</i>: true<br/>
         </td>
         <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configfail2login_equal_ban">fail2login_equal_ban</a></b></td>
+        <td>object</td>
+        <td>
+          Configuration for banning callers after multiple failed authentications<br/>
+          <br/>
+            <i>Default</i>: map[ban_duration:300 enabled:false exponential_backoff:false max_failed_logins:5]<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configper_user_group_rate_limitingindex">per_user_group_rate_limiting</a></b></td>
+        <td>[]object</td>
+        <td>
+          Per group rate limiting configuration
+This takes precedence over the global rate limiting configuration<br/>
+          <br/>
+            <i>Default</i>: []<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configrate_limiting">rate_limiting</a></b></td>
+        <td>object</td>
+        <td>
+          Global rate limiting configuration<br/>
+          <br/>
+            <i>Default</i>: map[enabled:false max_requests_per_minute:60]<br/>
+        </td>
+        <td>false</td>
       </tr></tbody>
 </table>
 
 
-### ProxyKubeApi.spec.security_config.allowed_ressources[index]
+### ProxyKubeApi.spec.security_config.allowed_resources[index]
 <sup><sup>[↩ Parent](#proxykubeapispecsecurity_config)</sup></sup>
 
 
 
-Enum of the allowed paths configuration, currently only supports path and crd, but can be extended in the future
+How an allowed resource is described.
+
+- `Path` matches on the raw upstream path (with `*`/`**`/`{{...}}` semantics);
+- `Crd` matches on group/version/kind and applies the per-namespace access
+  rules, translating to a path via [`super::AllowedCrdConfiguration`].
 
 <table>
     <thead>
@@ -1025,22 +1367,201 @@ Enum of the allowed paths configuration, currently only supports path and crd, b
         </tr>
     </thead>
     <tbody><tr>
-        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindexpath">Path</a></b></td>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_resourcesindexcrd">Crd</a></b></td>
         <td>object</td>
         <td>
-          Allowed path configuration, used in conjunction with the allowed_paths configuration<br/>
+          Allowed crd configuration, used in conjunction with the allowed_paths configuration
+/apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_resourcesindexpath">Path</a></b></td>
+        <td>object</td>
+        <td>
+          Allowed path configuration, used in conjunction with the allowed_paths configuration
+
+The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
+rule is refused at admission rather than at reconcile time.
+
+The placeholder regex matches braces through character classes (`[{]`)
+rather than backslash escapes, for two independent reasons: CEL string
+literals reject `\{` outright, and the CRD is also shipped as a Helm
+template where two consecutive `{` would be read as a Go template action.<br/>
+          <br/>
+            <i>Validations</i>:<li>self.path.startsWith('/'): path must start with '/'</li><li>!self.parametised || self.path.matches('^[^\{\}]*(([\{][\{](username|group)[\}][\}])[^\{\}]*)*$'): a parametised path only accepts the username and group placeholders</li>
         </td>
         <td>false</td>
       </tr></tbody>
 </table>
 
 
-### ProxyKubeApi.spec.security_config.allowed_ressources[index].Path
-<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_ressourcesindex)</sup></sup>
+### ProxyKubeApi.spec.security_config.allowed_resources[index].Crd
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_resourcesindex)</sup></sup>
+
+
+
+Allowed crd configuration, used in conjunction with the allowed_paths configuration
+/apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>group</b></td>
+        <td>string</td>
+        <td>
+          The group of the crd<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>kind</b></td>
+        <td>string</td>
+        <td>
+          The kind of the crd<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_resourcesindexcrdnamespace">namespace</a></b></td>
+        <td>object</td>
+        <td>
+          Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>version</b></td>
+        <td>string</td>
+        <td>
+          The version of the crd<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>namespaced</b></td>
+        <td>boolean</td>
+        <td>
+          Namespaced or not
+default: true<br/>
+          <br/>
+            <i>Default</i>: true<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>plural</b></td>
+        <td>string</td>
+        <td>
+          Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind
+for example, if the kind is "MyResource" and the plural form is "MyResources"
+the path will be /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresources/
+instead of       /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresource/
+In case of cluster-scoped crd
+the path will be /apis/\{group\}/\{version\}/myresources/
+instead of       /apis/\{group\}/\{version\}/myresource/<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.allowed_resources[index].Crd.namespace
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_resourcesindexcrd)</sup></sup>
+
+
+
+Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_resourcesindexcrdnamespacerule_kind">rule_kind</a></b></td>
+        <td>object</td>
+        <td>
+          The kind of the namespace access rule<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>enabled</b></td>
+        <td>boolean</td>
+        <td>
+          If the feature is enabled
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.allowed_resources[index].Crd.namespace.rule_kind
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_resourcesindexcrdnamespace)</sup></sup>
+
+
+
+The kind of the namespace access rule
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>AllowedNamespaces</b></td>
+        <td>[]string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>DeniedNamespaces</b></td>
+        <td>[]string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>ParametisedRule</b></td>
+        <td>string</td>
+        <td>
+          The parametised rule is a string that can contain the \{\{username\}\} parameter
+which will be replaced by the username of the user making the request, and the \{\{group\}\} parameter
+which will be replaced by the groups of the user making the request
+allowed parameters are : \{\{username\}\} and \{\{group\}\}<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.allowed_resources[index].Path
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_resourcesindex)</sup></sup>
 
 
 
 Allowed path configuration, used in conjunction with the allowed_paths configuration
+
+The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
+rule is refused at admission rather than at reconcile time.
+
+The placeholder regex matches braces through character classes (`[{]`)
+rather than backslash escapes, for two independent reasons: CEL string
+literals reject `\{` outright, and the CRD is also shipped as a Helm
+template where two consecutive `{` would be read as a Go template action.
 
 <table>
     <thead>
@@ -1055,7 +1576,10 @@ Allowed path configuration, used in conjunction with the allowed_paths configura
         <td><b>path</b></td>
         <td>string</td>
         <td>
-          The path to allow, if the request path equals this path, it will be allowed<br/>
+          The path to allow, if the request path equals this path, it will be allowed
+
+The length bound is not cosmetic: without it the apiserver assumes an
+unbounded string and refuses the CEL rule above as too expensive.<br/>
         </td>
         <td>true</td>
       </tr><tr>
@@ -1071,9 +1595,462 @@ it will allow all requests to pods in namespaces carrying the username as a para
 if the selected field is an array, like the groups claim, it will try to match any of the values in the array
 for example, if the groups claim is ["dev-alice", "dev-bob"] and the path is "/api/v1/namespaces/\{\{group\}\}/pods", it will allow all requests to pods in namespaces that match either "dev-alice" or "dev-bob"
 Allowed parameters are : \{\{username\}\} and \{\{group\}\}
+A `*` only matches inside a single path segment; use a `**` segment to
+match any number of remaining segments (needed for subresources such as
+"/api/v1/namespaces/dev/pods/mypod/log")
 default: false<br/>
           <br/>
             <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.allowed_ressources[index]
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_config)</sup></sup>
+
+
+
+How an allowed resource is described.
+
+- `Path` matches on the raw upstream path (with `*`/`**`/`{{...}}` semantics);
+- `Crd` matches on group/version/kind and applies the per-namespace access
+  rules, translating to a path via [`super::AllowedCrdConfiguration`].
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindexcrd">Crd</a></b></td>
+        <td>object</td>
+        <td>
+          Allowed crd configuration, used in conjunction with the allowed_paths configuration
+/apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindexpath">Path</a></b></td>
+        <td>object</td>
+        <td>
+          Allowed path configuration, used in conjunction with the allowed_paths configuration
+
+The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
+rule is refused at admission rather than at reconcile time.
+
+The placeholder regex matches braces through character classes (`[{]`)
+rather than backslash escapes, for two independent reasons: CEL string
+literals reject `\{` outright, and the CRD is also shipped as a Helm
+template where two consecutive `{` would be read as a Go template action.<br/>
+          <br/>
+            <i>Validations</i>:<li>self.path.startsWith('/'): path must start with '/'</li><li>!self.parametised || self.path.matches('^[^\{\}]*(([\{][\{](username|group)[\}][\}])[^\{\}]*)*$'): a parametised path only accepts the username and group placeholders</li>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.allowed_ressources[index].Crd
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_ressourcesindex)</sup></sup>
+
+
+
+Allowed crd configuration, used in conjunction with the allowed_paths configuration
+/apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>group</b></td>
+        <td>string</td>
+        <td>
+          The group of the crd<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>kind</b></td>
+        <td>string</td>
+        <td>
+          The kind of the crd<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindexcrdnamespace">namespace</a></b></td>
+        <td>object</td>
+        <td>
+          Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>version</b></td>
+        <td>string</td>
+        <td>
+          The version of the crd<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>namespaced</b></td>
+        <td>boolean</td>
+        <td>
+          Namespaced or not
+default: true<br/>
+          <br/>
+            <i>Default</i>: true<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>plural</b></td>
+        <td>string</td>
+        <td>
+          Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind
+for example, if the kind is "MyResource" and the plural form is "MyResources"
+the path will be /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresources/
+instead of       /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresource/
+In case of cluster-scoped crd
+the path will be /apis/\{group\}/\{version\}/myresources/
+instead of       /apis/\{group\}/\{version\}/myresource/<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.allowed_ressources[index].Crd.namespace
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_ressourcesindexcrd)</sup></sup>
+
+
+
+Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindexcrdnamespacerule_kind">rule_kind</a></b></td>
+        <td>object</td>
+        <td>
+          The kind of the namespace access rule<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>enabled</b></td>
+        <td>boolean</td>
+        <td>
+          If the feature is enabled
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.allowed_ressources[index].Crd.namespace.rule_kind
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_ressourcesindexcrdnamespace)</sup></sup>
+
+
+
+The kind of the namespace access rule
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>AllowedNamespaces</b></td>
+        <td>[]string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>DeniedNamespaces</b></td>
+        <td>[]string</td>
+        <td>
+          <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>ParametisedRule</b></td>
+        <td>string</td>
+        <td>
+          The parametised rule is a string that can contain the \{\{username\}\} parameter
+which will be replaced by the username of the user making the request, and the \{\{group\}\} parameter
+which will be replaced by the groups of the user making the request
+allowed parameters are : \{\{username\}\} and \{\{group\}\}<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.allowed_ressources[index].Path
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_ressourcesindex)</sup></sup>
+
+
+
+Allowed path configuration, used in conjunction with the allowed_paths configuration
+
+The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
+rule is refused at admission rather than at reconcile time.
+
+The placeholder regex matches braces through character classes (`[{]`)
+rather than backslash escapes, for two independent reasons: CEL string
+literals reject `\{` outright, and the CRD is also shipped as a Helm
+template where two consecutive `{` would be read as a Go template action.
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>path</b></td>
+        <td>string</td>
+        <td>
+          The path to allow, if the request path equals this path, it will be allowed
+
+The length bound is not cosmetic: without it the apiserver assumes an
+unbounded string and refuses the CEL rule above as too expensive.<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>parametised</b></td>
+        <td>boolean</td>
+        <td>
+          Wether or not the path is parametised
+if true, the path will be treated as a template, it either handle wildcard parameters, like "*" or "dev-*", or mustache-like parameters, like "\{\{username\}\}" or "\{\{group\}\}"
+for example, if the path is "/api/v1/namespaces/*/pods", it will allow all requests to pods in any namespace
+if the path is "/api/v1/namespaces/dev-*/pods", it will allow all requests to pods in namespaces that start with "dev-"
+It will also try to detect mustache-like parameters, for example, if the path is "/api/v1/namespaces/\{\{username\}\}/pods"
+it will allow all requests to pods in namespaces carrying the username as a parameter
+if the selected field is an array, like the groups claim, it will try to match any of the values in the array
+for example, if the groups claim is ["dev-alice", "dev-bob"] and the path is "/api/v1/namespaces/\{\{group\}\}/pods", it will allow all requests to pods in namespaces that match either "dev-alice" or "dev-bob"
+Allowed parameters are : \{\{username\}\} and \{\{group\}\}
+A `*` only matches inside a single path segment; use a `**` segment to
+match any number of remaining segments (needed for subresources such as
+"/api/v1/namespaces/dev/pods/mypod/log")
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.fail2login_equal_ban
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_config)</sup></sup>
+
+
+
+Configuration for banning callers after multiple failed authentications
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>ban_duration</b></td>
+        <td>integer</td>
+        <td>
+          The duration of the ban in seconds
+default: 300 (5 minutes)
+0 means permanent ban<br/>
+          <br/>
+            <i>Format</i>: uint32<br/>
+            <i>Default</i>: 300<br/>
+            <i>Minimum</i>: 0<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>enabled</b></td>
+        <td>boolean</td>
+        <td>
+          If the feature is enabled
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>exponential_backoff</b></td>
+        <td>boolean</td>
+        <td>
+          If the time is exponentially increased with each failed login attempt
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>max_failed_logins</b></td>
+        <td>integer</td>
+        <td>
+          The number of failed login attempts before the user is banned
+default: 5<br/>
+          <br/>
+            <i>Format</i>: uint32<br/>
+            <i>Default</i>: 5<br/>
+            <i>Minimum</i>: 0<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.per_user_group_rate_limiting[index]
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_config)</sup></sup>
+
+
+
+Per-user group rate limiting configuration
+
+Groups come from the user resolved by the configured authentication, so no
+claim mapping is needed here.
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>group</b></td>
+        <td>string</td>
+        <td>
+          Group name<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>max_requests_per_minute</b></td>
+        <td>integer</td>
+        <td>
+          The maximum number of requests per minute for this group
+This setting overrides the global rate limiting setting
+0 disables the rate limiting for this group<br/>
+          <br/>
+            <i>Format</i>: uint32<br/>
+            <i>Minimum</i>: 0<br/>
+        </td>
+        <td>true</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.rate_limiting
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_config)</sup></sup>
+
+
+
+Global rate limiting configuration
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>enabled</b></td>
+        <td>boolean</td>
+        <td>
+          If the feature is enabled
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>max_requests_per_minute</b></td>
+        <td>integer</td>
+        <td>
+          The maximum number of requests per minute
+default: 60
+0 disables the rate global rate limiting<br/>
+          <br/>
+            <i>Format</i>: uint32<br/>
+            <i>Default</i>: 60<br/>
+            <i>Minimum</i>: 0<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.virtual_apis[index]
+<sup><sup>[↩ Parent](#proxykubeapispec)</sup></sup>
+
+
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>kind</b></td>
+        <td>enum</td>
+        <td>
+          Which virtual API to expose<br/>
+          <br/>
+            <i>Enum</i>: OpenShiftProject<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>enabled</b></td>
+        <td>boolean</td>
+        <td>
+          Enable or disable this virtual API
+Default: true<br/>
+          <br/>
+            <i>Default</i>: true<br/>
         </td>
         <td>false</td>
       </tr></tbody>

@@ -13,6 +13,7 @@ fn oidc_conf(issuer_url: &str) -> OidcConf {
         issuer_url: issuer_url.to_string(),
         scopes: "openid email profile groups".to_string(),
         audience: "proxyauthk8s".to_string(),
+        accept_authorized_party: false,
         redirect_url: None,
     }
 }

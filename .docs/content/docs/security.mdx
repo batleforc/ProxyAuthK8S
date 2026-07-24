@@ -42,6 +42,16 @@ qu'un compteur ancien ne produise pas un bannissement quasi permanent par accide
 <Callout type="info">
 Les compteurs vivent dans Redis, pas en mémoire : sinon un client multiplierait son budget par
 le nombre de réplicas, et un bannissement ne s'appliquerait qu'au pod qui a vu les échecs.
+L'incrément et son TTL sont posés de façon **atomique** (script Lua `INCR`+`EXPIRE`), pour qu'une
+panne transitoire ne laisse jamais un compteur sans expiration (qui verrouillerait le sujet
+indéfiniment).
+</Callout>
+
+<Callout type="warn">
+Si Redis est indisponible, bans et quotas **laissent passer** par défaut (une panne Redis ne doit
+pas devenir une panne totale). Positionnez `THROTTLE_FAIL_CLOSED=true` pour au contraire refuser la
+requête (`429`) tant que Redis est injoignable, sur les déploiements qui préfèrent perdre en
+disponibilité plutôt qu'en protection anti-brute-force.
 </Callout>
 
 ## 2. Authentification
@@ -58,12 +68,15 @@ alors sans savoir qui appelle.
 
 `userinfo` prouve que le jeton est valide pour l'issuer, **mais pas** qu'il a été émis pour ce
 service : sans contrôle, n'importe quel access-token d'une autre application du même IdP serait
-accepté. Après `userinfo`, le proxy vérifie donc que l'audience du jeton contient l'audience
-configurée (`OIDC_AUDIENCE`) :
+accepté. Après `userinfo`, le proxy vérifie donc que l'audience du jeton correspond à l'audience
+attendue :
 
 1. par **introspection RFC 7662** si le provider expose un endpoint ;
-2. sinon en lisant les claims `aud`/`azp`/`client_id` du JWT (sûr ici, puisque `userinfo` a déjà
-   validé la signature).
+2. sinon en lisant le claim `aud` du JWT (sûr ici, puisque `userinfo` a déjà validé la signature).
+
+Seul le claim **`aud`** est comparé. `azp`/`client_id` désignent le *client* auquel le jeton a été
+délivré, pas la *ressource* visée ; les accepter rouvrirait le trou de confusion d'audience (un
+jeton `aud=["autre-api"], azp=<ce service>` passerait).
 
 | Valeur de `OIDC_AUDIENCE_VALIDATION` | Effet                                                        |
 | ------------------------------------ | ------------------------------------------------------------ |
@@ -71,10 +84,33 @@ configurée (`OIDC_AUDIENCE`) :
 | `warn`                               | journalise mais laisse passer (observer avant d'appliquer)   |
 | `off`                                | désactive la vérification                                    |
 
+L'audience attendue et l'acceptation de `azp` se configurent **par cluster**, sur le provider OIDC
+du `ProxyKubeApi` :
+
+```yaml
+auth_config:
+  oidc_provider:
+    enabled: true
+    issuer_url: https://idp.example.com
+    client_id: proxy-auth-k8s
+    # audience attendue dans `aud`. Vide => on retombe sur `client_id`.
+    audience: proxy-auth-k8s
+    # accepte un jeton dont `aud` ne nomme pas ce service mais dont `azp`/`client_id` le fait.
+    # À n'activer que pour les IdP (ex. Keycloak) émettant des jetons « self-audience ».
+    accept_authorized_party: false
+```
+
 <Callout type="warn">
 Un jeton **opaque** (non-JWT) ne peut être validé que par introspection : si le provider n'en
 expose pas et que le mode est `enforce`, la requête est refusée. Configurez l'introspection ou
 passez temporairement en `warn` le temps de la migration.
+</Callout>
+
+<Callout type="warn">
+`client_id` (à qui le jeton est destiné) et `audience` (pour quelle ressource) sont désormais des
+champs distincts. Si votre IdP place le client dans `aud`, laissez `audience` vide. S'il émet des
+jetons « self-audience » sans `aud` nommant ce service, activez `accept_authorized_party: true`
+plutôt que d'affaiblir le mode global.
 </Callout>
 
 ## 3. Autorisation par cluster
@@ -226,6 +262,14 @@ Sans ce retrait, n'importe quel client pourrait envoyer `x-forwarded-user: clust
 usurper une identité auprès de tout ce qui se trouve derrière le proxy.
 </Callout>
 
+Sont également **retirés de la requête cliente** (sur le chemin standard comme *upgrade*) tous les
+en-têtes d'identité que l'apiserver interprète directement : `Impersonate-*` (impersonation native
+Kubernetes) et `X-Remote-*` (noms conventionnels de l'authentification *requestheader*). Sans quoi,
+si l'apiserver est câblé sur ces noms, un client pourrait envoyer `X-Remote-User: system:admin` ou
+`Impersonate-User: …` et usurper une identité à travers le certificat front-proxy de confiance. Le
+header `Authorization` du client, lui, **reste transmis** : c'est le seul credential amont en mode
+`validate_against: Kubernetes` sans mTLS.
+
 ## Journal d'audit
 
 Chaque requête proxifiée émet un évènement `tracing` sur la cible `audit`, qui traverse le
@@ -266,9 +310,29 @@ Le certificat client est présenté à l'apiserver sur le chemin standard comme 
 connexions *upgrade* (`exec`, `attach`, `port-forward`).
 
 Un `Secret`/`ConfigMap` de certificat peut cibler un `namespace` explicite. Par défaut c'est
-autorisé (le controller lit avec son ServiceAccount). Si des tenants créent leurs propres
-`ProxyKubeApi`, positionnez `PROXYAUTH_ALLOW_CROSS_NS_CERT=false` pour épingler chaque lecture
-au namespace du CR et éviter d'en faire un oracle de lecture cross-namespace.
+**refusé** (sécurisé par défaut) : la lecture utilise le ServiceAccount cluster-wide du controller
+et les octets résolus finissent dans le `certificate_authority_data` du kubeconfig rendu, donc
+autoriser un `namespace` arbitraire ferait d'un tenant capable de créer un `ProxyKubeApi` un oracle
+de lecture de Secret cross-namespace. Chaque lecture est donc épinglée au namespace du CR. Sur un
+cluster mono-tenant où tous les auteurs de CR sont déjà de confiance, positionnez
+`PROXYAUTH_ALLOW_CROSS_NS_CERT=true` pour réautoriser le champ `namespace`.
+
+## Cible upstream (SSRF)
+
+La cible d'un cluster est définie par un **administrateur** dans le `ProxyKubeApi` (`Service`), pas
+par le client. Un `KubernetesService` résout une Service Kubernetes réelle ; un `ExternalService`
+prend une URL telle quelle (préférez `https` : en mode `validate_against: Kubernetes` le `Bearer`
+du client est transmis à cette URL, donc `http` l'exposerait en clair). Deux garde-fous limitent
+un détournement :
+
+- le client HTTP amont **ne suit aucune redirection** — un apiserver ne redirige pas les appels
+  API proxifiés, et suivre un `30x` laisserait une cible autorisée renvoyer la requête (et le jeton)
+  vers un hôte non prévu (ex. l'endpoint metadata) ;
+- la NetworkPolicy du chart exclut par défaut `169.254.0.0/16` (endpoint metadata cloud) et
+  `100.64.0.0/10` de l'egress externe.
+
+Comme la cible est administrée via CRD, restreignez qui peut créer/éditer des `ProxyKubeApi`
+(RBAC) sur un cluster multi-tenant.
 
 ## Variables d'environnement de sécurité
 
@@ -276,7 +340,15 @@ au namespace du CR et éviter d'en faire un oracle de lecture cross-namespace.
 | ------------------------------ | --------- | ----------------------------------------------------------------- |
 | `TRUSTED_PROXY_COUNT`          | `0`       | Nombre de proxies de confiance ; identité de ban/quota lue ce nombre de sauts en arrière dans `X-Forwarded-For` |
 | `OIDC_AUDIENCE_VALIDATION`     | `enforce` | `enforce` / `warn` / `off` — contrôle d'audience des access-tokens |
-| `PROXYAUTH_ALLOW_CROSS_NS_CERT`| `true`    | `false` épingle les lectures de cert au namespace du `ProxyKubeApi` |
+| `PROXYAUTH_ALLOW_CROSS_NS_CERT`| `false`   | `true` réautorise un `namespace` de cert autre que celui du `ProxyKubeApi` (mono-tenant seulement) |
+| `THROTTLE_FAIL_CLOSED`         | `false`   | `true` refuse la requête quand Redis est indisponible (au lieu de laisser passer) — préserve bans/quotas au prix de la disponibilité |
+| `CORS_ALLOWED_ORIGINS`         | *(vide)*  | Liste d'origines autorisées (séparées par des virgules) ; vide = toutes origines. L'API étant authentifiée par `Bearer`, un navigateur n'attache pas de credentials automatiquement, mais restreindre limite qui peut piloter l'API depuis un navigateur |
+
+<Callout type="info">
+L'audience OIDC (`audience`) et l'acceptation de `azp` (`accept_authorized_party`) ne sont **pas**
+des variables d'environnement mais des champs par-cluster du `ProxyKubeApi` (voir
+[Validation d'audience](#validation-daudience-oidc)).
+</Callout>
 
 ## Limites de mémoire
 

@@ -8,6 +8,15 @@ use std::time::Instant;
 
 use crate::model::user::User;
 
+/// Strip CR/LF/NUL so a value carried from the OIDC provider (username, groups)
+/// or the request path cannot forge extra lines under a plain-text log sink.
+fn sanitize_audit_field(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| !matches!(c, '\r' | '\n' | '\0'))
+        .collect()
+}
+
 /// Everything known about a proxied request before it is answered.
 #[derive(Debug, Clone)]
 pub struct AuditContext {
@@ -50,12 +59,12 @@ impl AuditContext {
     pub fn emit(&self, status: u16) {
         tracing::info!(
             target: "audit",
-            user = %self.user.as_deref().unwrap_or("-"),
-            groups = %self.groups.join(","),
+            user = %sanitize_audit_field(self.user.as_deref().unwrap_or("-")),
+            groups = %sanitize_audit_field(&self.groups.join(",")),
             ns = %self.ns,
             cluster = %self.cluster,
             verb = %self.verb,
-            path = %self.path,
+            path = %sanitize_audit_field(&self.path),
             response_status = status,
             latency_ms = self.latency_ms(),
             "proxied request"

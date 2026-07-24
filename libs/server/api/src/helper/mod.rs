@@ -54,23 +54,80 @@ pub fn extract_ns_cluster(req: &HttpRequest) -> Option<(String, String)> {
 }
 
 pub fn extract_authorization_header(req: &HttpRequest) -> Result<&str, AuthError> {
-    let header = req.headers();
-    let token = match header.get("Authorization") {
-        Some(token) => match token.to_str() {
-            Ok(token) => {
-                if let Some(end) = token.strip_prefix("Bearer ") {
-                    end
-                } else {
-                    return Err(AuthError::InvalidToken);
-                }
-            }
-            Err(err) => {
-                return Err(AuthError::InvalidTokenDetail(err.to_string()));
-            }
-        },
-        None => {
-            return Err(AuthError::NoToken);
-        }
+    let raw = match req.headers().get("Authorization") {
+        // A non-ASCII header value is simply "invalid token"; do not echo the
+        // raw bytes back to the caller.
+        Some(value) => value.to_str().map_err(|_| AuthError::InvalidToken)?,
+        None => return Err(AuthError::NoToken),
     };
+    // The scheme is case-insensitive (RFC 6750/7235); the token itself is not.
+    let token = match raw.split_once(' ') {
+        Some((scheme, rest)) if scheme.eq_ignore_ascii_case("Bearer") => rest,
+        _ => return Err(AuthError::InvalidToken),
+    };
+    if token.trim().is_empty() {
+        return Err(AuthError::InvalidToken);
+    }
     Ok(token)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::test::TestRequest;
+
+    fn with_auth(value: &str) -> actix_web::HttpRequest {
+        TestRequest::default()
+            .insert_header(("Authorization", value))
+            .to_http_request()
+    }
+
+    #[test]
+    fn extracts_a_bearer_token() {
+        assert_eq!(
+            extract_authorization_header(&with_auth("Bearer abc123")).unwrap(),
+            "abc123"
+        );
+    }
+
+    #[test]
+    fn scheme_is_case_insensitive() {
+        assert_eq!(
+            extract_authorization_header(&with_auth("bearer abc")).unwrap(),
+            "abc"
+        );
+        assert_eq!(
+            extract_authorization_header(&with_auth("BEARER abc")).unwrap(),
+            "abc"
+        );
+    }
+
+    #[test]
+    fn empty_token_is_rejected() {
+        assert!(matches!(
+            extract_authorization_header(&with_auth("Bearer ")),
+            Err(AuthError::InvalidToken)
+        ));
+        assert!(matches!(
+            extract_authorization_header(&with_auth("Bearer    ")),
+            Err(AuthError::InvalidToken)
+        ));
+    }
+
+    #[test]
+    fn a_non_bearer_scheme_is_rejected() {
+        assert!(matches!(
+            extract_authorization_header(&with_auth("Basic abc")),
+            Err(AuthError::InvalidToken)
+        ));
+    }
+
+    #[test]
+    fn a_missing_header_is_no_token() {
+        let req = TestRequest::default().to_http_request();
+        assert!(matches!(
+            extract_authorization_header(&req),
+            Err(AuthError::NoToken)
+        ));
+    }
 }

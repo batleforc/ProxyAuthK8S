@@ -161,6 +161,27 @@ spec:
                       An enabled provider that cannot be contacted is a cluster that never
                       authenticates anyone, so the apiserver refuses the CR outright.
                     properties:
+                      accept_authorized_party:
+                        default: false
+                        description: |-
+                          Accept a token whose `aud` does not name this service but whose
+                          `azp`/`client_id` does.
+
+                          Off by default: `azp`/`client_id` identify the client the token was issued
+                          to, not the resource, so accepting them weakens audience validation.
+                          Enable only for providers (e.g. Keycloak) that mint self-audience tokens
+                          carrying the client only in `azp`.
+                        type: boolean
+                      audience:
+                        default: ''
+                        description: |-
+                          Audience the access token must carry (its `aud` claim) to be accepted.
+
+                          When empty, `client_id` is used — correct for providers that put the
+                          client id in `aud`. Set it explicitly when the provider mints tokens for a
+                          distinct resource audience, so `client_id` (who the token is for) and the
+                          expected audience (what the token is for) are configured independently.
+                        type: string
                       client_id:
                         type: string
                       client_secret:

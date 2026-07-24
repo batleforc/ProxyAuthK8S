@@ -14,6 +14,13 @@ use crate::model::user::User;
 
 const DEBUG_BODY_LOG_LIMIT: usize = 8 * 1024;
 
+/// Upper bound on the upstream request timeout the client may ask for via
+/// `?timeout=`. The value is client-controlled and feeds our own `reqwest`
+/// timeout, so an unbounded `timeout=100000h` would otherwise let a caller pin a
+/// proxy worker/connection open indefinitely. One hour comfortably covers a
+/// legitimate long-lived watch while capping abuse.
+const MAX_UPSTREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3600);
+
 /// Upper bound on the amount of memory a single request may buffer when debug
 /// logging is enabled. Beyond that the body is streamed through untouched and
 /// simply not logged, so an oversized payload can never balloon the worker.
@@ -176,7 +183,7 @@ pub(super) async fn standard_redirect(
         Err(err) => {
             error!(err, " couldn't build the upstream client");
             audit.emit(503);
-            return HttpResponse::ServiceUnavailable().body(err);
+            return HttpResponse::ServiceUnavailable().body("upstream unavailable");
         }
     };
 
@@ -208,7 +215,8 @@ pub(super) async fn standard_redirect(
     // value has to be parsed as such and not as a bare number of seconds.
     // One extra second of slack so the upstream timeout fires first.
     if let Some(timeout) = extract_timeout_from_query(req.query_string()) {
-        forwarded_req = forwarded_req.timeout(timeout + std::time::Duration::from_secs(1));
+        let capped = timeout.min(MAX_UPSTREAM_TIMEOUT);
+        forwarded_req = forwarded_req.timeout(capped + std::time::Duration::from_secs(1));
     }
 
     let res = match forwarded_req.send().await {
@@ -216,7 +224,7 @@ pub(super) async fn standard_redirect(
         Err(e) => {
             tracing::error!(error = %e, " error forwarding request to cluster");
             audit.emit(503);
-            return HttpResponse::ServiceUnavailable().body(e.to_string());
+            return HttpResponse::ServiceUnavailable().body("upstream unavailable");
         }
     };
 
@@ -302,7 +310,7 @@ pub(super) async fn standard_redirect(
             }
             Err(e) => {
                 error!(%e, "error reading response body for debug logging");
-                HttpResponse::ServiceUnavailable().body(e.to_string())
+                HttpResponse::ServiceUnavailable().body("upstream unavailable")
             }
         }
     } else {

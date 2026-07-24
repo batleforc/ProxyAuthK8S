@@ -53,6 +53,15 @@ impl AllowedCrdConfiguration {
     /// only allowed when no namespace restriction is in force, since a
     /// cluster-wide list would otherwise return namespaces the rule denies.
     pub fn matches(&self, path: &str, username: &str, groups: &[String]) -> bool {
+        // This matcher reads the namespace at a fixed position and ignores every
+        // segment past the resource. A `..` (or encoded-separator) segment would
+        // therefore let it authorize one namespace while the url-normalized
+        // upstream request resolves to another — e.g.
+        // `.../namespaces/dev/widgets/../../prod/widgets` is judged as `dev` but
+        // reaches `prod`. Apply the same traversal guard the `Path` matcher uses.
+        if !crate::security::path_matcher::path_has_no_traversal(path) {
+            return false;
+        }
         let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
         let mut idx = 0;
 
@@ -247,6 +256,30 @@ mod tests {
         let rule = widget(open_ns(), false);
         assert!(rule.matches("/apis/example.com/v1/widgets", "alice", &groups()));
         assert!(!rule.matches("/apis/example.com/v1/namespaces/dev/widgets", "alice", &groups()));
+    }
+
+    #[test]
+    fn traversal_segments_cannot_escape_the_namespace_confinement() {
+        // Confined to `dev`; a `..` climb that the url layer normalizes to `prod`
+        // must be denied, not silently ignored by the positional parser.
+        let rule = widget(
+            ns_rule(
+                true,
+                NamespacedAccessRuleKind::AllowedNamespaces(vec!["dev".to_string()]),
+            ),
+            true,
+        );
+        assert!(!rule.matches(
+            "/apis/example.com/v1/namespaces/dev/widgets/../../prod/widgets",
+            "alice",
+            &groups()
+        ));
+        // Encoded separators are refused too.
+        assert!(!rule.matches(
+            "/apis/example.com/v1/namespaces/dev/widgets/..%2f..%2fprod%2fwidgets",
+            "alice",
+            &groups()
+        ));
     }
 
     #[test]

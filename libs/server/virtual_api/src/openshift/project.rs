@@ -59,9 +59,13 @@ impl OpenShiftProjectMapper {
                     for item in items.iter_mut() {
                         // List items carry no kind of their own upstream; stamp
                         // the virtual one so clients reading items in isolation
-                        // still see a Project.
-                        item["kind"] = json!(PROJECT_KIND);
-                        item["apiVersion"] = json!(self.api_version());
+                        // still see a Project. Only touch well-formed object
+                        // items — index-assigning into a non-object `Value`
+                        // panics, and the upstream body is only semi-trusted.
+                        if let Some(obj) = item.as_object_mut() {
+                            obj.insert("kind".to_string(), json!(PROJECT_KIND));
+                            obj.insert("apiVersion".to_string(), json!(self.api_version()));
+                        }
                     }
                 }
                 body
@@ -75,19 +79,41 @@ impl OpenShiftProjectMapper {
     /// `displayName` and `description` are top-level fields on a ProjectRequest
     /// but annotations on a Namespace.
     fn project_request_to_namespace(&self, body: Value) -> Value {
+        // Only carry `metadata` over when it is actually an object; a client
+        // could otherwise send `"metadata": "x"` and turn the annotation writes
+        // below into a serde_json index-assignment panic.
+        let metadata = body
+            .get("metadata")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
         let mut namespace = json!({
             "kind": NAMESPACE_KIND,
             "apiVersion": CORE_API_VERSION,
-            "metadata": body.get("metadata").cloned().unwrap_or_else(|| json!({})),
+            "metadata": metadata,
         });
 
         let annotations = [
             (DISPLAY_NAME_ANNOTATION, body.get("displayName")),
             (DESCRIPTION_ANNOTATION, body.get("description")),
         ];
-        for (key, value) in annotations {
-            if let Some(value) = value.and_then(Value::as_str) {
-                namespace["metadata"]["annotations"][key] = json!(value);
+        // Build the annotations map defensively rather than index-assigning into
+        // a `Value` whose shape came from the client.
+        let to_set: Vec<(&str, &str)> = annotations
+            .into_iter()
+            .filter_map(|(key, value)| value.and_then(Value::as_str).map(|value| (key, value)))
+            .collect();
+        if !to_set.is_empty() {
+            if let Some(meta) = namespace.get_mut("metadata").and_then(Value::as_object_mut) {
+                if let Some(anns) = meta
+                    .entry("annotations")
+                    .or_insert_with(|| json!({}))
+                    .as_object_mut()
+                {
+                    for (key, value) in to_set {
+                        anns.insert(key.to_string(), json!(value));
+                    }
+                }
             }
         }
 
@@ -158,6 +184,25 @@ impl VirtualApiMapper for OpenShiftProjectMapper {
                 Some(route)
             }
             _ => None,
+        }
+    }
+
+    fn method_not_allowed(&self, route: &VirtualRoute) -> Option<String> {
+        // Verbs each resource actually supports, expressed as HTTP methods (see
+        // `api_resources`). Anything else must not be mapped onto a namespace
+        // operation: e.g. `DELETE projectrequests` would otherwise become a
+        // namespace deletecollection.
+        let allowed: &[&str] = match route.resource.as_str() {
+            // projectrequests: create (POST), list (GET).
+            PROJECT_REQUESTS_RESOURCE => &["GET", "POST"],
+            // projects: get/list/watch (GET), delete (DELETE).
+            PROJECTS_RESOURCE => &["GET", "DELETE"],
+            _ => return None,
+        };
+        if allowed.contains(&route.method.as_str()) {
+            None
+        } else {
+            Some(allowed.join(", "))
         }
     }
 
@@ -360,6 +405,68 @@ mod tests {
         assert_eq!(list["items"][0]["apiVersion"], "project.openshift.io/v1");
         assert_eq!(list["items"][0]["metadata"]["name"], "dev");
         assert_eq!(list["items"][1]["metadata"]["name"], "prod");
+    }
+
+    #[test]
+    fn unsupported_verbs_are_refused_not_mapped() {
+        let mapper = mapper();
+        // projectrequests supports create (POST) and list (GET) only.
+        assert_eq!(
+            mapper.method_not_allowed(&route("DELETE", "/apis/project.openshift.io/v1/projectrequests")),
+            Some("GET, POST".to_string())
+        );
+        assert_eq!(
+            mapper.method_not_allowed(&route("PUT", "/apis/project.openshift.io/v1/projectrequests")),
+            Some("GET, POST".to_string())
+        );
+        assert!(mapper
+            .method_not_allowed(&route("POST", "/apis/project.openshift.io/v1/projectrequests"))
+            .is_none());
+        // projects supports get/list/watch (GET) and delete (DELETE).
+        assert!(mapper
+            .method_not_allowed(&route("DELETE", "/apis/project.openshift.io/v1/projects/dev"))
+            .is_none());
+        assert_eq!(
+            mapper.method_not_allowed(&route("POST", "/apis/project.openshift.io/v1/projects")),
+            Some("GET, DELETE".to_string())
+        );
+    }
+
+    #[test]
+    fn a_malformed_project_request_body_does_not_panic() {
+        let route = route("POST", "/apis/project.openshift.io/v1/projectrequests");
+        // `metadata` is a string, not an object: the old index-assignment would
+        // panic here. It must degrade gracefully instead.
+        let ns = mapper().map_request_body(
+            &route,
+            json!({ "kind": "ProjectRequest", "metadata": "oops", "displayName": "x" }),
+        );
+        assert_eq!(ns["kind"], "Namespace");
+        // A non-object metadata is dropped rather than crashing the worker.
+        assert!(ns["metadata"].is_object());
+
+        // `metadata.annotations` is a string: must not panic, annotations skipped.
+        let ns = mapper().map_request_body(
+            &route,
+            json!({
+                "kind": "ProjectRequest",
+                "metadata": { "name": "dev", "annotations": "oops" },
+                "displayName": "x"
+            }),
+        );
+        assert_eq!(ns["metadata"]["name"], "dev");
+    }
+
+    #[test]
+    fn a_namespace_list_with_non_object_items_does_not_panic() {
+        let list = mapper().map_response(json!({
+            "kind": "NamespaceList",
+            "apiVersion": "v1",
+            "items": [ null, "x", { "metadata": { "name": "dev" } } ],
+        }));
+        assert_eq!(list["kind"], "ProjectList");
+        // The well-formed item is still stamped; the junk ones are left as-is.
+        assert_eq!(list["items"][2]["kind"], "Project");
     }
 
     #[test]

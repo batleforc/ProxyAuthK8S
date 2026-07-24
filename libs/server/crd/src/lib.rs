@@ -313,12 +313,21 @@ impl ProxyKubeApi {
         match &self.spec.auth_config {
             Some(auth_config) => {
                 if auth_config.oidc_provider.enabled {
+                    let provider = &auth_config.oidc_provider;
+                    // A distinct audience when configured, otherwise fall back to
+                    // the client id (providers that put the client in `aud`).
+                    let audience = if provider.audience.is_empty() {
+                        provider.client_id.clone()
+                    } else {
+                        provider.audience.clone()
+                    };
                     return Some(common::oidc_conf::OidcConf {
-                        client_id: auth_config.oidc_provider.client_id.clone(),
-                        client_secret: auth_config.oidc_provider.client_secret.clone(),
-                        issuer_url: auth_config.oidc_provider.issuer_url.clone(),
-                        scopes: auth_config.oidc_provider.extra_scope.clone(),
-                        audience: auth_config.oidc_provider.client_id.clone(),
+                        client_id: provider.client_id.clone(),
+                        client_secret: provider.client_secret.clone(),
+                        issuer_url: provider.issuer_url.clone(),
+                        scopes: provider.extra_scope.clone(),
+                        audience,
+                        accept_authorized_party: provider.accept_authorized_party,
                         redirect_url,
                     });
                 }
@@ -420,6 +429,8 @@ mod tests {
             client_id: "proxyauthk8s".to_string(),
             client_secret: Some("secret".to_string()),
             extra_scope: "groups".to_string(),
+            audience: String::new(),
+            accept_authorized_party: false,
         }
     }
 

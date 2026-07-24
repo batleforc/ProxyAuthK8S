@@ -17,7 +17,7 @@ use tracing::{error, instrument};
 use super::tls::build_tls_config;
 use crate::cluster::redirect::audit::AuditContext;
 use crate::cluster::redirect::forwarded::{
-    forwarded_for_value, identity_headers, is_proxy_owned_header,
+    forwarded_for_value, identity_headers, is_proxy_owned_header, is_upstream_auth_header,
 };
 use crate::model::user::User;
 
@@ -141,6 +141,7 @@ fn serialize_upgrade_request(
             || header_name == http::header::CONTENT_LENGTH
             || header_name == http::header::TRANSFER_ENCODING
             || is_proxy_owned_header(header_name.as_str())
+            || is_upstream_auth_header(header_name.as_str())
         {
             continue;
         }
@@ -241,35 +242,40 @@ pub(super) async fn upgrade_redirect(
     let upstream_url = match reqwest::Url::parse(&url_to_call) {
         Ok(url) => url,
         Err(err) => {
+            error!(error = %err, "invalid upstream url for upgrade request");
             audit.emit(502);
-            return HttpResponse::BadGateway().body(err.to_string());
+            return HttpResponse::BadGateway().body("bad gateway");
         }
     };
 
     let mut upstream = match connect_upgrade_stream(&proxy, &data, &upstream_url).await {
         Ok(stream) => stream,
         Err(err) => {
+            error!(error = %err, "could not open the upstream upgrade stream");
             audit.emit(503);
-            return HttpResponse::ServiceUnavailable().body(err);
+            return HttpResponse::ServiceUnavailable().body("upstream unavailable");
         }
     };
 
     let request_bytes =
         serialize_upgrade_request(&req, &method, &upstream_url, peer_addr, user.as_ref());
     if let Err(err) = upstream.write_all(&request_bytes).await {
+        error!(error = %err, "could not write the upgrade request upstream");
         audit.emit(503);
-        return HttpResponse::ServiceUnavailable().body(err.to_string());
+        return HttpResponse::ServiceUnavailable().body("upstream unavailable");
     }
     if let Err(err) = upstream.flush().await {
+        error!(error = %err, "could not flush the upgrade request upstream");
         audit.emit(503);
-        return HttpResponse::ServiceUnavailable().body(err.to_string());
+        return HttpResponse::ServiceUnavailable().body("upstream unavailable");
     }
 
     let (status, headers, leftover) = match read_upgrade_response_headers(&mut upstream).await {
         Ok(response) => response,
         Err(err) => {
+            error!(error = %err, "could not read the upstream upgrade response headers");
             audit.emit(502);
-            return HttpResponse::BadGateway().body(err);
+            return HttpResponse::BadGateway().body("bad gateway");
         }
     };
 

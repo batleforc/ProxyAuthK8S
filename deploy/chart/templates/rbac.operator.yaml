@@ -17,7 +17,9 @@ rules:
       - get
       - list
       - watch
-  # Permissions to manage ProxyKubeAPI custom resources
+  # Permissions to reconcile ProxyKubeAPI custom resources. The controller only
+  # reads them and writes status/finalizers (via patch on the object); the CRs
+  # are authored by admins, so it needs neither `create` nor `delete`.
   - apiGroups:
       - "weebo.si.rs"
     resources:
@@ -26,10 +28,8 @@ rules:
       - get
       - list
       - watch
-      - create
       - update
       - patch
-      - delete
   # Permissions to manage Secrets (Needed for OIDC / TLS certs)
   - apiGroups:
       - ""

@@ -25,7 +25,13 @@ pub struct OidcConf {
     pub client_secret: Option<String>,
     pub issuer_url: String,
     pub scopes: String,
+    /// Audience the token must carry (its `aud` claim) to be accepted. Distinct
+    /// from `client_id`: who the token was issued to versus what it is for.
     pub audience: String,
+    /// Whether a token whose `aud` does not name this service is still accepted
+    /// when its `azp`/`client_id` does. Off by default; see [`crate::token_audience`].
+    #[serde(default)]
+    pub accept_authorized_party: bool,
     pub redirect_url: Option<String>,
 }
 
@@ -37,6 +43,7 @@ impl Debug for OidcConf {
             .field("issuer_url", &self.issuer_url)
             .field("scopes", &self.scopes)
             .field("audience", &self.audience)
+            .field("accept_authorized_party", &self.accept_authorized_party)
             .field("redirect_url", &self.redirect_url)
             .finish()
     }
@@ -63,6 +70,8 @@ impl OidcConf {
             issuer_url,
             scopes,
             audience,
+            // Secure default; per-cluster providers set this via the CRD field.
+            accept_authorized_party: false,
             redirect_url,
         }
     }
@@ -152,15 +161,16 @@ impl OidcConf {
         mode: crate::token_audience::AudienceValidationMode,
         source: &str,
     ) -> Result<(), OidcError> {
-        if auds.contains(&self.audience) {
+        if auds.matches(&self.audience, self.accept_authorized_party) {
             tracing::debug!(source, "token audience accepted");
             Ok(())
         } else {
             self.reject_or_warn(
                 mode,
                 &format!(
-                    "token audiences {:?} do not include the expected audience {:?} (via {})",
-                    auds.values, self.audience, source
+                    "token audiences {:?} (authorized party {:?}) do not include the expected \
+                     audience {:?} (via {})",
+                    auds.values, auds.authorized_party, self.audience, source
                 ),
             )
         }
@@ -248,9 +258,19 @@ impl OidcConf {
             }
             _ => {}
         }
-        if let Some(client_id) = body.get("client_id").and_then(|v| v.as_str()) {
-            values.push(client_id.to_string());
+        // `client_id` (and `azp`) name the client the token was issued to, not
+        // the resource; keep them out of `aud` and only consult them when azp
+        // acceptance is explicitly enabled.
+        let mut authorized_party = Vec::new();
+        if let Some(azp) = body.get("azp").and_then(|v| v.as_str()) {
+            authorized_party.push(azp.to_string());
         }
-        Ok(Some(crate::token_audience::TokenAudiences { values }))
+        if let Some(client_id) = body.get("client_id").and_then(|v| v.as_str()) {
+            authorized_party.push(client_id.to_string());
+        }
+        Ok(Some(crate::token_audience::TokenAudiences {
+            values,
+            authorized_party,
+        }))
     }
 }

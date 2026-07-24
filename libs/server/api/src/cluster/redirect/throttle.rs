@@ -65,6 +65,22 @@ fn security_config(proxy: &ProxyKubeApi) -> Option<&SecurityConfiguration> {
     proxy.spec.security_config.as_ref()
 }
 
+/// Whether a Redis failure should deny the request (fail closed) instead of
+/// letting it through. Off by default: a Redis blip would otherwise become a
+/// full outage. Set `THROTTLE_FAIL_CLOSED=true` on deployments that would rather
+/// reject traffic than lose brute-force / rate-limit protection during a Redis
+/// degradation.
+fn fail_closed() -> bool {
+    matches!(
+        std::env::var("THROTTLE_FAIL_CLOSED")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "true" | "1" | "yes" | "on" | "enabled"
+    )
+}
+
 /// Whether `subject` is currently banned on this cluster.
 ///
 /// A Redis failure fails open: refusing every request because the counter store
@@ -81,8 +97,13 @@ pub async fn is_banned(state: &State, proxy: &ProxyKubeApi, subject: &str) -> bo
     match state.key_exists(&ban_key(proxy, subject)).await {
         Ok(banned) => banned,
         Err(err) => {
-            warn!(%err, "could not read the ban state, letting the request through");
-            false
+            if fail_closed() {
+                warn!(%err, "ban state unavailable; failing closed (refusing the request)");
+                true
+            } else {
+                warn!(%err, "could not read the ban state, letting the request through");
+                false
+            }
         }
     }
 }
@@ -160,6 +181,13 @@ pub async fn check_rate_limit(
     {
         Ok(used) => used,
         Err(err) => {
+            if fail_closed() {
+                warn!(%err, "rate limit counter unavailable; failing closed (refusing the request)");
+                return Some(Throttled::RateLimited {
+                    limit,
+                    retry_after: RATE_LIMIT_WINDOW_SECONDS as u64,
+                });
+            }
             warn!(%err, "could not read the rate limit counter, letting the request through");
             return None;
         }

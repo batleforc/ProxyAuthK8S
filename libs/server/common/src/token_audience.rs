@@ -10,9 +10,17 @@
 //!
 //! Two mechanisms are used (see [`crate::oidc_conf::OidcConf::ensure_token_audience`]):
 //!   1. RFC 7662 introspection, when the provider advertises an endpoint;
-//!   2. reading the `aud`/`azp`/`client_id` claims directly from the token when
-//!      it is a JWT — sound here because `/userinfo` already validated the
-//!      signature, so the claims cannot have been tampered with.
+//!   2. reading the `aud` claim directly from the token when it is a JWT — sound
+//!      here because `/userinfo` already validated the signature, so the claims
+//!      cannot have been tampered with.
+//!
+//! Only the `aud` claim is treated as the audience. `azp`/`client_id` identify
+//! the *client the token was issued to*, not the target resource, so folding
+//! them into the accepted set would re-open the very audience-confusion hole
+//! this module exists to close (a token with `aud=["other-api"], azp=<us>` would
+//! pass). They are only consulted when the provider's `accept_authorized_party`
+//! config field is enabled, for IdPs (e.g. Keycloak) that mint self-audience
+//! tokens carrying the client only in `azp`.
 
 use base64::Engine;
 use serde::Deserialize;
@@ -44,20 +52,36 @@ impl AudienceValidationMode {
     }
 }
 
-/// Audiences carried by a token, gathered from `aud`, `azp` and `client_id`.
+/// Audiences carried by a token.
+///
+/// `values` is the `aud` claim (the intended audience). `authorized_party` is
+/// `azp`/`client_id` (the client the token was issued to) and is only consulted
+/// when [`accept_authorized_party`] is enabled.
 #[derive(Debug, Default, Clone)]
 pub struct TokenAudiences {
     pub values: Vec<String>,
+    pub authorized_party: Vec<String>,
 }
 
 impl TokenAudiences {
     pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
+        self.values.is_empty() && self.authorized_party.is_empty()
     }
 
-    /// Whether the expected audience is present in the token's audiences.
+    /// Whether the expected audience is present in the `aud` claim.
     pub fn contains(&self, expected: &str) -> bool {
         self.values.iter().any(|value| value == expected)
+    }
+
+    /// Whether `expected` is accepted: always matches against `aud`; also matches
+    /// against `azp`/`client_id` when `accept_azp` is set.
+    pub fn matches(&self, expected: &str, accept_azp: bool) -> bool {
+        self.contains(expected)
+            || (accept_azp
+                && self
+                    .authorized_party
+                    .iter()
+                    .any(|value| value == expected))
     }
 }
 
@@ -96,17 +120,22 @@ pub fn extract_jwt_audiences(token: &str) -> Option<TokenAudiences> {
         Some(AudField::Many(mut auds)) => values.append(&mut auds),
         None => {}
     }
+    let mut authorized_party = Vec::new();
     if let Some(azp) = claims.azp {
-        values.push(azp);
+        authorized_party.push(azp);
     }
     if let Some(client_id) = claims.client_id {
-        values.push(client_id);
+        authorized_party.push(client_id);
     }
 
-    if values.is_empty() {
+    let audiences = TokenAudiences {
+        values,
+        authorized_party,
+    };
+    if audiences.is_empty() {
         None
     } else {
-        Some(TokenAudiences { values })
+        Some(audiences)
     }
 }
 
@@ -154,19 +183,37 @@ mod tests {
     }
 
     #[test]
-    fn extracts_array_aud_and_azp() {
+    fn aud_is_the_audience_azp_is_not() {
         let token = jwt_with_payload(r#"{"aud":["a","b"],"azp":"proxy-auth-k8s"}"#);
         let auds = extract_jwt_audiences(&token).unwrap();
         assert!(auds.contains("a"));
         assert!(auds.contains("b"));
-        assert!(auds.contains("proxy-auth-k8s"));
+        // `azp` is NOT an audience: `contains` (aud-only) must not see it.
+        assert!(!auds.contains("proxy-auth-k8s"));
+        // It is only accepted when azp acceptance is explicitly enabled.
+        assert!(!auds.matches("proxy-auth-k8s", false));
+        assert!(auds.matches("proxy-auth-k8s", true));
+        // A real aud always matches regardless of the flag.
+        assert!(auds.matches("a", false));
     }
 
     #[test]
-    fn falls_back_to_client_id_claim() {
+    fn a_foreign_audience_token_is_rejected_by_default() {
+        // aud names another resource; azp is our client. This is the confused
+        // deputy: it must NOT pass unless azp acceptance is opted into.
+        let token = jwt_with_payload(r#"{"aud":["billing-api"],"azp":"proxy-auth-k8s"}"#);
+        let auds = extract_jwt_audiences(&token).unwrap();
+        assert!(!auds.matches("proxy-auth-k8s", false));
+        assert!(auds.matches("proxy-auth-k8s", true));
+    }
+
+    #[test]
+    fn client_id_only_is_authorized_party_not_audience() {
         let token = jwt_with_payload(r#"{"client_id":"proxy-auth-k8s"}"#);
         let auds = extract_jwt_audiences(&token).unwrap();
-        assert!(auds.contains("proxy-auth-k8s"));
+        assert!(!auds.contains("proxy-auth-k8s"));
+        assert!(!auds.matches("proxy-auth-k8s", false));
+        assert!(auds.matches("proxy-auth-k8s", true));
     }
 
     #[test]

@@ -34,6 +34,17 @@ pub trait VirtualApiMapper: Send + Sync {
     /// The upstream request to issue in place of the virtual one.
     fn map_request(&self, route: &VirtualRoute) -> UpstreamRequest;
 
+    /// When `route.method` is not a verb this resource supports, the `Allow`
+    /// header value listing the methods that are (so the proxy can answer `405`
+    /// without forwarding). `None` — the default — means the method is allowed.
+    ///
+    /// This prevents a verb from being silently mapped onto an unrelated, more
+    /// destructive upstream operation (e.g. `DELETE` on a create/list-only
+    /// resource landing on a namespace *deletecollection*).
+    fn method_not_allowed(&self, _route: &VirtualRoute) -> Option<String> {
+        None
+    }
+
     /// Rewrite an upstream response body into the virtual API's shape.
     fn map_response(&self, body: serde_json::Value) -> serde_json::Value;
 

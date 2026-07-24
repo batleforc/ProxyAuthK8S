@@ -25,12 +25,33 @@ async fn main() -> anyhow::Result<()> {
     let controller = controller::run(state.clone());
     let mut api_doc = ApiDoc::openapi();
     api_doc.info.version = env!("CARGO_PKG_VERSION").to_string();
+
+    // CORS: permissive by default (kept for backward compatibility — the API is
+    // Bearer-authenticated, so a browser never auto-attaches credentials). Set
+    // `CORS_ALLOWED_ORIGINS` to a comma-separated allow-list to restrict which
+    // origins may drive the API from a browser.
+    let cors_allowed_origins: Option<Vec<String>> = std::env::var("CORS_ALLOWED_ORIGINS")
+        .ok()
+        .map(|value| {
+            value
+                .split(',')
+                .map(|origin| origin.trim().to_string())
+                .filter(|origin| !origin.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .filter(|origins| !origins.is_empty());
+
     let mut server = HttpServer::new(move || {
         let cors = Cors::default()
-            .allow_any_origin()
             .allow_any_method()
             .allow_any_header()
             .max_age(3600);
+        let cors = match &cors_allowed_origins {
+            Some(origins) => origins
+                .iter()
+                .fold(cors, |cors, origin| cors.allowed_origin(origin)),
+            None => cors.allow_any_origin(),
+        };
         let (app, api) = App::new()
             .into_utoipa_app()
             .openapi(api_doc.clone())

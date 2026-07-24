@@ -122,14 +122,32 @@ impl State {
     /// This is the counter behind rate limiting and fail2login: the TTL is set
     /// on the transition from absent to 1, so the window starts with the first
     /// request and the key cannot outlive it.
+    ///
+    /// INCR and EXPIRE run in a single atomic Lua script. Doing EXPIRE as a
+    /// second round-trip left a window where a transient failure (or a crash)
+    /// between the two would leave the counter with no TTL — it would then
+    /// accumulate forever and never reset, permanently locking the subject out.
+    /// The script also re-arms the TTL whenever the key somehow has none
+    /// (`TTL < 0`), so a previously stuck counter self-heals.
     #[instrument(skip(self))]
     pub async fn incr_with_ttl(&self, key: &str, ttl_seconds: i64) -> Result<u64, RedisPoolError> {
-        let value: i64 = self.redis.query(redis::cmd("INCR").arg(key)).await?;
-        if value == 1 {
-            self.redis
-                .query::<()>(redis::cmd("EXPIRE").arg(key).arg(ttl_seconds))
-                .await?;
-        }
+        const INCR_WITH_TTL: &str = r"
+            local v = redis.call('INCR', KEYS[1])
+            if redis.call('TTL', KEYS[1]) < 0 then
+                redis.call('EXPIRE', KEYS[1], ARGV[1])
+            end
+            return v
+        ";
+        let value: i64 = self
+            .redis
+            .query(
+                redis::cmd("EVAL")
+                    .arg(INCR_WITH_TTL)
+                    .arg(1)
+                    .arg(key)
+                    .arg(ttl_seconds),
+            )
+            .await?;
         Ok(value.max(0) as u64)
     }
 

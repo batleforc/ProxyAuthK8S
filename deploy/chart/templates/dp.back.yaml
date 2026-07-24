@@ -16,7 +16,7 @@ spec:
       labels:
         app: "{{ .Release.Name }}-proxyauthk8s-back"
     spec:
-      serviceAccountName: "{{ .Release.Name }}-proxyauthk8s-back-sa"
+      serviceAccountName: "{{ .Release.Name }}-proxyauthk8s-operator"
       automountServiceAccountToken: true
       {{- include "proxyauthk8s.podSecurityContext" . | nindent 6 }}
       containers:

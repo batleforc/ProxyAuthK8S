@@ -40,7 +40,7 @@ pub async fn get_all_visible_cluster(
         Ok(cached) => cached,
         Err(e) => {
             error!(error = %e, "couldn't list the cached clusters");
-            return HttpResponse::ServiceUnavailable().body(e.to_string());
+            return HttpResponse::ServiceUnavailable().finish();
         }
     };
 

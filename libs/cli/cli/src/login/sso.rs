@@ -9,6 +9,10 @@
 //!    (the token a cluster login is expected to store — see the front's
 //!    `ClusterCallbackView`).
 
+use std::future::poll_fn;
+use std::io;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::task::Poll;
 use std::time::Duration;
 
 use client_api::apis::{
@@ -17,7 +21,7 @@ use client_api::apis::{
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
+    net::{TcpListener, TcpStream},
 };
 use tracing::{debug, info, warn};
 
@@ -42,6 +46,13 @@ const SUCCESS_PAGE: &str = "<!doctype html><html><head><meta charset=\"utf-8\">\
 <h2>Login complete</h2><p>You can close this tab and return to your terminal.</p>\
 </body></html>";
 
+/// Minimal HTML shown in the browser when the provider redirected back with an
+/// error. The details are surfaced on the terminal, not the page.
+const ERROR_PAGE: &str = "<!doctype html><html><head><meta charset=\"utf-8\">\
+<title>ProxyAuthK8S</title></head><body style=\"font-family:sans-serif\">\
+<h2>Login failed</h2><p>The sign-in was not completed. Check your terminal for details.</p>\
+</body></html>";
+
 impl CliCtx {
     /// Run the interactive OIDC login for `ns/cluster` and return the `id_token`.
     ///
@@ -53,12 +64,11 @@ impl CliCtx {
         cluster: &str,
     ) -> Result<String, ProxyAuthK8sError> {
         let port = callback_port();
-        let listener = TcpListener::bind(("127.0.0.1", port)).await.map_err(|e| {
-            ProxyAuthK8sError::SsoLoginError(format!(
-                "could not bind the local callback listener on 127.0.0.1:{port} ({e}). \
-                 Set PROXYAUTH_CALLBACK_PORT to a free port registered at your IdP."
-            ))
-        })?;
+        // The redirect URI is registered as `localhost`, which may resolve to
+        // either `127.0.0.1` or `::1` depending on the host and on the opener the
+        // provider hands the URL to. Listen on both loopback families so the
+        // callback is caught whichever one the browser/opener picks.
+        let listeners = bind_loopback_listeners(port).await?;
         let redirect = format!("http://localhost:{}/", port);
 
         // 1. Ask the server for the provider authorization URL.
@@ -76,7 +86,7 @@ impl CliCtx {
         open_in_browser(&auth_url);
 
         // 3. Wait for the provider to redirect back to the loopback listener.
-        let (code, state) = wait_for_callback(&listener).await?;
+        let (code, state) = wait_for_callback(&listeners).await?;
 
         // 4. Exchange the code for tokens through the server callback.
         let callback = callback_login(config, ns, cluster, None, Some(&redirect), &code, &state)
@@ -96,13 +106,58 @@ impl CliCtx {
     }
 }
 
+/// Bind a loopback listener on the IPv4 (`127.0.0.1`) and IPv6 (`::1`) loopbacks
+/// for `port`. Both are attempted; only one needs to succeed (IPv6 may be
+/// disabled, and vice-versa). Errors only when neither family can be bound.
+async fn bind_loopback_listeners(port: u16) -> Result<Vec<TcpListener>, ProxyAuthK8sError> {
+    let mut listeners = Vec::with_capacity(2);
+    let mut last_err = None;
+    for addr in [
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        IpAddr::V6(Ipv6Addr::LOCALHOST),
+    ] {
+        match TcpListener::bind((addr, port)).await {
+            Ok(listener) => listeners.push(listener),
+            Err(e) => {
+                debug!("could not bind the callback listener on {addr}:{port}: {e}");
+                last_err = Some(e);
+            }
+        }
+    }
+    if listeners.is_empty() {
+        let detail = last_err
+            .map(|e| e.to_string())
+            .unwrap_or_else(|| "no loopback address available".to_string());
+        return Err(ProxyAuthK8sError::SsoLoginError(format!(
+            "could not bind the local callback listener on 127.0.0.1:{port} or [::1]:{port} \
+             ({detail}). Set PROXYAUTH_CALLBACK_PORT to a free port registered at your IdP."
+        )));
+    }
+    Ok(listeners)
+}
+
+/// Accept the next connection ready on any of `listeners`.
+async fn accept_any(listeners: &[TcpListener]) -> io::Result<TcpStream> {
+    poll_fn(|cx| {
+        for listener in listeners {
+            if let Poll::Ready(res) = listener.poll_accept(cx) {
+                return Poll::Ready(res.map(|(stream, _)| stream));
+            }
+        }
+        Poll::Pending
+    })
+    .await
+}
+
 /// Accept loopback connections until one carries an OIDC `code`+`state`, then
 /// answer the browser with a small success page. Times out after
 /// [`CALLBACK_TIMEOUT`] so the CLI never hangs forever.
-async fn wait_for_callback(listener: &TcpListener) -> Result<(String, String), ProxyAuthK8sError> {
+async fn wait_for_callback(
+    listeners: &[TcpListener],
+) -> Result<(String, String), ProxyAuthK8sError> {
     let accept = async {
         loop {
-            let (mut stream, _) = listener.accept().await.map_err(|e| {
+            let mut stream = accept_any(listeners).await.map_err(|e| {
                 ProxyAuthK8sError::SsoLoginError(format!("callback listener failed: {e}"))
             })?;
 
@@ -117,10 +172,23 @@ async fn wait_for_callback(listener: &TcpListener) -> Result<(String, String), P
                 .and_then(|line| line.split_whitespace().nth(1))
                 .unwrap_or("");
 
-            match parse_code_state(target) {
-                Some((code, state)) => {
+            match parse_callback(target) {
+                Some(CallbackResult::Success { code, state }) => {
                     respond(&mut stream, "200 OK", SUCCESS_PAGE).await;
                     return Ok((code, state));
+                }
+                Some(CallbackResult::ProviderError { error, description }) => {
+                    // The IdP redirected back with an error (e.g. the user
+                    // declined consent, or the OIDC client is misconfigured).
+                    // Surface it now instead of waiting out the whole timeout.
+                    respond(&mut stream, "200 OK", ERROR_PAGE).await;
+                    let detail = match description {
+                        Some(desc) => format!("{error}: {desc}"),
+                        None => error,
+                    };
+                    return Err(ProxyAuthK8sError::SsoLoginError(format!(
+                        "the identity provider returned an error ({detail})"
+                    )));
                 }
                 None => {
                     // Browsers also fetch /favicon.ico etc.; acknowledge and wait
@@ -141,21 +209,44 @@ async fn wait_for_callback(listener: &TcpListener) -> Result<(String, String), P
     }
 }
 
-/// Extract `code` and `state` from a request target such as
-/// `//auth/callback/ns/cluster?code=..&state=..`. Returns `None` unless both are
-/// present.
-fn parse_code_state(target: &str) -> Option<(String, String)> {
+/// Outcome of parsing a request that hit the loopback listener.
+enum CallbackResult {
+    /// The OIDC provider redirected back with an authorization `code`+`state`.
+    Success { code: String, state: String },
+    /// The provider redirected back with an `error` (RFC 6749 §4.1.2.1).
+    ProviderError {
+        error: String,
+        description: Option<String>,
+    },
+}
+
+/// Classify a request target such as
+/// `/auth/callback/ns/cluster?code=..&state=..` (success) or
+/// `/auth/callback/ns/cluster?error=access_denied&error_description=..` (the
+/// provider rejected the request). Returns `None` for anything that is neither
+/// (favicon fetches, health probes, …) so the caller keeps waiting.
+fn parse_callback(target: &str) -> Option<CallbackResult> {
     let url = reqwest::Url::parse(&format!("http://localhost{target}")).ok()?;
     let mut code = None;
     let mut state = None;
+    let mut error = None;
+    let mut description = None;
     for (key, value) in url.query_pairs() {
         match key.as_ref() {
             "code" => code = Some(value.into_owned()),
             "state" => state = Some(value.into_owned()),
+            "error" => error = Some(value.into_owned()),
+            "error_description" => description = Some(value.into_owned()),
             _ => {}
         }
     }
-    Some((code?, state?))
+    if let Some(error) = error {
+        return Some(CallbackResult::ProviderError { error, description });
+    }
+    Some(CallbackResult::Success {
+        code: code?,
+        state: state?,
+    })
 }
 
 async fn respond(stream: &mut tokio::net::TcpStream, status: &str, body: &str) {
@@ -179,5 +270,51 @@ fn open_in_browser(url: &str) {
     };
     if let Err(e) = std::process::Command::new(program).args(args).spawn() {
         warn!("could not launch a browser automatically ({e}); open the URL above manually");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_callback, CallbackResult};
+
+    #[test]
+    fn parses_code_and_state() {
+        let target = "/auth/callback/default/local?code=abc&state=xyz";
+        match parse_callback(target) {
+            Some(CallbackResult::Success { code, state }) => {
+                assert_eq!(code, "abc");
+                assert_eq!(state, "xyz");
+            }
+            _ => panic!("expected a successful callback"),
+        }
+    }
+
+    #[test]
+    fn parses_provider_error() {
+        let target = "/auth/callback/default/local?error=access_denied&error_description=user%20said%20no";
+        match parse_callback(target) {
+            Some(CallbackResult::ProviderError { error, description }) => {
+                assert_eq!(error, "access_denied");
+                assert_eq!(description.as_deref(), Some("user said no"));
+            }
+            _ => panic!("expected a provider error"),
+        }
+    }
+
+    #[test]
+    fn error_takes_precedence_over_partial_code() {
+        // A stray `code` with an `error` must still be treated as a failure.
+        let target = "/auth/callback/default/local?error=invalid_request&code=abc";
+        assert!(matches!(
+            parse_callback(target),
+            Some(CallbackResult::ProviderError { .. })
+        ));
+    }
+
+    #[test]
+    fn ignores_non_callback_requests() {
+        // Neither code+state nor error -> keep waiting (favicon, health probes).
+        assert!(parse_callback("/favicon.ico").is_none());
+        assert!(parse_callback("/auth/callback/default/local?state=only").is_none());
     }
 }

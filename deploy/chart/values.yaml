@@ -156,11 +156,16 @@ networkPolicy:
     # providers). Narrow this down to your own CIDRs in production.
     allowExternal: true
     # CIDRs excluded from the external rule; the defaults are the private
-    # ranges, so in-cluster traffic still has to be allowed explicitly.
+    # ranges (so in-cluster traffic still has to be allowed explicitly) plus the
+    # link-local range that carries the cloud metadata endpoint
+    # (169.254.169.254) and the CGNAT range — the backend never needs either, and
+    # excluding them blocks an SSRF from a mis-set target URL reaching them.
     externalExcept:
       - 10.0.0.0/8
       - 172.16.0.0/12
       - 192.168.0.0/16
+      - 169.254.0.0/16
+      - 100.64.0.0/10
     extra: []
     #  - to:
     #      - podSelector:

@@ -1,6 +1,6 @@
 use client_api::apis::{api_clusters_api::get_all_visible_cluster, configuration::Configuration};
 use std::io::{self, Write};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 pub mod get_token;
 mod sso;
@@ -28,6 +28,14 @@ impl CliCtx {
     }
 
     pub async fn handle_login(&mut self, cluster_name: Option<String>, token: Option<String>) {
+        if token.is_some() {
+            // A token on the command line lands in `ps`/`/proc/<pid>/cmdline` and
+            // the shell history. Prefer the interactive prompt (omit `--token`).
+            warn!(
+                "passing --token on the command line exposes it to other local users \
+                 (ps, shell history); prefer the interactive prompt"
+            );
+        }
         // if server_url is not provided and none exist in config, return error
         if self.server_url.is_empty() && self.config.default_server_name.is_empty() {
             error!("Error: No ProxyAuthK8S server URL provided and no existing configuration found. Please provide a server URL using the --server-url option or login to server first.");
@@ -139,13 +147,17 @@ impl CliCtx {
             // round-trip to `/api?timeout=32s` (what kubectl uses) would catch a
             // bad token here instead of on first use. Tracked on the roadmap.
 
-            // Insert credentials into config
-            let _ = &self
-                .config
-                .servers
-                .get_mut(&server_name)
-                .unwrap()
-                .set_cluster_token(namespace, cluster.clone(), tok.clone());
+            // Insert credentials into config.
+            let Some(server) = self.config.servers.get_mut(&server_name) else {
+                // The server config was resolved just above; if it is gone now the
+                // config is inconsistent — fail cleanly rather than panicking.
+                error!(
+                    "Server '{}' is no longer present in the configuration; aborting.",
+                    server_name
+                );
+                return;
+            };
+            let _ = server.set_cluster_token(namespace, cluster.clone(), tok.clone());
             match self.config.write_to_file(self.config_path.clone()) {
                 Ok(_) => info!("Config file updated successfully."),
                 Err(e) => error!("Failed to update config file: {}", e),

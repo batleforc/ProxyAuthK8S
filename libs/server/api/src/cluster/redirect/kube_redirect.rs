@@ -53,7 +53,7 @@ pub async fn redirect(
         Ok(None) => return HttpResponse::NotFound().finish(),
         Err(e) => {
             error!(error = %e, " couldn't get proxy from redis");
-            return HttpResponse::ServiceUnavailable().body(e.to_string());
+            return HttpResponse::ServiceUnavailable().finish();
         }
     };
 
