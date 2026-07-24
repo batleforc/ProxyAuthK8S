@@ -15,3 +15,12 @@ pub struct RateLimitingConfiguration {
     #[serde(default = "default_max_requests_per_minute")]
     pub max_requests_per_minute: u32,
 }
+
+impl Default for RateLimitingConfiguration {
+    fn default() -> Self {
+        Self {
+            enabled: default_disabled(),
+            max_requests_per_minute: default_max_requests_per_minute(),
+        }
+    }
+}

@@ -1,6 +1,8 @@
 use actix_web::{http::header::ContentType, HttpRequest, HttpResponse};
 use thiserror::Error;
 
+pub mod duration;
+
 #[derive(Error, Debug)]
 pub enum AuthError {
     #[error("Invalid token")]
@@ -36,6 +38,18 @@ impl AuthError {
                 actix_web::error::ErrorUnauthorized(format!("Invalid token: {}", detail))
             }
         }
+    }
+}
+
+/// Read the `ns` and `cluster` path parameters shared by every cluster-scoped route.
+///
+/// The routes always declare both, but reading them without unwrapping keeps a
+/// mis-registered route from panicking a worker.
+pub fn extract_ns_cluster(req: &HttpRequest) -> Option<(String, String)> {
+    let match_info = req.match_info();
+    match (match_info.get("ns"), match_info.get("cluster")) {
+        (Some(ns), Some(cluster)) => Some((ns.to_string(), cluster.to_string())),
+        _ => None,
     }
 }
 

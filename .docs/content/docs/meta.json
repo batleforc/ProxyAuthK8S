@@ -6,6 +6,9 @@
     "roadmap.mdx",
     "architecture.mdx",
     "crds.mdx",
+    "security.mdx",
+    "virtual-apis.mdx",
+    "kubectl-plugin.mdx",
     "proxykubeapi-generator.mdx",
     "api",
     "developper-guide"

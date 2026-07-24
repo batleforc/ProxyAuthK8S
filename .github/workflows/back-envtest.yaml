@@ -1,0 +1,66 @@
+name: 🦀 Rust envtest
+
+# 🧪 Runs the suite against a real ephemeral kube-apiserver: CRD admission
+# (including the CEL rules and their cost budget), defaults and finalizers.
+# Separate from the unit/wiremock job so fast feedback stays fast.
+# REQUIRE_ENVTEST makes a broken setup a failure instead of a silent skip.
+
+on:
+  push:
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "deploy/crds.yaml"
+      - ".taskfile/envtest.yaml"
+      - ".github/workflows/back-envtest.yaml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "deploy/crds.yaml"
+      - ".taskfile/envtest.yaml"
+      - ".github/workflows/back-envtest.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  envtest:
+    name: 🧪 Run the envtest suite
+    runs-on: ubuntu-latest
+    env:
+      ENVTEST_K8S_VERSION: "1.31.0"
+      KUBEBUILDER_ASSETS: /home/runner/.local/share/kubebuilder-envtest
+      REQUIRE_ENVTEST: "1"
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 🦀 Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+        with:
+          toolchain: stable
+
+      - name: 🧱 Install System Dependencies
+        # libdbus-1-dev is required by the `keyring` crate used by the CLI;
+        # openssl generates the apiserver's service account signing key.
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config openssl
+
+      # Caching these 50 MB with actions/cache would need the action pinned to a
+      # SHA like every other one here; downloading them each run costs a few
+      # seconds and keeps the pinning policy intact.
+      - name: ⬇️ Fetch the envtest binaries
+        run: |
+          mkdir -p "$KUBEBUILDER_ASSETS"
+          curl -sSL -o /tmp/envtest.tar.gz \
+            "https://github.com/kubernetes-sigs/controller-tools/releases/download/envtest-v${ENVTEST_K8S_VERSION}/envtest-v${ENVTEST_K8S_VERSION}-linux-amd64.tar.gz"
+          tar xzf /tmp/envtest.tar.gz -C "$KUBEBUILDER_ASSETS" --strip-components=2
+
+      - name: 🧪 Run the envtest suite
+        # Serialised: each test owns an apiserver, and running several at once
+        # only multiplies the memory footprint for no wall-clock gain.
+        run: cargo test -p api --features envtest --test envtest -- --test-threads=1

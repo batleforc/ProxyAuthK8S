@@ -136,7 +136,16 @@ Default: to the resource namespace + resource name<br/>
           If the proxy exposition should be accessible via the Dashboard
 Default: false<br/>
           <br/>
-            <i>Default</i>: true<br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>proxy_group</b></td>
+        <td>string</td>
+        <td>
+          The oidc group required to proxy requests to this cluster
+Set it to decouple proxy access from dashboard access
+Default: the dashboard group when expose_via_dashboard is true, otherwise no group is required<br/>
         </td>
         <td>false</td>
       </tr><tr>
@@ -144,6 +153,54 @@ Default: false<br/>
         <td>object</td>
         <td>
           Security configuration<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecvirtual_apisindex">virtual_apis</a></b></td>
+        <td>[]object</td>
+        <td>
+          Virtual APIs to expose on top of this cluster
+A virtual API is an API the cluster does not serve, that the proxy
+synthesises by translating requests and responses<br/>
+          <br/>
+            <i>Default</i>: []<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.virtual_apis[index]
+<sup><sup>[↩ Parent](#proxykubeapispec)</sup></sup>
+
+
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>kind</b></td>
+        <td>enum</td>
+        <td>
+          Which virtual API to expose<br/>
+          <br/>
+            <i>Enum</i>: OpenShiftProject<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>enabled</b></td>
+        <td>boolean</td>
+        <td>
+          Enable or disable this virtual API
+Default: true<br/>
+          <br/>
+            <i>Default</i>: true<br/>
         </td>
         <td>false</td>
       </tr></tbody>
@@ -921,12 +978,23 @@ Security configuration
         </tr>
     </thead>
     <tbody><tr>
-        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindex">allowed_ressources</a></b></td>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindex">allowed_resources</a></b></td>
         <td>[]object</td>
         <td>
           Allowed resources, limit the access to the proxy to only these resources, if empty all resources are allowed<br/>
+          <br/>
+            <i>Default</i>: []<br/>
         </td>
-        <td>true</td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindex">allowed_ressources</a></b></td>
+        <td>[]object</td>
+        <td>
+          Deprecated misspelling of allowed_resources, merged with it<br/>
+          <br/>
+            <i>Default</i>: []<br/>
+        </td>
+        <td>false</td>
       </tr><tr>
         <td><b>enabled</b></td>
         <td>boolean</td>

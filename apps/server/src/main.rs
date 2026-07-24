@@ -40,13 +40,18 @@ async fn main() -> anyhow::Result<()> {
                     let fut = srv.call(req);
                     async move {
                         let mut res = fut.await?;
-                        let request_id: RequestId = request_id_asc.await.unwrap();
-                        let request_id_str = format!("{}", request_id);
-                        let headers = res.headers_mut();
-                        headers.insert(
-                            header::HeaderName::from_static("x-request-id"),
-                            header::HeaderValue::from_str(request_id_str.as_str()).unwrap(),
-                        );
+                        // Never panic a worker over a response decoration: if the
+                        // request id is unavailable or unrepresentable, ship the
+                        // response without the header.
+                        if let Ok(request_id) = request_id_asc.await {
+                            let request_id: RequestId = request_id;
+                            if let Ok(value) =
+                                header::HeaderValue::from_str(&format!("{}", request_id))
+                            {
+                                res.headers_mut()
+                                    .insert(header::HeaderName::from_static("x-request-id"), value);
+                            }
+                        }
                         Ok(res)
                     }
                 })

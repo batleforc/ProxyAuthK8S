@@ -95,11 +95,11 @@ impl User {
         proxy: ProxyKubeApi,
         token: String,
     ) -> Result<Option<Self>, String> {
-        if proxy.spec.auth_config.clone().is_none() {
+        let Some(auth_config) = proxy.spec.auth_config.clone() else {
             return Ok(None);
-        }
+        };
 
-        match proxy.spec.auth_config.clone().unwrap().validate_against {
+        match auth_config.validate_against {
             crd::authentication_configuration::validate_against::ValidateAgainst::OidcProvider => {
                 Self::auth_against_oidc_provider(state, proxy, token).await
             }

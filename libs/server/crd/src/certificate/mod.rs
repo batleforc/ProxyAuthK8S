@@ -3,6 +3,10 @@ use kube::Client;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+mod client_certificate;
+
+pub use client_certificate::ClientCertificate;
+
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
 pub enum CertSource {
     /// Use a cert from a secret

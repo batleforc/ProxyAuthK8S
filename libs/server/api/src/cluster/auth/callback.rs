@@ -1,13 +1,13 @@
 use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
 use common::State;
 use crd::ProxyKubeApi;
-use deadpool_redis::redis::AsyncTypedCommands;
 use openidconnect::{AccessTokenHash, AuthorizationCode, OAuth2TokenResponse, TokenResponse};
 use serde::Deserialize;
 use tracing::{error, info, instrument};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::cluster::auth::{auth_model::LoginToCallBackModel, callback_model::CallbackModel};
+use crate::helper::extract_ns_cluster;
 
 #[derive(Deserialize, ToSchema, IntoParams)]
 pub struct CallbackQuery {
@@ -42,13 +42,11 @@ pub async fn callback_login(
     data: web::Data<State>,
     callback: web::Query<CallbackQuery>,
 ) -> impl Responder {
-    let ns: String = req.match_info().get("ns").unwrap().parse().unwrap();
-    let cluster: String = req.match_info().get("cluster").unwrap().parse().unwrap();
-    let mut conn = match data.get_redis_conn().await {
-        Ok(conn) => conn,
-        Err(e) => {
-            error!(error = %e, " couldn't get redis connection");
-            return HttpResponse::ServiceUnavailable().body(e.to_string());
+    let (ns, cluster) = match extract_ns_cluster(&req) {
+        Some(parts) => parts,
+        None => {
+            error!(path = %req.path(), "missing ns/cluster path parameters");
+            return HttpResponse::NotFound().finish();
         }
     };
 
@@ -65,14 +63,11 @@ pub async fn callback_login(
     };
 
     if !proxy.spec.enabled
-        || proxy.spec.clone().auth_config.is_some()
-            && !proxy
-                .spec
-                .clone()
-                .auth_config
-                .unwrap()
-                .oidc_provider
-                .enabled
+        || proxy
+            .spec
+            .auth_config
+            .as_ref()
+            .is_some_and(|auth_config| !auth_config.oidc_provider.enabled)
     {
         return HttpResponse::NotFound().finish();
     }
@@ -98,16 +93,11 @@ pub async fn callback_login(
             return HttpResponse::InternalServerError().body(e.to_string());
         }
     };
-    info!(
-        "Callback received for cluster {:?}",
-        oidc_conf.client_secret
-    );
-    let login_to_callback = match conn
-        .get::<String>(format!(
+    info!(%ns, %cluster, "Callback received for cluster");
+    let login_to_callback = match data
+        .redis_get(&format!(
             "oidc_csrf_nonce:{}/{}/{}",
-            ns,
-            cluster,
-            &callback.state.clone()
+            ns, cluster, callback.state
         ))
         .await
     {

@@ -1,0 +1,96 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $dns := dict "ports" (list (dict "port" 53 "protocol" "UDP") (dict "port" 53 "protocol" "TCP")) }}
+# Backend: reached only by the exposure layer, reaches only what it needs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "{{ include "proxyauthk8s.back.name" . }}-netpol"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app: "{{ include "proxyauthk8s.back.name" . }}"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - {{- if .Values.networkPolicy.ingressFrom }}
+      from:
+        {{- toYaml .Values.networkPolicy.ingressFrom | nindent 8 }}
+      {{- else }}
+      # No selector configured: every pod in the cluster may reach the backend.
+      # Set networkPolicy.ingressFrom to your ingress controller.
+      {{- end }}
+      ports:
+        - port: {{ .Values.back.port }}
+          protocol: TCP
+  egress:
+    # DNS, without which nothing else resolves.
+    - to:
+        - namespaceSelector: {}
+      ports:
+        {{- toYaml $dns.ports | nindent 8 }}
+    {{- if .Values.networkPolicy.egress.allowExternal }}
+    # Target cluster apiservers and OIDC providers live outside the cluster.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            {{- with .Values.networkPolicy.egress.externalExcept }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+    {{- end }}
+    {{- with .Values.networkPolicy.egress.extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+---
+# Frontend: static assets, reached by the exposure layer, needs only DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "{{ include "proxyauthk8s.front.name" . }}-netpol"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app: "{{ include "proxyauthk8s.front.name" . }}"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - {{- if .Values.networkPolicy.ingressFrom }}
+      from:
+        {{- toYaml .Values.networkPolicy.ingressFrom | nindent 8 }}
+      {{- end }}
+      ports:
+        - port: {{ .Values.front.port }}
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        {{- toYaml $dns.ports | nindent 8 }}
+{{- if .Values.otel.enabled }}
+---
+# Collector: reached by the backend only, and by nothing else.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "{{ include "proxyauthk8s.otel.name" . }}-netpol"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app: "{{ include "proxyauthk8s.otel.name" . }}"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: "{{ include "proxyauthk8s.back.name" . }}"
+      ports:
+        - port: 4317
+          protocol: TCP
+{{- end }}
+{{- end }}

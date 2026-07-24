@@ -29,10 +29,7 @@ impl GetContextOutput {
                 .as_ref()
                 .is_some_and(|context| context.cluster == c.name)
         })?;
-        let context = match &ctx.context {
-            Some(c) => c,
-            None => return None,
-        };
+        let context = ctx.context.as_ref()?;
         let url_info = CliConfig::proxy_url_to_tuple(
             &cluster
                 .cluster

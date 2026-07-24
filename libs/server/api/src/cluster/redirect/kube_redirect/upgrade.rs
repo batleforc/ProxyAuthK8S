@@ -11,10 +11,20 @@ use tokio::{
     sync::mpsc,
 };
 use tokio_rustls::TlsConnector;
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, instrument};
 
 use super::tls::build_tls_config;
+use crate::cluster::redirect::audit::AuditContext;
+use crate::cluster::redirect::forwarded::{
+    forwarded_for_value, identity_headers, is_proxy_owned_header,
+};
+use crate::model::user::User;
+
+/// In-flight chunks buffered between the upgraded upstream connection and the
+/// client. Bounded to keep exec/attach/port-forward sessions from growing
+/// without limit when one side reads slower than the other.
+const UPGRADE_CHANNEL_CAPACITY: usize = 32;
 
 pub(super) fn is_upgrade_request(req: &HttpRequest) -> bool {
     let has_upgrade_header = req.headers().contains_key(http::header::UPGRADE);
@@ -76,6 +86,7 @@ fn serialize_upgrade_request(
     method: &http::Method,
     upstream_url: &reqwest::Url,
     peer_addr: Option<PeerAddr>,
+    user: Option<&User>,
 ) -> Vec<u8> {
     let path = match upstream_url.query() {
         Some(query) => format!("{}?{}", upstream_url.path(), query),
@@ -90,7 +101,9 @@ fn serialize_upgrade_request(
     request_bytes.extend_from_slice(format!("Host: {}\r\n", authority).as_bytes());
 
     for (header_name, header_value) in req.headers() {
-        if header_name == http::header::HOST {
+        // `connection`/`upgrade` are exactly what makes this an upgrade, so they
+        // are forwarded; only the rewritten host and the proxy-owned headers go.
+        if header_name == http::header::HOST || is_proxy_owned_header(header_name.as_str()) {
             continue;
         }
 
@@ -100,8 +113,18 @@ fn serialize_upgrade_request(
         request_bytes.extend_from_slice(b"\r\n");
     }
 
-    if let Some(PeerAddr(addr)) = peer_addr {
-        request_bytes.extend_from_slice(format!("x-forwarded-for: {}\r\n", addr.ip()).as_bytes());
+    let incoming_forwarded_for = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok());
+    let peer_ip = peer_addr.map(|PeerAddr(addr)| addr.ip());
+    if let Some(forwarded_for) = forwarded_for_value(incoming_forwarded_for, peer_ip) {
+        request_bytes
+            .extend_from_slice(format!("x-forwarded-for: {}\r\n", forwarded_for).as_bytes());
+    }
+
+    for (name, value) in identity_headers(user) {
+        request_bytes.extend_from_slice(format!("{}: {}\r\n", name, value).as_bytes());
     }
 
     request_bytes.extend_from_slice(b"\r\n");
@@ -153,7 +176,8 @@ async fn read_upgrade_response_headers(
     }
 }
 
-#[instrument(skip(req, data, payload))]
+#[allow(clippy::too_many_arguments)]
+#[instrument(skip(req, data, payload, user, audit))]
 pub(super) async fn upgrade_redirect(
     req: HttpRequest,
     data: web::Data<State>,
@@ -162,37 +186,54 @@ pub(super) async fn upgrade_redirect(
     peer_addr: Option<PeerAddr>,
     proxy: ProxyKubeApi,
     url_to_call: String,
+    user: Option<User>,
+    audit: AuditContext,
 ) -> HttpResponse {
     let upstream_url = match reqwest::Url::parse(&url_to_call) {
         Ok(url) => url,
-        Err(err) => return HttpResponse::BadGateway().body(err.to_string()),
+        Err(err) => {
+            audit.emit(502);
+            return HttpResponse::BadGateway().body(err.to_string());
+        }
     };
 
     let mut upstream = match connect_upgrade_stream(&proxy, &data, &upstream_url).await {
         Ok(stream) => stream,
-        Err(err) => return HttpResponse::ServiceUnavailable().body(err),
+        Err(err) => {
+            audit.emit(503);
+            return HttpResponse::ServiceUnavailable().body(err);
+        }
     };
 
-    let request_bytes = serialize_upgrade_request(&req, &method, &upstream_url, peer_addr);
+    let request_bytes =
+        serialize_upgrade_request(&req, &method, &upstream_url, peer_addr, user.as_ref());
     if let Err(err) = upstream.write_all(&request_bytes).await {
+        audit.emit(503);
         return HttpResponse::ServiceUnavailable().body(err.to_string());
     }
     if let Err(err) = upstream.flush().await {
+        audit.emit(503);
         return HttpResponse::ServiceUnavailable().body(err.to_string());
     }
 
     let (status, headers, leftover) = match read_upgrade_response_headers(&mut upstream).await {
         Ok(response) => response,
-        Err(err) => return HttpResponse::BadGateway().body(err),
+        Err(err) => {
+            audit.emit(502);
+            return HttpResponse::BadGateway().body(err);
+        }
     };
 
     tracing::Span::current().record("http.response.status_code", status.as_u16());
+    audit.emit(status.as_u16());
 
     let (mut upstream_reader, mut upstream_writer) = tokio::io::split(upstream);
-    let (tx, rx) = mpsc::unbounded_channel::<web::Bytes>();
+    // Bounded so a slow client back-pressures the upstream reader instead of
+    // letting the upgraded stream accumulate in memory.
+    let (tx, rx) = mpsc::channel::<web::Bytes>(UPGRADE_CHANNEL_CAPACITY);
 
-    if !leftover.is_empty() {
-        let _ = tx.send(web::Bytes::from(leftover));
+    if !leftover.is_empty() && tx.send(web::Bytes::from(leftover)).await.is_err() {
+        return HttpResponse::ServiceUnavailable().body("client stream closed");
     }
 
     let mut client_payload = payload.into_inner();
@@ -223,6 +264,7 @@ pub(super) async fn upgrade_redirect(
                 Ok(read) => {
                     if tx_reader
                         .send(web::Bytes::copy_from_slice(&buffer[..read]))
+                        .await
                         .is_err()
                     {
                         break;
@@ -264,5 +306,5 @@ pub(super) async fn upgrade_redirect(
         }
     }
 
-    client_resp.streaming(UnboundedReceiverStream::new(rx).map(Ok::<web::Bytes, actix_web::Error>))
+    client_resp.streaming(ReceiverStream::new(rx).map(Ok::<web::Bytes, actix_web::Error>))
 }

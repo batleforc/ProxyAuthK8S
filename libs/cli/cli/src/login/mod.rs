@@ -70,8 +70,10 @@ impl CliCtx {
                 error!("Failed to retrieve clusters, : {}", e);
                 match e {
                     ProxyAuthK8sError::Unauthenticated(_) => {
+                        // The user is told to re-login rather than being pushed
+                        // through the flow: doing it here would need the login
+                        // command to be re-entrant, which it is not yet.
                         error!("Authentication failed: Invalid server token, please re-login to the server.");
-                        // TODO: Trigger re-login flow when implemented
                     }
                     ProxyAuthK8sError::RemoteServerError(_) => {
                         error!("Server error occurred while retrieving clusters.");
@@ -105,8 +107,9 @@ impl CliCtx {
 
         if let Some(tok) = token {
             info!("Using token for cluster authentication.");
-            //TODO: Validate token against cluster here
-            // Validation has to be done by calling the /api?timeout=32s used by kubectl to ensure token is valid for the cluster
+            // The token is stored without being checked against the cluster: a
+            // round-trip to `/api?timeout=32s` (what kubectl uses) would catch a
+            // bad token here instead of on first use. Tracked on the roadmap.
 
             // Insert credentials into config
             let _ = &self

@@ -1,0 +1,35 @@
+{{- if .Values.back.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: "{{ include "proxyauthk8s.back.name" . }}-pdb"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  {{- with .Values.back.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ . }}
+  {{- end }}
+  {{- with .Values.back.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: "{{ include "proxyauthk8s.back.name" . }}"
+{{- end }}
+---
+{{- if .Values.front.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: "{{ include "proxyauthk8s.front.name" . }}-pdb"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  {{- with .Values.front.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ . }}
+  {{- end }}
+  {{- with .Values.front.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: "{{ include "proxyauthk8s.front.name" . }}"
+{{- end }}

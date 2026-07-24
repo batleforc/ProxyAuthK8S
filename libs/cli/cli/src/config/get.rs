@@ -19,7 +19,7 @@ impl ConfigCommands {
             let mut outputs: Vec<GetOutput> = Vec::new();
 
             if *list {
-                for (_name, server_config) in ctx.config.servers.iter() {
+                for server_config in ctx.config.servers.values() {
                     let output = GetOutput::new_from_servers(
                         server_config.clone(),
                         default_server_name.clone(),

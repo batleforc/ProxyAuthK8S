@@ -1,5 +1,5 @@
 {{- if .Values.otel.enabled -}}
-apiVersion: v1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ .Release.Name }}-otel-collector
@@ -16,10 +16,12 @@ spec:
       labels:
         app: {{ .Release.Name }}-otel-collector
     spec:
+      {{- include "proxyauthk8s.podSecurityContext" . | nindent 6 }}
       containers:
         - name: otel-collector
           image: "{{ .Values.otel.image.repository }}:{{ .Values.otel.image.tag }}"
           imagePullPolicy: {{ .Values.otel.image.pullPolicy }}
+          {{- include "proxyauthk8s.containerSecurityContext" . | nindent 10 }}
           ports:
             - containerPort: 4317
               name: otlp-grpc

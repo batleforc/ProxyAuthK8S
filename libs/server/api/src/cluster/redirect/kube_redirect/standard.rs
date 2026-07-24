@@ -3,12 +3,53 @@ use common::State;
 use crd::ProxyKubeApi;
 use futures_util::stream::StreamExt;
 use tokio::sync::mpsc;
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, error, info, instrument};
+use tokio_stream::wrappers::ReceiverStream;
+use tracing::{debug, error, info, instrument, warn};
 
-use super::tls::build_tls_config;
+use super::upstream::{apply_forward_headers, upstream_client};
+use crate::cluster::redirect::audit::AuditContext;
+use crate::cluster::redirect::forwarded::is_hop_by_hop;
+use crate::helper::duration::extract_timeout_from_query;
+use crate::model::user::User;
 
 const DEBUG_BODY_LOG_LIMIT: usize = 8 * 1024;
+
+/// Upper bound on the amount of memory a single request may buffer when debug
+/// logging is enabled. Beyond that the body is streamed through untouched and
+/// simply not logged, so an oversized payload can never balloon the worker.
+const DEFAULT_DEBUG_BODY_MAX_BYTES: usize = 10 * 1024 * 1024;
+
+/// Number of in-flight chunks between the client payload reader and the
+/// upstream request body. Bounded so a slow upstream applies back-pressure to
+/// the client instead of accumulating the whole body in memory.
+const DEFAULT_STREAM_CHANNEL_CAPACITY: usize = 32;
+
+fn env_usize(key: &str, default: usize) -> usize {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+fn debug_body_max_bytes() -> usize {
+    env_usize("PROXY_DEBUG_BODY_MAX_BYTES", DEFAULT_DEBUG_BODY_MAX_BYTES)
+}
+
+fn stream_channel_capacity() -> usize {
+    env_usize(
+        "PROXY_STREAM_CHANNEL_CAPACITY",
+        DEFAULT_STREAM_CHANNEL_CAPACITY,
+    )
+}
+
+/// Content-Length of a request/response, when the peer announced one.
+fn announced_content_length(headers: &http::header::HeaderMap) -> Option<usize> {
+    headers
+        .get(http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+}
 
 fn body_for_debug_log(body: &[u8]) -> String {
     if body.len() <= DEBUG_BODY_LOG_LIMIT {
@@ -22,7 +63,8 @@ fn body_for_debug_log(body: &[u8]) -> String {
     )
 }
 
-#[instrument(skip(req, data, payload))]
+#[allow(clippy::too_many_arguments)]
+#[instrument(skip(req, data, payload, user, audit))]
 pub(super) async fn standard_redirect(
     req: HttpRequest,
     data: web::Data<State>,
@@ -31,6 +73,8 @@ pub(super) async fn standard_redirect(
     peer_addr: Option<PeerAddr>,
     proxy: ProxyKubeApi,
     url_to_call: String,
+    user: Option<User>,
+    audit: AuditContext,
 ) -> HttpResponse {
     let is_debug_enabled = tracing::enabled!(tracing::Level::DEBUG);
     // watch=true/1 and follow=true/1 produce infinite streaming responses; treat them specially
@@ -39,16 +83,51 @@ pub(super) async fn standard_redirect(
         .split('&')
         .any(|p| p.starts_with("watch=") || p.starts_with("follow="));
 
-    let request_body = if is_debug_enabled {
+    let debug_body_limit = debug_body_max_bytes();
+    // Only buffer the request body for debug logging when the client announced a
+    // size we are willing to hold in memory. Unknown or oversized bodies are
+    // streamed through as usual and simply not logged.
+    let buffer_request_body = is_debug_enabled
+        && match announced_content_length(req.headers()) {
+            Some(len) => len <= debug_body_limit,
+            None => false,
+        };
+
+    if is_debug_enabled && !buffer_request_body {
+        debug!(
+            debug_body_limit,
+            "request body not buffered for debug logging (unknown or oversized content-length)"
+        );
+    }
+
+    let request_body = if buffer_request_body {
         let mut body = web::BytesMut::new();
+        let mut overflowed = false;
         while let Some(item) = payload.next().await {
             match item {
-                Ok(chunk) => body.extend_from_slice(&chunk),
+                Ok(chunk) => {
+                    if body.len() + chunk.len() > debug_body_limit {
+                        overflowed = true;
+                        break;
+                    }
+                    body.extend_from_slice(&chunk);
+                }
                 Err(e) => {
                     error!(%e, "error reading request payload");
                     break;
                 }
             }
+        }
+
+        if overflowed {
+            // The body was larger than the announced content-length; it has been
+            // partially consumed and can no longer be forwarded faithfully.
+            warn!(
+                debug_body_limit,
+                "request body exceeded the debug buffering limit"
+            );
+            return HttpResponse::PayloadTooLarge()
+                .body("request body exceeds the configured proxy buffering limit");
         }
 
         let body = body.freeze();
@@ -63,15 +142,17 @@ pub(super) async fn standard_redirect(
     };
 
     let request_stream = if request_body.is_none() {
-        // Stream the request payload into a tokio unbounded channel as raw bytes.
+        // Stream the request payload into a bounded tokio channel as raw bytes.
+        // The bound is what makes a slow upstream back-pressure the client
+        // instead of letting the whole body pile up in memory.
         // Only forward successful chunks; on a payload error log and stop.
-        let (tx, rx) = mpsc::unbounded_channel::<web::Bytes>();
+        let (tx, rx) = mpsc::channel::<web::Bytes>(stream_channel_capacity());
         actix_web::rt::spawn(async move {
             while let Some(item) = payload.next().await {
                 match item {
                     Ok(chunk) => {
                         // send bytes, but stop if receiver was dropped
-                        if tx.send(chunk).is_err() {
+                        if tx.send(chunk).await.is_err() {
                             break;
                         }
                     }
@@ -89,96 +170,71 @@ pub(super) async fn standard_redirect(
         None
     };
 
-    let tls_config = match build_tls_config(&proxy, &data).await {
-        Ok(config) => config,
+    let client = match upstream_client(&proxy, &data).await {
+        Ok(client) => client,
         Err(err) => {
-            error!(err, " couldn't build TLS config");
+            error!(err, " couldn't build the upstream client");
             return HttpResponse::ServiceUnavailable().body(err);
         }
     };
 
-    let client = match reqwest::ClientBuilder::new()
-        .use_preconfigured_tls(tls_config)
-        .build()
-    {
-        Ok(c) => c,
+    let upstream_method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
+        Ok(m) => m,
         Err(err) => {
-            error!(error = %err, " couldn't get client");
-            return HttpResponse::ServiceUnavailable().body(err.to_string());
+            error!(error = %err, method = %method.as_str(), "unsupported HTTP method");
+            audit.emit(405);
+            return HttpResponse::MethodNotAllowed().body("unsupported HTTP method");
         }
     };
 
-    let mut forwarded_req = client.request(
-        reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap(),
-        url_to_call,
-    );
+    let mut forwarded_req = client.request(upstream_method, url_to_call);
 
-    forwarded_req = if let Some(request_body) = request_body {
-        forwarded_req.body(request_body)
-    } else {
-        // Convert the UnboundedReceiverStream<Bytes> into a stream of Result<Bytes, _>
+    forwarded_req = match (request_body, request_stream) {
+        (Some(request_body), _) => forwarded_req.body(request_body),
+        // Convert the ReceiverStream<Bytes> into a stream of Result<Bytes, _>
         // which reqwest::Body::wrap_stream expects.
-        forwarded_req.body(reqwest::Body::wrap_stream(
-            UnboundedReceiverStream::new(request_stream.unwrap())
-                .map(Ok::<web::Bytes, std::io::Error>),
-        ))
+        (None, Some(request_stream)) => forwarded_req.body(reqwest::Body::wrap_stream(
+            ReceiverStream::new(request_stream).map(Ok::<web::Bytes, std::io::Error>),
+        )),
+        // Unreachable: exactly one of the two is always set above.
+        (None, None) => forwarded_req,
     };
 
-    for (h, v) in req.headers().iter() {
-        let name = h.as_str();
-        // Skip headers that must not be forwarded or are managed by reqwest when streaming
-        if name.eq_ignore_ascii_case("connection")
-            || name.eq_ignore_ascii_case("upgrade")
-            || name.eq_ignore_ascii_case("transfer-encoding")
-            || name.eq_ignore_ascii_case("content-length")
-            || name.eq_ignore_ascii_case("host")
-        {
-            continue;
-        }
+    forwarded_req = apply_forward_headers(forwarded_req, &req, peer_addr, user.as_ref());
 
-        // Only forward header values that are valid UTF-8 strings. If not valid, skip them.
-        if let Ok(value_str) = v.to_str() {
-            forwarded_req = forwarded_req.header(name, value_str);
-        } else {
-            // non-utf8 header; skip it to avoid conversion issues
-            info!(header = %name, "skipping non-utf8 header");
-        }
-    }
-
-    if let Some(PeerAddr(addr)) = peer_addr {
-        forwarded_req = forwarded_req.header("x-forwarded-for", addr.ip().to_string());
-    }
-
-    if req.query_string().contains("timeout=") {
-        if let Some(timeout_val) = req.query_string().split('&').find_map(|param| {
-            if param.starts_with("timeout=") {
-                Some(param.replace("timeout=", ""))
-            } else {
-                None
-            }
-        }) {
-            if let Ok(timeout_secs) = timeout_val.parse::<u64>() {
-                forwarded_req =
-                    forwarded_req.timeout(std::time::Duration::from_secs(timeout_secs + 1));
-            }
-        }
+    // Kubernetes sends durations in Go format (`timeout=32s`, `1m30s`), so the
+    // value has to be parsed as such and not as a bare number of seconds.
+    // One extra second of slack so the upstream timeout fires first.
+    if let Some(timeout) = extract_timeout_from_query(req.query_string()) {
+        forwarded_req = forwarded_req.timeout(timeout + std::time::Duration::from_secs(1));
     }
 
     let res = match forwarded_req.send().await {
         Ok(res) => res,
         Err(e) => {
             tracing::error!(error = %e, " error forwarding request to cluster");
+            audit.emit(503);
             return HttpResponse::ServiceUnavailable().body(e.to_string());
         }
     };
 
     let response_status = res.status();
+    // Emitted as soon as the upstream answered: a watch stream stays open for
+    // minutes and waiting for it to end would delay the audit record forever.
+    audit.emit(response_status.as_u16());
     let response_headers = res.headers().clone();
 
     tracing::Span::current().record("http.response.status_code", response_status.as_u16());
-    let mut client_resp = HttpResponse::build(
-        actix_web::http::StatusCode::from_u16(response_status.as_u16()).unwrap(),
-    );
+    // An upstream status we cannot represent is a broken gateway, not a reason
+    // to panic the worker.
+    let client_status = match actix_web::http::StatusCode::from_u16(response_status.as_u16()) {
+        Ok(status) => status,
+        Err(err) => {
+            error!(error = %err, upstream_status = response_status.as_u16(), "invalid upstream status code");
+            actix_web::http::StatusCode::BAD_GATEWAY
+        }
+    };
+    let mut client_resp = HttpResponse::build(client_status);
 
     // Track whether the upstream already sent a Content-Encoding so we know whether to
     // add "identity" ourselves to stop actix-web's Compress middleware from buffering the stream.
@@ -189,24 +245,29 @@ pub(super) async fn standard_redirect(
             has_content_encoding = true;
         }
         // Skip headers that must not be forwarded or are managed by reqwest when streaming
-        if name.eq_ignore_ascii_case("connection")
-            || name.eq_ignore_ascii_case("upgrade")
-            || name.eq_ignore_ascii_case("transfer-encoding")
-            || name.eq_ignore_ascii_case("content-length")
-            || name.eq_ignore_ascii_case("host")
-        {
+        if is_hop_by_hop(name) {
             continue;
         }
 
         // Only forward header values that are valid UTF-8 strings. If not valid, skip them.
-        if let Ok(value_str) = header_value.to_str() {
-            client_resp.insert_header((
-                actix_web::http::header::HeaderName::from_bytes(name.as_ref()).unwrap(),
-                actix_web::http::header::HeaderValue::from_bytes(value_str.as_ref()).unwrap(),
-            ));
-        } else {
+        let Ok(value_str) = header_value.to_str() else {
             // non-utf8 header; skip it to avoid conversion issues
             info!(header = %name, "skipping non-utf8 header");
+            continue;
+        };
+
+        // An upstream may send a header actix cannot represent; drop it rather
+        // than panicking the worker.
+        match (
+            actix_web::http::header::HeaderName::from_bytes(name.as_bytes()),
+            actix_web::http::header::HeaderValue::from_bytes(value_str.as_bytes()),
+        ) {
+            (Ok(header_name), Ok(header_value)) => {
+                client_resp.insert_header((header_name, header_value));
+            }
+            _ => {
+                warn!(header = %name, "skipping response header actix cannot represent");
+            }
         }
     }
 
@@ -218,7 +279,16 @@ pub(super) async fn standard_redirect(
         client_resp.insert_header(("content-encoding", "identity"));
     }
 
-    if is_debug_enabled && !is_streaming_request {
+    // Same rule as for the request: only hold the response in memory when the
+    // upstream announced a size we accept to buffer.
+    let buffer_response_body = is_debug_enabled
+        && !is_streaming_request
+        && match res.content_length() {
+            Some(len) => len <= debug_body_limit as u64,
+            None => false,
+        };
+
+    if buffer_response_body {
         match res.bytes().await {
             Ok(response_body) => {
                 debug!(
@@ -235,7 +305,10 @@ pub(super) async fn standard_redirect(
         }
     } else {
         if is_debug_enabled {
-            debug!("streaming response (watch/follow), skipping body debug log");
+            debug!(
+                is_streaming_request,
+                debug_body_limit, "skipping response body debug log, streaming it through instead"
+            );
         }
         // Copy the response body stream directly to the client response
         client_resp.streaming(res.bytes_stream())

@@ -18,6 +18,12 @@ use crate::error::Result;
 pub mod cleanup;
 pub mod reconcile;
 
+/// Redis key prefix under which cluster configurations are cached.
+///
+/// Must match [`ProxyKubeApi::to_identifier`], which produces
+/// `proxyk8sauth:{namespace}/{name}`.
+pub const REDIS_PREFIX: &str = "proxyk8sauth";
+
 #[instrument(skip(ctx))]
 pub fn error_policy_proxy_kube_api(
     proxy: Arc<ProxyKubeApi>,

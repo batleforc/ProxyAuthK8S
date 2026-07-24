@@ -17,7 +17,14 @@ use crate::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+/// Mirrors [`AuthenticationConfiguration::validate`] as a CEL admission rule, so
+/// an invalid CR is refused by the apiserver instead of being accepted and then
+/// failing in the resource status.
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[schemars(extend("x-kubernetes-validations" = [serde_json::json!({
+    "rule": "self.validate_against != 'OidcProvider' || self.oidc_provider.enabled",
+    "message": "validate_against is set to OidcProvider but the OIDC provider is not enabled",
+})]))]
 pub struct AuthenticationConfiguration {
     #[serde(default = "default_empty_array::<JWTAuthenticator>")]
     pub jwt: Vec<JWTAuthenticator>,
@@ -45,7 +52,6 @@ impl AuthenticationConfiguration {
                 );
             }
         }
-        // TODO : validate that if validate_against is JwtAuthenticators, then at least one JWT authenticator is configured and enabled
         Ok(())
     }
 }

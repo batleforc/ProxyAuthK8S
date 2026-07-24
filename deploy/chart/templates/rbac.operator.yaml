@@ -1,5 +1,6 @@
 # Role for Operator
 ---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: "{{ .Release.Name }}-proxyauthk8s-operator-role"
@@ -49,6 +50,7 @@ rules:
       - watch
 ---
 # RoleBinding for Operator Service Account
+apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: "{{ .Release.Name }}-proxyauthk8s-operator-rolebinding"

@@ -57,7 +57,7 @@ impl CliServerConfig {
                 debug!("Keyring entry creation error: {}", err);
                 return Err(ProxyAuthK8sError::KeyringReadError(format!(
                     "Failed to create keyring entry for server URL: {}",
-                    &self.url
+                    self.url
                 )));
             }
         };
@@ -67,7 +67,7 @@ impl CliServerConfig {
                 debug!("Keyring read error: {}", err);
                 Err(ProxyAuthK8sError::KeyringReadError(format!(
                     "Failed to read token from keyring for server URL: {}",
-                    &self.url
+                    self.url
                 )))
             }
         }
@@ -80,7 +80,7 @@ impl CliServerConfig {
                 debug!("Keyring entry creation error: {}", err);
                 return Err(ProxyAuthK8sError::KeyringWriteError(format!(
                     "Failed to create keyring entry for server URL: {}",
-                    &self.url
+                    self.url
                 )));
             }
         };
@@ -90,7 +90,7 @@ impl CliServerConfig {
                 debug!("Keyring write error: {}", err);
                 Err(ProxyAuthK8sError::KeyringWriteError(format!(
                     "Failed to write token to keyring for server URL: {}",
-                    &self.url
+                    self.url
                 )))
             }
         }
@@ -103,7 +103,7 @@ impl CliServerConfig {
                 debug!("Keyring entry creation error: {}", err);
                 return Err(ProxyAuthK8sError::KeyringDeleteError(format!(
                     "Failed to create keyring entry for server URL: {}",
-                    &self.url
+                    self.url
                 )));
             }
         };
@@ -113,7 +113,7 @@ impl CliServerConfig {
                 debug!("Keyring delete error: {}", err);
                 Err(ProxyAuthK8sError::KeyringDeleteError(format!(
                     "Failed to delete token from keyring for server URL: {}",
-                    &self.url
+                    self.url
                 )))
             }
         }
@@ -150,13 +150,13 @@ impl CliServerConfig {
             .clusters
             .entry(key.clone())
             .or_insert(CliClusterConfig { token_exist: true });
-        let entry = match Entry::new("proxyauthk8s", &format!("{}::{}", &self.url, &key)) {
+        let entry = match Entry::new("proxyauthk8s", &format!("{}::{}", self.url, key)) {
             Ok(entry) => entry,
             Err(err) => {
                 debug!("Keyring entry creation error: {}", err);
                 return Err(ProxyAuthK8sError::KeyringWriteError(format!(
                     "Failed to create keyring entry for server URL: {}",
-                    &self.url
+                    self.url
                 )));
             }
         };
@@ -166,7 +166,7 @@ impl CliServerConfig {
                 debug!("Keyring write error: {}", err);
                 Err(ProxyAuthK8sError::KeyringWriteError(format!(
                     "Failed to write token to keyring for server URL: {}",
-                    &self.url
+                    self.url
                 )))
             }
         }
@@ -178,13 +178,13 @@ impl CliServerConfig {
         cluster: String,
     ) -> Result<String, ProxyAuthK8sError> {
         let key = format!("{}/{}", ns, cluster);
-        let entry = match Entry::new("proxyauthk8s", &format!("{}::{}", &self.url, &key)) {
+        let entry = match Entry::new("proxyauthk8s", &format!("{}::{}", self.url, key)) {
             Ok(entry) => entry,
             Err(err) => {
                 debug!("Keyring entry creation error: {}", err);
                 return Err(ProxyAuthK8sError::KeyringReadError(format!(
                     "Failed to create keyring entry for server URL: {}",
-                    &self.url
+                    self.url
                 )));
             }
         };
@@ -194,7 +194,7 @@ impl CliServerConfig {
                 debug!("Keyring read error: {}", err);
                 Err(ProxyAuthK8sError::KeyringReadError(format!(
                     "Failed to read token from keyring for server URL: {}",
-                    &self.url
+                    self.url
                 )))
             }
         }
@@ -206,13 +206,13 @@ impl CliServerConfig {
         cluster: String,
     ) -> Result<(), ProxyAuthK8sError> {
         let key = format!("{}/{}", ns, cluster);
-        let entry = match Entry::new("proxyauthk8s", &format!("{}::{}", &self.url, &key)) {
+        let entry = match Entry::new("proxyauthk8s", &format!("{}::{}", self.url, key)) {
             Ok(entry) => entry,
             Err(err) => {
                 debug!("Keyring entry creation error: {}", err);
                 return Err(ProxyAuthK8sError::KeyringDeleteError(format!(
                     "Failed to create keyring entry for server URL: {}",
-                    &self.url
+                    self.url
                 )));
             }
         };
@@ -222,7 +222,7 @@ impl CliServerConfig {
                 debug!("Keyring delete error: {}", err);
                 Err(ProxyAuthK8sError::KeyringDeleteError(format!(
                     "Failed to delete token from keyring for server URL: {}",
-                    &self.url
+                    self.url
                 )))
             }
         }

@@ -30,6 +30,11 @@ impl LoginToCallBackModel {
 
 impl Display for LoginToCallBackModel {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", serde_json::to_string(self).unwrap())
+        // Two plain `String` fields always serialize; treat a failure as a
+        // formatting error rather than panicking inside `Display`.
+        match serde_json::to_string(self) {
+            Ok(json) => write!(f, "{}", json),
+            Err(_) => Err(std::fmt::Error),
+        }
     }
 }

@@ -1,0 +1,113 @@
+---
+title: Plugin kubectl
+description: Utiliser ProxyAuthK8S depuis kubectl
+icon: Terminal
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Le plugin `kubectl proxyauth` est le pendant client de ProxyAuthK8S : il gère la connexion
+OIDC, stocke les identifiants dans le trousseau du système, et sert de *credential plugin*
+kubectl pour que `kubectl` parle à n'importe quel cluster exposé.
+
+## Installation
+
+### Via krew
+
+```bash
+kubectl krew install proxyauth
+```
+
+<Callout type="info">
+Le manifeste krew est généré à chaque tag et attaché à la release GitHub. Tant que le plugin
+n'est pas dans l'index officiel, l'installation se fait depuis l'archive de la release.
+</Callout>
+
+### Depuis une release
+
+```bash
+VERSION=v0.1.9
+curl -sSL -o kubectl-proxyauth.tar.gz \
+  "https://github.com/batleforc/proxyauthK8s/releases/download/${VERSION}/kubectl-proxyauth_${VERSION}_linux_amd64.tar.gz"
+tar xzf kubectl-proxyauth.tar.gz
+install -m 0755 kubectl-proxyauth ~/.local/bin/
+```
+
+Le binaire doit s'appeler `kubectl-proxyauth` et être dans le `PATH` : c'est ce qui permet à
+`kubectl` de l'exposer comme `kubectl proxyauth`.
+
+<Callout type="warn">
+Sur Linux, les identifiants sont stockés dans le trousseau via l'API Secret Service. Il faut
+donc un `gnome-keyring` ou un `KWallet` en cours d'exécution.
+</Callout>
+
+## Usage
+
+### Se connecter au serveur
+
+```bash
+kubectl proxyauth login --server https://proxyauthk8s.example.com
+```
+
+La connexion ouvre le navigateur sur le provider OIDC, puis récupère le jeton via le callback
+local (`localhost:18000/auth/callback`).
+
+### Lister les clusters visibles
+
+```bash
+kubectl proxyauth get clusters
+```
+
+Seuls les clusters dont `expose_via_dashboard` est activé **et** dont le groupe dashboard
+figure dans les groupes de l'utilisateur apparaissent ici.
+
+### Se connecter à un cluster
+
+```bash
+kubectl proxyauth login cluster default/mon-cluster
+```
+
+Cela écrit un contexte kubeconfig dont l'`exec` pointe sur le plugin : à chaque appel,
+`kubectl` lui demande un jeton frais.
+
+### Vérifier la configuration
+
+```bash
+kubectl proxyauth config get
+```
+
+## Le kubeconfig généré
+
+```yaml
+apiVersion: v1
+kind: Config
+clusters:
+  - name: mon-cluster
+    cluster:
+      server: https://proxyauthk8s.example.com/clusters/default/mon-cluster
+users:
+  - name: mon-cluster
+    user:
+      exec:
+        apiVersion: client.authentication.k8s.io/v1beta1
+        command: kubectl-proxyauth
+        args: ["get-token"]
+contexts:
+  - name: mon-cluster
+    context:
+      cluster: mon-cluster
+      user: mon-cluster
+```
+
+L'URL du serveur est celle du proxy, pas celle du cluster : c'est ProxyAuthK8S qui authentifie
+l'appel, applique les règles de sécurité, puis relaie vers l'apiserver.
+
+## Résolution de problèmes
+
+| Symptôme                                        | Cause probable                                                                 |
+| ----------------------------------------------- | ------------------------------------------------------------------------------ |
+| `401` sur toutes les requêtes                   | Jeton expiré : relancer `kubectl proxyauth login`                              |
+| `403` avec un message sur un groupe             | L'utilisateur n'est pas dans le `proxy_group` du cluster                        |
+| `403` avec un message sur un chemin             | Le chemin n'est pas dans `security_config.allowed_resources`                   |
+| `429` avec un en-tête `Retry-After`             | Rate limiting, ou bannissement après des échecs d'authentification répétés      |
+| Le cluster n'apparaît pas dans `get clusters`   | `expose_via_dashboard` est à `false` (défaut) ou le groupe dashboard ne correspond pas |

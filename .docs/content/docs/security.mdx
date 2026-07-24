@@ -1,0 +1,195 @@
+---
+title: Sécurité du proxy
+description: Autorisation, filtrage des ressources, quotas et journal d'audit
+icon: ShieldCheck
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Ce que ProxyAuthK8S applique, dans l'ordre, sur chaque requête proxifiée.
+
+## 1. Bannissement (fail2login)
+
+Vérifié avant toute chose, à partir de l'adresse du client — à ce stade aucun utilisateur
+n'est encore résolu.
+
+```yaml
+security_config:
+  enabled: true
+  fail2login_equal_ban:
+    enabled: true
+    max_failed_logins: 5
+    ban_duration: 300 # secondes ; 0 = bannissement permanent
+    exponential_backoff: false
+```
+
+Chaque échec d'authentification incrémente un compteur Redis (fenêtre d'une heure). Au seuil,
+l'adresse est bannie et reçoit un `429` avec un en-tête `Retry-After`. Une authentification
+réussie remet le compteur à zéro.
+
+Avec `exponential_backoff`, chaque échec au-delà du seuil double la durée, plafonnée pour
+qu'un compteur ancien ne produise pas un bannissement quasi permanent par accident.
+
+<Callout type="info">
+Les compteurs vivent dans Redis, pas en mémoire : sinon un client multiplierait son budget par
+le nombre de réplicas, et un bannissement ne s'appliquerait qu'au pod qui a vu les échecs.
+</Callout>
+
+## 2. Authentification
+
+Selon `auth_config.validate_against` :
+
+- `OidcProvider` : le jeton est présenté au endpoint `userinfo` du provider ;
+- `Kubernetes` : le jeton est validé par un `SelfSubjectReview` sur le cluster cible.
+
+`auth_config.disable_validation: true` désactive complètement cette étape — le proxy relaie
+alors sans savoir qui appelle.
+
+## 3. Autorisation par cluster
+
+```yaml
+proxy_group: operators # groupe requis pour utiliser ce cluster
+dashboard_group: viewers # groupe requis pour le voir dans le dashboard
+expose_via_dashboard: true
+```
+
+L'ordre de résolution :
+
+1. `proxy_group` explicite → c'est lui qui s'applique ;
+2. sinon, si `expose_via_dashboard` est vrai → le `dashboard_group` s'applique aussi au proxy ;
+3. sinon → aucune restriction de groupe.
+
+<Callout type="warn">
+Un cluster qui exige un groupe alors que la validation des jetons est désactivée renvoie
+**403** systématiquement. Le groupe ne pourrait jamais être vérifié : refuser vaut mieux que
+faire semblant.
+</Callout>
+
+## 4. Liste des ressources autorisées
+
+```yaml
+security_config:
+  enabled: true
+  allowed_resources:
+    - Path:
+        path: /api/v1/namespaces/{{group}}/pods/**
+        parametised: true
+    - Path:
+        path: /api/v1/namespaces/dev/configmaps
+```
+
+Une liste vide (le défaut) autorise tout. Sinon la requête doit correspondre à au moins une
+règle, sans quoi elle reçoit un `403` avec un objet `Status` Kubernetes — ce que `kubectl` sait
+afficher lisiblement.
+
+**Sémantique des motifs**, uniquement quand `parametised: true` :
+
+| Motif           | Correspond à                                                             |
+| --------------- | ------------------------------------------------------------------------ |
+| `*`             | n'importe quoi **dans un seul segment** (`dev-*` → `dev-team`, pas `dev/x`) |
+| `**`            | n'importe quel nombre de segments restants (nécessaire pour les sous-ressources) |
+| `{{username}}`  | le nom d'utilisateur résolu                                              |
+| `{{group}}`     | chacun des groupes de l'utilisateur, testés un par un                    |
+
+Sans `parametised`, la comparaison est exacte : un `*` y est un caractère littéral.
+
+<Callout type="warn">
+`kubectl logs` frappe `/api/v1/namespaces/x/pods/y/log`. Une règle `/api/v1/namespaces/*/pods`
+ne l'autorise donc **pas** : il faut `/api/v1/namespaces/*/pods/**`.
+</Callout>
+
+Ces règles sont aussi appliquées à l'admission par des règles CEL sur le CRD : un chemin
+relatif ou un placeholder inconnu est refusé par l'apiserver, pas seulement au reconcile.
+
+<Callout type="warn">
+Le champ s'appelait `allowed_ressources` (avec la faute). L'ancienne orthographe reste **un
+champ à part entière du schéma**, pas un simple alias : l'apiserver supprime les champs qu'il
+ne connaît pas, donc un alias aurait effacé silencieusement la configuration de sécurité des
+ressources existantes. Les deux listes sont fusionnées, et validées à l'identique.
+
+Migration : renommez le champ dans vos `ProxyKubeApi`, le champ déprécié disparaîtra à la
+prochaine version majeure.
+</Callout>
+
+## 5. Quotas
+
+```yaml
+security_config:
+  enabled: true
+  rate_limiting:
+    enabled: true
+    max_requests_per_minute: 60
+  per_user_group_rate_limiting:
+    - group: power-users
+      max_requests_per_minute: 600
+    - group: admins
+      max_requests_per_minute: 0 # 0 = illimité
+```
+
+Le décompte se fait par utilisateur une fois celui-ci résolu (sinon par adresse), pour qu'un
+NAT partagé ne fasse pas partager un budget. Une entrée de groupe l'emporte sur le réglage
+global, et quand un utilisateur appartient à plusieurs groupes configurés, **le plus permissif
+gagne** : appartenir à un groupe de plus ne doit jamais restreindre.
+
+## En-têtes transmis
+
+Le proxy est seul maître de trois en-têtes, systématiquement retirés de la requête cliente
+puis reconstruits :
+
+| En-tête               | Contenu                                                    |
+| --------------------- | ---------------------------------------------------------- |
+| `x-forwarded-for`     | la chaîne reçue, à laquelle l'adresse du pair est ajoutée   |
+| `x-forwarded-user`    | le nom de l'utilisateur authentifié                         |
+| `x-forwarded-groups`  | ses groupes, séparés par des virgules                       |
+
+<Callout type="warn">
+Sans ce retrait, n'importe quel client pourrait envoyer `x-forwarded-user: cluster-admin` et
+usurper une identité auprès de tout ce qui se trouve derrière le proxy.
+</Callout>
+
+## Journal d'audit
+
+Chaque requête proxifiée émet un évènement `tracing` sur la cible `audit`, qui traverse le
+pipeline OpenTelemetry existant :
+
+| Champ             | Contenu                                    |
+| ----------------- | ------------------------------------------ |
+| `user`            | utilisateur résolu, ou `-`                 |
+| `groups`          | ses groupes                                |
+| `ns`, `cluster`   | le cluster visé                            |
+| `verb`            | la méthode HTTP                            |
+| `path`            | le chemin transmis à l'apiserver           |
+| `response_status` | le code renvoyé                            |
+| `latency_ms`      | le temps jusqu'à la réponse amont          |
+
+L'évènement est émis dès que l'amont répond, pas à la fin du flux : un `watch` reste ouvert
+plusieurs minutes et attendre sa fin retarderait l'enregistrement d'autant.
+
+Pour ne router que l'audit :
+
+```
+RUST_LOG=warn,audit=info
+```
+
+## mTLS vers le cluster cible
+
+```yaml
+cert:
+  Secret: { name: cluster-ca, key: ca.crt }
+client_cert:
+  cert:
+    Secret: { name: proxy-client-cert, key: tls.crt }
+  key:
+    Secret: { name: proxy-client-cert, key: tls.key }
+```
+
+Le certificat client est présenté à l'apiserver sur le chemin standard comme sur les
+connexions *upgrade* (`exec`, `attach`, `port-forward`).
+
+## Limites de mémoire
+
+| Variable                        | Défaut | Effet                                                        |
+| ------------------------------- | ------ | ------------------------------------------------------------ |
+| `PROXY_DEBUG_BODY_MAX_BYTES`    | 10 MiB | Au-delà, les corps ne sont plus mis en tampon pour le log debug |
+| `PROXY_STREAM_CHANNEL_CAPACITY` | 32     | Chunks en vol entre le client et l'amont                     |
+| `PROXY_VIRTUAL_MAX_BODY_BYTES`  | 32 MiB | Plafond d'une réponse d'API virtuelle traduite               |

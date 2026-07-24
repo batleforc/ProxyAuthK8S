@@ -76,7 +76,9 @@ back:
     source: env # options: secret, env
     secretName: proxyauthk8s-back-redis
     value:
-      url: redis://:proxyauthk8spassword@redis:6379
+      # No default: a credential shipped in a chart is a credential in every
+      # cluster that installs it. Set this, or switch source to "secret".
+      url: ""
   env: []
   resources:
     limits:
@@ -85,9 +87,20 @@ back:
     requests:
       cpu: 100m
       memory: 128Mi
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+    # maxUnavailable: 1   # mutually exclusive with minAvailable
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
 
 front:
   replicas: 1
+  port: 4200
   resources:
     limits:
       cpu: 100m
@@ -96,3 +109,63 @@ front:
       cpu: 50m
       memory: 128Mi
   env: []
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
+# Pod and container security contexts, applied to back, front and otel.
+# Every image must therefore run as a non-root user and tolerate a read-only
+# root filesystem; override per component if one of yours does not.
+securityContext:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    privileged: false
+    capabilities:
+      drop:
+        - ALL
+
+networkPolicy:
+  # Ingress is restricted to the exposure layer, egress to what the backend
+  # genuinely needs: DNS, Redis, the OIDC providers and the target clusters.
+  enabled: false
+  # Selectors allowed to reach the front and back services. Empty means "the
+  # whole cluster", which defeats the purpose: set it to your ingress
+  # controller's namespace.
+  ingressFrom: []
+  #  - namespaceSelector:
+  #      matchLabels:
+  #        kubernetes.io/metadata.name: ingress-nginx
+  # Extra egress rules, appended to the built-in DNS rule.
+  # The backend has to reach every target cluster's apiserver, which the chart
+  # cannot know: describe them here.
+  egress:
+    # Allow reaching anything outside the cluster (target apiservers, OIDC
+    # providers). Narrow this down to your own CIDRs in production.
+    allowExternal: true
+    # CIDRs excluded from the external rule; the defaults are the private
+    # ranges, so in-cluster traffic still has to be allowed explicitly.
+    externalExcept:
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+    extra: []
+    #  - to:
+    #      - podSelector:
+    #          matchLabels:
+    #            app.kubernetes.io/name: redis
+    #    ports:
+    #      - port: 6379
+    #        protocol: TCP
