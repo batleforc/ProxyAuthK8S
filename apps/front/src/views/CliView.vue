@@ -144,8 +144,8 @@ const usageExamples = {
     examples: [
       {
         title: 'Se connecter à l\'application',
-        command: 'kubectl proxyauth login',
-        description: 'Authentification globale via le navigateur'
+        command: 'kubectl proxyauth login --server-url <url> --token <jeton>',
+        description: 'Authentification au serveur avec un jeton (demandé si absent)'
       },
       {
         title: 'Se connecter à un cluster spécifique',

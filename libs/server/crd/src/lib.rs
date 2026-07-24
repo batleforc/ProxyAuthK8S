@@ -265,7 +265,13 @@ impl ProxyKubeApi {
             );
         }
         if let Some(kubectl_redirect) = redirect_kubectl {
-            return format!("{}/auth/callback/{}", kubectl_redirect, self.to_path());
+            // The `x-kubectl-callback` header is validated to end in `/`; trim it
+            // so the registered redirect URI is a clean single-slash path.
+            return format!(
+                "{}/auth/callback/{}",
+                kubectl_redirect.trim_end_matches('/'),
+                self.to_path()
+            );
         }
         format!(
             "{}/clusters/{}/auth/callback",

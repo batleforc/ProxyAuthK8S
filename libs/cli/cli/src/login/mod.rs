@@ -3,6 +3,7 @@ use std::io::{self, Write};
 use tracing::{debug, error, info};
 
 pub mod get_token;
+mod sso;
 
 use crate::{
     cli_config::cli_server_config::CliServerConfig, ctx::CliCtx, error::ProxyAuthK8sError,
@@ -103,7 +104,32 @@ impl CliCtx {
 
         let token = match token {
             Some(token) => Some(token),
-            None if is_sso_enabled => None,
+            None if is_sso_enabled => {
+                info!(
+                    "Cluster '{}' has SSO enabled; starting interactive browser login.",
+                    cluster
+                );
+                // `/auth/login` is authenticated: reuse the stored server token.
+                let base_config = match server_config.get_base_configuration() {
+                    Ok(config) => config,
+                    Err(e) => {
+                        error!(
+                            "Cannot start SSO login (are you logged in to the server?): {}",
+                            e
+                        );
+                        return;
+                    }
+                };
+                match Self::sso_cluster_login(&base_config, &namespace, &cluster).await {
+                    // A cluster login stores the id_token (see the front's
+                    // ClusterCallbackView).
+                    Ok(id_token) => Some(id_token),
+                    Err(e) => {
+                        error!("{}", e);
+                        return;
+                    }
+                }
+            }
             None => Self::prompt_for_token("Cluster token not provided. Enter cluster token: "),
         };
 
@@ -125,14 +151,6 @@ impl CliCtx {
                 Err(e) => error!("Failed to update config file: {}", e),
             };
             info!("Login to cluster {} successful.", cluster);
-        } else if is_sso_enabled {
-            info!(
-                "Cluster '{}' has SSO enabled. Token prompt is skipped for SSO clusters.",
-                cluster
-            );
-            info!(
-                "Interactive SSO login is not implemented yet. Please use --token if your flow requires a cluster token."
-            );
         } else {
             error!("No token provided. Cluster login requires a token.");
         }

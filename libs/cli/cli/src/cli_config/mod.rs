@@ -68,7 +68,7 @@ impl CliConfig {
                 e
             ))
         })?;
-        std::fs::write(path.clone(), yaml_str).map_err(|e| {
+        crate::helper::secure_write(path.clone(), &yaml_str).map_err(|e| {
             ProxyAuthK8sError::KubeconfigWriteError(format!(
                 "Failed to write CLI config file at {}: {}",
                 path.to_string_lossy(),

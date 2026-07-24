@@ -43,8 +43,8 @@ impl TryFrom<super::Cli> for CliCtx {
         .ok_or(ProxyAuthK8sError::KubeconfigPathCouldNotBeCalculated)?;
 
         if !kubeconfig_path.exists() {
-            // If the kubeconfig file does not exist, create an empty one.
-            fs::write(&kubeconfig_path, "").map_err(|e| {
+            // If the kubeconfig file does not exist, create an empty one (0600).
+            crate::helper::secure_write(&kubeconfig_path, "").map_err(|e| {
                 ProxyAuthK8sError::KubeconfigWriteError(format!(
                     "Failed to create kubeconfig file at {}: {}",
                     kubeconfig_path.to_string_lossy(),
@@ -136,7 +136,7 @@ impl CliCtx {
     pub fn write_kubeconfig(&self) -> Result<(), ProxyAuthK8sError> {
         let yaml_content = serde_yaml::to_string(&self.kubeconfig)
             .map_err(|e| ProxyAuthK8sError::YamlSerializeError(e.to_string()))?;
-        fs::write(&self.kubeconfig_path, yaml_content)
+        crate::helper::secure_write(&self.kubeconfig_path, &yaml_content)
             .map_err(|e| ProxyAuthK8sError::KubeconfigWriteError(e.to_string()))
     }
 

@@ -33,6 +33,8 @@ pub enum ProxyAuthK8sError {
     RemoteServerError(String),
     #[error("ERR000014: Unauthenticated: {0}")]
     Unauthenticated(String),
+    #[error("ERR000015: Interactive SSO login failed: {0}")]
+    SsoLoginError(String),
 }
 
 impl From<CliConfigError> for ProxyAuthK8sError {

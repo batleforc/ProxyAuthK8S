@@ -14,7 +14,9 @@ pub mod context;
 pub mod ctx;
 pub mod error;
 pub mod get;
+pub mod helper;
 pub mod login;
+pub mod logout;
 
 /// Kubectl ProxyAuth CLI
 #[derive(Parser, Debug, Clone)]
@@ -104,10 +106,10 @@ pub enum Commands {
         /// Cluster name to logout from
         cluster_name: Option<String>,
     },
-    /// Clear cached authentication tokens
+    /// Manage cached authentication tokens
     Cache {
-        /// Clear all cached tokens
-        clear: bool,
+        #[command(subcommand)]
+        command: CacheCommands,
     },
     /// Retrieve the current authentication token for a specific cluster
     GetToken {
@@ -132,6 +134,12 @@ pub enum Commands {
     },
 }
 
+#[derive(Subcommand, Debug, Clone)]
+pub enum CacheCommands {
+    /// Clear all cached authentication tokens
+    Clear,
+}
+
 impl Cli {
     pub async fn run_cli(&mut self, mut ctx: CliCtx) {
         // Match and execute the appropriate command
@@ -153,15 +161,15 @@ impl Cli {
                 ctx.handle_login(cluster_name.clone(), token.clone()).await;
             }
             Some(Commands::Logout { cluster_name }) => {
-                // Not yet implemented: warn loudly rather than silently succeed,
-                // so the user does not believe the token was revoked.
                 debug!("Logging out from cluster: {:?}", cluster_name);
-                warn!("`logout` is not implemented yet: the cached token was NOT removed from the keyring.");
+                ctx.handle_logout(cluster_name.clone());
             }
-            Some(Commands::Cache { clear }) => {
-                debug!("Handling cache clear: {}", clear);
-                warn!("`cache` is not implemented yet: no cached token was cleared.");
-            }
+            Some(Commands::Cache { command }) => match command {
+                CacheCommands::Clear => {
+                    debug!("Clearing all cached tokens");
+                    ctx.handle_cache_clear();
+                }
+            },
             Some(Commands::GetToken { cluster_name }) => {
                 //ctx.handle_get_token(cluster_name.clone());
                 // Detect if env var KUBERNETES_EXEC_INFO is set, change context accordingly

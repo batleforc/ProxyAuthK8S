@@ -46,11 +46,11 @@ donc un `gnome-keyring` ou un `KWallet` en cours d'exécution.
 ### Se connecter au serveur
 
 ```bash
-kubectl proxyauth login --server https://proxyauthk8s.example.com
+kubectl proxyauth login --server-url https://proxyauthk8s.example.com --token <jeton>
 ```
 
-La connexion ouvre le navigateur sur le provider OIDC, puis récupère le jeton via le callback
-local (`localhost:18000/auth/callback`).
+Le login serveur valide le jeton auprès du serveur puis le stocke dans le trousseau. Sans
+`--token`, le jeton est demandé de façon interactive.
 
 ### Lister les clusters visibles
 
@@ -63,12 +63,38 @@ figure dans les groupes de l'utilisateur apparaissent ici.
 
 ### Se connecter à un cluster
 
+Pour un cluster dont le provider est **OIDC/SSO**, la connexion est interactive :
+
 ```bash
-kubectl proxyauth login cluster default/mon-cluster
+kubectl proxyauth -n default login mon-cluster
+```
+
+Le plugin ouvre le navigateur sur le provider OIDC, récupère `code`/`state` via un callback
+local (`http://localhost:18000/` par défaut), échange le code auprès du serveur et stocke
+l'`id_token` du cluster dans le trousseau.
+
+<Callout type="warn">
+L'URI de redirection utilisée est `http://localhost:<port>/auth/callback/<ns>/<cluster>` et doit
+être enregistrée pour le client OIDC du cluster côté IdP. Le port par défaut est `18000` ;
+changez-le avec `PROXYAUTH_CALLBACK_PORT` si besoin (et enregistrez l'URI correspondante).
+</Callout>
+
+Pour un cluster non-SSO (ou pour fournir un jeton directement) :
+
+```bash
+kubectl proxyauth -n default login mon-cluster --token <jeton>
 ```
 
 Cela écrit un contexte kubeconfig dont l'`exec` pointe sur le plugin : à chaque appel,
 `kubectl` lui demande un jeton frais.
+
+### Se déconnecter / purger le cache
+
+```bash
+kubectl proxyauth logout mon-cluster   # retire le jeton d'un cluster
+kubectl proxyauth logout               # déconnecte du serveur (tous ses jetons)
+kubectl proxyauth cache clear          # purge tous les jetons en cache
+```
 
 ### Vérifier la configuration
 
