@@ -740,6 +740,7 @@ dependencies = [
 name = "common"
 version = "0.1.9"
 dependencies = [
+ "base64 0.22.1",
  "deadpool-redis",
  "k8s-openapi",
  "kube",
@@ -748,6 +749,7 @@ dependencies = [
  "reqwest 0.13.2",
  "rustls",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tracing",
 ]

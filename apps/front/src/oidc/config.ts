@@ -1,4 +1,4 @@
-import { UserManager } from 'oidc-client-ts';
+import { UserManager, WebStorageStateStore } from 'oidc-client-ts';
 
 const oidcConfig = {
   authority: import.meta.env.VITE_OIDC_ISSUER_URL,
@@ -9,6 +9,10 @@ const oidcConfig = {
   scope: import.meta.env.VITE_OIDC_SCOPE,
   automaticSilentRenew: import.meta.env.VITE_OIDC_SILENT_REFRESH === 'true',
   loadUserInfo: true,
+  // Keep tokens in sessionStorage rather than the default localStorage so they
+  // are scoped to the tab and cleared on close, shrinking the window in which a
+  // dependency XSS could exfiltrate live Kubernetes tokens.
+  userStore: new WebStorageStateStore({ store: window.sessionStorage }),
 };
 
 export const userManager = new UserManager(oidcConfig);

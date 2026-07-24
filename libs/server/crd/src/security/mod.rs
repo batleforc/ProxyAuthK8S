@@ -78,9 +78,7 @@ impl SecurityConfiguration {
 
     pub fn validate(&self) -> Result<(), String> {
         for allowed_resource in self.all_allowed_resources() {
-            match allowed_resource {
-                AllowedPathConfigurationEnum::Path(config) => config.validate()?,
-            }
+            allowed_resource.validate()?;
         }
         Ok(())
     }
@@ -249,6 +247,61 @@ mod tests {
             "alice",
             &groups
         ));
+    }
+
+    fn crd_rule(namespace: NamespacedAccessConfiguration) -> AllowedPathConfigurationEnum {
+        AllowedPathConfigurationEnum::Crd(AllowedCrdConfiguration {
+            group: "example.com".to_string(),
+            version: "v1".to_string(),
+            kind: "Widget".to_string(),
+            plural: Some("widgets".to_string()),
+            namespace,
+            namespaced: true,
+        })
+    }
+
+    #[test]
+    fn a_crd_rule_enforces_group_version_kind_and_namespace() {
+        let config = SecurityConfiguration {
+            enabled: true,
+            allowed_resources: vec![crd_rule(NamespacedAccessConfiguration {
+                enabled: true,
+                rule_kind: NamespacedAccessRuleKind::AllowedNamespaces(vec!["dev".to_string()]),
+            })],
+            ..SecurityConfiguration::default()
+        };
+
+        assert!(config.is_path_allowed("/apis/example.com/v1/namespaces/dev/widgets", "alice", &[]));
+        // Right resource, wrong (denied) namespace.
+        assert!(!config.is_path_allowed(
+            "/apis/example.com/v1/namespaces/kube-system/widgets",
+            "alice",
+            &[]
+        ));
+        // Different resource entirely.
+        assert!(!config.is_path_allowed("/api/v1/namespaces/dev/secrets", "alice", &[]));
+    }
+
+    #[test]
+    fn crd_and_path_rules_coexist_in_the_allow_list() {
+        let config = SecurityConfiguration {
+            enabled: true,
+            allowed_resources: vec![
+                path_rule("/api/v1/namespaces/dev/pods", false),
+                crd_rule(NamespacedAccessConfiguration {
+                    enabled: false,
+                    rule_kind: NamespacedAccessRuleKind::AllowedNamespaces(vec![]),
+                }),
+            ],
+            ..SecurityConfiguration::default()
+        };
+        assert!(config.is_path_allowed("/api/v1/namespaces/dev/pods", "alice", &[]));
+        assert!(config.is_path_allowed(
+            "/apis/example.com/v1/namespaces/anything/widgets",
+            "alice",
+            &[]
+        ));
+        assert!(!config.is_path_allowed("/api/v1/namespaces/dev/secrets", "alice", &[]));
     }
 
     #[test]

@@ -27,6 +27,15 @@ Chaque échec d'authentification incrémente un compteur Redis (fenêtre d'une h
 l'adresse est bannie et reçoit un `429` avec un en-tête `Retry-After`. Une authentification
 réussie remet le compteur à zéro.
 
+<Callout type="warn">
+Derrière un ingress/LB, l'adresse du pair TCP est celle de l'ingress, partagée par tous les
+clients : sans réglage, un attaquant bannirait donc tout le monde. Positionnez
+`TRUSTED_PROXY_COUNT` au nombre de proxies de confiance devant le service (ex. `1`) pour que
+l'identité de bannissement/quota soit prise ce nombre de sauts en arrière dans
+`X-Forwarded-For`. Défaut `0` : on n'accorde aucune confiance à `X-Forwarded-For` et on
+utilise le pair direct.
+</Callout>
+
 Avec `exponential_backoff`, chaque échec au-delà du seuil double la durée, plafonnée pour
 qu'un compteur ancien ne produise pas un bannissement quasi permanent par accident.
 
@@ -44,6 +53,29 @@ Selon `auth_config.validate_against` :
 
 `auth_config.disable_validation: true` désactive complètement cette étape — le proxy relaie
 alors sans savoir qui appelle.
+
+### Validation d'audience (OIDC)
+
+`userinfo` prouve que le jeton est valide pour l'issuer, **mais pas** qu'il a été émis pour ce
+service : sans contrôle, n'importe quel access-token d'une autre application du même IdP serait
+accepté. Après `userinfo`, le proxy vérifie donc que l'audience du jeton contient l'audience
+configurée (`OIDC_AUDIENCE`) :
+
+1. par **introspection RFC 7662** si le provider expose un endpoint ;
+2. sinon en lisant les claims `aud`/`azp`/`client_id` du JWT (sûr ici, puisque `userinfo` a déjà
+   validé la signature).
+
+| Valeur de `OIDC_AUDIENCE_VALIDATION` | Effet                                                        |
+| ------------------------------------ | ------------------------------------------------------------ |
+| `enforce` (défaut)                   | rejette si l'audience ne correspond pas ou est indéterminable |
+| `warn`                               | journalise mais laisse passer (observer avant d'appliquer)   |
+| `off`                                | désactive la vérification                                    |
+
+<Callout type="warn">
+Un jeton **opaque** (non-JWT) ne peut être validé que par introspection : si le provider n'en
+expose pas et que le mode est `enforce`, la requête est refusée. Configurez l'introspection ou
+passez temporairement en `warn` le temps de la migration.
+</Callout>
 
 ## 3. Autorisation par cluster
 
@@ -98,8 +130,55 @@ Sans `parametised`, la comparaison est exacte : un `*` y est un caractère litt�
 ne l'autorise donc **pas** : il faut `/api/v1/namespaces/*/pods/**`.
 </Callout>
 
+### Règles par ressource (group/version/kind)
+
+Au lieu d'un chemin, une règle peut cibler une ressource et appliquer des restrictions par
+namespace :
+
+```yaml
+security_config:
+  enabled: true
+  allowed_resources:
+    - Crd:
+        group: example.com # "" pour le groupe core (/api/v1/...)
+        version: v1
+        kind: Widget
+        plural: widgets # sinon le kind en minuscules est utilisé
+        namespaced: true
+        namespace:
+          enabled: true
+          rule_kind:
+            ParametisedRule: 'dev-{{username}}' # ou AllowedNamespaces / DeniedNamespaces
+```
+
+Le chemin est reconnu sous ses formes namespacée (`.../namespaces/{ns}/{plural}`) et
+cluster-wide (`.../{plural}`). Les règles de namespace :
+
+| `rule_kind`         | Effet                                                            |
+| ------------------- | ---------------------------------------------------------------- |
+| `AllowedNamespaces` | n'autorise que les namespaces listés (default-deny)             |
+| `DeniedNamespaces`  | autorise tout sauf les namespaces listés                        |
+| `ParametisedRule`   | motif avec `{{username}}`/`{{group}}` (substitution littérale)   |
+
+<Callout type="warn">
+Une ressource namespacée atteinte **cluster-wide** (sans `/namespaces/{ns}/`, ex. un `list -A`)
+n'est autorisée que si aucune restriction de namespace n'est active — sinon la liste
+renverrait des namespaces que la règle refuse.
+</Callout>
+
 Ces règles sont aussi appliquées à l'admission par des règles CEL sur le CRD : un chemin
 relatif ou un placeholder inconnu est refusé par l'apiserver, pas seulement au reconcile.
+
+<Callout type="warn">
+Deux protections implicites du matcher :
+
+- les chemins contenant un segment de traversée (`..`, `.`, ou leurs encodages `%2e`/`%2f`)
+  sont refusés, sinon `/namespaces/dev/../prod/secrets` échapperait à une règle limitée à `dev`
+  alors que l'apiserver le résout vers `prod` ;
+- une valeur de claim substituée dans `{{username}}`/`{{group}}` est traitée **littéralement** :
+  si elle contient `*` ou `/`, elle ne peut pas se transformer en joker et l'utilisateur ne peut
+  pas s'auto-élever (ex. un claim valant `*`).
+</Callout>
 
 <Callout type="warn">
 Le champ s'appelait `allowed_ressources` (avec la faute). L'ancienne orthographe reste **un
@@ -185,6 +264,19 @@ client_cert:
 
 Le certificat client est présenté à l'apiserver sur le chemin standard comme sur les
 connexions *upgrade* (`exec`, `attach`, `port-forward`).
+
+Un `Secret`/`ConfigMap` de certificat peut cibler un `namespace` explicite. Par défaut c'est
+autorisé (le controller lit avec son ServiceAccount). Si des tenants créent leurs propres
+`ProxyKubeApi`, positionnez `PROXYAUTH_ALLOW_CROSS_NS_CERT=false` pour épingler chaque lecture
+au namespace du CR et éviter d'en faire un oracle de lecture cross-namespace.
+
+## Variables d'environnement de sécurité
+
+| Variable                       | Défaut    | Effet                                                              |
+| ------------------------------ | --------- | ----------------------------------------------------------------- |
+| `TRUSTED_PROXY_COUNT`          | `0`       | Nombre de proxies de confiance ; identité de ban/quota lue ce nombre de sauts en arrière dans `X-Forwarded-For` |
+| `OIDC_AUDIENCE_VALIDATION`     | `enforce` | `enforce` / `warn` / `off` — contrôle d'audience des access-tokens |
+| `PROXYAUTH_ALLOW_CROSS_NS_CERT`| `true`    | `false` épingle les lectures de cert au namespace du `ProxyKubeApi` |
 
 ## Limites de mémoire
 

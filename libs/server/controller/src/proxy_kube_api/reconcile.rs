@@ -93,7 +93,12 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
             }
         }
         Err(err) => {
-            info!("Failed to upsert ProxyKubeApi: {}. Error: {}", id, err);
+            // Redis is the source of truth the dashboard and proxy read from;
+            // swallowing the error here would report success and drop the cluster
+            // for a full success-requeue interval. Surface it so the controller
+            // retries with backoff via the error policy.
+            tracing::error!("Failed to upsert ProxyKubeApi: {}. Error: {}", id, err);
+            return Err(ControllerError::Redis(err));
         }
     }
     let requeue_action = if new_status.error.is_some() {

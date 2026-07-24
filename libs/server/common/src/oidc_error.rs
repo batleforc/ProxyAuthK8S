@@ -8,6 +8,9 @@ pub enum OidcError {
 
     #[error("OIDC discovery error: {0}")]
     OidcDiscovery(#[source] openidconnect::DiscoveryError<HttpClientError<reqwest::Error>>),
+
+    #[error("Token audience validation failed: {0}")]
+    AudienceValidation(String),
 }
 
 impl From<ParseError> for OidcError {

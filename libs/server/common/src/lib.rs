@@ -12,6 +12,7 @@ use crate::traits::ObjectRedis;
 pub mod oidc_conf;
 pub mod oidc_error;
 pub mod redis_pool;
+pub mod token_audience;
 pub mod traits;
 
 #[derive(Clone)]

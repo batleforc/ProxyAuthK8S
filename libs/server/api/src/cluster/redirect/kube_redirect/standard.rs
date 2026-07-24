@@ -126,6 +126,7 @@ pub(super) async fn standard_redirect(
                 debug_body_limit,
                 "request body exceeded the debug buffering limit"
             );
+            audit.emit(413);
             return HttpResponse::PayloadTooLarge()
                 .body("request body exceeds the configured proxy buffering limit");
         }
@@ -174,6 +175,7 @@ pub(super) async fn standard_redirect(
         Ok(client) => client,
         Err(err) => {
             error!(err, " couldn't build the upstream client");
+            audit.emit(503);
             return HttpResponse::ServiceUnavailable().body(err);
         }
     };

@@ -28,51 +28,44 @@ pub struct CliCtx {
     pub config_path: PathBuf,
 }
 
-impl From<super::Cli> for CliCtx {
-    fn from(cli: super::Cli) -> Self {
-        let kubeconfig_path = match CliCtx::detect_kubeconfig_path(
+impl TryFrom<super::Cli> for CliCtx {
+    type Error = ProxyAuthK8sError;
+
+    /// Build the context, surfacing every failure as a clean error instead of a
+    /// panic. This matters because the CLI is also a `kubectl` exec-credential
+    /// plugin: a panic would emit a Rust backtrace and a non-protocol exit,
+    /// breaking `kubectl` auth with an opaque crash on a merely malformed config.
+    fn try_from(cli: super::Cli) -> Result<Self, Self::Error> {
+        let kubeconfig_path = CliCtx::detect_kubeconfig_path(
             cli.kubeconfig.map(|p| p.to_string_lossy().to_string()),
-        ) {
-            Some(path) => PathBuf::from(path),
-            None => {
-                panic!("{}", ProxyAuthK8sError::KubeconfigPathCouldNotBeCalculated)
-            }
-        };
+        )
+        .map(PathBuf::from)
+        .ok_or(ProxyAuthK8sError::KubeconfigPathCouldNotBeCalculated)?;
+
         if !kubeconfig_path.exists() {
-            // If the kubeconfig file does not exist, create an empty kubeconfig file at the path
-            if let Err(e) = fs::write(&kubeconfig_path, "") {
-                panic!(
-                    "{}",
-                    ProxyAuthK8sError::KubeconfigWriteError(format!(
-                        "Failed to create kubeconfig file at {}: {}",
-                        kubeconfig_path.to_string_lossy(),
-                        e
-                    ))
-                )
-            }
+            // If the kubeconfig file does not exist, create an empty one.
+            fs::write(&kubeconfig_path, "").map_err(|e| {
+                ProxyAuthK8sError::KubeconfigWriteError(format!(
+                    "Failed to create kubeconfig file at {}: {}",
+                    kubeconfig_path.to_string_lossy(),
+                    e
+                ))
+            })?;
         }
-        let kubeconfig = match fs::read_to_string(kubeconfig_path.clone()) {
-            Ok(content) => Kubeconfig::from_yaml(&content).unwrap_or_else(|e| {
-                panic!(
-                    "{}",
-                    ProxyAuthK8sError::KubeconfigReadError(format!(
-                        "Failed to parse kubeconfig file at {}: {}",
-                        kubeconfig_path.to_string_lossy(),
-                        e
-                    ))
-                )
-            }),
-            Err(e) => {
-                panic!(
-                    "{}",
-                    ProxyAuthK8sError::KubeconfigReadError(format!(
-                        "Failed to read kubeconfig file at {}: {}",
-                        kubeconfig_path.to_string_lossy(),
-                        e
-                    ))
-                )
-            }
-        };
+        let kubeconfig_content = fs::read_to_string(&kubeconfig_path).map_err(|e| {
+            ProxyAuthK8sError::KubeconfigReadError(format!(
+                "Failed to read kubeconfig file at {}: {}",
+                kubeconfig_path.to_string_lossy(),
+                e
+            ))
+        })?;
+        let kubeconfig = Kubeconfig::from_yaml(&kubeconfig_content).map_err(|e| {
+            ProxyAuthK8sError::KubeconfigReadError(format!(
+                "Failed to parse kubeconfig file at {}: {}",
+                kubeconfig_path.to_string_lossy(),
+                e
+            ))
+        })?;
         let invoked_from_kubectl = env::args().next().is_some_and(|arg0| {
             PathBuf::from(arg0)
                 .file_stem()
@@ -84,38 +77,32 @@ impl From<super::Cli> for CliCtx {
         } else {
             let home_env = env::var("HOME").unwrap_or_default();
             if home_env.is_empty() {
-                panic!("{}", ProxyAuthK8sError::ConfigPathCouldNotBeCalculated);
+                return Err(ProxyAuthK8sError::ConfigPathCouldNotBeCalculated);
             }
             PathBuf::from(format!("{}/.kube/proxyauth_config.yaml", home_env))
         };
         let config = if !config_path.exists() {
-            match CliConfig::default().write_to_file(config_path.clone()) {
-                Ok(config) => config.clone(),
-                Err(e) => {
-                    panic!(
-                        "{}",
-                        ProxyAuthK8sError::KubeconfigWriteError(format!(
-                            "Failed to create default config file at {}: {}",
-                            config_path.to_string_lossy(),
-                            e
-                        ))
-                    )
-                }
-            }
-        } else {
-            CliConfig::read_from_file(config_path.clone()).unwrap_or_else(|e| {
-                panic!(
-                    "{}",
-                    ProxyAuthK8sError::KubeconfigReadError(format!(
-                        "Failed to read config file at {}: {}",
+            CliConfig::default()
+                .write_to_file(config_path.clone())
+                .cloned()
+                .map_err(|e| {
+                    ProxyAuthK8sError::KubeconfigWriteError(format!(
+                        "Failed to create default config file at {}: {}",
                         config_path.to_string_lossy(),
                         e
                     ))
-                )
-            })
+                })?
+        } else {
+            CliConfig::read_from_file(config_path.clone()).map_err(|e| {
+                ProxyAuthK8sError::KubeconfigReadError(format!(
+                    "Failed to read config file at {}: {}",
+                    config_path.to_string_lossy(),
+                    e
+                ))
+            })?
         };
 
-        CliCtx {
+        Ok(CliCtx {
             namespace: cli.namespace,
             kubeconfig,
             kubeconfig_path,
@@ -126,7 +113,7 @@ impl From<super::Cli> for CliCtx {
             invoked_from_kubectl,
             config,
             config_path,
-        }
+        })
     }
 }
 

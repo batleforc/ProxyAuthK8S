@@ -36,7 +36,9 @@ pub fn error_policy_proxy_kube_api(
             proxy.namespace().as_deref().unwrap_or_default(),
             proxy.name_any()
         );
-        return Action::requeue(Duration::from_hours(1));
+        // Keep this short (~lease TTL) so that once this instance is promoted it
+        // converges quickly instead of leaving stale state for up to an hour.
+        return Action::requeue(Duration::from_secs(20));
     }
     warn!(
         "Reconciliation error for ProxyKubeApi {}/{}",
@@ -58,8 +60,10 @@ pub async fn main_reconcile_proxy_kube_api(
             proxy.namespace().as_deref().unwrap_or_default(),
             proxy.name_any()
         );
-        // Even if not the leader, still wait in case of becoming the leader soon, and avoid hot looping when there are many events
-        return Ok(Action::requeue(Duration::from_hours(1)));
+        // Even if not the leader, requeue soon (~lease TTL) so a freshly promoted
+        // leader re-reconciles already-seen objects quickly instead of leaving
+        // their state stale for up to an hour, while still avoiding a hot loop.
+        return Ok(Action::requeue(Duration::from_secs(20)));
     }
     let trace_id = get_trace_id();
     if trace_id != TraceId::INVALID {

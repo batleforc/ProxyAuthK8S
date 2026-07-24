@@ -144,19 +144,23 @@ impl Cli {
                 cluster_name,
                 token,
             }) => {
+                // Never log the token value; only whether one was supplied.
                 debug!(
-                    "Logging in to cluster: {:?} with token: {:?}",
-                    cluster_name, token
+                    "Logging in to cluster: {:?} (token provided: {})",
+                    cluster_name,
+                    token.is_some()
                 );
                 ctx.handle_login(cluster_name.clone(), token.clone()).await;
             }
             Some(Commands::Logout { cluster_name }) => {
-                //ctx.handle_logout(cluster_name.clone());
+                // Not yet implemented: warn loudly rather than silently succeed,
+                // so the user does not believe the token was revoked.
                 debug!("Logging out from cluster: {:?}", cluster_name);
+                warn!("`logout` is not implemented yet: the cached token was NOT removed from the keyring.");
             }
             Some(Commands::Cache { clear }) => {
-                //ctx.handle_cache(*clear);
                 debug!("Handling cache clear: {}", clear);
+                warn!("`cache` is not implemented yet: no cached token was cleared.");
             }
             Some(Commands::GetToken { cluster_name }) => {
                 //ctx.handle_get_token(cluster_name.clone());

@@ -1,8 +1,24 @@
 //! Header handling shared by the standard and upgrade proxy paths.
 
 use std::net::IpAddr;
+use std::sync::LazyLock;
 
 use crate::model::user::User;
+
+/// Number of trusted reverse proxies sitting in front of this service.
+///
+/// Throttle identity (bans, rate limits) is taken this many hops back in the
+/// `X-Forwarded-For` chain. The default of `0` trusts nothing and uses the
+/// direct socket peer, which preserves the previous behaviour for deployments
+/// with no known proxy in front. Set it to the number of trusted hops (e.g. `1`
+/// behind a single ingress/LB) so bans target the real client instead of the
+/// shared ingress address.
+static TRUSTED_PROXY_COUNT: LazyLock<usize> = LazyLock::new(|| {
+    std::env::var("TRUSTED_PROXY_COUNT")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(0)
+});
 
 /// Headers managed by the transport itself; forwarding them corrupts the
 /// upstream request when the body is re-framed.
@@ -45,6 +61,35 @@ pub fn forwarded_for_value(existing: Option<&str>, peer_ip: Option<IpAddr>) -> O
         (None, Some(peer)) => Some(peer.to_string()),
         (None, None) => None,
     }
+}
+
+/// Resolve the throttling identity (client IP as a string) honouring
+/// `TRUSTED_PROXY_COUNT` trusted `X-Forwarded-For` hops.
+///
+/// The chain is ordered from the closest hop (the socket peer) outward toward
+/// the original client: `[peer, xff_rightmost, .., xff_leftmost]`. We then skip
+/// `TRUSTED_PROXY_COUNT` trusted hops. With `0` this is exactly the socket peer
+/// (previous behaviour); with `1` behind an ingress it is the address the
+/// ingress recorded for the client. Falls back to `"unknown"` when neither a
+/// peer nor a usable forwarded address is available.
+pub fn throttle_client_ip(forwarded_for: Option<&str>, peer_ip: Option<IpAddr>) -> String {
+    let mut chain: Vec<String> = Vec::new();
+    if let Some(peer) = peer_ip {
+        chain.push(peer.to_string());
+    }
+    if let Some(forwarded_for) = forwarded_for {
+        for entry in forwarded_for.split(',').rev() {
+            let entry = entry.trim();
+            if !entry.is_empty() {
+                chain.push(entry.to_string());
+            }
+        }
+    }
+    if chain.is_empty() {
+        return "unknown".to_string();
+    }
+    let index = (*TRUSTED_PROXY_COUNT).min(chain.len() - 1);
+    chain[index].clone()
 }
 
 /// Strip anything that could terminate a header line.
@@ -130,6 +175,29 @@ mod tests {
             forwarded_for_value(Some("   "), Some("198.51.100.2".parse().unwrap())),
             Some("198.51.100.2".to_string())
         );
+    }
+
+    #[test]
+    fn throttle_client_ip_defaults_to_the_socket_peer() {
+        // With TRUSTED_PROXY_COUNT unset (0), the direct peer wins even if an
+        // X-Forwarded-For is present, so a forged XFF cannot spoof the identity.
+        let peer: IpAddr = "198.51.100.2".parse().unwrap();
+        assert_eq!(
+            throttle_client_ip(Some("203.0.113.7, 10.0.0.1"), Some(peer)),
+            "198.51.100.2"
+        );
+        assert_eq!(throttle_client_ip(None, Some(peer)), "198.51.100.2");
+    }
+
+    #[test]
+    fn throttle_client_ip_falls_back_to_forwarded_then_unknown() {
+        // No peer: the rightmost forwarded hop is used (index 0 of the chain).
+        assert_eq!(
+            throttle_client_ip(Some("203.0.113.7, 10.0.0.1"), None),
+            "10.0.0.1"
+        );
+        assert_eq!(throttle_client_ip(None, None), "unknown");
+        assert_eq!(throttle_client_ip(Some("   "), None), "unknown");
     }
 
     #[test]

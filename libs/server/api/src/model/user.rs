@@ -213,6 +213,14 @@ impl User {
                 return Err("Invalid user info response".to_string());
             }
         };
+        // `/userinfo` proved the token is validly signed and active, but not that
+        // it was minted for THIS service. Enforce the audience now, before the
+        // token's groups are trusted for authorization. (Must run after userinfo
+        // so the JWT-claims fallback can trust the — now verified — signature.)
+        if let Err(e) = oidc_conf.ensure_token_audience(&token).await {
+            tracing::warn!("Token rejected by audience validation: {}", e);
+            return Err("Token audience validation failed".to_string());
+        }
         let email = match user_info.email() {
             Some(email) => email.to_string(),
             None => {

@@ -58,7 +58,7 @@ pub async fn callback_login(
         Ok(None) => return HttpResponse::NotFound().finish(),
         Err(e) => {
             error!(error = %e, " couldn't get proxy from redis");
-            return HttpResponse::ServiceUnavailable().body(e.to_string());
+            return HttpResponse::ServiceUnavailable().finish();
         }
     };
 
@@ -90,7 +90,7 @@ pub async fn callback_login(
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, " couldn't get oidc client");
-            return HttpResponse::InternalServerError().body(e.to_string());
+            return HttpResponse::InternalServerError().finish();
         }
     };
     info!(%ns, %cluster, "Callback received for cluster");
@@ -117,15 +117,26 @@ pub async fn callback_login(
         }
         Err(e) => {
             error!(error = %e, " couldn't get nonce");
-            return HttpResponse::ServiceUnavailable().body(e.to_string());
+            return HttpResponse::ServiceUnavailable().finish();
         }
     };
+    // The CSRF state/nonce is single-use: drop it now so the same `code`+`state`
+    // cannot be replayed against the callback within its TTL window.
+    if let Err(e) = data
+        .delete_key(&format!(
+            "oidc_csrf_nonce:{}/{}/{}",
+            ns, cluster, callback.state
+        ))
+        .await
+    {
+        error!(error = %e, "couldn't delete used csrf state");
+    }
     let exchange_code =
         match client_oidc.exchange_code(AuthorizationCode::new(callback.code.clone())) {
             Ok(code) => code,
             Err(e) => {
                 error!(error = %e, " couldn't exchange code");
-                return HttpResponse::InternalServerError().body(e.to_string());
+                return HttpResponse::InternalServerError().finish();
             }
         };
     let token_response = match exchange_code
@@ -137,7 +148,7 @@ pub async fn callback_login(
         Ok(token) => token,
         Err(e) => {
             error!(error = %e, " couldn't get token response");
-            return HttpResponse::InternalServerError().body(e.to_string());
+            return HttpResponse::InternalServerError().finish();
         }
     };
 

@@ -17,6 +17,27 @@ fn split_segments(value: &str) -> Vec<&str> {
     value.split('/').filter(|s| !s.is_empty()).collect()
 }
 
+/// A request segment that carries no authorization meaning by itself but changes
+/// the effective resource once the upstream apiserver path-cleans it.
+///
+/// `..`/`.` (and their common percent-encodings) let a request such as
+/// `/api/v1/namespaces/dev/../prod/secrets` slip past an allow rule scoped to
+/// `dev` while the apiserver resolves it to `prod`. Encoded slashes (`%2f`) are
+/// equally dangerous because they hide a segment boundary from the matcher.
+fn is_traversal_segment(segment: &str) -> bool {
+    if segment == "." || segment == ".." {
+        return true;
+    }
+    let lower = segment.to_ascii_lowercase();
+    lower == "%2e" || lower == "%2e%2e" || lower.contains("%2f") || lower.contains("%5c")
+}
+
+/// Reject any request path that contains a traversal / encoded-separator segment
+/// so the matcher and the upstream agree on which resource is addressed.
+fn request_path_is_safe(path_segments: &[&str]) -> bool {
+    !path_segments.iter().any(|segment| is_traversal_segment(segment))
+}
+
 /// Match a single segment against a pattern segment that may contain `*`.
 fn segment_matches(pattern: &str, segment: &str) -> bool {
     if !pattern.contains('*') {
@@ -70,12 +91,64 @@ fn match_segments(pattern: &[&str], path: &[&str]) -> bool {
 
 /// Match a request path against a configured pattern.
 pub fn path_matches_pattern(pattern: &str, path: &str) -> bool {
-    match_segments(&split_segments(pattern), &split_segments(path))
+    let path_segments = split_segments(path);
+    if !request_path_is_safe(&path_segments) {
+        return false;
+    }
+    match_segments(&split_segments(pattern), &path_segments)
 }
 
 /// Compare two paths ignoring leading/trailing slash differences only.
 pub fn path_equals(configured: &str, path: &str) -> bool {
-    split_segments(configured) == split_segments(path)
+    let path_segments = split_segments(path);
+    if !request_path_is_safe(&path_segments) {
+        return false;
+    }
+    split_segments(configured) == path_segments
+}
+
+/// Whether a username/group claim value can be substituted into a single path
+/// segment without leaking pattern semantics into the matcher.
+///
+/// Rejects empty values, wildcard characters (`*`), segment separators (`/`) and
+/// traversal segments so the injected value can only ever match itself literally
+/// (otherwise a caller whose claim is `*` could self-escalate).
+pub fn is_safe_placeholder_value(value: &str) -> bool {
+    !value.is_empty()
+        && !value.contains('*')
+        && !value.contains('/')
+        && value != "."
+        && value != ".."
+}
+
+/// Expand a parametised template by substituting `{{username}}` / `{{group}}`
+/// with the caller's (literal-safe) claim values, yielding candidate patterns.
+///
+/// A `{{username}}` whose value is unsafe collapses the whole expansion to no
+/// candidate (fail-closed); unsafe individual groups are simply skipped. Shared
+/// by the allowed-path rules and the namespace access rules so both apply the
+/// exact same substitution hardening.
+pub fn expand_parametised_patterns(
+    template: &str,
+    username: &str,
+    groups: &[String],
+) -> Vec<String> {
+    let mut path = template.to_string();
+    if path.contains("{{username}}") {
+        if !is_safe_placeholder_value(username) {
+            return Vec::new();
+        }
+        path = path.replace("{{username}}", username);
+    }
+    if path.contains("{{group}}") {
+        groups
+            .iter()
+            .filter(|group| is_safe_placeholder_value(group))
+            .map(|group| path.replace("{{group}}", group))
+            .collect()
+    } else {
+        vec![path]
+    }
 }
 
 #[cfg(test)]
@@ -167,5 +240,21 @@ mod tests {
     fn empty_pattern_only_matches_the_root() {
         assert!(path_matches_pattern("/", "/"));
         assert!(!path_matches_pattern("/", "/api"));
+    }
+
+    #[test]
+    fn traversal_segments_are_rejected() {
+        // `..` must not let a `dev`-scoped rule reach `prod`.
+        assert!(!path_matches_pattern(
+            "/api/v1/namespaces/dev/**",
+            "/api/v1/namespaces/dev/../prod/secrets"
+        ));
+        assert!(!path_matches_pattern("/**", "/api/v1/../secrets"));
+        assert!(!path_matches_pattern("/api/./v1/pods", "/api/./v1/pods"));
+        // Percent-encoded dot segments and encoded slashes are refused too.
+        assert!(!path_matches_pattern("/**", "/api/v1/%2e%2e/secrets"));
+        assert!(!path_matches_pattern("/**", "/api/v1/namespaces%2fprod/secrets"));
+        // `path_equals` is guarded identically.
+        assert!(!path_equals("/api/v1/../secrets", "/api/v1/../secrets"));
     }
 }

@@ -63,7 +63,9 @@ impl CliCtx {
         };
         let clusters = match server_config.get_clusters_from_remote().await {
             Ok(clusters) => {
-                info!("Successfully retrieved clusters: {:?}", clusters);
+                // Full cluster topology (names, namespaces, SSO flags) should not
+                // land in default-level logs.
+                debug!("Successfully retrieved clusters: {:?}", clusters);
                 clusters
             }
             Err(e) => {
@@ -145,25 +147,30 @@ impl CliCtx {
             info!("Using token for server authentication.");
             // Use the token for authentication
             // Try to get cluster info from server using the token
+            let base_path = if !self.server_url.is_empty() {
+                self.server_url.clone()
+            } else {
+                match self.config.servers.get(&self.config.default_server_name) {
+                    Some(def_server) => def_server.url.clone(),
+                    None => {
+                        error!(
+                            "Default server '{}' not found in configuration. Please login to a server first.",
+                            self.config.default_server_name
+                        );
+                        return;
+                    }
+                }
+            };
             let output = get_all_visible_cluster(&Configuration {
                 bearer_access_token: Some(tok.clone()),
-                base_path: if !self.server_url.is_empty() {
-                    self.server_url.clone()
-                } else {
-                    let def_server = self
-                        .config
-                        .servers
-                        .get(&self.config.default_server_name)
-                        .unwrap();
-                    def_server.url.clone()
-                },
+                base_path,
                 ..Default::default()
             })
             .await;
 
             match output {
                 Ok(clusters) => {
-                    info!("Successfully retrieved clusters: {:?}", clusters);
+                    debug!("Successfully retrieved clusters: {:?}", clusters);
                     // Get servers from config or insert if not existing
                     let (server_url, server_name) = if !self.server_url.is_empty() {
                         (
@@ -171,15 +178,19 @@ impl CliCtx {
                             CliServerConfig::url_to_name_from_string(self.server_url.clone()),
                         )
                     } else {
-                        let def_server = self
-                            .config
-                            .servers
-                            .get(&self.config.default_server_name.clone())
-                            .unwrap();
-                        (
-                            def_server.url.clone(),
-                            self.config.default_server_name.clone(),
-                        )
+                        match self.config.servers.get(&self.config.default_server_name) {
+                            Some(def_server) => (
+                                def_server.url.clone(),
+                                self.config.default_server_name.clone(),
+                            ),
+                            None => {
+                                error!(
+                                    "Default server '{}' not found in configuration.",
+                                    self.config.default_server_name
+                                );
+                                return;
+                            }
+                        }
                     };
                     let server_name_clone = server_name.clone();
                     let server_config = self

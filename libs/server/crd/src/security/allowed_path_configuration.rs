@@ -4,12 +4,24 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::default::default_disabled;
-use crate::security::path_matcher::{path_equals, path_matches_pattern};
+use crate::security::path_matcher::{
+    expand_parametised_patterns, path_equals, path_matches_pattern,
+};
 
 /// Mustache-like parameters (`{{username}}`, `{{group}}`) inside a configured path.
 /// Compiled once: the pattern is a literal, so it cannot fail to compile.
 static MUSTACHE_REGEX: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\{\{(\w+)\}\}").expect("static regex is valid"));
+
+/// The placeholder names used in a parametised template, e.g.
+/// `["username", "group"]`. Shared with the namespace access rules so both
+/// validate placeholders identically.
+pub(crate) fn mustache_captures(template: &str) -> Vec<String> {
+    MUSTACHE_REGEX
+        .captures_iter(template)
+        .map(|capture| capture[1].to_string())
+        .collect()
+}
 
 /// RE2 pattern accepting only the supported placeholders, shared between the
 /// CEL admission rule and the test that keeps it honest against `validate()`.
@@ -96,19 +108,10 @@ impl AllowedPathConfiguration {
 
     pub fn to_possible_paths(&self, username: &str, groups: &[String]) -> Vec<String> {
         if self.parametised {
-            let mut paths = Vec::new();
-            let mut path = self.path.clone();
-            if path.contains("{{username}}") {
-                path = path.replace("{{username}}", username);
-            }
-            if path.contains("{{group}}") {
-                for group in groups {
-                    paths.push(path.replace("{{group}}", group));
-                }
-            } else {
-                paths.push(path);
-            }
-            paths
+            // Substituted claim values are inlined literally (no `*`/`/`
+            // semantics) so a caller cannot self-escalate; see
+            // [`expand_parametised_patterns`].
+            expand_parametised_patterns(&self.path, username, groups)
         } else {
             vec![self.path.clone()]
         }
@@ -256,6 +259,29 @@ mod tests {
                 "CEL and validate() disagree on {path}"
             );
         }
+    }
+
+    #[test]
+    fn placeholder_value_with_wildcard_cannot_self_escalate() {
+        let rule = rule("/api/v1/namespaces/{{username}}/pods/**", true);
+        // A caller whose username claim is `*` must not reach every namespace.
+        assert!(!rule.matches("/api/v1/namespaces/prod/pods/secret", "*", &groups()));
+        // A `/` in the claim must not cross a segment boundary.
+        assert!(!rule.matches(
+            "/api/v1/namespaces/prod/pods/secret",
+            "dev/prod",
+            &groups()
+        ));
+        // The legitimate literal case still works.
+        assert!(rule.matches("/api/v1/namespaces/alice/pods/x", "alice", &groups()));
+    }
+
+    #[test]
+    fn unsafe_group_value_is_skipped_but_safe_ones_still_match() {
+        let rule = rule("/api/v1/namespaces/{{group}}/pods", true);
+        let groups = vec!["*".to_string(), "dev-alice".to_string()];
+        assert!(!rule.matches("/api/v1/namespaces/prod/pods", "alice", &groups));
+        assert!(rule.matches("/api/v1/namespaces/dev-alice/pods", "alice", &groups));
     }
 
     #[test]

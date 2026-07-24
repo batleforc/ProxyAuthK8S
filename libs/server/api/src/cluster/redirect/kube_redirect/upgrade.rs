@@ -26,6 +26,11 @@ use crate::model::user::User;
 /// without limit when one side reads slower than the other.
 const UPGRADE_CHANNEL_CAPACITY: usize = 32;
 
+/// Upper bound on the upstream response header block. A misbehaving or
+/// compromised upstream that never terminates its headers must not be able to
+/// grow per-connection memory without limit.
+const MAX_UPGRADE_HEADER_BYTES: usize = 64 * 1024;
+
 pub(super) fn is_upgrade_request(req: &HttpRequest) -> bool {
     let has_upgrade_header = req.headers().contains_key(http::header::UPGRADE);
     let connection_has_upgrade_token = req
@@ -42,6 +47,32 @@ pub(super) fn is_upgrade_request(req: &HttpRequest) -> bool {
         .unwrap_or(false);
 
     has_upgrade_header || connection_has_upgrade_token
+}
+
+/// Whether the client declares a request body on the upgrade path.
+///
+/// Upgrade handshakes (websocket / SPDY exec, attach, port-forward, watch) never
+/// carry a request body. The upgrade path hand-serializes the request onto a raw
+/// upstream socket, so a client-supplied `Content-Length`/`Transfer-Encoding`
+/// plus a body would let an attacker control request framing and smuggle a
+/// second request past the proxy's authorization and identity stamping. Refusing
+/// any declared body closes that vector.
+fn upgrade_request_declares_body(req: &HttpRequest) -> bool {
+    if req.headers().contains_key(http::header::TRANSFER_ENCODING) {
+        return true;
+    }
+    match req
+        .headers()
+        .get(http::header::CONTENT_LENGTH)
+        .map(|value| value.to_str().ok().and_then(|v| v.trim().parse::<u64>().ok()))
+    {
+        // No Content-Length header at all.
+        None => false,
+        // Present and parses to zero.
+        Some(Some(0)) => false,
+        // Present with a non-zero or unparseable value: treat as a body.
+        Some(_) => true,
+    }
 }
 
 trait AsyncIo: AsyncRead + AsyncWrite + Unpin + Send {}
@@ -103,7 +134,14 @@ fn serialize_upgrade_request(
     for (header_name, header_value) in req.headers() {
         // `connection`/`upgrade` are exactly what makes this an upgrade, so they
         // are forwarded; only the rewritten host and the proxy-owned headers go.
-        if header_name == http::header::HOST || is_proxy_owned_header(header_name.as_str()) {
+        // Drop the rewritten host, proxy-owned identity headers, and the framing
+        // headers (`Content-Length`/`Transfer-Encoding`). `connection`/`upgrade`
+        // are intentionally kept — they are what makes this an upgrade.
+        if header_name == http::header::HOST
+            || header_name == http::header::CONTENT_LENGTH
+            || header_name == http::header::TRANSFER_ENCODING
+            || is_proxy_owned_header(header_name.as_str())
+        {
             continue;
         }
 
@@ -143,6 +181,10 @@ async fn read_upgrade_response_headers(
             return Err("upstream closed before sending response headers".to_string());
         }
         buffer.extend_from_slice(&temp[..read]);
+
+        if buffer.len() > MAX_UPGRADE_HEADER_BYTES {
+            return Err("upstream response headers exceeded the allowed size".to_string());
+        }
 
         if let Some(header_end) = buffer.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
             let body_start = header_end + 4;
@@ -189,6 +231,13 @@ pub(super) async fn upgrade_redirect(
     user: Option<User>,
     audit: AuditContext,
 ) -> HttpResponse {
+    // Upgrade handshakes never carry a body; a declared body here is an attempt
+    // to smuggle a second request onto the raw upstream socket.
+    if upgrade_request_declares_body(&req) {
+        audit.emit(400);
+        return HttpResponse::BadRequest().body("upgrade requests must not carry a body");
+    }
+
     let upstream_url = match reqwest::Url::parse(&url_to_call) {
         Ok(url) => url,
         Err(err) => {

@@ -24,14 +24,19 @@ pub async fn run_leader_election(state: State, leadership: LeaseLock) {
     loop {
         match leadership.try_acquire_or_renew().await {
             Ok(lease) => {
-                if !state.is_leader.load(Ordering::Relaxed)
-                    && matches!(lease, LeaseLockResult::Acquired(_))
-                {
-                    info!("Successfully acquired leadership");
-                    state.is_leader.store(
-                        matches!(lease, LeaseLockResult::Acquired(_)),
-                        Ordering::Relaxed,
-                    )
+                let acquired = matches!(lease, LeaseLockResult::Acquired(_));
+                // The election must demote as well as promote: `try_acquire_or_renew`
+                // returns `Ok(NotAcquired)` (not an `Err`) when another instance holds
+                // the lease, so a leader that fails to renew in time would keep
+                // `is_leader = true` and run a second, competing reconcile loop
+                // (split-brain) unless we clear it here.
+                if state.is_leader.load(Ordering::Relaxed) != acquired {
+                    if acquired {
+                        info!("Successfully acquired leadership");
+                    } else {
+                        info!("Lost leadership, stepping down as leader");
+                    }
+                    state.is_leader.store(acquired, Ordering::Relaxed);
                 }
             }
             Err(e) => {

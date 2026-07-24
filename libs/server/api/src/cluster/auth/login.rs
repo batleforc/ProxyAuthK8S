@@ -49,7 +49,7 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>, user: User)
         Ok(None) => return HttpResponse::NotFound().finish(),
         Err(e) => {
             error!(error = %e, " couldn't get proxy from redis");
-            return HttpResponse::ServiceUnavailable().body(e.to_string());
+            return HttpResponse::ServiceUnavailable().finish();
         }
     };
     if !proxy.spec.enabled
@@ -82,7 +82,7 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>, user: User)
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, " couldn't get oidc client");
-            return HttpResponse::InternalServerError().body(e.to_string());
+            return HttpResponse::InternalServerError().finish();
         }
     };
     let scopes: Vec<Scope> = oidc_conf

@@ -80,7 +80,17 @@ async fn main() -> anyhow::Result<()> {
         server = server.bind((Ipv4Addr::UNSPECIFIED, server_config.port))?;
     }
 
-    tokio::join!(controller, server.run()).1?;
+    // `select!` rather than `join!`: if the HTTP server exits on its own (bind
+    // loss / internal error) we must stop instead of blocking forever on the
+    // controller future, and vice-versa on shutdown signal.
+    tokio::select! {
+        _ = controller => {
+            eprintln!("Controller task exited, shutting down");
+        }
+        res = server.run() => {
+            res?;
+        }
+    }
     if let Err(e) = shutdown_tracing(tracing_output) {
         eprintln!("Error during the shutdown of tracing: {e}");
     }

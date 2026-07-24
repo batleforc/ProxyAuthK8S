@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use authentication_configuration::AuthenticationConfiguration;
 use base64::{prelude::BASE64_STANDARD, Engine};
@@ -238,7 +239,13 @@ impl ProxyKubeApi {
                 return Err(err.to_string());
             }
         };
-        reqwest_client = reqwest_client.use_rustls_tls();
+        reqwest_client = reqwest_client
+            .use_rustls_tls()
+            // Bound the reachability probe: without a timeout a black-holed or
+            // slow target keeps a reconcile future pending indefinitely, tying up
+            // a controller concurrency slot.
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10));
         match reqwest_client.build() {
             Ok(c) => Ok(c),
             Err(err) => Err(err.to_string()),

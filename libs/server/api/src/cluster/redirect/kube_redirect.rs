@@ -81,9 +81,16 @@ pub async fn redirect(
 
     // Failed authentications are counted per client address: at that point no
     // user has been resolved, so the address is the only identity available.
-    let peer_id = peer_addr
-        .map(|PeerAddr(addr)| addr.ip().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
+    // Honour `TRUSTED_PROXY_COUNT` so that, behind an ingress, bans and
+    // unauthenticated rate limits target the real client instead of the shared
+    // ingress IP (which would let one attacker ban every user).
+    let peer_ip = peer_addr.as_ref().map(|PeerAddr(addr)| addr.ip());
+    let forwarded_for = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok());
+    let peer_id =
+        crate::cluster::redirect::forwarded::throttle_client_ip(forwarded_for, peer_ip);
 
     if throttle::is_banned(data.get_ref(), &proxy, &peer_id).await {
         let retry_after = throttle::ban_retry_after(data.get_ref(), &proxy, &peer_id).await;
