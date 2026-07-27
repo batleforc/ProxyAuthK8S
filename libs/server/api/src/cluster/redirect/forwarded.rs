@@ -47,12 +47,14 @@ const PROXY_OWNED: [&str; 3] = ["x-forwarded-for", "x-forwarded-user", "x-forwar
 /// Matched as prefixes so the open-ended `*-extra-<key>` families are covered.
 const UPSTREAM_AUTH_PREFIXES: [&str; 2] = ["impersonate-", "x-remote-"];
 
+#[must_use]
 pub fn is_hop_by_hop(name: &str) -> bool {
     HOP_BY_HOP
         .iter()
         .any(|header| name.eq_ignore_ascii_case(header))
 }
 
+#[must_use]
 pub fn is_proxy_owned_header(name: &str) -> bool {
     PROXY_OWNED
         .iter()
@@ -61,6 +63,7 @@ pub fn is_proxy_owned_header(name: &str) -> bool {
 
 /// Whether `name` is an upstream-authentication/impersonation header a client is
 /// never allowed to set. See [`UPSTREAM_AUTH_PREFIXES`].
+#[must_use]
 pub fn is_upstream_auth_header(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     UPSTREAM_AUTH_PREFIXES
@@ -75,7 +78,7 @@ pub fn is_upstream_auth_header(name: &str) -> bool {
 pub fn forwarded_for_value(existing: Option<&str>, peer_ip: Option<IpAddr>) -> Option<String> {
     let existing = existing.map(str::trim).filter(|value| !value.is_empty());
     match (existing, peer_ip) {
-        (Some(existing), Some(peer)) => Some(format!("{}, {}", existing, peer)),
+        (Some(existing), Some(peer)) => Some(format!("{existing}, {peer}")),
         (Some(existing), None) => Some(existing.to_string()),
         (None, Some(peer)) => Some(peer.to_string()),
         (None, None) => None,
@@ -91,7 +94,18 @@ pub fn forwarded_for_value(existing: Option<&str>, peer_ip: Option<IpAddr>) -> O
 /// (previous behaviour); with `1` behind an ingress it is the address the
 /// ingress recorded for the client. Falls back to `"unknown"` when neither a
 /// peer nor a usable forwarded address is available.
+#[must_use]
 pub fn throttle_client_ip(forwarded_for: Option<&str>, peer_ip: Option<IpAddr>) -> String {
+    select_client_ip(forwarded_for, peer_ip, *TRUSTED_PROXY_COUNT)
+}
+
+/// Pure hop selection behind [`throttle_client_ip`], with the trusted-hop count
+/// passed in so it can be exercised without a process-global env var.
+fn select_client_ip(
+    forwarded_for: Option<&str>,
+    peer_ip: Option<IpAddr>,
+    trusted_proxy_count: usize,
+) -> String {
     let mut chain: Vec<String> = Vec::new();
     if let Some(peer) = peer_ip {
         chain.push(peer.to_string());
@@ -107,7 +121,7 @@ pub fn throttle_client_ip(forwarded_for: Option<&str>, peer_ip: Option<IpAddr>) 
     if chain.is_empty() {
         return "unknown".to_string();
     }
-    let index = (*TRUSTED_PROXY_COUNT).min(chain.len() - 1);
+    let index = trusted_proxy_count.min(chain.len() - 1);
     chain[index].clone()
 }
 
@@ -124,6 +138,7 @@ fn sanitize_header_value(value: &str) -> String {
 }
 
 /// Identity headers describing the authenticated caller, if there is one.
+#[must_use]
 pub fn identity_headers(user: Option<&User>) -> Vec<(&'static str, String)> {
     match user {
         Some(user) => vec![
@@ -234,6 +249,31 @@ mod tests {
         );
         assert_eq!(throttle_client_ip(None, None), "unknown");
         assert_eq!(throttle_client_ip(Some("   "), None), "unknown");
+    }
+
+    #[test]
+    fn select_client_ip_honours_the_trusted_hop_count() {
+        let peer: IpAddr = "198.51.100.2".parse().unwrap();
+        let xff = Some("203.0.113.7, 10.0.0.1");
+        // chain = [peer, 10.0.0.1, 203.0.113.7]
+        // 0 trusted hops -> the direct socket peer.
+        assert_eq!(select_client_ip(xff, Some(peer), 0), "198.51.100.2");
+        // 1 trusted hop (e.g. one ingress) -> the address it recorded.
+        assert_eq!(select_client_ip(xff, Some(peer), 1), "10.0.0.1");
+        // 2 trusted hops -> one further out toward the original client.
+        assert_eq!(select_client_ip(xff, Some(peer), 2), "203.0.113.7");
+        // More trusted hops than the chain has -> clamps to the outermost entry.
+        assert_eq!(select_client_ip(xff, Some(peer), 99), "203.0.113.7");
+    }
+
+    #[test]
+    fn select_client_ip_falls_back_without_a_peer() {
+        // No peer, 1 trusted hop still clamps within the forwarded chain.
+        assert_eq!(
+            select_client_ip(Some("203.0.113.7, 10.0.0.1"), None, 1),
+            "203.0.113.7"
+        );
+        assert_eq!(select_client_ip(None, None, 5), "unknown");
     }
 
     #[test]

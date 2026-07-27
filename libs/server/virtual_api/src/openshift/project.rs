@@ -1,6 +1,6 @@
 //! `project.openshift.io/v1` Projects mapped onto core Namespaces.
 //!
-//! An OpenShift Project *is* a Namespace with a different name and a couple of
+//! An `OpenShift` Project *is* a Namespace with a different name and a couple of
 //! annotations, which is why this mapping is faithful enough to be useful:
 //!
 //! | virtual                                              | upstream                        |
@@ -9,10 +9,10 @@
 //! | `GET/DELETE .../projects/{name}`                     | `.../namespaces/{name}`         |
 //! | `POST .../projectrequests`                           | `POST /api/v1/namespaces`       |
 //!
-//! Known limitation: OpenShift's `LIST projects` returns only the projects the
+//! Known limitation: `OpenShift`'s `LIST projects` returns only the projects the
 //! caller can see, because the apiserver filters them per user. `LIST
 //! namespaces` has no such behaviour and requires cluster-wide list rights, so
-//! a user without them gets a 403 here where OpenShift would have returned a
+//! a user without them gets a 403 here where `OpenShift` would have returned a
 //! (possibly empty) list. See the roadmap entry about per-namespace
 //! `SelfSubjectAccessReview` fallback.
 
@@ -76,7 +76,7 @@ impl OpenShiftProjectMapper {
 
     /// `ProjectRequest`/`Project` -> `Namespace`.
     ///
-    /// `displayName` and `description` are top-level fields on a ProjectRequest
+    /// `displayName` and `description` are top-level fields on a `ProjectRequest`
     /// but annotations on a Namespace.
     fn project_request_to_namespace(&self, body: Value) -> Value {
         // Only carry `metadata` over when it is actually an object; a client
@@ -122,7 +122,7 @@ impl OpenShiftProjectMapper {
 
     fn projects_path(name: Option<&str>) -> String {
         match name {
-            Some(name) => format!("{}/{}", NAMESPACES_PATH, name),
+            Some(name) => format!("{NAMESPACES_PATH}/{name}"),
             None => NAMESPACES_PATH.to_string(),
         }
     }
@@ -135,7 +135,7 @@ impl VirtualApiMapper for OpenShiftProjectMapper {
 
     fn api_resources(&self) -> APIResourceList {
         APIResourceList {
-            group_version: format!("{}/{}", GROUP, VERSION),
+            group_version: format!("{GROUP}/{VERSION}"),
             resources: vec![
                 APIResource {
                     name: PROJECTS_RESOURCE.to_string(),
@@ -224,7 +224,7 @@ impl VirtualApiMapper for OpenShiftProjectMapper {
 
     fn map_request_body(&self, route: &VirtualRoute, body: Value) -> Value {
         match body.get("kind").and_then(Value::as_str) {
-            Some("ProjectRequest") | Some(PROJECT_KIND) => self.project_request_to_namespace(body),
+            Some("ProjectRequest" | PROJECT_KIND) => self.project_request_to_namespace(body),
             // An unrecognised body on a projectrequests create is still meant to
             // become a namespace; anything else goes through untouched.
             _ if route.resource == PROJECT_REQUESTS_RESOURCE => {

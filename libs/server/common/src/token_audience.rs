@@ -3,7 +3,7 @@
 //! Calling `/userinfo` proves a bearer token is validly signed and active for
 //! its issuer, but it does NOT restrict which OAuth client the token was minted
 //! for. Without an audience check, any access token from the same issuer (for
-//! example one issued for a different application on a shared IdP) would be
+//! example one issued for a different application on a shared `IdP`) would be
 //! accepted and group-authorized here — a confused-deputy / audience-confusion
 //! hole. This module enforces that the token's audience actually names this
 //! service.
@@ -19,7 +19,7 @@
 //! them into the accepted set would re-open the very audience-confusion hole
 //! this module exists to close (a token with `aud=["other-api"], azp=<us>` would
 //! pass). They are only consulted when the provider's `accept_authorized_party`
-//! config field is enabled, for IdPs (e.g. Keycloak) that mint self-audience
+//! config field is enabled, for `IdPs` (e.g. Keycloak) that mint self-audience
 //! tokens carrying the client only in `azp`.
 
 use base64::Engine;
@@ -38,6 +38,7 @@ pub enum AudienceValidationMode {
 }
 
 impl AudienceValidationMode {
+    #[must_use]
     pub fn from_env() -> Self {
         Self::from_str_value(&std::env::var("OIDC_AUDIENCE_VALIDATION").unwrap_or_default())
     }
@@ -64,17 +65,20 @@ pub struct TokenAudiences {
 }
 
 impl TokenAudiences {
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.values.is_empty() && self.authorized_party.is_empty()
     }
 
     /// Whether the expected audience is present in the `aud` claim.
+    #[must_use]
     pub fn contains(&self, expected: &str) -> bool {
         self.values.iter().any(|value| value == expected)
     }
 
     /// Whether `expected` is accepted: always matches against `aud`; also matches
     /// against `azp`/`client_id` when `accept_azp` is set.
+    #[must_use]
     pub fn matches(&self, expected: &str, accept_azp: bool) -> bool {
         self.contains(expected)
             || (accept_azp && self.authorized_party.iter().any(|value| value == expected))
@@ -102,6 +106,7 @@ struct JwtAudClaims {
 /// by a successful `/userinfo` round-trip): the issuer signed the claims, so an
 /// attacker cannot alter `aud` without invalidating that signature. Returns
 /// `None` when the token is not a JWT (opaque) or carries no audience-like claim.
+#[must_use]
 pub fn extract_jwt_audiences(token: &str) -> Option<TokenAudiences> {
     // A JWS/JWT is `header.payload.signature`; the payload is the middle part.
     let payload_b64 = token.split('.').nth(1)?;

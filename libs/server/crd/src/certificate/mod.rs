@@ -64,20 +64,18 @@ impl std::fmt::Debug for CertSource {
 /// than the owning `ProxyKubeApi`'s namespace.
 ///
 /// Defaults to `false` (secure by default): a cert read uses the controller's
-/// cluster-wide ServiceAccount, and the resolved bytes are handed back in the
+/// cluster-wide `ServiceAccount`, and the resolved bytes are handed back in the
 /// generated kubeconfig's `certificate_authority_data`, so allowing an arbitrary
 /// `namespace` turns a tenant who can create `ProxyKubeApi` objects into a
 /// cross-namespace Secret read oracle. Set `PROXYAUTH_ALLOW_CROSS_NS_CERT=true`
 /// only on a single-tenant cluster where every CR author is already trusted.
 fn cross_namespace_cert_allowed() -> bool {
-    std::env::var("PROXYAUTH_ALLOW_CROSS_NS_CERT")
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "true" | "1" | "yes" | "on" | "enabled"
-            )
-        })
-        .unwrap_or(false)
+    std::env::var("PROXYAUTH_ALLOW_CROSS_NS_CERT").is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "true" | "1" | "yes" | "on" | "enabled"
+        )
+    })
 }
 
 /// Resolve the namespace a cert is actually read from, applying the
@@ -119,20 +117,18 @@ impl CertSource {
                             .decode(cert_str)
                             .map_err(|e| e.to_string())?;
                         return Ok(Some(decoded.into_iter().map(|c| c as char).collect()));
-                    } else {
-                        return Err(format!("Key {} not found in secret {}", key, name));
                     }
+                    return Err(format!("Key {key} not found in secret {name}"));
                 }
                 if let Some(data) = secret.string_data {
                     if let Some(cert) = data.get(key) {
                         let decode = BASE64_STANDARD.decode(cert).map_err(|e| e.to_string())?;
                         let cert_str = String::from_utf8(decode).map_err(|e| e.to_string())?;
                         return Ok(Some(cert_str));
-                    } else {
-                        return Err(format!("Key {} not found in secret {}", key, name));
                     }
+                    return Err(format!("Key {key} not found in secret {name}"));
                 }
-                Err(format!("No data found in secret {}", name))
+                Err(format!("No data found in secret {name}"))
             }
             CertSource::ConfigMap {
                 name,
@@ -146,11 +142,10 @@ impl CertSource {
                 if let Some(data) = configmap.data {
                     if let Some(cert) = data.get(key) {
                         return Ok(Some(cert.clone()));
-                    } else {
-                        return Err(format!("Key {} not found in configmap {}", key, name));
                     }
+                    return Err(format!("Key {key} not found in configmap {name}"));
                 }
-                Err(format!("No data found in configmap {}", name))
+                Err(format!("No data found in configmap {name}"))
             }
             CertSource::Cert(c) => {
                 // base64 decode the cert

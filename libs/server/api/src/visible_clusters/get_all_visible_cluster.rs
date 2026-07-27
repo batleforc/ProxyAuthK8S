@@ -4,8 +4,8 @@ use crd::ProxyKubeApi;
 use tracing::{error, instrument};
 
 use crate::{
-    api::get_all_visible_cluster_model::{GetAllVisibleClusterBody, VisibleCluster},
     model::user::User,
+    visible_clusters::get_all_visible_cluster_model::{GetAllVisibleClusterBody, VisibleCluster},
 };
 
 /// Get all cluster visible to the user.
@@ -36,7 +36,7 @@ pub async fn get_all_visible_cluster(
     // Read through the index the controller maintains rather than scanning with
     // `KEYS`: the scan is O(N) and blocking, and a Redis cluster only answers it
     // for the node that happened to be reached.
-    let cached: Vec<ProxyKubeApi> = match state.list_objects("proxyk8sauth".to_string()).await {
+    let cached: Vec<ProxyKubeApi> = match state.list_objects(crd::REDIS_PREFIX).await {
         Ok(cached) => cached,
         Err(e) => {
             error!(error = %e, "couldn't list the cached clusters");

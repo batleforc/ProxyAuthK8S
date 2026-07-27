@@ -22,7 +22,7 @@ pub mod reconcile;
 ///
 /// Must match [`ProxyKubeApi::to_identifier`], which produces
 /// `proxyk8sauth:{namespace}/{name}`.
-pub const REDIS_PREFIX: &str = "proxyk8sauth";
+pub const REDIS_PREFIX: &str = crd::REDIS_PREFIX;
 
 #[instrument(skip(ctx))]
 pub fn error_policy_proxy_kube_api(
@@ -69,14 +69,13 @@ pub async fn main_reconcile_proxy_kube_api(
     if trace_id != TraceId::INVALID {
         tracing::Span::current().record("trace_id", tracing::field::display(trace_id));
     }
-    let ns = match proxy.namespace() {
-        Some(ns) => ns,
-        None => {
-            tracing::error!(name = proxy.metadata.name, "ProxyKubeApi has no namespace");
-            return Err(ControllerError::InvalidResource(
-                "ProxyKubeApi has no namespace".to_string(),
-            ));
-        }
+    let ns = if let Some(ns) = proxy.namespace() {
+        ns
+    } else {
+        tracing::error!(name = proxy.metadata.name, "ProxyKubeApi has no namespace");
+        return Err(ControllerError::InvalidResource(
+            "ProxyKubeApi has no namespace".to_string(),
+        ));
     };
     let proxys: Api<ProxyKubeApi> = Api::namespaced(ctx.client.clone(), &ns);
 

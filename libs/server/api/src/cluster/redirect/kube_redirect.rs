@@ -37,22 +37,21 @@ pub async fn redirect(
     method: http::Method,
     peer_addr: Option<PeerAddr>,
 ) -> impl Responder {
-    let (ns, cluster) = match extract_ns_cluster(&req) {
-        Some(parts) => parts,
-        None => {
-            error!(path = %req.path(), "missing ns/cluster path parameters");
-            return HttpResponse::NotFound().finish();
-        }
+    let (ns, cluster) = if let Some(parts) = extract_ns_cluster(&req) {
+        parts
+    } else {
+        error!(path = %req.path(), "missing ns/cluster path parameters");
+        return HttpResponse::NotFound().finish();
     };
 
     let proxy: ProxyKubeApi = match data
-        .get_object_from_redis("proxyk8sauth".to_string(), format!("{}/{}", ns, cluster))
+        .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
         .await
     {
         Ok(Some(proxy)) => proxy,
         Ok(None) => return HttpResponse::NotFound().finish(),
         Err(e) => {
-            error!(error = %e, " couldn't get proxy from redis");
+            error!(error = %e, "couldn't get proxy from redis");
             return HttpResponse::ServiceUnavailable().finish();
         }
     };
@@ -63,13 +62,12 @@ pub async fn redirect(
 
     // Only strip the routing prefix, never an occurrence further down the path:
     // `/clusters/{ns}/{cluster}` may legitimately reappear inside the upstream path.
-    let prefix = format!("/clusters/{}/{}", ns, cluster);
-    let upstream_path = match req.path().strip_prefix(&prefix) {
-        Some(rest) => rest.to_string(),
-        None => {
-            error!(path = %req.path(), %prefix, "request path does not start with the cluster prefix");
-            return HttpResponse::NotFound().finish();
-        }
+    let prefix = format!("/clusters/{ns}/{cluster}");
+    let upstream_path = if let Some(rest) = req.path().strip_prefix(&prefix) {
+        rest.to_string()
+    } else {
+        error!(path = %req.path(), %prefix, "request path does not start with the cluster prefix");
+        return HttpResponse::NotFound().finish();
     };
 
     let mut audit = AuditContext::new(&ns, &cluster, method.as_str(), &upstream_path);
@@ -145,8 +143,7 @@ pub async fn redirect(
     // not make several users share a budget.
     let rate_limit_subject = user
         .as_ref()
-        .map(|user| user.username.clone())
-        .unwrap_or_else(|| peer_id.clone());
+        .map_or_else(|| peer_id.clone(), |user| user.username.clone());
     let user_groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
     if let Some(throttled) =
         throttle::check_rate_limit(data.get_ref(), &proxy, &rate_limit_subject, user_groups).await
@@ -159,7 +156,7 @@ pub async fn redirect(
 
     // Per-cluster authorization. A cluster restricted to a group can only be
     // reached by a caller we were able to authenticate.
-    if let Some(proxy_group) = proxy.get_proxy_group() {
+    if let Some(proxy_group) = proxy.proxy_group() {
         match &user {
             Some(user) if proxy.is_proxy_allowed(&user.groups) => {}
             Some(user) => {
@@ -171,8 +168,7 @@ pub async fn redirect(
                 audited!(
                     audit,
                     forbidden(&format!(
-                        "access to this cluster requires membership of the \"{}\" group",
-                        proxy_group
+                        "access to this cluster requires membership of the \"{proxy_group}\" group"
                     ))
                 );
             }
@@ -206,7 +202,7 @@ pub async fn redirect(
     // on the cluster is checked too: allowing a virtual path must not become a
     // way around the allow-list on the API it maps to.
     if let Some(security_config) = &proxy.spec.security_config {
-        let username = user.as_ref().map(|u| u.username.as_str()).unwrap_or("");
+        let username = user.as_ref().map_or("", |u| u.username.as_str());
         let groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
 
         let mut checked_paths = vec![upstream_path.as_str()];
@@ -219,7 +215,7 @@ pub async fn redirect(
                 warn!(%path, "request path is not in the allowed resources");
                 audited!(
                     audit,
-                    forbidden(&format!("path \"{}\" is not allowed on this cluster", path))
+                    forbidden(&format!("path \"{path}\" is not allowed on this cluster"))
                 );
             }
         }
@@ -233,7 +229,7 @@ pub async fn redirect(
     {
         Ok(url) => url.trim_end_matches('/').to_string(),
         Err(err) => {
-            error!(err, " couldn't get url to call");
+            error!(err, "couldn't get url to call");
             audited!(audit, HttpResponse::NotFound().finish());
         }
     };
@@ -260,9 +256,9 @@ pub async fn redirect(
     let url_to_call = {
         let query_string = req.query_string();
         if query_string.is_empty() {
-            format!("{}{}", base_url, upstream_path)
+            format!("{base_url}{upstream_path}")
         } else {
-            format!("{}{}?{}", base_url, upstream_path, query_string)
+            format!("{base_url}{upstream_path}?{query_string}")
         }
     };
 

@@ -17,6 +17,7 @@ pub struct VirtualRoute {
 }
 
 impl VirtualRoute {
+    #[must_use]
     pub fn new(method: &str, resource: &str) -> Self {
         Self {
             resource: resource.to_string(),
@@ -26,11 +27,13 @@ impl VirtualRoute {
         }
     }
 
+    #[must_use]
     pub fn with_name(mut self, name: &str) -> Self {
         self.name = Some(name.to_string());
         self
     }
 
+    #[must_use]
     pub fn with_subresource(mut self, subresource: &str) -> Self {
         self.subresource = Some(subresource.to_string());
         self
@@ -59,6 +62,7 @@ impl UpstreamRequest {
         }
     }
 
+    #[must_use]
     pub fn with_body(mut self, body: Vec<u8>) -> Self {
         self.body = Some(body);
         self
@@ -66,6 +70,7 @@ impl UpstreamRequest {
 }
 
 /// Split a path into its non-empty segments.
+#[must_use]
 pub fn segments(path: &str) -> Vec<&str> {
     path.split('/').filter(|s| !s.is_empty()).collect()
 }

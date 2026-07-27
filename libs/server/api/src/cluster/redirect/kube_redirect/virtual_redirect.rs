@@ -117,12 +117,15 @@ fn json_response(status: http::StatusCode, body: &Value) -> HttpResponse {
 }
 
 /// Read the client body, capped, so a mapper can rewrite it.
-async fn read_client_body(payload: &mut web::Payload, limit: usize) -> Result<web::Bytes, String> {
+async fn read_client_body(
+    payload: &mut web::Payload,
+    limit: usize,
+) -> Result<web::Bytes, ReadCapError> {
     let mut body = web::BytesMut::new();
     while let Some(chunk) = payload.next().await {
-        let chunk = chunk.map_err(|err| err.to_string())?;
+        let chunk = chunk.map_err(|err| ReadCapError::Upstream(err.to_string()))?;
         if body.len() + chunk.len() > limit {
-            return Err(format!("request body exceeds {limit} bytes"));
+            return Err(ReadCapError::TooLarge);
         }
         body.extend_from_slice(&chunk);
     }
@@ -224,10 +227,16 @@ pub(super) async fn virtual_redirect(
                     // will say what it thinks of it.
                     Err(_) => Some(body.to_vec()),
                 },
-                Err(err) => {
-                    warn!(%err, "could not read the request body of a virtual request");
+                Err(ReadCapError::TooLarge) => {
+                    warn!(limit, "virtual request body exceeds the size cap");
                     audit.emit(413);
-                    return HttpResponse::PayloadTooLarge().body(err);
+                    return HttpResponse::PayloadTooLarge()
+                        .body(format!("request body exceeds {limit} bytes"));
+                }
+                Err(ReadCapError::Upstream(err)) => {
+                    warn!(%err, "could not read the request body of a virtual request");
+                    audit.emit(400);
+                    return HttpResponse::BadRequest().body("could not read request body");
                 }
             };
 
@@ -244,15 +253,15 @@ pub(super) async fn virtual_redirect(
 
     let query_string = req.query_string();
     let url = if query_string.is_empty() {
-        format!("{}{}", base_url, mapped_path)
+        format!("{base_url}{mapped_path}")
     } else {
-        format!("{}{}?{}", base_url, mapped_path, query_string)
+        format!("{base_url}{mapped_path}?{query_string}")
     };
 
     let client = match upstream_client(&proxy, &data).await {
         Ok(client) => client,
         Err(err) => {
-            error!(err, " couldn't build the upstream client");
+            error!(err, "couldn't build the upstream client");
             audit.emit(503);
             return HttpResponse::ServiceUnavailable().body("upstream unavailable");
         }

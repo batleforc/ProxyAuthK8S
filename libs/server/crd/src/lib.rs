@@ -1,3 +1,9 @@
+//! `ProxyKubeApi` custom resource definition and its domain model.
+//!
+//! Defines the CRD schema (consumed by `crdgen` to emit the YAML manifests)
+//! together with the security, authentication, and certificate configuration
+//! types that make up a proxied cluster's spec.
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,6 +31,13 @@ pub mod status;
 pub mod virtual_api;
 
 pub static PROXY_KUBE_FINALIZER: &str = "weebo.si.rs";
+
+/// Redis key prefix under which cached [`ProxyKubeApi`] objects live.
+///
+/// Single source of truth shared by the controller (writer, via its Redis
+/// index) and the request path (reader): both must agree on this prefix or a
+/// cached proxy is written under one key and looked up under another.
+pub const REDIS_PREFIX: &str = "proxyk8sauth";
 
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[kube(
@@ -70,7 +83,7 @@ pub struct ProxyKubeApiSpec {
     pub dashboard_group: Option<String>,
     /// The oidc group required to proxy requests to this cluster
     /// Set it to decouple proxy access from dashboard access
-    /// Default: the dashboard group when expose_via_dashboard is true,
+    /// Default: the dashboard group when `expose_via_dashboard` is true,
     /// otherwise no group is required
     pub proxy_group: Option<String>,
     /// Virtual APIs to expose on top of this cluster
@@ -83,17 +96,18 @@ pub struct ProxyKubeApiSpec {
 impl ProxyKubeApi {
     pub fn validate(&self) -> Result<(), String> {
         if self.spec.enabled {
-            self.spec
-                .auth_config
-                .as_ref()
-                .map_or(Ok(()), |auth_config| auth_config.validate())?;
+            self.spec.auth_config.as_ref().map_or(
+                Ok(()),
+                authentication_configuration::AuthenticationConfiguration::validate,
+            )?;
             self.spec
                 .security_config
                 .as_ref()
-                .map_or(Ok(()), |security_config| security_config.validate())?;
+                .map_or(Ok(()), security::SecurityConfiguration::validate)?;
         }
         Ok(())
     }
+    #[must_use]
     pub fn to_identifier(&self) -> String {
         format!(
             "proxyk8sauth:{}/{}",
@@ -101,6 +115,7 @@ impl ProxyKubeApi {
             self.name_any()
         )
     }
+    #[must_use]
     pub fn to_path(&self) -> String {
         format!(
             "{}/{}",
@@ -108,6 +123,7 @@ impl ProxyKubeApi {
             self.name_any()
         )
     }
+    #[must_use]
     pub fn to_full_path(&self, state: Arc<State>) -> String {
         format!(
             "{}/clusters/{}",
@@ -115,7 +131,8 @@ impl ProxyKubeApi {
             self.to_path()
         )
     }
-    pub fn get_dashboard_group(&self) -> String {
+    #[must_use]
+    pub fn dashboard_group(&self) -> String {
         match &self.spec.dashboard_group {
             Some(group) => group.clone(),
             None => format!(
@@ -125,8 +142,9 @@ impl ProxyKubeApi {
             ),
         }
     }
+    #[must_use]
     pub fn is_user_allowed(&self, user_groups: &[String]) -> bool {
-        let dashboard_group = self.get_dashboard_group();
+        let dashboard_group = self.dashboard_group();
         if !self.spec.expose_via_dashboard {
             return false;
         }
@@ -134,6 +152,7 @@ impl ProxyKubeApi {
     }
 
     /// The virtual APIs enabled on this cluster, deduplicated.
+    #[must_use]
     pub fn enabled_virtual_apis(&self) -> Vec<VirtualApiKind> {
         enabled_kinds(&self.spec.virtual_apis)
     }
@@ -144,29 +163,33 @@ impl ProxyKubeApi {
     /// authenticated caller may reach it. An explicit `proxy_group` always
     /// wins; otherwise a dashboard-exposed cluster reuses its dashboard group so
     /// that listing a cluster and using it require the same membership.
-    pub fn get_proxy_group(&self) -> Option<String> {
+    #[must_use]
+    pub fn proxy_group(&self) -> Option<String> {
         if let Some(group) = &self.spec.proxy_group {
             return Some(group.clone());
         }
         if self.spec.expose_via_dashboard {
-            return Some(self.get_dashboard_group());
+            return Some(self.dashboard_group());
         }
         None
     }
 
     /// Whether the proxy is restricted to a group at all.
+    #[must_use]
     pub fn is_proxy_group_restricted(&self) -> bool {
-        self.get_proxy_group().is_some()
+        self.proxy_group().is_some()
     }
 
     /// Whether `user_groups` may proxy requests to this cluster.
+    #[must_use]
     pub fn is_proxy_allowed(&self, user_groups: &[String]) -> bool {
-        match self.get_proxy_group() {
+        match self.proxy_group() {
             Some(proxy_group) => user_groups.iter().any(|group| group == &proxy_group),
             None => true,
         }
     }
 
+    #[must_use]
     pub fn need_token_validation(&self) -> bool {
         if let Some(auth_config) = &self.spec.auth_config {
             !auth_config.disable_validation
@@ -236,7 +259,7 @@ impl ProxyKubeApi {
             },
             Ok(None) => reqwest_client,
             Err(err) => {
-                return Err(err.to_string());
+                return Err(err.clone());
             }
         };
         reqwest_client = reqwest_client
@@ -251,6 +274,7 @@ impl ProxyKubeApi {
             Err(err) => Err(err.to_string()),
         }
     }
+    #[must_use]
     pub fn get_redirect_oidc_url(
         &self,
         state: Arc<State>,
@@ -288,12 +312,11 @@ impl ProxyKubeApi {
         if let Some(redirect_kubectl_uri) = redirect_kubectl.clone() {
             // Validate the redirect uri
             // The uri need to be have no path, no query and no fragment and uri should be localhost
-            let parsed_uri = match Url::parse(&redirect_kubectl_uri) {
-                Ok(uri) => uri,
-                Err(_) => {
-                    tracing::error!("Invalid redirect uri: {}", redirect_kubectl_uri);
-                    return None;
-                }
+            let parsed_uri = if let Ok(uri) = Url::parse(&redirect_kubectl_uri) {
+                uri
+            } else {
+                tracing::error!("Invalid redirect uri: {}", redirect_kubectl_uri);
+                return None;
             };
             if parsed_uri.path() != "/"
                 || parsed_uri.query().is_some()
@@ -351,7 +374,7 @@ impl ProxyKubeApi {
             .await
         {
             Ok(url) => url,
-            Err(e) => return Err(format!("Error getting cluster URL: {}", e)),
+            Err(e) => return Err(format!("Error getting cluster URL: {e}")),
         };
         let mut kubeconfig = Kubeconfig::default();
         kubeconfig.clusters.push(kube::config::NamedCluster {
@@ -417,9 +440,7 @@ impl ObjectRedis for ProxyKubeApi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::authentication_configuration::{
-        oidc_provider::OidcProvider, validate_against::ValidateAgainst,
-    };
+    use crate::authentication_configuration::{OidcProvider, ValidateAgainst};
     use crate::security::{AllowedPathConfiguration, AllowedPathConfigurationEnum};
 
     fn oidc_provider(enabled: bool) -> OidcProvider {
@@ -516,7 +537,7 @@ mod tests {
     #[test]
     fn dashboard_group_defaults_to_namespace_and_name() {
         assert_eq!(
-            proxy(spec()).get_dashboard_group(),
+            proxy(spec()).dashboard_group(),
             "dashboard-default-local-sso"
         );
     }
@@ -525,7 +546,7 @@ mod tests {
     fn dashboard_group_uses_the_configured_value() {
         let mut spec = spec();
         spec.dashboard_group = Some("platform-admins".to_string());
-        assert_eq!(proxy(spec).get_dashboard_group(), "platform-admins");
+        assert_eq!(proxy(spec).dashboard_group(), "platform-admins");
     }
 
     #[test]
@@ -560,7 +581,7 @@ mod tests {
     #[test]
     fn a_plain_cluster_is_not_group_restricted() {
         let proxy = proxy(spec());
-        assert_eq!(proxy.get_proxy_group(), None);
+        assert_eq!(proxy.proxy_group(), None);
         assert!(!proxy.is_proxy_group_restricted());
         // Nothing to check against, so any authenticated caller goes through.
         assert!(proxy.is_proxy_allowed(&[]));
@@ -573,7 +594,7 @@ mod tests {
         let proxy = proxy(spec);
 
         assert_eq!(
-            proxy.get_proxy_group().as_deref(),
+            proxy.proxy_group().as_deref(),
             Some("dashboard-default-local-sso")
         );
         assert!(proxy.is_proxy_allowed(&["dashboard-default-local-sso".to_string()]));
@@ -589,7 +610,7 @@ mod tests {
         spec.proxy_group = Some("operators".to_string());
         let proxy = proxy(spec);
 
-        assert_eq!(proxy.get_proxy_group().as_deref(), Some("operators"));
+        assert_eq!(proxy.proxy_group().as_deref(), Some("operators"));
         assert!(proxy.is_proxy_allowed(&["operators".to_string()]));
         // Seeing the cluster in the dashboard is not enough to use it.
         assert!(!proxy.is_proxy_allowed(&["viewers".to_string()]));

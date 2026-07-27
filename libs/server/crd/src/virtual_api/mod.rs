@@ -28,6 +28,7 @@ pub struct VirtualApiConfiguration {
 }
 
 impl VirtualApiConfiguration {
+    #[must_use]
     pub fn new(kind: VirtualApiKind) -> Self {
         Self {
             kind,
@@ -37,6 +38,7 @@ impl VirtualApiConfiguration {
 }
 
 /// The kinds enabled on a spec, deduplicated and in declaration order.
+#[must_use]
 pub fn enabled_kinds(configurations: &[VirtualApiConfiguration]) -> Vec<VirtualApiKind> {
     let mut kinds: Vec<VirtualApiKind> = Vec::new();
     for configuration in configurations.iter().filter(|c| c.enabled) {

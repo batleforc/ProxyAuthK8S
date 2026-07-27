@@ -12,10 +12,14 @@ use tracing::info;
 /// Everything that can go wrong reaching Redis.
 #[derive(Debug, thiserror::Error)]
 pub enum RedisPoolError {
+    #[error("could not build the redis pool: {0}")]
+    Build(String),
     #[error("could not get a redis connection: {0}")]
     Pool(String),
     #[error("redis command failed: {0}")]
     Command(#[from] RedisError),
+    #[error("a cached value could not be deserialized: {0}")]
+    Deserialize(String),
 }
 
 #[derive(Clone)]
@@ -30,7 +34,12 @@ impl RedisPool {
     /// A comma-separated list of URLs, or `REDIS_CLUSTER=true`, selects cluster
     /// mode. Cluster mode with a single seed node is valid: the client
     /// discovers the rest of the topology itself.
-    pub fn from_url(url: &str) -> Result<Self, String> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError::Build`] when the pool cannot be created from the
+    /// given URL(s).
+    pub fn from_url(url: &str) -> Result<Self, RedisPoolError> {
         let urls: Vec<String> = url
             .split(',')
             .map(str::trim)
@@ -39,8 +48,7 @@ impl RedisPool {
             .collect();
 
         let forced_cluster = std::env::var("REDIS_CLUSTER")
-            .map(|value| value.eq_ignore_ascii_case("true") || value == "1")
-            .unwrap_or(false);
+            .is_ok_and(|value| value.eq_ignore_ascii_case("true") || value == "1");
 
         if urls.len() > 1 || forced_cluster {
             info!(nodes = urls.len(), "Connecting to Redis in cluster mode");
@@ -48,21 +56,27 @@ impl RedisPool {
             return config
                 .create_pool(Some(Runtime::Tokio1))
                 .map(RedisPool::Cluster)
-                .map_err(|err| err.to_string());
+                .map_err(|err| RedisPoolError::Build(err.to_string()));
         }
 
         info!("Connecting to Redis in single-node mode");
         Config::from_url(url)
             .create_pool(Some(Runtime::Tokio1))
             .map(RedisPool::Single)
-            .map_err(|err| err.to_string())
+            .map_err(|err| RedisPoolError::Build(err.to_string()))
     }
 
+    #[must_use]
     pub fn is_cluster(&self) -> bool {
         matches!(self, RedisPool::Cluster(_))
     }
 
     /// Run one command, whichever mode the pool is in.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when no connection can be obtained or the
+    /// command fails.
     pub async fn query<T: FromRedisValue>(&self, command: &Cmd) -> Result<T, RedisPoolError> {
         match self {
             RedisPool::Single(pool) => {

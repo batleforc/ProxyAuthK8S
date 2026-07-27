@@ -1,3 +1,9 @@
+//! Kubernetes controller for the `ProxyKubeApi` custom resource.
+//!
+//! Runs the reconcile loop that watches `ProxyKubeApi` objects, mirrors their
+//! desired state into Redis for the request path to consume, and manages
+//! leader election so only one replica reconciles at a time.
+
 use std::{
     sync::{atomic::Ordering, Arc},
     time::Duration,
@@ -5,7 +11,7 @@ use std::{
 
 use common::State;
 use crd::ProxyKubeApi;
-use futures::StreamExt;
+use futures_util::StreamExt;
 use kube::{
     runtime::{watcher::Config, Controller},
     Api,
@@ -56,7 +62,7 @@ pub async fn run(state: State) {
             "Failed to list ProxyKubeApi resources (the CRD maybe not installed) : {}",
             e
         );
-        panic!("Failed to list ProxyKubeApi resources: {}", e);
+        panic!("Failed to list ProxyKubeApi resources: {e}");
     }
 
     let leadership = LeaseLock::new(
@@ -87,7 +93,7 @@ pub async fn run(state: State) {
     let controller_state = Arc::new(state.clone());
 
     tokio::select! {
-        _ = Controller::new(proxy_kube_apis.clone(), Config::default().any_semantic())
+        () = Controller::new(proxy_kube_apis.clone(), Config::default().any_semantic())
             .shutdown_on_signal()
             .run(
                 main_reconcile_proxy_kube_api,
@@ -95,9 +101,9 @@ pub async fn run(state: State) {
                 controller_state.clone(),
             )
             .filter_map(|x| async move { std::result::Result::ok(x) })
-            .for_each(|_| futures::future::ready(())) => {
+            .for_each(|_| futures_util::future::ready(())) => {
         },
-        _ = run_leader_election(state.clone(), leadership) => {
+        () = run_leader_election(state.clone(), leadership) => {
         }
     };
 }

@@ -11,7 +11,7 @@ use crate::{
 
 impl CliCtx {
     fn prompt_for_token(prompt: &str) -> Option<String> {
-        print!("{}", prompt);
+        print!("{prompt}");
         if io::stdout().flush().is_err() {
             return None;
         }
@@ -70,11 +70,14 @@ impl CliCtx {
         } else {
             self.namespace.clone()
         };
-        let clusters = match server_config.get_clusters_from_remote().await {
+        let clusters = match server_config.clusters_from_remote().await {
             Ok(clusters) => {
                 // Full cluster topology (names, namespaces, SSO flags) should not
                 // land in default-level logs.
-                debug!("Successfully retrieved clusters: {:?}", clusters);
+                debug!(
+                    count = clusters.clusters.len(),
+                    "Successfully retrieved clusters"
+                );
                 clusters
             }
             Err(e) => {
@@ -102,12 +105,11 @@ impl CliCtx {
             .iter()
             .find(|c| c.name == cluster && c.namespace == namespace);
 
-        let is_sso_enabled = match target_cluster {
-            Some(cluster_config) => cluster_config.sso_enabled,
-            None => {
-                error!("Cluster {} not found on server.", cluster);
-                return;
-            }
+        let is_sso_enabled = if let Some(cluster_config) = target_cluster {
+            cluster_config.sso_enabled
+        } else {
+            error!("Cluster {} not found on server.", cluster);
+            return;
         };
 
         let token = match token {
@@ -118,7 +120,7 @@ impl CliCtx {
                     cluster
                 );
                 // `/auth/login` is authenticated: reuse the stored server token.
-                let base_config = match server_config.get_base_configuration() {
+                let base_config = match server_config.base_configuration() {
                     Ok(config) => config,
                     Err(e) => {
                         error!(
@@ -147,7 +149,6 @@ impl CliCtx {
             // round-trip to `/api?timeout=32s` (what kubectl uses) would catch a
             // bad token here instead of on first use. Tracked on the roadmap.
 
-            // Insert credentials into config.
             let Some(server) = self.config.servers.get_mut(&server_name) else {
                 // The server config was resolved just above; if it is gone now the
                 // config is inconsistent — fail cleanly rather than panicking.
@@ -157,11 +158,19 @@ impl CliCtx {
                 );
                 return;
             };
-            let _ = server.set_cluster_token(namespace, cluster.clone(), tok.clone());
+            // Persist the token to the keyring first; if that fails there is no
+            // usable credential, so abort instead of reporting a false success.
+            if let Err(e) = server.set_cluster_token(namespace, cluster.clone(), tok.clone()) {
+                error!("Failed to store cluster token: {}", e);
+                return;
+            }
             match self.config.write_to_file(self.config_path.clone()) {
                 Ok(_) => info!("Config file updated successfully."),
-                Err(e) => error!("Failed to update config file: {}", e),
-            };
+                Err(e) => {
+                    error!("Failed to update config file: {}", e);
+                    return;
+                }
+            }
             info!("Login to cluster {} successful.", cluster);
         } else {
             error!("No token provided. Cluster login requires a token.");
@@ -175,53 +184,41 @@ impl CliCtx {
 
         if let Some(tok) = token {
             info!("Using token for server authentication.");
-            // Use the token for authentication
-            // Try to get cluster info from server using the token
-            let base_path = if !self.server_url.is_empty() {
-                self.server_url.clone()
+            // Resolve the target server (url + name) once: either the explicit
+            // --server-url, or the configured default. Both the discovery call
+            // and the post-discovery config update reuse it.
+            let (server_url, server_name) = if self.server_url.is_empty() {
+                let Some(def_server) = self.config.servers.get(&self.config.default_server_name)
+                else {
+                    error!(
+                        "Default server '{}' not found in configuration. Please login to a server first.",
+                        self.config.default_server_name
+                    );
+                    return;
+                };
+                (
+                    def_server.url.clone(),
+                    self.config.default_server_name.clone(),
+                )
             } else {
-                match self.config.servers.get(&self.config.default_server_name) {
-                    Some(def_server) => def_server.url.clone(),
-                    None => {
-                        error!(
-                            "Default server '{}' not found in configuration. Please login to a server first.",
-                            self.config.default_server_name
-                        );
-                        return;
-                    }
-                }
+                (
+                    self.server_url.clone(),
+                    CliServerConfig::url_to_name_from_string(self.server_url.clone()),
+                )
             };
             let output = get_all_visible_cluster(&Configuration {
                 bearer_access_token: Some(tok.clone()),
-                base_path,
+                base_path: server_url.clone(),
                 ..Default::default()
             })
             .await;
 
             match output {
                 Ok(clusters) => {
-                    debug!("Successfully retrieved clusters: {:?}", clusters);
-                    // Get servers from config or insert if not existing
-                    let (server_url, server_name) = if !self.server_url.is_empty() {
-                        (
-                            self.server_url.clone(),
-                            CliServerConfig::url_to_name_from_string(self.server_url.clone()),
-                        )
-                    } else {
-                        match self.config.servers.get(&self.config.default_server_name) {
-                            Some(def_server) => (
-                                def_server.url.clone(),
-                                self.config.default_server_name.clone(),
-                            ),
-                            None => {
-                                error!(
-                                    "Default server '{}' not found in configuration.",
-                                    self.config.default_server_name
-                                );
-                                return;
-                            }
-                        }
-                    };
+                    debug!(
+                        count = clusters.clusters.len(),
+                        "Successfully retrieved clusters"
+                    );
                     let server_name_clone = server_name.clone();
                     let server_config = self
                         .config
@@ -235,35 +232,19 @@ impl CliCtx {
                     match self.config.write_to_file(self.config_path.clone()) {
                         Ok(_) => info!("Config file updated successfully."),
                         Err(e) => error!("Failed to update config file: {}", e),
-                    };
+                    }
                     match server_config_clone.set_server_token(tok.clone()) {
-                        Ok(_) => info!("Token saved to keyring successfully."),
+                        Ok(()) => info!("Token saved to keyring successfully."),
                         Err(e) => error!("Failed to save token to keyring: {}", e),
                     }
                 }
                 Err(e) => {
-                    error!("Failed to retrieve clusters, : {}", e);
-                    match e {
-                        client_api::apis::Error::ResponseError(resp_content) => {
-                            match resp_content.entity {
-                                    Some(client_api::apis::api_clusters_api::GetAllVisibleClusterError::Status401()) => {
-                                        error!("Authentication failed: Invalid token provided.");
-                                    }
-                                    Some(client_api::apis::api_clusters_api::GetAllVisibleClusterError::Status500()) => {
-                                        error!("Server error occurred while retrieving clusters.");
-                                    }
-                                    _ => {
-                                        error!("An unknown error occurred while retrieving clusters.");
-                                    }
-                                }
-                        }
-                        client_api::apis::Error::Serde(req_err) => {
-                            error!("Invalid response from server: {}", req_err);
-                        }
-                        _ => {
-                            error!("An unexpected error occurred: {}", e);
-                        }
-                    }
+                    // Reuse the client_api -> ProxyAuthK8sError From boundary rather
+                    // than re-matching the raw variants inline.
+                    error!(
+                        "Failed to retrieve clusters: {}",
+                        ProxyAuthK8sError::from(e)
+                    );
                 }
             }
         } else {

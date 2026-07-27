@@ -12,6 +12,7 @@ impl Default for CliClusterConfig {
 }
 
 impl CliClusterConfig {
+    #[must_use]
     pub fn new() -> Self {
         CliClusterConfig { token_exist: true }
     }

@@ -21,6 +21,12 @@ pub use route::{segments, UpstreamRequest, VirtualRoute};
 use crd::virtual_api::VirtualApiKind;
 
 /// Translation between a virtual API and a real one.
+///
+/// This is a deliberate extension point: the trait plus [`VirtualApiKind`]
+/// registry exist so new virtual APIs (beyond the OpenShift Projects mapper)
+/// can be added by implementing this trait and registering a kind, without
+/// touching the proxy hot path. It is intentionally kept even while a single
+/// mapper is implemented.
 pub trait VirtualApiMapper: Send + Sync {
     /// The group and version this mapper serves, e.g. `("project.openshift.io", "v1")`.
     fn group_version(&self) -> (&str, &str);
@@ -65,7 +71,7 @@ pub trait VirtualApiMapper: Send + Sync {
     /// `apiVersion` string of the virtual API, e.g. `project.openshift.io/v1`.
     fn api_version(&self) -> String {
         let (group, version) = self.group_version();
-        format!("{}/{}", group, version)
+        format!("{group}/{version}")
     }
 }
 
@@ -80,11 +86,13 @@ pub struct MapperRegistry {
 }
 
 impl MapperRegistry {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Build the registry for the kinds enabled on a cluster.
+    #[must_use]
     pub fn from_kinds(kinds: &[VirtualApiKind]) -> Self {
         let mut registry = Self::new();
         for kind in kinds {
@@ -93,19 +101,22 @@ impl MapperRegistry {
         registry
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.mappers.is_empty()
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.mappers.len()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &dyn VirtualApiMapper> {
-        self.mappers.iter().map(|mapper| mapper.as_ref())
+        self.mappers.iter().map(std::convert::AsRef::as_ref)
     }
 
     /// Find the mapper that recognises `path`, if any.
+    #[must_use]
     pub fn resolve(&self, path: &str) -> Option<(&dyn VirtualApiMapper, VirtualRoute)> {
         self.mappers
             .iter()
@@ -113,12 +124,14 @@ impl MapperRegistry {
     }
 
     /// The mapper serving `group`/`version`, if any.
+    #[must_use]
     pub fn find_group_version(&self, group: &str, version: &str) -> Option<&dyn VirtualApiMapper> {
         self.iter()
             .find(|mapper| mapper.group_version() == (group, version))
     }
 
     /// The mapper serving `group`, whatever the version.
+    #[must_use]
     pub fn find_group(&self, group: &str) -> Option<&dyn VirtualApiMapper> {
         self.iter().find(|mapper| mapper.group_version().0 == group)
     }

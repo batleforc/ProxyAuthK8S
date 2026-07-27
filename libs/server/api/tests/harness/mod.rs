@@ -15,9 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::{oidc_conf::OidcConf, State};
 use crd::{
-    authentication_configuration::{
-        oidc_provider::OidcProvider, validate_against::ValidateAgainst, AuthenticationConfiguration,
-    },
+    authentication_configuration::{AuthenticationConfiguration, OidcProvider, ValidateAgainst},
     certificate::CertSource,
     security::SecurityConfiguration,
     service::Service,
@@ -28,7 +26,7 @@ use deadpool_redis::{
     Config, Pool, Runtime,
 };
 
-pub const REDIS_PREFIX: &str = "proxyk8sauth";
+pub const REDIS_PREFIX: &str = crd::REDIS_PREFIX;
 
 static CLUSTER_COUNTER: AtomicUsize = AtomicUsize::new(0);
 

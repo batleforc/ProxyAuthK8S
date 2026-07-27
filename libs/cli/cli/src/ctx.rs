@@ -78,9 +78,17 @@ impl TryFrom<super::Cli> for CliCtx {
             if home_env.is_empty() {
                 return Err(ProxyAuthK8sError::ConfigPathCouldNotBeCalculated);
             }
-            PathBuf::from(format!("{}/.kube/proxyauth_config.yaml", home_env))
+            PathBuf::from(format!("{home_env}/.kube/proxyauth_config.yaml"))
         };
-        let config = if !config_path.exists() {
+        let config = if config_path.exists() {
+            CliConfig::read_from_file(config_path.clone()).map_err(|e| {
+                ProxyAuthK8sError::KubeconfigReadError(format!(
+                    "Failed to read config file at {}: {}",
+                    config_path.to_string_lossy(),
+                    e
+                ))
+            })?
+        } else {
             CliConfig::default()
                 .write_to_file(config_path.clone())
                 .cloned()
@@ -91,14 +99,6 @@ impl TryFrom<super::Cli> for CliCtx {
                         e
                     ))
                 })?
-        } else {
-            CliConfig::read_from_file(config_path.clone()).map_err(|e| {
-                ProxyAuthK8sError::KubeconfigReadError(format!(
-                    "Failed to read config file at {}: {}",
-                    config_path.to_string_lossy(),
-                    e
-                ))
-            })?
         };
 
         Ok(CliCtx {
@@ -117,6 +117,7 @@ impl TryFrom<super::Cli> for CliCtx {
 }
 
 impl CliCtx {
+    #[must_use]
     pub fn detect_kubeconfig_path(kubeconfig: Option<String>) -> Option<String> {
         if let Some(path) = kubeconfig {
             Some(path)
@@ -124,10 +125,10 @@ impl CliCtx {
             Some(env_path)
         } else {
             let home_env = env::var("HOME").unwrap_or_default();
-            if !home_env.is_empty() {
-                Some(format!("{}/.kube/config", home_env))
-            } else {
+            if home_env.is_empty() {
                 None
+            } else {
+                Some(format!("{home_env}/.kube/config"))
             }
         }
     }
@@ -139,6 +140,7 @@ impl CliCtx {
             .map_err(|e| ProxyAuthK8sError::KubeconfigWriteError(e.to_string()))
     }
 
+    #[must_use]
     pub fn to_tracing_verbose_level(&self) -> VerboseLevel {
         match self.verbose.unwrap_or(0) {
             0 => VerboseLevel::INFO,

@@ -36,7 +36,7 @@ const PLACEHOLDER_RULE: &str = concat!(
     "')"
 );
 
-/// Allowed path configuration, used in conjunction with the allowed_paths configuration
+/// Allowed path configuration, used in conjunction with the `allowed_paths` configuration
 ///
 /// The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
 /// rule is refused at admission rather than at reconcile time.
@@ -88,7 +88,7 @@ impl AllowedPathConfiguration {
             for cap in MUSTACHE_REGEX.captures_iter(&self.path) {
                 let param = &cap[1];
                 if param != "username" && param != "group" {
-                    return Err(format!("Invalid parameter in path: {}, allowed parameters are {{username}} and {{group}}", param));
+                    return Err(format!("Invalid parameter in path: {param}, allowed parameters are {{username}} and {{group}}"));
                 }
             }
         }
@@ -106,6 +106,7 @@ impl AllowedPathConfiguration {
         params
     }
 
+    #[must_use]
     pub fn to_possible_paths(&self, username: &str, groups: &[String]) -> Vec<String> {
         if self.parametised {
             // Substituted claim values are inlined literally (no `*`/`/`
@@ -117,6 +118,7 @@ impl AllowedPathConfiguration {
         }
     }
 
+    #[must_use]
     pub fn has_wildcard(&self) -> bool {
         self.path.contains('*')
     }
@@ -129,6 +131,7 @@ impl AllowedPathConfiguration {
     ///
     /// A non-parametised rule is an exact match: wildcards and `{{...}}`
     /// placeholders are only interpreted when `parametised` is set.
+    #[must_use]
     pub fn matches(&self, path: &str, username: &str, groups: &[String]) -> bool {
         if !self.parametised {
             return path_equals(&self.path, path);

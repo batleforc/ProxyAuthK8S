@@ -16,14 +16,11 @@ impl CliCtx {
         }
 
         // KUBERNETES_EXEC_INFO is always set by kubectl when invoking an exec plugin
-        let exec_ctx = match std::env::var("KUBERNETES_EXEC_INFO") {
-            Ok(info) => info,
-            Err(_) => {
-                error!(
-                    "KUBERNETES_EXEC_INFO environment variable is not set. Cannot retrieve ctx."
-                );
-                return Err(());
-            }
+        let exec_ctx = if let Ok(info) = std::env::var("KUBERNETES_EXEC_INFO") {
+            info
+        } else {
+            error!("KUBERNETES_EXEC_INFO environment variable is not set. Cannot retrieve ctx.");
+            return Err(());
         };
         debug!("KUBERNETES_EXEC_INFO: {}", exec_ctx);
 
@@ -61,17 +58,16 @@ impl CliCtx {
             (name, exec_ns)
         } else {
             debug!("No cluster name provided, extracting from KUBERNETES_EXEC_INFO spec.cluster.server");
-            let cluster_server_url = match exec_info
+            let cluster_server_url = if let Some(url) = exec_info
                 .get("spec")
                 .and_then(|s| s.get("cluster"))
                 .and_then(|s| s.get("server"))
                 .and_then(|v| v.as_str())
             {
-                Some(url) => url,
-                None => {
-                    error!("Cluster name not provided and spec.cluster.server not found in KUBERNETES_EXEC_INFO. Please provide the cluster name as argument.");
-                    return Err(());
-                }
+                url
+            } else {
+                error!("Cluster name not provided and spec.cluster.server not found in KUBERNETES_EXEC_INFO. Please provide the cluster name as argument.");
+                return Err(());
             };
             match crate::cli_config::CliConfig::proxy_url_to_tuple(cluster_server_url) {
                 Ok(url_info) => {
@@ -158,7 +154,7 @@ impl CliCtx {
 
         match serde_json::to_string(&exec_credential) {
             Ok(output) => {
-                println!("{}", output);
+                println!("{output}");
                 Ok(())
             }
             Err(e) => {

@@ -6,7 +6,7 @@
 //! other two the proxy answers on its own.
 //!
 //! `/openapi/v2` and `/openapi/v3` are deliberately left alone: clients tolerate
-//! a resource missing from the OpenAPI document (they lose client-side field
+//! a resource missing from the `OpenAPI` document (they lose client-side field
 //! validation and `kubectl explain` for it, nothing more).
 
 use serde_json::{json, Value};
@@ -28,6 +28,7 @@ pub enum DiscoveryRequest {
 /// Classify a path as a discovery request served by `registry`, if it is one.
 ///
 /// Only `GET` requests can be discovery; the caller checks the method.
+#[must_use]
 pub fn classify(registry: &MapperRegistry, path: &str) -> Option<DiscoveryRequest> {
     if registry.is_empty() {
         return None;

@@ -1,9 +1,6 @@
 use tracing::{error, info};
 
-use crate::{
-    context::output::{GetContextOutput, VecGetContextOutput},
-    ctx::CliCtx,
-};
+use crate::{context::output::GetContextOutput, ctx::CliCtx, output::KubeList};
 
 pub mod output;
 
@@ -20,25 +17,21 @@ impl CliCtx {
                 .contexts
                 .iter()
                 .find(|ctx| ctx.name == context_name);
-            match context {
-                Some(_) => {
-                    // Set the current context
-                    info!("Setting current context to: {}", context_name);
-                    // Here you would implement the logic to actually set the context
-                    self.kubeconfig.current_context = Some(context_name);
-                    if let Err(e) = self.write_kubeconfig() {
-                        error!("Failed to write kubeconfig: {}", e);
-                        return;
-                    }
-                }
-                None => {
-                    error!("Context '{}' not found in kubeconfig.", context_name);
+            if context.is_some() {
+                // Set the current context
+                info!("Setting current context to: {}", context_name);
+                // Here you would implement the logic to actually set the context
+                self.kubeconfig.current_context = Some(context_name);
+                if let Err(e) = self.write_kubeconfig() {
+                    error!("Failed to write kubeconfig: {}", e);
                     return;
                 }
-            };
+            } else {
+                error!("Context '{}' not found in kubeconfig.", context_name);
+                return;
+            }
         }
         let vec_context = if list {
-            // Map all contexts from Kubeconfig to GetContextOutput
             self.kubeconfig
                 .contexts
                 .iter()
@@ -69,7 +62,7 @@ impl CliCtx {
                 None => vec![],
             }
         };
-        let output = VecGetContextOutput::new(vec_context);
+        let output = KubeList::new(vec_context);
         println!("{}", output.to_output(self.format.clone()));
     }
 }

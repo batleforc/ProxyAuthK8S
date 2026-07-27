@@ -1,3 +1,8 @@
+//! Logging and tracing setup for the `kubectl_proxyauth` CLI.
+//!
+//! Configures a `tracing` subscriber tuned for interactive CLI use (verbosity
+//! levels, compact formatting) so command handlers can emit structured logs.
+
 use time::format_description;
 use tracing::{level_filters::LevelFilter, subscriber};
 use tracing_subscriber::{
@@ -27,7 +32,7 @@ pub fn init_tracing(verbose_level: level::VerboseLevel, name: String) {
         .boxed();
 
     match subscriber::set_global_default(Registry::default().with(terminal_out)) {
-        Ok(_) => tracing::trace!("Initialized tracing for {}", name),
-        Err(e) => eprintln!("Failed to initialize tracing: {}", e),
+        Ok(()) => tracing::trace!("Initialized tracing for {}", name),
+        Err(e) => eprintln!("Failed to initialize tracing: {e}"),
     }
 }

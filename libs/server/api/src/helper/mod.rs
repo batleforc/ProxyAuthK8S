@@ -1,7 +1,8 @@
+//! Request-handling helpers: the [`AuthError`] type and the extractors that
+//! pull the bearer token and the namespace/cluster pair out of a request.
+
 use actix_web::{http::header::ContentType, HttpRequest, HttpResponse};
 use thiserror::Error;
-
-pub mod duration;
 
 #[derive(Error, Debug)]
 pub enum AuthError {
@@ -14,6 +15,7 @@ pub enum AuthError {
 }
 
 impl AuthError {
+    #[must_use]
     pub fn into_http_response(&self) -> HttpResponse {
         match self {
             AuthError::InvalidToken => HttpResponse::Unauthorized()
@@ -24,10 +26,11 @@ impl AuthError {
                 .body("No Authorization header found"),
             AuthError::InvalidTokenDetail(detail) => HttpResponse::Unauthorized()
                 .content_type(ContentType::plaintext())
-                .body(format!("Invalid token: {}", detail)),
+                .body(format!("Invalid token: {detail}")),
         }
     }
 
+    #[must_use]
     pub fn into_actix_error(&self) -> actix_web::Error {
         match self {
             AuthError::InvalidToken => actix_web::error::ErrorUnauthorized("Invalid token"),
@@ -35,7 +38,7 @@ impl AuthError {
                 actix_web::error::ErrorUnauthorized("No Authorization header found")
             }
             AuthError::InvalidTokenDetail(detail) => {
-                actix_web::error::ErrorUnauthorized(format!("Invalid token: {}", detail))
+                actix_web::error::ErrorUnauthorized(format!("Invalid token: {detail}"))
             }
         }
     }
@@ -45,6 +48,7 @@ impl AuthError {
 ///
 /// The routes always declare both, but reading them without unwrapping keeps a
 /// mis-registered route from panicking a worker.
+#[must_use]
 pub fn extract_ns_cluster(req: &HttpRequest) -> Option<(String, String)> {
     let match_info = req.match_info();
     match (match_info.get("ns"), match_info.get("cluster")) {

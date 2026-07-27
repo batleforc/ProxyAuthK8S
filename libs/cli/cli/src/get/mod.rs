@@ -1,10 +1,10 @@
-use comfy_table::Table;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
 use crate::{
-    ctx::{CliCtx, ContextFormat},
+    ctx::CliCtx,
     error::ProxyAuthK8sError,
+    output::{KubeList, TableRow},
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -16,19 +16,8 @@ pub struct GetClusterOutput {
     pub sso_enabled: bool,
 }
 
-impl GetClusterOutput {
-    pub fn to_row(&self) -> Vec<String> {
-        vec![
-            self.name.clone(),
-            self.namespace.clone(),
-            self.enabled.to_string(),
-            self.is_reachable
-                .map_or_else(|| "unknown".to_string(), |value| value.to_string()),
-            self.sso_enabled.to_string(),
-        ]
-    }
-
-    pub fn to_row_headers() -> Vec<String> {
+impl TableRow for GetClusterOutput {
+    fn headers() -> Vec<String> {
         vec![
             "NAME".to_string(),
             "NAMESPACE".to_string(),
@@ -37,50 +26,16 @@ impl GetClusterOutput {
             "SSO".to_string(),
         ]
     }
-}
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct VecGetClusterOutput {
-    pub api_version: String,
-    pub kind: String,
-    pub metadata: Option<serde_json::Value>,
-    pub items: Vec<GetClusterOutput>,
-}
-
-impl VecGetClusterOutput {
-    pub fn new(items: Vec<GetClusterOutput>) -> Self {
-        VecGetClusterOutput {
-            api_version: "v1".to_string(),
-            kind: "List".to_string(),
-            metadata: None,
-            items,
-        }
-    }
-
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap_or_default()
-    }
-
-    pub fn to_yaml(&self) -> String {
-        serde_yaml::to_string(self).unwrap_or_default()
-    }
-
-    pub fn to_table(&self) -> String {
-        let mut table = Table::new();
-        table.load_preset(comfy_table::presets::NOTHING);
-        table.set_header(GetClusterOutput::to_row_headers());
-        for item in &self.items {
-            table.add_row(item.to_row());
-        }
-        table.to_string()
-    }
-
-    pub fn to_output(&self, format: ContextFormat) -> String {
-        match format {
-            ContextFormat::Json => self.to_json(),
-            ContextFormat::Yaml => self.to_yaml(),
-            ContextFormat::Table => self.to_table(),
-        }
+    fn row(&self) -> Vec<String> {
+        vec![
+            self.name.clone(),
+            self.namespace.clone(),
+            self.enabled.to_string(),
+            self.is_reachable
+                .map_or_else(|| "unknown".to_string(), |value| value.to_string()),
+            self.sso_enabled.to_string(),
+        ]
     }
 }
 
@@ -110,7 +65,7 @@ impl CliCtx {
             Some(self.namespace.clone())
         };
 
-        match server_config.get_clusters_from_remote().await {
+        match server_config.clusters_from_remote().await {
             Ok(clusters) => {
                 let mut outputs: Vec<GetClusterOutput> = clusters
                     .clusters
@@ -139,7 +94,7 @@ impl CliCtx {
                         .then_with(|| a.name.cmp(&b.name))
                 });
 
-                let output = VecGetClusterOutput::new(outputs);
+                let output = KubeList::new(outputs);
                 println!("{}", output.to_output(self.format.clone()));
             }
             Err(e) => {

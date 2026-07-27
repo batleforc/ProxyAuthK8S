@@ -18,7 +18,7 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
     info!("Reconciling ProxyKubeApi: {}", proxy.to_identifier());
     let id = proxy.to_identifier();
     let path = proxy.to_path();
-    let retry_key = format!("requeue_retry:{}", id);
+    let retry_key = format!("requeue_retry:{id}");
     let ps: PatchParams = PatchParams::apply("proxy-kube-api-controller").force();
     let mut proxy_cloned = proxy.clone();
     let metadata = proxy_cloned.clone().metadata;
@@ -28,7 +28,7 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
 
     // validate the proxy configuration, if it's invalid, set the status to not reachable with the error message and requeue after 5 minutes
     let mut new_status = match proxy_cloned.validate() {
-        Ok(_) => ProxyKubeApiStatus::new(false, None, None),
+        Ok(()) => ProxyKubeApiStatus::new(false, None, None),
         Err(e) => {
             tracing::error!(
                 "Failed to validate ProxyKubeApi {}: {}",
@@ -38,7 +38,7 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
             ProxyKubeApiStatus::new(
                 false,
                 None,
-                Some(format!("Failed to validate proxy configuration: {}", e)),
+                Some(format!("Failed to validate proxy configuration: {e}")),
             )
         }
     };
@@ -48,7 +48,7 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
             Ok(reachable) => {
                 if reachable {
                     tracing::info!("ProxyKubeApi {} is reachable", proxy.to_identifier());
-                    ProxyKubeApiStatus::new(true, Some(format!("/clusters/{}", path)), None)
+                    ProxyKubeApiStatus::new(true, Some(format!("/clusters/{path}")), None)
                 } else {
                     tracing::warn!("ProxyKubeApi {} is not reachable", proxy.to_identifier());
                     ProxyKubeApiStatus::new(
@@ -68,8 +68,7 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
                     false,
                     None,
                     Some(format!(
-                        "Failed to check if target service is reachable: {}",
-                        e
+                        "Failed to check if target service is reachable: {e}"
                     )),
                 )
             }
@@ -84,7 +83,7 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
     proxy_cloned.status = Some(new_status.clone());
     let proxy_json = proxy_cloned.to_json();
     match ctx.redis_set(&id, &proxy_json, None).await {
-        Ok(_) => {
+        Ok(()) => {
             info!("Successfully upsert ProxyKubeApi: {}", id);
             // Keep the index in sync so the dashboard can list clusters without
             // a `KEYS` scan, which a Redis cluster cannot answer anyway.
@@ -106,7 +105,7 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
             .incr_with_ttl(&retry_key, RETRY_COUNTER_TTL_SECONDS)
             .await
         {
-            Ok(value) => value.max(1) as u32,
+            Ok(value) => u32::try_from(value.max(1)).unwrap_or(u32::MAX),
             Err(error) => {
                 warn!(
                     "Failed to increment retry counter for {} ({}), using base retry delay",
@@ -149,7 +148,7 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
             new_status.exposed,
             new_status.error
         );
-        let patch = new_status.get_patch();
+        let patch = new_status.patch();
         let _ = proxys
             .patch_status(name, &ps, &patch)
             .await

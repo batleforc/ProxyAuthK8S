@@ -39,12 +39,11 @@ impl FromRequest for User {
                     return Err(e.into_actix_error());
                 }
             };
-            let oidc_handler = match req.app_data::<web::Data<State>>() {
-                Some(handler) => handler.clone(),
-                None => {
-                    tracing::error!("Error while getting oidc handler");
-                    return Err(ErrorInternalServerError("Invalid OIDC handler"));
-                }
+            let oidc_handler = if let Some(handler) = req.app_data::<web::Data<State>>() {
+                handler.clone()
+            } else {
+                tracing::error!("Error while getting oidc handler");
+                return Err(ErrorInternalServerError("Invalid OIDC handler"));
             };
 
             match User::get_user_info_from_oidc_token(
@@ -68,6 +67,7 @@ impl FromRequest for User {
 }
 
 impl User {
+    #[must_use]
     pub fn is_in_group(&self, group: &str) -> bool {
         self.groups.iter().any(|g| g == group)
     }
@@ -79,12 +79,12 @@ impl User {
         token: String,
     ) -> Result<Option<Self>, String> {
         let proxy: ProxyKubeApi = match state
-            .get_object_from_redis("proxyk8sauth".to_string(), format!("{}/{}", ns, cluster))
+            .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
             .await
         {
             Ok(Some(proxy)) => proxy,
             Ok(None) => return Err("Proxy not found".to_string()),
-            Err(e) => return Err(format!("Error fetching proxy from Redis: {}", e)),
+            Err(e) => return Err(format!("Error fetching proxy from Redis: {e}")),
         };
         User::get_user_info_with_proxy(state, proxy, token).await
     }
@@ -100,10 +100,10 @@ impl User {
         };
 
         match auth_config.validate_against {
-            crd::authentication_configuration::validate_against::ValidateAgainst::OidcProvider => {
+            crd::authentication_configuration::ValidateAgainst::OidcProvider => {
                 Self::auth_against_oidc_provider(state, proxy, token).await
             }
-            crd::authentication_configuration::validate_against::ValidateAgainst::Kubernetes => {
+            crd::authentication_configuration::ValidateAgainst::Kubernetes => {
                 Self::auth_against_kubernetes(state, proxy, token).await
             }
         }
@@ -125,7 +125,7 @@ impl User {
             .await
             .map_err(|e| {
                 tracing::error!("Error while creating Kubernetes client: {}", e);
-                format!("Error while creating Kubernetes client: {}", e)
+                format!("Error while creating Kubernetes client: {e}")
             })?;
         let review: Api<SelfSubjectReview> = Api::all(client);
 
@@ -165,17 +165,20 @@ impl User {
         proxy: ProxyKubeApi,
         token: String,
     ) -> Result<Option<Self>, String> {
-        let oidc_conf = match proxy.get_oidc_conf(state.clone().into(), false, None) {
-            Some(conf) => conf,
-            None => {
-                tracing::warn!(
-                    "No OIDC configuration found for proxy {:?}",
-                    proxy.metadata.name
-                );
-                return Err("No OIDC configuration found for this proxy".to_string());
-            }
+        let oidc_conf = if let Some(conf) = proxy.get_oidc_conf(state.clone().into(), false, None) {
+            conf
+        } else {
+            tracing::warn!(
+                "No OIDC configuration found for proxy {:?}",
+                proxy.metadata.name
+            );
+            return Err("No OIDC configuration found for this proxy".to_string());
         };
-        tracing::debug!("OIDC configuration found for proxy: {:?}", oidc_conf);
+        tracing::debug!(
+            issuer_url = %oidc_conf.issuer_url,
+            client_id = %oidc_conf.client_id,
+            "OIDC configuration found for proxy"
+        );
         Self::get_user_info_from_oidc_token(token, oidc_conf).await
     }
 
@@ -184,17 +187,20 @@ impl User {
         token: String,
         oidc_conf: OidcConf,
     ) -> Result<Option<Self>, String> {
-        let oidc_core = oidc_conf.get_oidc_core().await.map_err(|e| {
+        let oidc_core = oidc_conf.oidc_core().await.map_err(|e| {
             tracing::error!("Error while getting OIDC core client: {}", e);
-            format!("Error while getting OIDC core client: {}", e)
+            format!("Error while getting OIDC core client: {e}")
         })?;
-        let http_client = oidc_conf.get_oidc_reqwest_client();
+        let http_client = oidc_conf.oidc_reqwest_client().map_err(|e| {
+            tracing::error!("Error while building OIDC http client: {}", e);
+            format!("Error while building OIDC http client: {e}")
+        })?;
 
         tracing::debug!(
             "Creating user info request for OIDC provider with token of length: {}",
             token.len()
         );
-        let user_claim_req = match oidc_core.user_info(AccessToken::new(token.to_owned()), None) {
+        let user_claim_req = match oidc_core.user_info(AccessToken::new(token.clone()), None) {
             Ok(req) => req,
             Err(e) => {
                 tracing::warn!("Error while creating user info request: {}", e);
@@ -221,24 +227,20 @@ impl User {
             tracing::warn!("Token rejected by audience validation: {}", e);
             return Err("Token audience validation failed".to_string());
         }
-        let email = match user_info.email() {
-            Some(email) => email.to_string(),
-            None => {
-                tracing::warn!("No email found in user info");
-                "".to_string()
-            }
+        let email = if let Some(email) = user_info.email() {
+            email.to_string()
+        } else {
+            tracing::warn!("No email found in user info");
+            String::new()
         };
-        let username = match user_info.preferred_username() {
-            Some(username) => username.to_string(),
-            None => {
-                tracing::warn!("No preferred username found in user info");
-                "".to_string()
-            }
+        let username = if let Some(username) = user_info.preferred_username() {
+            username.to_string()
+        } else {
+            tracing::warn!("No preferred username found in user info");
+            String::new()
         };
         let groups = user_info.additional_claims().groups.clone();
-        tracing::info!("User groups: {:?}", groups);
-        // In a real implementation, extract user info from request (e.g., headers, tokens)
-        // Here we return a dummy user for illustration
+        tracing::debug!(group_count = groups.len(), "resolved user groups");
         Ok(Some(User {
             username,
             email,

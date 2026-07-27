@@ -30,6 +30,7 @@ pub struct AuditContext {
 }
 
 impl AuditContext {
+    #[must_use]
     pub fn new(ns: &str, cluster: &str, verb: &str, path: &str) -> Self {
         Self {
             ns: ns.to_string(),
@@ -51,6 +52,7 @@ impl AuditContext {
         self
     }
 
+    #[must_use]
     pub fn latency_ms(&self) -> u64 {
         self.started_at.elapsed().as_millis() as u64
     }

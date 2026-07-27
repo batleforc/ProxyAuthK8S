@@ -17,15 +17,15 @@ pub enum Service {
     },
     /// External service
     ExternalService {
-        /// URL of the external service (e.g. https://example.com)
+        /// URL of the external service (e.g. <https://example.com>)
         url: String,
     },
 }
 
 /// Resolve the host to dial for a Kubernetes service.
 ///
-/// A ClusterIP is used when present, but headless services report
-/// `spec.clusterIP == "None"` (and ExternalName / not-yet-assigned services
+/// A `ClusterIP` is used when present, but headless services report
+/// `spec.clusterIP == "None"` (and `ExternalName` / not-yet-assigned services
 /// report an empty string). In those cases we fall back to the stable in-cluster
 /// DNS name `{name}.{namespace}.svc`, which resolves via the pod search domains.
 /// The previous fallback (`{name}:{namespace}`) produced a second colon in the
@@ -33,7 +33,7 @@ pub enum Service {
 fn service_host(cluster_ip: Option<&str>, name: &str, namespace: &str) -> String {
     match cluster_ip {
         Some(ip) if !ip.is_empty() && !ip.eq_ignore_ascii_case("None") => ip.to_string(),
-        _ => format!("{}.{}.svc", name, namespace),
+        _ => format!("{name}.{namespace}.svc"),
     }
 }
 
@@ -59,25 +59,23 @@ impl Service {
                 let svc = services.get(name).await.map_err(|e| e.to_string())?;
                 let spec = svc
                     .spec
-                    .ok_or_else(|| format!("No spec found for service {}", name))?;
+                    .ok_or_else(|| format!("No spec found for service {name}"))?;
                 let ports = spec
                     .ports
                     .filter(|p| !p.is_empty())
-                    .ok_or_else(|| format!("No ports found in service {}", name))?;
+                    .ok_or_else(|| format!("No ports found in service {name}"))?;
 
                 let svc_port = if let Some(target_port) = port {
                     ports
                         .iter()
-                        .find(|p| p.port == *target_port as i32)
-                        .ok_or_else(|| {
-                            format!("Port {} not found in service {}", target_port, name)
-                        })?
+                        .find(|p| p.port == i32::from(*target_port))
+                        .ok_or_else(|| format!("Port {target_port} not found in service {name}"))?
                 } else if let Some(port_name) = port_name {
                     ports
                         .iter()
                         .find(|p| p.name.as_deref() == Some(port_name))
                         .ok_or_else(|| {
-                            format!("Port name {} not found in service {}", port_name, name)
+                            format!("Port name {port_name} not found in service {name}")
                         })?
                 } else {
                     // Safe: `ports` is guaranteed non-empty above.

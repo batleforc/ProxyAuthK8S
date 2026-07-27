@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 /// Validate the authentication token against either:
 /// - the OIDC provider, by validating the token by calling the provider's userinfo endpoint and validating the response according to the configured rules
-/// - the kubernetes API, by validating the token by calling the SelfSubjectAccessReview API
+/// - the kubernetes API, by validating the token by calling the `SelfSubjectAccessReview` API
 ///
 /// Validating JWTs locally against the `jwt` authenticators — signature, claim
 /// validation rules and claim mappings, as the apiserver's structured

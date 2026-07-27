@@ -15,6 +15,8 @@ gitleaks = "latest"
 claude = "latest"
 rtk = "latest"
 cocogitto = "latest"
+uv = "latest"
+"aqua:rustsec/rustsec/cargo-audit" = "latest"
 
 [env]
 MISE_NODE_COREPACK = "true"

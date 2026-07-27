@@ -17,6 +17,7 @@ pub enum AllowedPathConfigurationEnum {
 
 impl AllowedPathConfigurationEnum {
     /// Check whether an upstream request path is allowed by this rule.
+    #[must_use]
     pub fn matches(&self, path: &str, username: &str, groups: &[String]) -> bool {
         match self {
             AllowedPathConfigurationEnum::Path(config) => config.matches(path, username, groups),

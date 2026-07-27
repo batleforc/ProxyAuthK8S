@@ -11,7 +11,7 @@ async fn main() -> std::process::ExitCode {
         Err(e) => {
             // Clean error + non-zero exit rather than a panic backtrace, so the
             // `kubectl` exec-credential path fails gracefully on a bad config.
-            eprintln!("Error: {}", e);
+            eprintln!("Error: {e}");
             std::process::exit(1);
         }
     };

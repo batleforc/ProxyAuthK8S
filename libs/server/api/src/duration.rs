@@ -57,7 +57,9 @@ pub fn parse_kube_duration(value: &str) -> Option<Duration> {
         total_nanos += number * unit_nanos;
     }
 
-    if total_nanos < 0.0 || total_nanos > u64::MAX as f64 {
+    // `total_nanos` is always >= 0 (the grammar has no sign), so only the upper
+    // bound needs checking before the cast.
+    if total_nanos > u64::MAX as f64 {
         return None;
     }
     Some(Duration::from_nanos(total_nanos as u64))

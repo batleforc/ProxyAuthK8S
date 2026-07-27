@@ -13,7 +13,8 @@ pub struct VisibleCluster {
 }
 
 impl VisibleCluster {
-    /// Create a new VisibleCluster instance
+    /// Create a new `VisibleCluster` instance
+    #[must_use]
     pub fn new(
         enabled: bool,
         namespace: String,
@@ -46,7 +47,7 @@ impl From<ProxyKubeApi> for VisibleCluster {
     }
 }
 
-/// Body of the response for the get_all_visible_cluster endpoint.
+/// Body of the response for the `get_all_visible_cluster` endpoint.
 ///
 /// Contains a list of clusters visible to the user.
 /// Will be empty if the user has no clusters visible to them.

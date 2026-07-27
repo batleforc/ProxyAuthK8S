@@ -26,6 +26,7 @@ impl NamespacedAccessConfiguration {
     /// - `ParametisedRule`: expand `{{username}}`/`{{group}}` with literal-safe
     ///   substitution, then match the single namespace segment against each
     ///   candidate (so `dev-{{username}}` or `dev-*` work as expected).
+    #[must_use]
     pub fn is_namespace_allowed(&self, namespace: &str, username: &str, groups: &[String]) -> bool {
         if !self.enabled {
             return true;
@@ -51,8 +52,7 @@ impl NamespacedAccessConfiguration {
             for capture in super::allowed_path_configuration::mustache_captures(pattern) {
                 if capture != "username" && capture != "group" {
                     return Err(format!(
-                        "Invalid parameter in namespace rule: {}, allowed parameters are {{username}} and {{group}}",
-                        capture
+                        "Invalid parameter in namespace rule: {capture}, allowed parameters are {{username}} and {{group}}"
                     ));
                 }
             }

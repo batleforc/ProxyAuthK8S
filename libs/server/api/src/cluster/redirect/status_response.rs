@@ -20,6 +20,7 @@ fn status_body(code: u16, reason: &str, message: &str) -> serde_json::Value {
 }
 
 /// 403 with a Kubernetes `Status` body.
+#[must_use]
 pub fn forbidden(message: &str) -> HttpResponse {
     HttpResponse::Forbidden()
         .content_type(ContentType::json())
@@ -27,6 +28,7 @@ pub fn forbidden(message: &str) -> HttpResponse {
 }
 
 /// 401 with a Kubernetes `Status` body.
+#[must_use]
 pub fn unauthorized(message: &str) -> HttpResponse {
     HttpResponse::Unauthorized()
         .content_type(ContentType::json())
@@ -37,6 +39,7 @@ pub fn unauthorized(message: &str) -> HttpResponse {
 ///
 /// `TooManyRequests` is the reason the apiserver itself uses when it throttles,
 /// so `kubectl` already knows to back off on it.
+#[must_use]
 pub fn too_many_requests(message: &str, retry_after: Option<u64>) -> HttpResponse {
     let mut builder = HttpResponse::TooManyRequests();
     builder.content_type(ContentType::json());

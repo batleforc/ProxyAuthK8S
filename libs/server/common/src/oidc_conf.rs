@@ -56,6 +56,7 @@ impl Default for OidcConf {
 }
 
 impl OidcConf {
+    #[must_use]
     pub fn new() -> Self {
         let client_id = std::env::var("OIDC_CLIENT_ID").unwrap_or("proxy-auth-k8s".to_string());
         let client_secret = std::env::var("OIDC_CLIENT_SECRET").ok();
@@ -76,22 +77,40 @@ impl OidcConf {
         }
     }
 
-    pub fn get_reqwest_client(&self) -> reqwest::Client {
-        reqwest::ClientBuilder::new()
+    /// Build a plain `reqwest` client that never follows redirects.
+    ///
+    /// Redirects are disabled deliberately: an OIDC/OAuth exchange must talk to
+    /// the exact endpoint it targeted, never a location the provider hands back.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OidcError::HttpClient`] if the HTTP client cannot be built.
+    pub fn reqwest_client(&self) -> Result<reqwest::Client, OidcError> {
+        Ok(reqwest::ClientBuilder::new()
             .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("Client should build")
+            .build()?)
     }
 
-    pub fn get_oidc_reqwest_client(&self) -> ReqwestClient {
-        ReqwestClient::from(self.get_reqwest_client())
+    /// Build the `openidconnect`-flavoured HTTP client (see [`Self::reqwest_client`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OidcError::HttpClient`] if the HTTP client cannot be built.
+    pub fn oidc_reqwest_client(&self) -> Result<ReqwestClient, OidcError> {
+        Ok(ReqwestClient::from(self.reqwest_client()?))
     }
 
+    /// Discover the provider and build the OIDC client used for the front-end flow.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OidcError`] if the issuer URL is invalid, provider discovery
+    /// fails, the redirect URL is invalid, or the HTTP client cannot be built.
     #[instrument(skip(self))]
-    pub async fn get_oidc_core(&self) -> Result<CoreClientFront, OidcError> {
+    pub async fn oidc_core(&self) -> Result<CoreClientFront, OidcError> {
         let provider_metadata = CoreProviderMetadata::discover_async(
             IssuerUrl::new(self.issuer_url.clone())?,
-            &self.get_oidc_reqwest_client(),
+            &self.oidc_reqwest_client()?,
         )
         .await?;
         let client_secret = self
@@ -119,6 +138,12 @@ impl OidcConf {
     /// the provider advertises an endpoint, then fall back to reading the JWT
     /// `aud`/`azp`/`client_id` claims. When the audience cannot be determined at
     /// all, the configured [`AudienceValidationMode`] decides (enforce → reject).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OidcError::AudienceValidation`] when the audience does not match
+    /// and the mode is `Enforce` (or when it cannot be determined and the mode
+    /// fails closed).
     #[instrument(skip(self, token))]
     pub async fn ensure_token_audience(&self, token: &str) -> Result<(), OidcError> {
         use crate::token_audience::{extract_jwt_audiences, AudienceValidationMode};
@@ -133,7 +158,7 @@ impl OidcConf {
             match self.introspect_audiences(&endpoint, token).await {
                 Ok(Some(auds)) => return self.decide_audience(&auds, mode, "introspection"),
                 Ok(None) => {
-                    return self.reject_or_warn(mode, "introspection reported the token inactive");
+                    return Self::reject_or_warn(mode, "introspection reported the token inactive");
                 }
                 Err(()) => {
                     tracing::warn!(
@@ -149,7 +174,7 @@ impl OidcConf {
         }
 
         // 3. Neither mechanism could determine the audience.
-        self.reject_or_warn(
+        Self::reject_or_warn(
             mode,
             "token audience could not be determined (opaque token and no usable introspection endpoint)",
         )
@@ -165,7 +190,7 @@ impl OidcConf {
             tracing::debug!(source, "token audience accepted");
             Ok(())
         } else {
-            self.reject_or_warn(
+            Self::reject_or_warn(
                 mode,
                 &format!(
                     "token audiences {:?} (authorized party {:?}) do not include the expected \
@@ -177,7 +202,6 @@ impl OidcConf {
     }
 
     fn reject_or_warn(
-        &self,
         mode: crate::token_audience::AudienceValidationMode,
         reason: &str,
     ) -> Result<(), OidcError> {
@@ -202,12 +226,12 @@ impl OidcConf {
             "{}/.well-known/openid-configuration",
             self.issuer_url.trim_end_matches('/')
         );
-        let response = self.get_reqwest_client().get(url).send().await.ok()?;
+        let response = self.reqwest_client().ok()?.get(url).send().await.ok()?;
         let metadata: serde_json::Value = response.json().await.ok()?;
         metadata
             .get("introspection_endpoint")?
             .as_str()
-            .map(|endpoint| endpoint.to_string())
+            .map(std::string::ToString::to_string)
     }
 
     /// RFC 7662 token introspection.
@@ -220,7 +244,7 @@ impl OidcConf {
         endpoint: &str,
         token: &str,
     ) -> Result<Option<crate::token_audience::TokenAudiences>, ()> {
-        let mut request = self.get_reqwest_client().post(endpoint);
+        let mut request = self.reqwest_client().map_err(|_| ())?.post(endpoint);
         let mut body = openidconnect::url::form_urlencoded::Serializer::new(String::new());
         body.append_pair("token", token);
         body.append_pair("token_type_hint", "access_token");
@@ -244,7 +268,7 @@ impl OidcConf {
 
         if !body
             .get("active")
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
         {
             return Ok(None);

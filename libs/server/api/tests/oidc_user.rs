@@ -6,6 +6,13 @@ use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// A JWT-shaped access token whose `aud` claim names the configured audience
+/// (`proxyauthk8s`). `/userinfo` proves the token is valid; the audience check
+/// that follows reads this `aud`, so a realistic signed token must carry it —
+/// an opaque string would be (correctly) rejected by the default enforce mode.
+/// Header/payload/signature are base64url; the signature is never verified here.
+const VALID_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJwcm94eWF1dGhrOHMiLCJzdWIiOiJhbGljZS1zdWIifQ.c2lnbmF0dXJlLW5vdC12ZXJpZmllZC1pbi10aGVzZS10ZXN0cw";
+
 fn oidc_conf(issuer_url: &str) -> OidcConf {
     OidcConf {
         client_id: "proxyauthk8s".to_string(),
@@ -50,7 +57,10 @@ async fn mount_discovery(server: &MockServer) {
 async fn mount_userinfo(server: &MockServer, body: serde_json::Value) {
     Mock::given(method("GET"))
         .and(path("/userinfo"))
-        .and(header("authorization", "Bearer valid-token"))
+        .and(header(
+            "authorization",
+            format!("Bearer {VALID_TOKEN}").as_str(),
+        ))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "application/json")
@@ -76,7 +86,7 @@ async fn resolves_a_user_from_the_userinfo_endpoint() {
     .await;
 
     let user =
-        User::get_user_info_from_oidc_token("valid-token".to_string(), oidc_conf(&server.uri()))
+        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
             .await
             .expect("user info should resolve")
             .expect("user should be present");
@@ -95,7 +105,7 @@ async fn tolerates_missing_optional_claims() {
     mount_userinfo(&server, json!({ "sub": "alice-sub", "groups": [] })).await;
 
     let user =
-        User::get_user_info_from_oidc_token("valid-token".to_string(), oidc_conf(&server.uri()))
+        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
             .await
             .expect("user info should resolve")
             .expect("user should be present");
@@ -118,7 +128,7 @@ async fn rejects_a_response_without_the_groups_claim() {
     .await;
 
     let result =
-        User::get_user_info_from_oidc_token("valid-token".to_string(), oidc_conf(&server.uri()))
+        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
             .await;
 
     assert!(result.is_err(), "expected an error, got {result:?}");
@@ -152,7 +162,7 @@ async fn surfaces_a_provider_error() {
         .await;
 
     let result =
-        User::get_user_info_from_oidc_token("valid-token".to_string(), oidc_conf(&server.uri()))
+        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
             .await;
 
     assert!(result.is_err(), "expected an error, got {result:?}");
@@ -163,7 +173,7 @@ async fn fails_when_discovery_is_unavailable() {
     let server = MockServer::start().await;
     // No discovery document mounted at all.
     let result =
-        User::get_user_info_from_oidc_token("valid-token".to_string(), oidc_conf(&server.uri()))
+        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
             .await;
 
     assert!(result.is_err(), "expected an error, got {result:?}");

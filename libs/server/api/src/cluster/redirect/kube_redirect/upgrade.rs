@@ -37,14 +37,13 @@ pub(super) fn is_upgrade_request(req: &HttpRequest) -> bool {
         .headers()
         .get(http::header::CONNECTION)
         .and_then(|v| v.to_str().ok())
-        .map(|v| {
+        .is_some_and(|v| {
             v.split(',').any(|token| {
                 token
                     .trim()
                     .eq_ignore_ascii_case(http::header::UPGRADE.as_str())
             })
-        })
-        .unwrap_or(false);
+        });
 
     has_upgrade_header || connection_has_upgrade_token
 }
@@ -127,13 +126,13 @@ fn serialize_upgrade_request(
         Some(query) => format!("{}?{}", upstream_url.path(), query),
         None => upstream_url.path().to_string(),
     };
-    let authority = upstream_url
-        .port()
-        .map(|port| format!("{}:{}", upstream_url.host_str().unwrap_or_default(), port))
-        .unwrap_or_else(|| upstream_url.host_str().unwrap_or_default().to_string());
+    let authority = upstream_url.port().map_or_else(
+        || upstream_url.host_str().unwrap_or_default().to_string(),
+        |port| format!("{}:{}", upstream_url.host_str().unwrap_or_default(), port),
+    );
 
     let mut request_bytes = format!("{} {} HTTP/1.1\r\n", method.as_str(), path).into_bytes();
-    request_bytes.extend_from_slice(format!("Host: {}\r\n", authority).as_bytes());
+    request_bytes.extend_from_slice(format!("Host: {authority}\r\n").as_bytes());
 
     for (header_name, header_value) in req.headers() {
         // `connection`/`upgrade` are exactly what makes this an upgrade, so they
@@ -162,12 +161,11 @@ fn serialize_upgrade_request(
         .and_then(|value| value.to_str().ok());
     let peer_ip = peer_addr.map(|PeerAddr(addr)| addr.ip());
     if let Some(forwarded_for) = forwarded_for_value(incoming_forwarded_for, peer_ip) {
-        request_bytes
-            .extend_from_slice(format!("x-forwarded-for: {}\r\n", forwarded_for).as_bytes());
+        request_bytes.extend_from_slice(format!("x-forwarded-for: {forwarded_for}\r\n").as_bytes());
     }
 
     for (name, value) in identity_headers(user) {
-        request_bytes.extend_from_slice(format!("{}: {}\r\n", name, value).as_bytes());
+        request_bytes.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
     }
 
     request_bytes.extend_from_slice(b"\r\n");

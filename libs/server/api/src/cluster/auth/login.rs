@@ -34,21 +34,20 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>, user: User)
     /// The CSRF token and nonce only need to survive the redirect round-trip.
     const CSRF_NONCE_TTL_SECONDS: u64 = 300;
 
-    let (ns, cluster) = match extract_ns_cluster(&req) {
-        Some(parts) => parts,
-        None => {
-            error!(path = %req.path(), "missing ns/cluster path parameters");
-            return HttpResponse::NotFound().finish();
-        }
+    let (ns, cluster) = if let Some(parts) = extract_ns_cluster(&req) {
+        parts
+    } else {
+        error!(path = %req.path(), "missing ns/cluster path parameters");
+        return HttpResponse::NotFound().finish();
     };
     let proxy: ProxyKubeApi = match data
-        .get_object_from_redis("proxyk8sauth".to_string(), format!("{}/{}", ns, cluster))
+        .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
         .await
     {
         Ok(Some(proxy)) => proxy,
         Ok(None) => return HttpResponse::NotFound().finish(),
         Err(e) => {
-            error!(error = %e, " couldn't get proxy from redis");
+            error!(error = %e, "couldn't get proxy from redis");
             return HttpResponse::ServiceUnavailable().finish();
         }
     };
@@ -66,28 +65,28 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>, user: User)
         .headers()
         .get("x-kubectl-callback")
         .map(|v| v.to_str().unwrap_or_default().to_string());
-    let oidc_conf =
-        match proxy.get_oidc_conf(data.clone().into_inner(), redirect_front, redirect_kubectl) {
-            Some(conf) => conf,
-            None => {
-                error!("OIDC config not found");
-                return HttpResponse::InternalServerError().finish();
-            }
-        };
+    let oidc_conf = if let Some(conf) =
+        proxy.get_oidc_conf(data.clone().into_inner(), redirect_front, redirect_kubectl)
+    {
+        conf
+    } else {
+        error!("OIDC config not found");
+        return HttpResponse::InternalServerError().finish();
+    };
     info!(
         "User {:?} is logging in to cluster {:?}",
         user.username, oidc_conf.redirect_url
     );
-    let client = match oidc_conf.get_oidc_core().await {
+    let client = match oidc_conf.oidc_core().await {
         Ok(client) => client,
         Err(e) => {
-            error!(error = %e, " couldn't get oidc client");
+            error!(error = %e, "couldn't get oidc client");
             return HttpResponse::InternalServerError().finish();
         }
     };
     let scopes: Vec<Scope> = oidc_conf
         .scopes
-        .split(" ")
+        .split(' ')
         .map(|s| Scope::new(s.to_string()))
         .collect();
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
@@ -102,10 +101,8 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>, user: User)
         .url();
 
     // Store the csrf token and nonce in redis with a short TTL to validate later.
-    let login_to_callback = LoginToCallBackModel::new(
-        nonce.secret().to_string(),
-        pkce_verifier.secret().to_string(),
-    );
+    let login_to_callback =
+        LoginToCallBackModel::new(nonce.secret().clone(), pkce_verifier.secret().clone());
     if let Err(e) = data
         .redis_set(
             &format!("oidc_csrf_nonce:{}/{}/{}", ns, cluster, csrf_token.secret()),
@@ -114,7 +111,7 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>, user: User)
         )
         .await
     {
-        error!(error = %e, " couldn't store csrf and nonce in redis");
+        error!(error = %e, "couldn't store csrf and nonce in redis");
         return HttpResponse::InternalServerError().finish();
     }
 

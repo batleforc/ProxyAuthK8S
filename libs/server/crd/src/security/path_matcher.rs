@@ -70,6 +70,7 @@ fn request_path_is_safe(path_segments: &[&str]) -> bool {
 /// Exposed so matchers that do their own positional path parsing (the CRD rule
 /// matcher) can apply the exact same guard the pattern matchers use, instead of
 /// silently ignoring segments that change which resource is really addressed.
+#[must_use]
 pub fn path_has_no_traversal(path: &str) -> bool {
     request_path_is_safe(&split_segments(path))
 }
@@ -126,6 +127,7 @@ fn match_segments(pattern: &[&str], path: &[&str]) -> bool {
 }
 
 /// Match a request path against a configured pattern.
+#[must_use]
 pub fn path_matches_pattern(pattern: &str, path: &str) -> bool {
     let path_segments = split_segments(path);
     if !request_path_is_safe(&path_segments) {
@@ -135,6 +137,7 @@ pub fn path_matches_pattern(pattern: &str, path: &str) -> bool {
 }
 
 /// Compare two paths ignoring leading/trailing slash differences only.
+#[must_use]
 pub fn path_equals(configured: &str, path: &str) -> bool {
     let path_segments = split_segments(path);
     if !request_path_is_safe(&path_segments) {
@@ -149,6 +152,7 @@ pub fn path_equals(configured: &str, path: &str) -> bool {
 /// Rejects empty values, wildcard characters (`*`), segment separators (`/`) and
 /// traversal segments so the injected value can only ever match itself literally
 /// (otherwise a caller whose claim is `*` could self-escalate).
+#[must_use]
 pub fn is_safe_placeholder_value(value: &str) -> bool {
     !value.is_empty()
         && !value.contains('*')
@@ -164,6 +168,7 @@ pub fn is_safe_placeholder_value(value: &str) -> bool {
 /// candidate (fail-closed); unsafe individual groups are simply skipped. Shared
 /// by the allowed-path rules and the namespace access rules so both apply the
 /// exact same substitution hardening.
+#[must_use]
 pub fn expand_parametised_patterns(
     template: &str,
     username: &str,

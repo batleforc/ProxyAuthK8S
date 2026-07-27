@@ -44,7 +44,7 @@ pub struct SecurityConfiguration {
     #[schemars(length(max = 128))]
     pub allowed_resources: Vec<AllowedPathConfigurationEnum>,
 
-    /// Deprecated misspelling of allowed_resources, merged with it
+    /// Deprecated misspelling of `allowed_resources`, merged with it
     ///
     /// Kept as a real field rather than a serde alias on purpose: the apiserver
     /// prunes fields absent from the schema, so an alias alone would silently
@@ -89,6 +89,7 @@ impl SecurityConfiguration {
     /// setting, and when a caller belongs to several configured groups the most
     /// permissive one applies — being in an extra group must never make a user
     /// more restricted. A configured `0` means unlimited.
+    #[must_use]
     pub fn requests_per_minute(&self, groups: &[String]) -> Option<u32> {
         if !self.enabled {
             return None;
@@ -116,6 +117,7 @@ impl SecurityConfiguration {
     }
 
     /// Whether failed authentications should be counted and banned.
+    #[must_use]
     pub fn fail2login_enabled(&self) -> bool {
         self.enabled && self.fail2login_equal_ban.enabled
     }
@@ -123,6 +125,7 @@ impl SecurityConfiguration {
     /// Ban duration after `failures` failed authentications.
     ///
     /// `None` means the caller is not banned yet. `Some(0)` is a permanent ban.
+    #[must_use]
     pub fn ban_duration_for(&self, failures: u32) -> Option<u32> {
         if !self.fail2login_enabled() {
             return None;
@@ -150,6 +153,7 @@ impl SecurityConfiguration {
     /// `/clusters/{ns}/{cluster}` prefix already stripped) without its query
     /// string. An empty allowed resource list, or a disabled security
     /// configuration, allows everything — that is the documented behaviour.
+    #[must_use]
     pub fn is_path_allowed(&self, path: &str, username: &str, groups: &[String]) -> bool {
         let mut rules = self.all_allowed_resources().peekable();
         if !self.enabled || rules.peek().is_none() {

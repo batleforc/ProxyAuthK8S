@@ -1,13 +1,9 @@
 use std::vec;
 
-use comfy_table::Table;
 use kube::config::NamedContext;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    cli_config::CliConfig,
-    ctx::{CliCtx, ContextFormat},
-};
+use crate::{cli_config::CliConfig, ctx::CliCtx, output::TableRow};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GetContextOutput {
@@ -23,6 +19,7 @@ pub struct GetContextOutput {
 }
 
 impl GetContextOutput {
+    #[must_use]
     pub fn new_from_kubeconfig(ctx: &NamedContext, cli_ctx: CliCtx) -> Option<GetContextOutput> {
         let cluster = cli_ctx.kubeconfig.clusters.iter().find(|c| {
             ctx.context
@@ -46,7 +43,7 @@ impl GetContextOutput {
             },
             name: ctx.name.clone(),
             cluster: cluster.name.clone(),
-            auth_info: context.user.clone().unwrap_or("".to_string()),
+            auth_info: context.user.clone().unwrap_or(String::new()),
             namespace: context.namespace.clone(),
             is_proxy_auth: !url_info.cluster_name.is_empty(),
             proxy_server_url: Some(url_info.server_name),
@@ -54,13 +51,29 @@ impl GetContextOutput {
             proxy_name: Some(url_info.cluster_name),
         })
     }
+}
 
-    pub fn to_row(&self) -> Vec<String> {
+impl TableRow for GetContextOutput {
+    fn headers() -> Vec<String> {
+        vec![
+            "CURRENT".to_string(),
+            "NAME".to_string(),
+            "CLUSTER".to_string(),
+            "AUTHINFO".to_string(),
+            "NAMESPACE".to_string(),
+            "IS PROXY AUTH".to_string(),
+            "PROXY SERVER URL".to_string(),
+            "PROXY NAMESPACE".to_string(),
+            "PROXY NAME".to_string(),
+        ]
+    }
+
+    fn row(&self) -> Vec<String> {
         vec![
             if self.current_context {
                 "*".to_string()
             } else {
-                "".to_string()
+                String::new()
             },
             self.name.clone(),
             self.cluster.clone(),
@@ -75,65 +88,5 @@ impl GetContextOutput {
             self.proxy_namespace.clone().unwrap_or_default(),
             self.proxy_name.clone().unwrap_or_default(),
         ]
-    }
-
-    pub fn to_row_header() -> Vec<String> {
-        vec![
-            "CURRENT".to_string(),
-            "NAME".to_string(),
-            "CLUSTER".to_string(),
-            "AUTHINFO".to_string(),
-            "NAMESPACE".to_string(),
-            "IS PROXY AUTH".to_string(),
-            "PROXY SERVER URL".to_string(),
-            "PROXY NAMESPACE".to_string(),
-            "PROXY NAME".to_string(),
-        ]
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct VecGetContextOutput {
-    pub api_version: String,
-    pub kind: String,
-    pub metadata: Option<serde_json::Value>,
-    pub items: Vec<GetContextOutput>,
-}
-
-impl VecGetContextOutput {
-    pub fn new(items: Vec<GetContextOutput>) -> Self {
-        VecGetContextOutput {
-            api_version: "v1".to_string(),
-            kind: "List".to_string(),
-            metadata: None,
-            items,
-        }
-    }
-
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap_or_default()
-    }
-
-    pub fn to_yaml(&self) -> String {
-        serde_yaml::to_string(self).unwrap_or_default()
-    }
-
-    pub fn to_table(&self) -> String {
-        let mut table = Table::new();
-        // remove tables borders
-        table.load_preset(comfy_table::presets::NOTHING);
-        table.set_header(GetContextOutput::to_row_header());
-        for item in &self.items {
-            table.add_row(item.to_row());
-        }
-        table.to_string()
-    }
-
-    pub fn to_output(&self, format: ContextFormat) -> String {
-        match format {
-            ContextFormat::Json => self.to_json(),
-            ContextFormat::Yaml => self.to_yaml(),
-            ContextFormat::Table => self.to_table(),
-        }
     }
 }

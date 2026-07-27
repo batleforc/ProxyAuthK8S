@@ -13,7 +13,7 @@ pub async fn clean_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Resu
     let id = proxy.to_identifier();
 
     match ctx.delete_key(&id).await {
-        Ok(_) => info!("Successfully deleted ProxyKubeApi: {}", id),
+        Ok(()) => info!("Successfully deleted ProxyKubeApi: {}", id),
         Err(err) => {
             info!("Failed to delete ProxyKubeApi: {}. Error: {}", id, err);
         }

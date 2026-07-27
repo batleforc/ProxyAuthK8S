@@ -69,3 +69,6 @@ release.md
 
 .claude/worktrees
 .claude/settings.local.json
+
+# desloppify local state
+.desloppify/

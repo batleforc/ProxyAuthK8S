@@ -42,6 +42,7 @@ pub enum Throttled {
 }
 
 impl Throttled {
+    #[must_use]
     pub fn retry_after(&self) -> Option<u64> {
         match self {
             Throttled::Banned { retry_after } => *retry_after,
@@ -49,6 +50,7 @@ impl Throttled {
         }
     }
 
+    #[must_use]
     pub fn message(&self) -> String {
         match self {
             Throttled::Banned { .. } => {
@@ -133,7 +135,10 @@ pub async fn record_auth_failure(state: &State, proxy: &ProxyKubeApi, subject: &
         }
     };
 
-    let Some(ban_duration) = config.ban_duration_for(failures as u32) else {
+    // Saturate rather than silently wrap: an absurd failure count still maps to
+    // the largest configured ban tier.
+    let failures_u32 = u32::try_from(failures).unwrap_or(u32::MAX);
+    let Some(ban_duration) = config.ban_duration_for(failures_u32) else {
         debug!(failures, subject, "failed authentication recorded");
         return;
     };
@@ -143,7 +148,7 @@ pub async fn record_auth_failure(state: &State, proxy: &ProxyKubeApi, subject: &
         subject, ban_duration, "banning the client after too many failed authentications"
     );
     if let Err(err) = state
-        .set_flag(&ban_key(proxy, subject), ban_duration as u64)
+        .set_flag(&ban_key(proxy, subject), u64::from(ban_duration))
         .await
     {
         warn!(%err, "could not apply the ban");
@@ -193,7 +198,7 @@ pub async fn check_rate_limit(
         }
     };
 
-    if used > limit as u64 {
+    if used > u64::from(limit) {
         warn!(subject, used, limit, "rate limit exceeded");
         return Some(Throttled::RateLimited {
             limit,

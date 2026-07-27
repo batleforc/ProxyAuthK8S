@@ -18,7 +18,7 @@ impl Modify for SecurityAddons {
                     .bearer_format("JWT")
                     .build(),
             ),
-        )
+        );
     }
 }
 

@@ -777,7 +777,7 @@ dependencies = [
  "common",
  "crd",
  "deadpool-redis",
- "futures",
+ "futures-util",
  "k8s-openapi",
  "kube",
  "kube-leader-election",

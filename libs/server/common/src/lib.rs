@@ -27,28 +27,42 @@ pub struct State {
     pub lease_name: String,
 }
 
+/// Everything that can stop [`State::new`] from booting.
+#[derive(Debug, thiserror::Error)]
+pub enum StateInitError {
+    #[error("failed to create the Redis pool: {0}")]
+    Redis(#[from] RedisPoolError),
+    #[error("failed to create the Kubernetes client: {0}")]
+    Kube(#[from] kube::Error),
+    #[error("OIDC discovery failed: {0}")]
+    Oidc(#[from] oidc_error::OidcError),
+}
+
 impl State {
+    /// Boot the shared application state: connect to Redis, build the Kubernetes
+    /// client, and confirm the OIDC provider is reachable.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateInitError`] if the Redis pool cannot be built, the
+    /// Kubernetes client cannot be created, or OIDC discovery fails.
     #[instrument(name = "StateInit")]
-    pub async fn new() -> Self {
+    pub async fn new() -> Result<Self, StateInitError> {
         let redis_url = env::var("REDIS_URL").unwrap_or("redis://127.0.0.1:6379".to_string());
-        let pool = RedisPool::from_url(&redis_url).expect("failed to create the Redis pool");
+        let pool = RedisPool::from_url(&redis_url)?;
         info!(cluster = pool.is_cluster(), "Connected to Redis");
-        let client = Client::try_default()
-            .await
-            .expect("failed to create kube Client");
+        let client = Client::try_default().await?;
         info!("Connected to Kubernetes");
         let oidc_client = oidc_conf::OidcConf::new();
-        match oidc_client.get_oidc_core().await {
-            Ok(_) => info!("OIDC discovery successful"),
-            Err(e) => panic!("OIDC discovery failed: {}", e),
-        };
+        oidc_client.oidc_core().await?;
+        info!("OIDC discovery successful");
         let oidc_cluster_redirect_base_url = env::var("API_CLUSTER_OIDC_BASE_REDIRECT_URL")
             .unwrap_or("https://localhost:5437".to_string());
         let oidc_front_redirect_base_url = env::var("API_CLUSTER_OIDC_FRONT_REDIRECT_URL")
             .unwrap_or("https://localhost:4200/auth/callback/".to_string());
         let lease_namespace = env::var("LEASE_NAMESPACE").unwrap_or("default".to_string());
         let lease_name = env::var("HOSTNAME").unwrap_or("NOT_A_POD".to_string());
-        Self {
+        Ok(Self {
             client,
             redis: pool,
             oidc_client,
@@ -57,7 +71,7 @@ impl State {
             is_leader: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             lease_namespace,
             lease_name,
-        }
+        })
     }
 
     /// Assemble a `State` from already-built parts.
@@ -85,17 +99,26 @@ impl State {
     }
 
     /// Whether Redis is reached in cluster mode.
+    #[must_use]
     pub fn redis_is_cluster(&self) -> bool {
         self.redis.is_cluster()
     }
 
     /// Read a string value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn redis_get(&self, key: &str) -> Result<Option<String>, RedisPoolError> {
         self.redis.query(redis::cmd("GET").arg(key)).await
     }
 
     /// Write a string value, with an optional TTL in seconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self, value))]
     pub async fn redis_set(
         &self,
@@ -129,6 +152,10 @@ impl State {
     /// accumulate forever and never reset, permanently locking the subject out.
     /// The script also re-arms the TTL whenever the key somehow has none
     /// (`TTL < 0`), so a previously stuck counter self-heals.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn incr_with_ttl(&self, key: &str, ttl_seconds: i64) -> Result<u64, RedisPoolError> {
         const INCR_WITH_TTL: &str = r"
@@ -148,9 +175,16 @@ impl State {
                     .arg(ttl_seconds),
             )
             .await?;
-        Ok(value.max(0) as u64)
+        // INCR never returns a negative count; clamp defensively and convert
+        // without a lossy sign cast.
+        Ok(u64::try_from(value).unwrap_or(0))
     }
 
+    /// Whether a key currently exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn key_exists(&self, key: &str) -> Result<bool, RedisPoolError> {
         let existing: i64 = self.redis.query(redis::cmd("EXISTS").arg(key)).await?;
@@ -158,6 +192,10 @@ impl State {
     }
 
     /// Remaining TTL of a key, `None` when it has none or does not exist.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn key_ttl(&self, key: &str) -> Result<Option<u64>, RedisPoolError> {
         // Redis answers -1 for "no expiry" and -2 for "no such key"; both mean
@@ -167,12 +205,21 @@ impl State {
     }
 
     /// Set a marker key. A `ttl_seconds` of 0 means it never expires.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn set_flag(&self, key: &str, ttl_seconds: u64) -> Result<(), RedisPoolError> {
         let ttl = (ttl_seconds > 0).then_some(ttl_seconds);
         self.redis_set(key, "1", ttl).await
     }
 
+    /// Delete a key, whether or not it exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn delete_key(&self, key: &str) -> Result<(), RedisPoolError> {
         self.redis.query::<()>(redis::cmd("DEL").arg(key)).await
@@ -183,6 +230,10 @@ impl State {
     /// The index exists because `KEYS` cannot be used in cluster mode (it only
     /// answers for the node it reached) and is an O(N) blocking scan even in
     /// single-node mode. The index is a plain Set the controller keeps in sync.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn index_add(&self, prefix: &str, key: &str) -> Result<(), RedisPoolError> {
         self.redis
@@ -190,6 +241,11 @@ impl State {
             .await
     }
 
+    /// Remove a key from the index of cached objects.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn index_remove(&self, prefix: &str, key: &str) -> Result<(), RedisPoolError> {
         self.redis
@@ -202,14 +258,18 @@ impl State {
     /// Members are read one by one rather than with `MGET`: in cluster mode the
     /// keys are spread over several slots and a multi-key read across slots is
     /// rejected. An index entry whose object is gone is skipped and pruned.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when a Redis command fails.
     #[instrument(skip(self))]
     pub async fn list_objects<T: ObjectRedis>(
         &self,
-        prefix: String,
+        prefix: &str,
     ) -> Result<Vec<T>, RedisPoolError> {
         let keys: Vec<String> = self
             .redis
-            .query(redis::cmd("SMEMBERS").arg(index_key(&prefix)))
+            .query(redis::cmd("SMEMBERS").arg(index_key(prefix)))
             .await?;
 
         let mut objects = Vec::with_capacity(keys.len());
@@ -222,32 +282,45 @@ impl State {
                 }
                 None => {
                     // The object went away without the index being updated.
-                    let _ = self.index_remove(&prefix, &key).await;
+                    let _ = self.index_remove(prefix, &key).await;
                 }
             }
         }
         Ok(objects)
     }
 
+    /// Fetch and deserialize a single cached object by prefix and key.
+    ///
+    /// `Ok(None)` means the key is absent. A value that exists but cannot be
+    /// deserialized is a distinct failure ([`RedisPoolError::Deserialize`]), not
+    /// silently treated as absent, so a corrupt cache entry cannot masquerade as
+    /// a missing object.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails, or
+    /// [`RedisPoolError::Deserialize`] when a stored value cannot be decoded.
     #[instrument(skip(self))]
     pub async fn get_object_from_redis<T: ObjectRedis>(
         &self,
-        prefix: String,
-        key: String,
+        prefix: &str,
+        key: &str,
     ) -> Result<Option<T>, RedisPoolError> {
-        let full_key = format!("{}:{}", prefix, key);
+        let full_key = format!("{prefix}:{key}");
         let Some(obj_json) = self.redis_get(&full_key).await? else {
             info!("Object not found in Redis with key {}", full_key);
             return Ok(None);
         };
         info!("Object found in Redis with key {}", full_key);
-        Ok(T::from_json(&obj_json))
+        T::from_json(&obj_json)
+            .map(Some)
+            .ok_or_else(|| RedisPoolError::Deserialize(full_key))
     }
 }
 
 /// Key of the Set indexing every object cached under a prefix.
 fn index_key(prefix: &str) -> String {
-    format!("{}:index", prefix)
+    format!("{prefix}:index")
 }
 
 #[derive(Clone)]
@@ -265,6 +338,7 @@ impl Default for ServerConfig {
 }
 
 impl ServerConfig {
+    #[must_use]
     pub fn new() -> Self {
         let port = env::var("SERVER_PORT")
             .unwrap_or("5437".to_string())
@@ -284,24 +358,45 @@ impl ServerConfig {
         }
     }
 
-    pub fn get_rustls_config(&self) -> Option<rustls::ServerConfig> {
-        if self.https {
-            // load TLS key/cert files
-            let cert_chain = CertificateDer::pem_file_iter(self.cert_path.as_ref().unwrap())
-                .unwrap()
-                .flatten()
-                .collect();
+    /// Build the rustls server configuration from the configured certificate and
+    /// private-key files.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TlsConfigError`] when HTTPS is enabled but a path is missing, a
+    /// PEM file cannot be read, or rustls rejects the certificate/key pair.
+    pub fn rustls_config(&self) -> Result<rustls::ServerConfig, TlsConfigError> {
+        let cert_path = self
+            .cert_path
+            .as_ref()
+            .ok_or(TlsConfigError::MissingPath("SERVER_CERT_PATH"))?;
+        let key_path = self
+            .key_path
+            .as_ref()
+            .ok_or(TlsConfigError::MissingPath("SERVER_KEY_PATH"))?;
 
-            let key_der = PrivateKeyDer::from_pem_file(self.key_path.as_ref().unwrap())
-                .expect("Could not locate PKCS 8 private keys.");
-            Some(
-                rustls::ServerConfig::builder()
-                    .with_no_client_auth()
-                    .with_single_cert(cert_chain, key_der)
-                    .unwrap(),
-            )
-        } else {
-            None
-        }
+        let cert_chain = CertificateDer::pem_file_iter(cert_path)
+            .map_err(|err| TlsConfigError::Cert(err.to_string()))?
+            .flatten()
+            .collect();
+        let key_der = PrivateKeyDer::from_pem_file(key_path)
+            .map_err(|err| TlsConfigError::Key(err.to_string()))?;
+        Ok(rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(cert_chain, key_der)?)
     }
+}
+
+/// Everything that can stop [`ServerConfig::rustls_config`] from producing a TLS
+/// configuration.
+#[derive(Debug, thiserror::Error)]
+pub enum TlsConfigError {
+    #[error("HTTPS is enabled but {0} is not set")]
+    MissingPath(&'static str),
+    #[error("failed to load the certificate chain: {0}")]
+    Cert(String),
+    #[error("failed to load the private key: {0}")]
+    Key(String),
+    #[error("rustls rejected the certificate/key pair: {0}")]
+    Build(#[from] rustls::Error),
 }

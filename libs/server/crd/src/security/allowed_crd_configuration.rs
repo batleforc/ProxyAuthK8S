@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::namespaced_access_configuration::NamespacedAccessConfiguration;
 
-/// Allowed crd configuration, used in conjunction with the allowed_paths configuration
+/// Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
 /// /apis/{group}/{version}/namespaces/{namespace}/{kind}/
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub struct AllowedCrdConfiguration {
@@ -15,7 +15,7 @@ pub struct AllowedCrdConfiguration {
     /// The kind of the crd
     pub kind: String,
     /// Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind
-    /// for example, if the kind is "MyResource" and the plural form is "MyResources"
+    /// for example, if the kind is "`MyResource`" and the plural form is "`MyResources`"
     /// the path will be /apis/{group}/{version}/namespaces/{namespace}/myresources/
     /// instead of       /apis/{group}/{version}/namespaces/{namespace}/myresource/
     /// In case of cluster-scoped crd
@@ -52,6 +52,7 @@ impl AllowedCrdConfiguration {
     /// A namespaced resource reached cluster-wide (no `/namespaces/{ns}/`) is
     /// only allowed when no namespace restriction is in force, since a
     /// cluster-wide list would otherwise return namespaces the rule denies.
+    #[must_use]
     pub fn matches(&self, path: &str, username: &str, groups: &[String]) -> bool {
         // This matcher reads the namespace at a fixed position and ignores every
         // segment past the resource. A `..` (or encoded-separator) segment would

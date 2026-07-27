@@ -1,3 +1,8 @@
+//! Tracing, logging, and OpenTelemetry setup for the server binary.
+//!
+//! Wires `tracing` subscribers to stdout and, when configured, an OTLP
+//! exporter, and exposes the start/shutdown hooks the server calls at boot.
+
 // https://github.com/open-telemetry/opentelemetry-rust/blob/main/opentelemetry-otlp/examples/basic-otlp/src/main.rs#L33
 
 use std::sync::OnceLock;
@@ -104,6 +109,7 @@ fn init_metrics(ctx: &Context) -> SdkMeterProvider {
         .build()
 }
 
+#[must_use]
 pub fn start_tracing(ctx: &Context) -> TracingOutput {
     global::set_text_map_propagator(TraceContextPropagator::new());
 

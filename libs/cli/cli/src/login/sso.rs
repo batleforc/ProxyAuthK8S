@@ -28,10 +28,10 @@ use tracing::{debug, info, warn};
 use crate::{ctx::CliCtx, error::ProxyAuthK8sError};
 
 /// How long to wait for the browser round-trip before giving up.
-const CALLBACK_TIMEOUT: Duration = Duration::from_secs(180);
+const CALLBACK_TIMEOUT: Duration = Duration::from_mins(3);
 
 /// Loopback port the local callback listener binds. Overridable because the
-/// resulting redirect URI must be registered at the IdP for the cluster's OIDC
+/// resulting redirect URI must be registered at the `IdP` for the cluster's OIDC
 /// client.
 fn callback_port() -> u16 {
     std::env::var("PROXYAUTH_CALLBACK_PORT")
@@ -69,7 +69,7 @@ impl CliCtx {
         // provider hands the URL to. Listen on both loopback families so the
         // callback is caught whichever one the browser/opener picks.
         let listeners = bind_loopback_listeners(port).await?;
-        let redirect = format!("http://localhost:{}/", port);
+        let redirect = format!("http://localhost:{port}/");
 
         // 1. Ask the server for the provider authorization URL.
         let auth_url = cluster_login(config, ns, cluster, None, Some(&redirect))
@@ -125,9 +125,10 @@ async fn bind_loopback_listeners(port: u16) -> Result<Vec<TcpListener>, ProxyAut
         }
     }
     if listeners.is_empty() {
-        let detail = last_err
-            .map(|e| e.to_string())
-            .unwrap_or_else(|| "no loopback address available".to_string());
+        let detail = last_err.map_or_else(
+            || "no loopback address available".to_string(),
+            |e| e.to_string(),
+        );
         return Err(ProxyAuthK8sError::SsoLoginError(format!(
             "could not bind the local callback listener on 127.0.0.1:{port} or [::1]:{port} \
              ({detail}). Set PROXYAUTH_CALLBACK_PORT to a free port registered at your IdP."

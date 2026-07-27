@@ -6,6 +6,8 @@ pub enum CliConfigError {
     InvalidServerUrl(String, String),
     #[error("CLIERROR0002: Server '{0}' not found in configuration")]
     ServerNotFound(String),
+    #[error("CLIERROR0005: Cluster '{cluster}' not found under server '{server}'")]
+    ClusterNotFound { server: String, cluster: String },
     #[error("CLIERROR0003: YAML Parse Error: {0}")]
     YamlParseError(String),
     #[error("CLIERROR0004: YAML Serialize Error: {0}")]

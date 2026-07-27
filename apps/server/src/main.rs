@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
         service_name: "proxyauthk8s".to_string(),
     });
 
-    let state = common::State::new().await;
+    let state = common::State::new().await?;
     let server_config = common::ServerConfig::new();
     let controller = controller::run(state.clone());
     let mut api_doc = ApiDoc::openapi();
@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
                         if let Ok(request_id) = request_id_asc.await {
                             let request_id: RequestId = request_id;
                             if let Ok(value) =
-                                header::HeaderValue::from_str(&format!("{}", request_id))
+                                header::HeaderValue::from_str(&format!("{request_id}"))
                             {
                                 res.headers_mut()
                                     .insert(header::HeaderName::from_static("x-request-id"), value);
@@ -89,14 +89,9 @@ async fn main() -> anyhow::Result<()> {
     })
     .shutdown_timeout(5);
     if server_config.https {
-        let tls_config = server_config.get_rustls_config();
-        if tls_config.is_none() {
-            panic!("HTTPS is enabled but cert_path or key_path is not set");
-        }
-        server = server.bind_rustls_0_23(
-            (Ipv4Addr::UNSPECIFIED, server_config.port),
-            tls_config.unwrap(),
-        )?;
+        let tls_config = server_config.rustls_config()?;
+        server =
+            server.bind_rustls_0_23((Ipv4Addr::UNSPECIFIED, server_config.port), tls_config)?;
     } else {
         server = server.bind((Ipv4Addr::UNSPECIFIED, server_config.port))?;
     }
@@ -105,7 +100,7 @@ async fn main() -> anyhow::Result<()> {
     // loss / internal error) we must stop instead of blocking forever on the
     // controller future, and vice-versa on shutdown signal.
     tokio::select! {
-        _ = controller => {
+        () = controller => {
             eprintln!("Controller task exited, shutting down");
         }
         res = server.run() => {

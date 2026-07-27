@@ -1,15 +1,21 @@
+//! Core logic for the `kubectl_proxyauth` CLI.
+//!
+//! Implements the command handlers (login, logout, config, context, get) and
+//! the persisted configuration model that the thin `kubectl_proxyauth` binary
+//! dispatches to.
+
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use tracing::{debug, warn};
 
 use crate::{
-    config::ConfigCommands,
+    config_cmd::ConfigCommands,
     ctx::{CliCtx, ContextFormat},
 };
 
 pub mod cli_config;
-pub mod config;
+pub mod config_cmd;
 pub mod context;
 pub mod ctx;
 pub mod error;
@@ -17,8 +23,9 @@ pub mod get;
 pub mod helper;
 pub mod login;
 pub mod logout;
+pub mod output;
 
-/// Kubectl ProxyAuth CLI
+/// Kubectl `ProxyAuth` CLI
 #[derive(Parser, Debug, Clone)]
 #[command(
     name = "Kubectl_ProxyAuthK8S",
@@ -65,7 +72,7 @@ pub struct Cli {
     #[arg(short,global = true, long, action = clap::ArgAction::Count)]
     pub verbose: Option<u8>,
 
-    /// ProxyAuthK8S server URL
+    /// `ProxyAuthK8S` server URL
     #[arg(short, long, global = true, value_name = "URL", default_value = "")]
     pub server_url: String,
 
@@ -93,7 +100,7 @@ pub enum Commands {
         /// Get a specific cluster by name
         cluster_name: Option<String>,
     },
-    /// Login either to ProxyAuthK8S server or to a specific cluster
+    /// Login either to `ProxyAuthK8S` server or to a specific cluster
     Login {
         /// Cluster name to login to
         cluster_name: Option<String>,
@@ -101,7 +108,7 @@ pub enum Commands {
         #[arg(short, long, value_name = "TOKEN")]
         token: Option<String>,
     },
-    /// Logout either from ProxyAuthK8S server or from a specific cluster
+    /// Logout either from `ProxyAuthK8S` server or from a specific cluster
     Logout {
         /// Cluster name to logout from
         cluster_name: Option<String>,
@@ -171,8 +178,6 @@ impl Cli {
                 }
             },
             Some(Commands::GetToken { cluster_name }) => {
-                //ctx.handle_get_token(cluster_name.clone());
-                // Detect if env var KUBERNETES_EXEC_INFO is set, change context accordingly
                 debug!("Getting token for cluster: {:?}", cluster_name);
                 // Propagate a non-zero exit code so `kubectl` sees the exec-credential
                 // plugin failed instead of treating a 0 exit as "no credential".
@@ -192,10 +197,9 @@ impl Cli {
                 ctx.handle_context(context_name.clone(), *list, *set);
             }
             Some(Commands::Config { command }) => {
-                //ctx.handle_config(server_url.clone(), namespace.clone(), *clear);
                 debug!("Handling config command: {:?}", command);
                 if let Some(command) = command {
-                    command.handle_config_commands(&mut ctx);
+                    ctx.handle_config(command);
                 } else {
                     warn!("No config subcommand provided. Use --help for more information.");
                 }

@@ -39,7 +39,7 @@ pub(super) fn apply_forward_headers(
     peer_addr: Option<PeerAddr>,
     user: Option<&User>,
 ) -> reqwest::RequestBuilder {
-    for (name, value) in req.headers().iter() {
+    for (name, value) in req.headers() {
         let name = name.as_str();
         // Skip headers that must not be forwarded or are managed by reqwest when
         // streaming, any header the proxy itself is authoritative for, and any
@@ -49,9 +49,10 @@ pub(super) fn apply_forward_headers(
         }
 
         // Only forward header values that are valid UTF-8 strings. If not valid, skip them.
-        match value.to_str() {
-            Ok(value) => builder = builder.header(name, value),
-            Err(_) => info!(header = %name, "skipping non-utf8 header"),
+        if let Ok(value) = value.to_str() {
+            builder = builder.header(name, value)
+        } else {
+            info!(header = %name, "skipping non-utf8 header")
         }
     }
 

@@ -27,36 +27,31 @@ impl CliCtx {
             return;
         };
 
-        match cluster_name {
-            Some(cluster) => {
-                let namespace = if self.namespace.is_empty() {
-                    server_config.namespace.clone()
-                } else {
-                    self.namespace.clone()
-                };
-                match server_config.clear_cluster_token(namespace.clone(), cluster.clone()) {
-                    Ok(_) => info!("Logged out of cluster '{}/{}'.", namespace, cluster),
-                    Err(e) => {
-                        error!("Failed to remove cluster token from keyring: {}", e);
-                        return;
-                    }
-                }
-                if let Some(server) = self.config.servers.get_mut(&server_name) {
-                    server
-                        .clusters
-                        .remove(&format!("{}/{}", namespace, cluster));
+        if let Some(cluster) = cluster_name {
+            let namespace = if self.namespace.is_empty() {
+                server_config.namespace.clone()
+            } else {
+                self.namespace.clone()
+            };
+            match server_config.clear_cluster_token(namespace.clone(), cluster.clone()) {
+                Ok(()) => info!("Logged out of cluster '{}/{}'.", namespace, cluster),
+                Err(e) => {
+                    error!("Failed to remove cluster token from keyring: {}", e);
+                    return;
                 }
             }
-            None => {
-                // Log out of the server: drop the server token and every cluster
-                // token cached under it.
-                server_config.clear_all_tokens();
-                self.config.servers.remove(&server_name);
-                if self.config.default_server_name == server_name {
-                    self.config.default_server_name = String::new();
-                }
-                info!("Logged out of server '{}'.", server_name);
+            if let Some(server) = self.config.servers.get_mut(&server_name) {
+                server.clusters.remove(&format!("{namespace}/{cluster}"));
             }
+        } else {
+            // Log out of the server: drop the server token and every cluster
+            // token cached under it.
+            server_config.clear_all_tokens();
+            self.config.servers.remove(&server_name);
+            if self.config.default_server_name == server_name {
+                self.config.default_server_name = String::new();
+            }
+            info!("Logged out of server '{}'.", server_name);
         }
 
         if let Err(e) = self.config.write_to_file(self.config_path.clone()) {

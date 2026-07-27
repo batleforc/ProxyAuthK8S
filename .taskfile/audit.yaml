@@ -1,0 +1,38 @@
+version: "3"
+
+tasks:
+  default:
+    desc: "Run every CVE audit (Rust deps, JS deps, Containerfiles)"
+    silent: true
+    cmds:
+      - task: rust
+      - task: js
+      - task: container
+
+  rust:
+    desc: "Audit Rust dependencies for known CVEs (cargo audit)"
+    silent: true
+    cmds:
+      - echo "Auditing Rust dependencies with cargo audit"
+      - cargo audit
+
+  js:
+    desc: "Audit JS/TS dependencies for known CVEs (yarn npm audit)"
+    silent: true
+    cmds:
+      - echo "Auditing JS dependencies with yarn npm audit"
+      - yarn npm audit --all --recursive
+
+  container:
+    desc: "Scan the back/front Containerfiles for CVEs (trivy)"
+    silent: true
+    cmds:
+      - |
+        if ! command -v trivy >/dev/null 2>&1; then
+          echo "trivy not found — install it with 'mise use trivy' to enable container scanning."
+          exit 0
+        fi
+        echo "Scanning deploy/build/back/Containerfile"
+        trivy config deploy/build/back/Containerfile
+        echo "Scanning deploy/build/front/Containerfile"
+        trivy config deploy/build/front/Containerfile

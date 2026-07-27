@@ -11,6 +11,9 @@ pub enum OidcError {
 
     #[error("Token audience validation failed: {0}")]
     AudienceValidation(String),
+
+    #[error("failed to build the HTTP client: {0}")]
+    HttpClient(#[from] reqwest::Error),
 }
 
 impl From<ParseError> for OidcError {

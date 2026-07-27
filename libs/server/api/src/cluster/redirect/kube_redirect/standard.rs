@@ -9,7 +9,7 @@ use tracing::{debug, error, info, instrument, warn};
 use super::upstream::{apply_forward_headers, upstream_client};
 use crate::cluster::redirect::audit::AuditContext;
 use crate::cluster::redirect::forwarded::is_hop_by_hop;
-use crate::helper::duration::extract_timeout_from_query;
+use crate::duration::extract_timeout_from_query;
 use crate::model::user::User;
 
 const DEBUG_BODY_LOG_LIMIT: usize = 8 * 1024;
@@ -19,7 +19,7 @@ const DEBUG_BODY_LOG_LIMIT: usize = 8 * 1024;
 /// timeout, so an unbounded `timeout=100000h` would otherwise let a caller pin a
 /// proxy worker/connection open indefinitely. One hour comfortably covers a
 /// legitimate long-lived watch while capping abuse.
-const MAX_UPSTREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3600);
+const MAX_UPSTREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_hours(1);
 
 /// Upper bound on the amount of memory a single request may buffer when debug
 /// logging is enabled. Beyond that the body is streamed through untouched and
@@ -181,7 +181,7 @@ pub(super) async fn standard_redirect(
     let client = match upstream_client(&proxy, &data).await {
         Ok(client) => client,
         Err(err) => {
-            error!(err, " couldn't build the upstream client");
+            error!(err, "couldn't build the upstream client");
             audit.emit(503);
             return HttpResponse::ServiceUnavailable().body("upstream unavailable");
         }
@@ -222,7 +222,7 @@ pub(super) async fn standard_redirect(
     let res = match forwarded_req.send().await {
         Ok(res) => res,
         Err(e) => {
-            tracing::error!(error = %e, " error forwarding request to cluster");
+            tracing::error!(error = %e, "error forwarding request to cluster");
             audit.emit(503);
             return HttpResponse::ServiceUnavailable().body("upstream unavailable");
         }
@@ -249,7 +249,7 @@ pub(super) async fn standard_redirect(
     // Track whether the upstream already sent a Content-Encoding so we know whether to
     // add "identity" ourselves to stop actix-web's Compress middleware from buffering the stream.
     let mut has_content_encoding = false;
-    for (header_name, header_value) in response_headers.iter() {
+    for (header_name, header_value) in &response_headers {
         let name = header_name.as_str();
         if name.eq_ignore_ascii_case("content-encoding") {
             has_content_encoding = true;
