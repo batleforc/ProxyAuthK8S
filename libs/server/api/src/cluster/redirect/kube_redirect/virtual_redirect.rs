@@ -233,8 +233,12 @@ pub(super) async fn virtual_redirect(
 
             (mapped.clone(), body)
         }
+        // Handled by the early returns above; treated as a bug-guard rather than
+        // a panic so a future refactor cannot crash a worker on the data path.
         VirtualPlan::Direct(_) | VirtualPlan::MethodNotAllowed { .. } => {
-            unreachable!("handled above")
+            error!(path = %upstream_path, "virtual plan reached the mapping stage unexpectedly");
+            audit.emit(500);
+            return HttpResponse::InternalServerError().finish();
         }
     };
 
@@ -319,8 +323,11 @@ pub(super) async fn virtual_redirect(
             Some((mapper, _)) => mapper.map_response(json),
             None => json,
         },
+        // Handled by the early returns above; guard defensively rather than panic.
         VirtualPlan::Direct(_) | VirtualPlan::MethodNotAllowed { .. } => {
-            unreachable!("handled above")
+            error!(path = %upstream_path, "virtual plan reached response translation unexpectedly");
+            audit.emit(500);
+            return HttpResponse::InternalServerError().finish();
         }
     };
 

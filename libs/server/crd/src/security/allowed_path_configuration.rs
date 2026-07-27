@@ -267,11 +267,7 @@ mod tests {
         // A caller whose username claim is `*` must not reach every namespace.
         assert!(!rule.matches("/api/v1/namespaces/prod/pods/secret", "*", &groups()));
         // A `/` in the claim must not cross a segment boundary.
-        assert!(!rule.matches(
-            "/api/v1/namespaces/prod/pods/secret",
-            "dev/prod",
-            &groups()
-        ));
+        assert!(!rule.matches("/api/v1/namespaces/prod/pods/secret", "dev/prod", &groups()));
         // The legitimate literal case still works.
         assert!(rule.matches("/api/v1/namespaces/alice/pods/x", "alice", &groups()));
     }

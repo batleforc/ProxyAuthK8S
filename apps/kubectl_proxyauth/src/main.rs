@@ -3,7 +3,7 @@ use cli::{ctx::CliCtx, Cli};
 use cli_trace::init_tracing;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> std::process::ExitCode {
     let mut cli = Cli::parse();
 
     let ctx = match CliCtx::try_from(cli.clone()) {
@@ -24,5 +24,5 @@ async fn main() {
     // value and `ctx` embeds the full kubeconfig (client keys, bearer tokens),
     // which would end up in cleartext on stderr at `-v`.
 
-    cli.run_cli(ctx).await;
+    cli.run_cli(ctx).await
 }

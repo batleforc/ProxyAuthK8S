@@ -12,10 +12,12 @@ pub fn init_tracing(verbose_level: level::VerboseLevel, name: String) {
     let time_format = format_description::parse("[hour]:[minute]:[second]")
         .expect("format string should be valid!");
     let timer = UtcTime::new(time_format);
+    // A malformed RUST_LOG in the environment must not crash the CLI (it runs as
+    // a kubectl exec-credential plugin); `from_env_lossy` drops bad directives
+    // and keeps the default level instead of panicking.
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::from(verbose_level).into())
-        .from_env()
-        .unwrap();
+        .from_env_lossy();
     let terminal_out = fmt::layer()
         .with_writer(std::io::stderr)
         .with_thread_names(false)

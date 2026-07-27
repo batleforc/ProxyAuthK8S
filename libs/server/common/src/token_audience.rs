@@ -77,11 +77,7 @@ impl TokenAudiences {
     /// against `azp`/`client_id` when `accept_azp` is set.
     pub fn matches(&self, expected: &str, accept_azp: bool) -> bool {
         self.contains(expected)
-            || (accept_azp
-                && self
-                    .authorized_party
-                    .iter()
-                    .any(|value| value == expected))
+            || (accept_azp && self.authorized_party.iter().any(|value| value == expected))
     }
 }
 

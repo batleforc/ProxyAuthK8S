@@ -193,7 +193,10 @@ async fn wait_for_callback(
                 None => {
                     // Browsers also fetch /favicon.ico etc.; acknowledge and wait
                     // for the real redirect.
-                    debug!(target, "ignoring non-callback request on the loopback listener");
+                    debug!(
+                        target,
+                        "ignoring non-callback request on the loopback listener"
+                    );
                     respond(&mut stream, "404 Not Found", "").await;
                 }
             }
@@ -291,7 +294,8 @@ mod tests {
 
     #[test]
     fn parses_provider_error() {
-        let target = "/auth/callback/default/local?error=access_denied&error_description=user%20said%20no";
+        let target =
+            "/auth/callback/default/local?error=access_denied&error_description=user%20said%20no";
         match parse_callback(target) {
             Some(CallbackResult::ProviderError { error, description }) => {
                 assert_eq!(error, "access_denied");

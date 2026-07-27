@@ -50,8 +50,15 @@ fn get_resource(ctx: &Context) -> Resource {
 
 fn get_metadata(ctx: &Context) -> metadata::MetadataMap {
     let mut metadata = metadata::MetadataMap::new();
-    metadata.insert("service.name", ctx.service_name.clone().parse().unwrap());
-    metadata.insert("service.pod", ctx.pod_name.clone().parse().unwrap());
+    // service_name / pod_name come from env (POD_NAME / HOSTNAME); a value with
+    // characters invalid for a gRPC metadata value must not crash the process at
+    // boot — skip the offending key instead.
+    if let Ok(value) = ctx.service_name.clone().parse() {
+        metadata.insert("service.name", value);
+    }
+    if let Ok(value) = ctx.pod_name.clone().parse() {
+        metadata.insert("service.pod", value);
+    }
     metadata
 }
 

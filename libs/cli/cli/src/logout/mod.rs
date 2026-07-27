@@ -20,7 +20,10 @@ impl CliCtx {
         // Clone so the keyring operations do not hold a borrow on `self.config`
         // while we later mutate it.
         let Some(server_config) = self.config.servers.get(&server_name).cloned() else {
-            error!("Server '{}' not found in configuration; nothing to do.", server_name);
+            error!(
+                "Server '{}' not found in configuration; nothing to do.",
+                server_name
+            );
             return;
         };
 
@@ -39,7 +42,9 @@ impl CliCtx {
                     }
                 }
                 if let Some(server) = self.config.servers.get_mut(&server_name) {
-                    server.clusters.remove(&format!("{}/{}", namespace, cluster));
+                    server
+                        .clusters
+                        .remove(&format!("{}/{}", namespace, cluster));
                 }
             }
             None => {

@@ -36,11 +36,10 @@ impl TryFrom<super::Cli> for CliCtx {
     /// plugin: a panic would emit a Rust backtrace and a non-protocol exit,
     /// breaking `kubectl` auth with an opaque crash on a merely malformed config.
     fn try_from(cli: super::Cli) -> Result<Self, Self::Error> {
-        let kubeconfig_path = CliCtx::detect_kubeconfig_path(
-            cli.kubeconfig.map(|p| p.to_string_lossy().to_string()),
-        )
-        .map(PathBuf::from)
-        .ok_or(ProxyAuthK8sError::KubeconfigPathCouldNotBeCalculated)?;
+        let kubeconfig_path =
+            CliCtx::detect_kubeconfig_path(cli.kubeconfig.map(|p| p.to_string_lossy().to_string()))
+                .map(PathBuf::from)
+                .ok_or(ProxyAuthK8sError::KubeconfigPathCouldNotBeCalculated)?;
 
         if !kubeconfig_path.exists() {
             // If the kubeconfig file does not exist, create an empty one (0600).

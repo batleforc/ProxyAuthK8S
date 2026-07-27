@@ -64,8 +64,12 @@ fn upgrade_request_declares_body(req: &HttpRequest) -> bool {
     match req
         .headers()
         .get(http::header::CONTENT_LENGTH)
-        .map(|value| value.to_str().ok().and_then(|v| v.trim().parse::<u64>().ok()))
-    {
+        .map(|value| {
+            value
+                .to_str()
+                .ok()
+                .and_then(|v| v.trim().parse::<u64>().ok())
+        }) {
         // No Content-Length header at all.
         None => false,
         // Present and parses to zero.

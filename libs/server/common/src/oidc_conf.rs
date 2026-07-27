@@ -242,7 +242,11 @@ impl OidcConf {
             .map_err(|_| ())?;
         let body: serde_json::Value = response.json().await.map_err(|_| ())?;
 
-        if !body.get("active").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if !body
+            .get("active")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             return Ok(None);
         }
 

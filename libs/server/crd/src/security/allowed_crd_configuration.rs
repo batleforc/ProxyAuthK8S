@@ -127,7 +127,10 @@ mod tests {
     use super::*;
     use crate::security::NamespacedAccessRuleKind;
 
-    fn ns_rule(enabled: bool, rule_kind: NamespacedAccessRuleKind) -> NamespacedAccessConfiguration {
+    fn ns_rule(
+        enabled: bool,
+        rule_kind: NamespacedAccessRuleKind,
+    ) -> NamespacedAccessConfiguration {
         NamespacedAccessConfiguration { enabled, rule_kind }
     }
 
@@ -136,7 +139,10 @@ mod tests {
         ns_rule(false, NamespacedAccessRuleKind::AllowedNamespaces(vec![]))
     }
 
-    fn widget(namespace: NamespacedAccessConfiguration, namespaced: bool) -> AllowedCrdConfiguration {
+    fn widget(
+        namespace: NamespacedAccessConfiguration,
+        namespaced: bool,
+    ) -> AllowedCrdConfiguration {
         AllowedCrdConfiguration {
             group: "example.com".to_string(),
             version: "v1".to_string(),
@@ -154,7 +160,11 @@ mod tests {
     #[test]
     fn matches_a_namespaced_custom_resource_and_its_subresources() {
         let rule = widget(open_ns(), true);
-        assert!(rule.matches("/apis/example.com/v1/namespaces/dev/widgets", "alice", &groups()));
+        assert!(rule.matches(
+            "/apis/example.com/v1/namespaces/dev/widgets",
+            "alice",
+            &groups()
+        ));
         assert!(rule.matches(
             "/apis/example.com/v1/namespaces/dev/widgets/foo/status",
             "alice",
@@ -167,9 +177,21 @@ mod tests {
     #[test]
     fn rejects_wrong_group_version_or_resource() {
         let rule = widget(open_ns(), true);
-        assert!(!rule.matches("/apis/other.com/v1/namespaces/dev/widgets", "alice", &groups()));
-        assert!(!rule.matches("/apis/example.com/v2/namespaces/dev/widgets", "alice", &groups()));
-        assert!(!rule.matches("/apis/example.com/v1/namespaces/dev/gadgets", "alice", &groups()));
+        assert!(!rule.matches(
+            "/apis/other.com/v1/namespaces/dev/widgets",
+            "alice",
+            &groups()
+        ));
+        assert!(!rule.matches(
+            "/apis/example.com/v2/namespaces/dev/widgets",
+            "alice",
+            &groups()
+        ));
+        assert!(!rule.matches(
+            "/apis/example.com/v1/namespaces/dev/gadgets",
+            "alice",
+            &groups()
+        ));
         // Core-group path must not match a non-core rule.
         assert!(!rule.matches("/api/v1/namespaces/dev/widgets", "alice", &groups()));
     }
@@ -183,8 +205,16 @@ mod tests {
             ),
             true,
         );
-        assert!(rule.matches("/apis/example.com/v1/namespaces/dev/widgets", "alice", &groups()));
-        assert!(!rule.matches("/apis/example.com/v1/namespaces/prod/widgets", "alice", &groups()));
+        assert!(rule.matches(
+            "/apis/example.com/v1/namespaces/dev/widgets",
+            "alice",
+            &groups()
+        ));
+        assert!(!rule.matches(
+            "/apis/example.com/v1/namespaces/prod/widgets",
+            "alice",
+            &groups()
+        ));
         // Cluster-wide access is refused once a restriction is in force.
         assert!(!rule.matches("/apis/example.com/v1/widgets", "alice", &groups()));
     }
@@ -198,7 +228,11 @@ mod tests {
             ),
             true,
         );
-        assert!(rule.matches("/apis/example.com/v1/namespaces/dev/widgets", "alice", &groups()));
+        assert!(rule.matches(
+            "/apis/example.com/v1/namespaces/dev/widgets",
+            "alice",
+            &groups()
+        ));
         assert!(!rule.matches(
             "/apis/example.com/v1/namespaces/kube-system/widgets",
             "alice",
@@ -226,7 +260,11 @@ mod tests {
             &groups()
         ));
         // A `*` username cannot self-escalate through the parametised rule.
-        assert!(!rule.matches("/apis/example.com/v1/namespaces/dev-x/widgets", "*", &groups()));
+        assert!(!rule.matches(
+            "/apis/example.com/v1/namespaces/dev-x/widgets",
+            "*",
+            &groups()
+        ));
     }
 
     #[test]
@@ -241,21 +279,33 @@ mod tests {
             namespaced: true,
         };
         assert!(pod.matches("/api/v1/namespaces/dev/pods", "alice", &groups()));
-        assert!(!pod.matches("/apis/example.com/v1/namespaces/dev/pods", "alice", &groups()));
+        assert!(!pod.matches(
+            "/apis/example.com/v1/namespaces/dev/pods",
+            "alice",
+            &groups()
+        ));
 
         // Plural defaults to the lower-cased kind when not provided.
         let no_plural = AllowedCrdConfiguration {
             plural: None,
             ..widget(open_ns(), true)
         };
-        assert!(no_plural.matches("/apis/example.com/v1/namespaces/dev/widget", "alice", &groups()));
+        assert!(no_plural.matches(
+            "/apis/example.com/v1/namespaces/dev/widget",
+            "alice",
+            &groups()
+        ));
     }
 
     #[test]
     fn cluster_scoped_resource_rejects_a_namespaced_path() {
         let rule = widget(open_ns(), false);
         assert!(rule.matches("/apis/example.com/v1/widgets", "alice", &groups()));
-        assert!(!rule.matches("/apis/example.com/v1/namespaces/dev/widgets", "alice", &groups()));
+        assert!(!rule.matches(
+            "/apis/example.com/v1/namespaces/dev/widgets",
+            "alice",
+            &groups()
+        ));
     }
 
     #[test]

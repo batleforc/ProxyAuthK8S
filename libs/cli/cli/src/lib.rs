@@ -141,7 +141,7 @@ pub enum CacheCommands {
 }
 
 impl Cli {
-    pub async fn run_cli(&mut self, mut ctx: CliCtx) {
+    pub async fn run_cli(&mut self, mut ctx: CliCtx) -> std::process::ExitCode {
         // Match and execute the appropriate command
         match &self.command {
             Some(Commands::Get { cluster_name }) => {
@@ -174,7 +174,11 @@ impl Cli {
                 //ctx.handle_get_token(cluster_name.clone());
                 // Detect if env var KUBERNETES_EXEC_INFO is set, change context accordingly
                 debug!("Getting token for cluster: {:?}", cluster_name);
-                ctx.handle_get_token(cluster_name.clone()).await;
+                // Propagate a non-zero exit code so `kubectl` sees the exec-credential
+                // plugin failed instead of treating a 0 exit as "no credential".
+                if ctx.handle_get_token(cluster_name.clone()).await.is_err() {
+                    return std::process::ExitCode::FAILURE;
+                }
             }
             Some(Commands::Context {
                 context_name,
@@ -201,5 +205,6 @@ impl Cli {
                 warn!("No command provided. Use --help for more information.");
             }
         }
+        std::process::ExitCode::SUCCESS
     }
 }

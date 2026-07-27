@@ -271,7 +271,11 @@ mod tests {
             ..SecurityConfiguration::default()
         };
 
-        assert!(config.is_path_allowed("/apis/example.com/v1/namespaces/dev/widgets", "alice", &[]));
+        assert!(config.is_path_allowed(
+            "/apis/example.com/v1/namespaces/dev/widgets",
+            "alice",
+            &[]
+        ));
         // Right resource, wrong (denied) namespace.
         assert!(!config.is_path_allowed(
             "/apis/example.com/v1/namespaces/kube-system/widgets",

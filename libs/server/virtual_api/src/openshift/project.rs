@@ -412,19 +412,31 @@ mod tests {
         let mapper = mapper();
         // projectrequests supports create (POST) and list (GET) only.
         assert_eq!(
-            mapper.method_not_allowed(&route("DELETE", "/apis/project.openshift.io/v1/projectrequests")),
+            mapper.method_not_allowed(&route(
+                "DELETE",
+                "/apis/project.openshift.io/v1/projectrequests"
+            )),
             Some("GET, POST".to_string())
         );
         assert_eq!(
-            mapper.method_not_allowed(&route("PUT", "/apis/project.openshift.io/v1/projectrequests")),
+            mapper.method_not_allowed(&route(
+                "PUT",
+                "/apis/project.openshift.io/v1/projectrequests"
+            )),
             Some("GET, POST".to_string())
         );
         assert!(mapper
-            .method_not_allowed(&route("POST", "/apis/project.openshift.io/v1/projectrequests"))
+            .method_not_allowed(&route(
+                "POST",
+                "/apis/project.openshift.io/v1/projectrequests"
+            ))
             .is_none());
         // projects supports get/list/watch (GET) and delete (DELETE).
         assert!(mapper
-            .method_not_allowed(&route("DELETE", "/apis/project.openshift.io/v1/projects/dev"))
+            .method_not_allowed(&route(
+                "DELETE",
+                "/apis/project.openshift.io/v1/projects/dev"
+            ))
             .is_none());
         assert_eq!(
             mapper.method_not_allowed(&route("POST", "/apis/project.openshift.io/v1/projects")),

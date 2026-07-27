@@ -60,7 +60,9 @@ fn is_traversal_segment(segment: &str) -> bool {
 /// Reject any request path that contains a traversal / encoded-separator segment
 /// so the matcher and the upstream agree on which resource is addressed.
 fn request_path_is_safe(path_segments: &[&str]) -> bool {
-    !path_segments.iter().any(|segment| is_traversal_segment(segment))
+    !path_segments
+        .iter()
+        .any(|segment| is_traversal_segment(segment))
 }
 
 /// Whether `path` is free of traversal / encoded-separator segments.
@@ -287,18 +289,27 @@ mod tests {
         assert!(!path_matches_pattern("/api/./v1/pods", "/api/./v1/pods"));
         // Percent-encoded dot segments and encoded slashes are refused too.
         assert!(!path_matches_pattern("/**", "/api/v1/%2e%2e/secrets"));
-        assert!(!path_matches_pattern("/**", "/api/v1/namespaces%2fprod/secrets"));
+        assert!(!path_matches_pattern(
+            "/**",
+            "/api/v1/namespaces%2fprod/secrets"
+        ));
         // Mixed literal/encoded dot segments decode to `..` upstream and must be
         // refused as well (uppercase and lowercase hex).
         assert!(!path_matches_pattern("/**", "/api/v1/.%2e/secrets"));
         assert!(!path_matches_pattern("/**", "/api/v1/%2e./secrets"));
         assert!(!path_matches_pattern("/**", "/api/v1/.%2E/secrets"));
-        assert!(!path_matches_pattern("/**", "/api/v1/namespaces%2Fprod/secrets"));
+        assert!(!path_matches_pattern(
+            "/**",
+            "/api/v1/namespaces%2Fprod/secrets"
+        ));
         assert!(!path_matches_pattern("/**", "/api/v1/dir%5c..%5csecrets"));
         // `path_equals` is guarded identically.
         assert!(!path_equals("/api/v1/../secrets", "/api/v1/../secrets"));
         // A double-encoded dot (`%252e`) reaches the apiserver as `%2e`, not a
         // dot, so it is not traversal and must NOT be rejected here.
-        assert!(path_matches_pattern("/api/v1/%252e/pods", "/api/v1/%252e/pods"));
+        assert!(path_matches_pattern(
+            "/api/v1/%252e/pods",
+            "/api/v1/%252e/pods"
+        ));
     }
 }

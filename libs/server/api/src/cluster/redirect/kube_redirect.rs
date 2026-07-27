@@ -89,8 +89,7 @@ pub async fn redirect(
         .headers()
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok());
-    let peer_id =
-        crate::cluster::redirect::forwarded::throttle_client_ip(forwarded_for, peer_ip);
+    let peer_id = crate::cluster::redirect::forwarded::throttle_client_ip(forwarded_for, peer_ip);
 
     if throttle::is_banned(data.get_ref(), &proxy, &peer_id).await {
         let retry_after = throttle::ban_retry_after(data.get_ref(), &proxy, &peer_id).await;

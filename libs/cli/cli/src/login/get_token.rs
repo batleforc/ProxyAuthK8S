@@ -2,13 +2,17 @@ use crate::ctx::CliCtx;
 use tracing::{debug, error};
 //https://kubernetes.io/docs/reference/access-authn-authz/authentication/#input-and-output-formats
 impl CliCtx {
-    pub async fn handle_get_token(&mut self, cluster_name: Option<String>) {
+    /// Returns `Err(())` on any failure so the caller can propagate a non-zero
+    /// exit code. `kubectl` treats a zero exit from an exec-credential plugin as
+    /// "credentials produced"; exiting 0 on failure would make it retry/fail with
+    /// a confusing error instead of surfacing our message.
+    pub async fn handle_get_token(&mut self, cluster_name: Option<String>) -> Result<(), ()> {
         debug!("Handling get token for cluster: {:?}", cluster_name);
 
         // if server_url is not provided and none exist in config, return error
         if self.server_url.is_empty() && self.config.default_server_name.is_empty() {
             error!("Error: No ProxyAuthK8S server URL provided and no existing configuration found. Please provide a server URL using the --server-url option or login to server first.");
-            return;
+            return Err(());
         }
 
         // KUBERNETES_EXEC_INFO is always set by kubectl when invoking an exec plugin
@@ -18,7 +22,7 @@ impl CliCtx {
                 error!(
                     "KUBERNETES_EXEC_INFO environment variable is not set. Cannot retrieve ctx."
                 );
-                return;
+                return Err(());
             }
         };
         debug!("KUBERNETES_EXEC_INFO: {}", exec_ctx);
@@ -27,7 +31,7 @@ impl CliCtx {
             Ok(info) => info,
             Err(e) => {
                 error!("Failed to parse KUBERNETES_EXEC_INFO as JSON: {}", e);
-                return;
+                return Err(());
             }
         };
 
@@ -66,7 +70,7 @@ impl CliCtx {
                 Some(url) => url,
                 None => {
                     error!("Cluster name not provided and spec.cluster.server not found in KUBERNETES_EXEC_INFO. Please provide the cluster name as argument.");
-                    return;
+                    return Err(());
                 }
             };
             match crate::cli_config::CliConfig::proxy_url_to_tuple(cluster_server_url) {
@@ -82,7 +86,7 @@ impl CliCtx {
                         "Failed to extract cluster name from server URL '{}': {}. Please provide the cluster name as argument.",
                         cluster_server_url, e
                     );
-                    return;
+                    return Err(());
                 }
             }
         };
@@ -102,7 +106,7 @@ impl CliCtx {
                     "Error retrieving server configuration: {}. Please login to the server first.",
                     e
                 );
-                    return;
+                    return Err(());
                 }
             };
 
@@ -128,7 +132,7 @@ impl CliCtx {
                     "Failed to retrieve token for cluster '{}/{}': {}. Please login using 'login --cluster-name {}'.",
                     namespace, cluster_name, e, cluster_name
                 );
-                return;
+                return Err(());
             }
         };
 
@@ -153,9 +157,13 @@ impl CliCtx {
         });
 
         match serde_json::to_string(&exec_credential) {
-            Ok(output) => println!("{}", output),
+            Ok(output) => {
+                println!("{}", output);
+                Ok(())
+            }
             Err(e) => {
                 error!("Failed to serialize ExecCredential response: {}", e);
+                Err(())
             }
         }
     }
