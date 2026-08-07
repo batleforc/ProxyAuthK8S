@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 kube-leader-election = "0.43.0"
 
 crd = { path = "../crd", version = "0.1.9" }
+crd_runtime = { path = "../crd_runtime", version = "0.1.9" }
 common = { path = "../common", version = "0.1.9" }
 trace = { path = "../trace", version = "0.1.9" }
 

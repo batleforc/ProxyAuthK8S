@@ -4,22 +4,15 @@
 //! together with the security, authentication, and certificate configuration
 //! types that make up a proxied cluster's spec.
 
-use std::sync::Arc;
-use std::time::Duration;
-
 use authentication_configuration::AuthenticationConfiguration;
-use base64::{prelude::BASE64_STANDARD, Engine};
 use certificate::{CertSource, ClientCertificate};
-use common::{traits::ObjectRedis, State};
 use default::{default_disabled, default_empty_array, default_enabled};
-use kube::{config::Kubeconfig, Client, CustomResource, ResourceExt};
-use reqwest::Url;
+use kube::{CustomResource, ResourceExt};
 use schemars::JsonSchema;
 use security::SecurityConfiguration;
 use serde::{Deserialize, Serialize};
 use service::Service;
 use status::ProxyKubeApiStatus;
-use tracing::instrument;
 use virtual_api::{enabled_kinds, VirtualApiConfiguration, VirtualApiKind};
 
 pub mod authentication_configuration;
@@ -124,14 +117,6 @@ impl ProxyKubeApi {
         )
     }
     #[must_use]
-    pub fn to_full_path(&self, state: Arc<State>) -> String {
-        format!(
-            "{}/clusters/{}",
-            state.oidc_cluster_redirect_base_url,
-            self.to_path()
-        )
-    }
-    #[must_use]
     pub fn dashboard_group(&self) -> String {
         match &self.spec.dashboard_group {
             Some(group) => group.clone(),
@@ -196,244 +181,6 @@ impl ProxyKubeApi {
         } else {
             false
         }
-    }
-
-    /// Check if the service is reachable
-    #[instrument(skip(self, ctx))]
-    pub async fn is_reachable(&self, ctx: Arc<State>) -> Result<bool, String> {
-        let ip = match self
-            .spec
-            .service
-            .url_to_call(ctx.client.clone(), self.namespace().unwrap_or_default())
-            .await
-        {
-            Ok(url) => url,
-            Err(_) => return Ok(false),
-        };
-        let client = match self.get_client(ctx.clone()).await {
-            Ok(c) => c,
-            Err(err) => return Err(err),
-        };
-        match client.get(&ip).send().await {
-            Ok(resp) => {
-                if resp.status().as_u16() >= 400 && resp.status().as_u16() < 500 {
-                    // client error, the service is reachable but the request is not authorized
-                    return Ok(true);
-                }
-                if resp.status().is_success() {
-                    return Ok(true);
-                }
-                Ok(false)
-            }
-            Err(err) => {
-                tracing::error!(
-                    "Failed to reach ProxyKubeApi {}: {}",
-                    self.to_identifier(),
-                    err
-                );
-                if let Some(status) = err.status() {
-                    if status.as_u16() >= 400 && status.as_u16() < 500 {
-                        // client error, the service is reachable but the request is not authorized
-                        return Ok(true);
-                    }
-                    if status.is_success() {
-                        return Ok(true);
-                    }
-                    return Ok(false);
-                }
-                Err(err.to_string())
-            }
-        }
-    }
-    pub async fn get_client(&self, ctx: Arc<State>) -> Result<reqwest::Client, String> {
-        let mut reqwest_client = reqwest::ClientBuilder::new();
-        reqwest_client = match &self
-            .spec
-            .cert
-            .get_cert(ctx.client.clone(), &self.namespace().unwrap_or_default())
-            .await
-        {
-            Ok(Some(cert)) => match reqwest::Certificate::from_pem(cert.as_bytes()) {
-                Ok(c) => reqwest_client.add_root_certificate(c),
-                Err(err) => return Err(err.to_string()),
-            },
-            Ok(None) => reqwest_client,
-            Err(err) => {
-                return Err(err.clone());
-            }
-        };
-        reqwest_client = reqwest_client
-            .use_rustls_tls()
-            // Bound the reachability probe: without a timeout a black-holed or
-            // slow target keeps a reconcile future pending indefinitely, tying up
-            // a controller concurrency slot.
-            .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(10));
-        match reqwest_client.build() {
-            Ok(c) => Ok(c),
-            Err(err) => Err(err.to_string()),
-        }
-    }
-    #[must_use]
-    pub fn get_redirect_oidc_url(
-        &self,
-        state: Arc<State>,
-        redirect_front: bool,
-        redirect_kubectl: Option<String>,
-    ) -> String {
-        if redirect_front {
-            return format!(
-                "{}/auth/callback/{}",
-                state.oidc_front_redirect_base_url,
-                self.to_path()
-            );
-        }
-        if let Some(kubectl_redirect) = redirect_kubectl {
-            // The `x-kubectl-callback` header is validated to end in `/`; trim it
-            // so the registered redirect URI is a clean single-slash path.
-            return format!(
-                "{}/auth/callback/{}",
-                kubectl_redirect.trim_end_matches('/'),
-                self.to_path()
-            );
-        }
-        format!(
-            "{}/clusters/{}/auth/callback",
-            state.oidc_cluster_redirect_base_url,
-            self.to_path()
-        )
-    }
-    pub fn get_oidc_conf(
-        &self,
-        state: Arc<State>,
-        redirect_front: bool,
-        redirect_kubectl: Option<String>,
-    ) -> Option<common::oidc_conf::OidcConf> {
-        if let Some(redirect_kubectl_uri) = redirect_kubectl.clone() {
-            // Validate the redirect uri
-            // The uri need to be have no path, no query and no fragment and uri should be localhost
-            let parsed_uri = if let Ok(uri) = Url::parse(&redirect_kubectl_uri) {
-                uri
-            } else {
-                tracing::error!("Invalid redirect uri: {}", redirect_kubectl_uri);
-                return None;
-            };
-            if parsed_uri.path() != "/"
-                || parsed_uri.query().is_some()
-                || parsed_uri.fragment().is_some()
-                || parsed_uri.host_str() != Some("localhost")
-            {
-                tracing::error!("Invalid redirect uri: {}", redirect_kubectl_uri);
-                return None;
-            }
-            tracing::info!("Valid redirect uri: {}", redirect_kubectl_uri);
-        }
-        let redirect_url = if redirect_front || redirect_kubectl.is_some() {
-            Some(self.get_redirect_oidc_url(state.clone(), redirect_front, redirect_kubectl))
-        } else {
-            None
-        };
-        match &self.spec.auth_config {
-            Some(auth_config) => {
-                if auth_config.oidc_provider.enabled {
-                    let provider = &auth_config.oidc_provider;
-                    // A distinct audience when configured, otherwise fall back to
-                    // the client id (providers that put the client in `aud`).
-                    let audience = if provider.audience.is_empty() {
-                        provider.client_id.clone()
-                    } else {
-                        provider.audience.clone()
-                    };
-                    return Some(common::oidc_conf::OidcConf {
-                        client_id: provider.client_id.clone(),
-                        client_secret: provider.client_secret.clone(),
-                        issuer_url: provider.issuer_url.clone(),
-                        scopes: provider.extra_scope.clone(),
-                        audience,
-                        accept_authorized_party: provider.accept_authorized_party,
-                        redirect_url,
-                    });
-                }
-                None
-            }
-            None => None,
-        }
-    }
-
-    #[instrument(skip(self, state, token))]
-    pub async fn to_kubeconfig(
-        &self,
-        state: Arc<State>,
-        default_ns: Option<String>,
-        token: Option<String>,
-    ) -> Result<Kubeconfig, String> {
-        let cluster_url = match self
-            .spec
-            .service
-            .url_to_call(state.client.clone(), self.namespace().unwrap_or_default())
-            .await
-        {
-            Ok(url) => url,
-            Err(e) => return Err(format!("Error getting cluster URL: {e}")),
-        };
-        let mut kubeconfig = Kubeconfig::default();
-        kubeconfig.clusters.push(kube::config::NamedCluster {
-            name: self.name_any(),
-            cluster: Some(kube::config::Cluster {
-                server: Some(cluster_url),
-                certificate_authority_data: self
-                    .spec
-                    .cert
-                    .get_cert(state.client.clone(), &self.namespace().unwrap_or_default())
-                    .await?
-                    .as_ref()
-                    .map(|cert| BASE64_STANDARD.encode(cert)),
-                ..Default::default()
-            }),
-        });
-        kubeconfig.auth_infos.push(kube::config::NamedAuthInfo {
-            name: self.name_any(),
-            auth_info: Some(kube::config::AuthInfo {
-                token: token
-                    .as_ref()
-                    .map(|t| secrecy::SecretBox::new(t.clone().into())),
-                ..Default::default()
-            }),
-        });
-        kubeconfig.contexts.push(kube::config::NamedContext {
-            name: self.name_any(),
-            context: Some(kube::config::Context {
-                cluster: self.name_any(),
-                user: Some(self.name_any()),
-                namespace: default_ns,
-                ..Default::default()
-            }),
-        });
-        kubeconfig.current_context = Some(self.name_any());
-        Ok(kubeconfig)
-    }
-
-    #[instrument(skip(self, state, token))]
-    pub async fn to_kube_client(
-        &self,
-        state: Arc<State>,
-        default_ns: Option<String>,
-        token: Option<String>,
-    ) -> Result<kube::Client, String> {
-        let kubeconfig = self
-            .to_kubeconfig(state.clone(), default_ns.clone(), token.clone())
-            .await?;
-
-        Client::try_from(kubeconfig).map_err(|e| e.to_string())
-    }
-}
-
-impl ObjectRedis for ProxyKubeApi {
-    fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap_or_default()
-    }
-    fn from_json(json: &str) -> Option<Self> {
-        serde_json::from_str(json).ok()
     }
 }
 

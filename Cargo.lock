@@ -342,6 +342,7 @@ dependencies = [
  "actix-web",
  "common",
  "crd",
+ "crd_runtime",
  "deadpool-redis",
  "futures-util",
  "k8s-openapi",
@@ -742,6 +743,7 @@ name = "common"
 version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
+ "crd",
  "deadpool-redis",
  "k8s-openapi",
  "kube",
@@ -776,6 +778,7 @@ version = "0.1.9"
 dependencies = [
  "common",
  "crd",
+ "crd_runtime",
  "deadpool-redis",
  "futures-util",
  "k8s-openapi",
@@ -864,15 +867,27 @@ name = "crd"
 version = "0.1.9"
 dependencies = [
  "base64 0.22.1",
- "common",
  "k8s-openapi",
  "kube",
  "regex",
- "reqwest 0.13.2",
  "schemars 1.2.1",
- "secrecy",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
+name = "crd_runtime"
+version = "0.1.9"
+dependencies = [
+ "base64 0.22.1",
+ "common",
+ "crd",
+ "kube",
+ "reqwest 0.13.2",
+ "secrecy",
+ "thiserror 2.0.18",
  "tracing",
 ]
 

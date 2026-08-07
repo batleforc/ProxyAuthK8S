@@ -27,7 +27,11 @@ impl CliCtx {
         }
     }
 
-    pub async fn handle_login(&mut self, cluster_name: Option<String>, token: Option<String>) {
+    pub async fn handle_login(
+        &mut self,
+        cluster_name: Option<String>,
+        token: Option<String>,
+    ) -> Result<(), ProxyAuthK8sError> {
         if token.is_some() {
             // A token on the command line lands in `ps`/`/proc/<pid>/cmdline` and
             // the shell history. Prefer the interactive prompt (omit `--token`).
@@ -39,16 +43,22 @@ impl CliCtx {
         // if server_url is not provided and none exist in config, return error
         if self.server_url.is_empty() && self.config.default_server_name.is_empty() {
             error!("Error: No ProxyAuthK8S server URL provided and no existing configuration found. Please provide a server URL using the --server-url option or login to server first.");
-            return;
+            return Err(ProxyAuthK8sError::InvalidUsage(
+                "no server URL provided and no existing configuration found".to_string(),
+            ));
         }
         if let Some(cluster) = cluster_name {
-            self.handle_login_clusters(cluster, token).await;
+            self.handle_login_clusters(cluster, token).await
         } else {
-            self.handle_login_servers(token).await;
+            self.handle_login_servers(token).await
         }
     }
 
-    pub async fn handle_login_clusters(&mut self, cluster: String, token: Option<String>) {
+    pub async fn handle_login_clusters(
+        &mut self,
+        cluster: String,
+        token: Option<String>,
+    ) -> Result<(), ProxyAuthK8sError> {
         debug!("Logging in to cluster: {}", cluster);
         // if server url is provided but not in config, return error
         let server_config = match self.config.get_server_config_by_url(
@@ -61,7 +71,7 @@ impl CliCtx {
             Ok(config) => config,
             Err(e) => {
                 error!("Error retrieving server configuration, please login to server before login to cluster: {}", e);
-                return;
+                return Err(e.into());
             }
         };
         let server_name = CliServerConfig::url_to_name_from_string(server_config.url.clone());
@@ -82,7 +92,7 @@ impl CliCtx {
             }
             Err(e) => {
                 error!("Failed to retrieve clusters, : {}", e);
-                match e {
+                match &e {
                     ProxyAuthK8sError::Unauthenticated(_) => {
                         // The user is told to re-login rather than being pushed
                         // through the flow: doing it here would need the login
@@ -96,7 +106,7 @@ impl CliCtx {
                         error!("An unknown error occurred while retrieving clusters.");
                     }
                 }
-                return;
+                return Err(e);
             }
         };
 
@@ -109,7 +119,10 @@ impl CliCtx {
             cluster_config.sso_enabled
         } else {
             error!("Cluster {} not found on server.", cluster);
-            return;
+            return Err(ProxyAuthK8sError::ClusterNotFound {
+                server: server_name.clone(),
+                cluster: cluster.clone(),
+            });
         };
 
         let token = match token {
@@ -127,7 +140,7 @@ impl CliCtx {
                             "Cannot start SSO login (are you logged in to the server?): {}",
                             e
                         );
-                        return;
+                        return Err(e);
                     }
                 };
                 match Self::sso_cluster_login(&base_config, &namespace, &cluster).await {
@@ -136,7 +149,7 @@ impl CliCtx {
                     Ok(id_token) => Some(id_token),
                     Err(e) => {
                         error!("{}", e);
-                        return;
+                        return Err(e);
                     }
                 }
             }
@@ -156,99 +169,112 @@ impl CliCtx {
                     "Server '{}' is no longer present in the configuration; aborting.",
                     server_name
                 );
-                return;
+                return Err(ProxyAuthK8sError::ServerNotFound(server_name.clone()));
             };
             // Persist the token to the keyring first; if that fails there is no
             // usable credential, so abort instead of reporting a false success.
             if let Err(e) = server.set_cluster_token(namespace, cluster.clone(), tok.clone()) {
                 error!("Failed to store cluster token: {}", e);
-                return;
+                return Err(e);
             }
             match self.config.write_to_file(self.config_path.clone()) {
                 Ok(_) => info!("Config file updated successfully."),
                 Err(e) => {
                     error!("Failed to update config file: {}", e);
-                    return;
+                    return Err(e);
                 }
             }
             info!("Login to cluster {} successful.", cluster);
+            Ok(())
         } else {
             error!("No token provided. Cluster login requires a token.");
+            Err(ProxyAuthK8sError::InvalidUsage(
+                "cluster login requires a token".to_string(),
+            ))
         }
     }
 
-    pub async fn handle_login_servers(&mut self, token: Option<String>) {
+    pub async fn handle_login_servers(
+        &mut self,
+        token: Option<String>,
+    ) -> Result<(), ProxyAuthK8sError> {
         debug!("Logging in to ProxyAuthK8S server.");
         let token = token
             .or_else(|| Self::prompt_for_token("Server token not provided. Enter server token: "));
 
-        if let Some(tok) = token {
-            info!("Using token for server authentication.");
-            // Resolve the target server (url + name) once: either the explicit
-            // --server-url, or the configured default. Both the discovery call
-            // and the post-discovery config update reuse it.
-            let (server_url, server_name) = if self.server_url.is_empty() {
-                let Some(def_server) = self.config.servers.get(&self.config.default_server_name)
-                else {
-                    error!(
-                        "Default server '{}' not found in configuration. Please login to a server first.",
-                        self.config.default_server_name
-                    );
-                    return;
-                };
-                (
-                    def_server.url.clone(),
-                    self.config.default_server_name.clone(),
-                )
-            } else {
-                (
-                    self.server_url.clone(),
-                    CliServerConfig::url_to_name_from_string(self.server_url.clone()),
-                )
-            };
-            let output = get_all_visible_cluster(&Configuration {
-                bearer_access_token: Some(tok.clone()),
-                base_path: server_url.clone(),
-                ..Default::default()
-            })
-            .await;
-
-            match output {
-                Ok(clusters) => {
-                    debug!(
-                        count = clusters.clusters.len(),
-                        "Successfully retrieved clusters"
-                    );
-                    let server_name_clone = server_name.clone();
-                    let server_config = self
-                        .config
-                        .get_or_insert_server_config(server_name, server_url);
-                    let server_config_clone = server_config.clone();
-
-                    if self.config.default_server_name.is_empty() {
-                        self.config.default_server_name = server_name_clone;
-                    }
-
-                    match self.config.write_to_file(self.config_path.clone()) {
-                        Ok(_) => info!("Config file updated successfully."),
-                        Err(e) => error!("Failed to update config file: {}", e),
-                    }
-                    match server_config_clone.set_server_token(tok.clone()) {
-                        Ok(()) => info!("Token saved to keyring successfully."),
-                        Err(e) => error!("Failed to save token to keyring: {}", e),
-                    }
-                }
-                Err(e) => {
-                    // Reuse the client_api -> ProxyAuthK8sError From boundary rather
-                    // than re-matching the raw variants inline.
-                    error!(
-                        "Failed to retrieve clusters: {}",
-                        ProxyAuthK8sError::from(e)
-                    );
-                }
-            }
-        } else {
+        let Some(tok) = token else {
             error!("No token provided. Server login requires a token.");
+            return Err(ProxyAuthK8sError::InvalidUsage(
+                "server login requires a token".to_string(),
+            ));
+        };
+        info!("Using token for server authentication.");
+        // Resolve the target server (url + name) once: either the explicit
+        // --server-url, or the configured default. Both the discovery call
+        // and the post-discovery config update reuse it.
+        let (server_url, server_name) = if self.server_url.is_empty() {
+            let Some(def_server) = self.config.servers.get(&self.config.default_server_name) else {
+                error!(
+                    "Default server '{}' not found in configuration. Please login to a server first.",
+                    self.config.default_server_name
+                );
+                return Err(ProxyAuthK8sError::ServerNotFound(
+                    self.config.default_server_name.clone(),
+                ));
+            };
+            (
+                def_server.url.clone(),
+                self.config.default_server_name.clone(),
+            )
+        } else {
+            (
+                self.server_url.clone(),
+                CliServerConfig::url_to_name_from_string(self.server_url.clone()),
+            )
+        };
+        let output = get_all_visible_cluster(&Configuration {
+            bearer_access_token: Some(tok.clone()),
+            base_path: server_url.clone(),
+            ..Default::default()
+        })
+        .await;
+
+        let clusters = match output {
+            Ok(clusters) => clusters,
+            Err(e) => {
+                // Reuse the client_api -> ProxyAuthK8sError From boundary rather
+                // than re-matching the raw variants inline.
+                let e = ProxyAuthK8sError::from(e);
+                error!("Failed to retrieve clusters: {}", e);
+                return Err(e);
+            }
+        };
+        debug!(
+            count = clusters.clusters.len(),
+            "Successfully retrieved clusters"
+        );
+        let server_name_clone = server_name.clone();
+        let server_config = self
+            .config
+            .get_or_insert_server_config(server_name, server_url);
+        let server_config_clone = server_config.clone();
+
+        if self.config.default_server_name.is_empty() {
+            self.config.default_server_name = server_name_clone;
         }
+
+        // Both the config write and the keyring store must succeed for the login
+        // to have produced a usable, persisted credential.
+        if let Err(e) = self.config.write_to_file(self.config_path.clone()) {
+            error!("Failed to update config file: {}", e);
+            return Err(e);
+        }
+        info!("Config file updated successfully.");
+        if let Err(e) = server_config_clone.set_server_token(tok.clone()) {
+            error!("Failed to save token to keyring: {}", e);
+            return Err(e);
+        }
+        info!("Token saved to keyring successfully.");
+        Ok(())
     }
 }

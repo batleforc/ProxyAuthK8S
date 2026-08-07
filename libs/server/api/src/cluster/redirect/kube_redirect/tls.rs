@@ -22,7 +22,8 @@ pub(super) async fn build_tls_config(
         .spec
         .cert
         .get_cert(state.client.clone(), &namespace)
-        .await?;
+        .await
+        .map_err(|e| e.to_string())?;
 
     let builder = ClientConfig::builder();
     let builder = if let Some(cert_pem) = cert_pem {
@@ -46,7 +47,8 @@ pub(super) async fn build_tls_config(
 
     let (cert_pem, key_pem) = client_cert
         .resolve(state.client.clone(), &namespace)
-        .await?;
+        .await
+        .map_err(|e| e.to_string())?;
     let cert_chain: Vec<CertificateDer<'static>> =
         CertificateDer::pem_slice_iter(cert_pem.as_bytes())
             .collect::<Result<Vec<_>, _>>()

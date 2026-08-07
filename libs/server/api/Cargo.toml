@@ -28,6 +28,7 @@ tokio-rustls = { workspace = true }
 
 common = { path = "../common", version = "0.1.9" }
 crd = { path = "../crd", version = "0.1.9" }
+crd_runtime = { path = "../crd_runtime", version = "0.1.9" }
 virtual_api = { path = "../virtual_api", version = "0.1.9" }
 
 [dev-dependencies]

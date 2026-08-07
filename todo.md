@@ -6,27 +6,29 @@ than a rushed change. Roughly ordered by score impact / value.
 
 ## Architecture
 
-- [ ] **Split the `crd` schema crate from its runtime I/O.** Move the runtime
-      methods on `ProxyKubeApi` (`is_reachable`, `get_client`, `to_kube_client`,
-      `to_kubeconfig`, `get_oidc_conf`) and the `impl ObjectRedis for ProxyKubeApi`
-      out of `libs/server/crd` into a separate crate (or into `api`/`common`) so
-      the pure CRD schema no longer depends on `common`/`reqwest`/`kube` client.
-      Today `apps/crdgen` transitively links Redis/kube just to print YAML.
-      _Drags: cross-module architecture, high-level elegance._
+- [x] **Split the `crd` schema crate from its runtime I/O.** Done: runtime
+      methods (`is_reachable`, `get_client`, `to_kube_client`, `to_kubeconfig`,
+      `get_oidc_conf`, plus `to_full_path`/`get_redirect_oidc_url` which also took
+      `State`) moved into a new `libs/server/crd_runtime` crate behind the
+      `ProxyKubeApiRuntime` extension trait; `impl ObjectRedis for ProxyKubeApi`
+      moved into `common` (orphan rule). `crd` now depends only on
+      serde/schemars/kube-derive/base64/regex — `crdgen` no longer links
+      `common`/Redis/OIDC.
 
 ## Error handling & types
 
-- [ ] **Replace `Result<_, String>` with domain error enums** across the ~30
-      `map_err`-to-string sites: `crd/lib.rs` runtime methods, `crd/certificate`,
-      `crd/service`, and `libs/server/api/src/model/user.rs`
-      (`get_user_info*`/`auth_against_*`). Callers currently collapse Redis,
-      proxy-not-found, k8s-client and OIDC failures into one opaque 401.
-      _Drags: error consistency, api-surface coherence, mid-level elegance._
+- [x] **Replace `Result<_, String>` with domain error enums.** Done (layered
+      `thiserror`): `crd::certificate::CertError`, `crd::service::ServiceError`,
+      `crd_runtime::ProxyRuntimeError` (wraps the two + reqwest/kube-client), and
+      `api::model::user::UserAuthError`. HTTP paths still return the same opaque
+      401/404/503 (detail only in logs / CRD status). The `tls.rs` forwarding
+      path keeps its `Result<_, String>` boundary (adapts via `to_string`).
 
-- [ ] **Propagate CLI exit codes.** Thread a `Result`/exit status through every
-      `CliCtx::handle_*` command handler so `Cli::run_cli` returns
-      `ExitCode::FAILURE` on a failed command. Today only `handle_get_token`
-      propagates, so failed commands still exit 0.
+- [x] **Propagate CLI exit codes.** Done: every `CliCtx::handle_*` returns
+      `Result<(), ProxyAuthK8sError>` (added an `InvalidUsage` variant for
+      argument/usage failures); `run_cli` maps `Err` to `ExitCode::FAILURE`.
+      Also fixed a pre-existing clap panic: `context`'s `--set` declared `-s`,
+      colliding with the global `--server-url` `-s` (now long-only `--set`).
 
 ## Craft / structure
 

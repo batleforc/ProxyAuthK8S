@@ -1,6 +1,6 @@
 use crate::{
     cli_config::cli_server_config::CliServerConfig, config_cmd::get_output::GetOutput, ctx::CliCtx,
-    output::KubeList,
+    error::ProxyAuthK8sError, output::KubeList,
 };
 
 impl CliCtx {
@@ -9,7 +9,7 @@ impl CliCtx {
         server_url: Option<&String>,
         namespace: Option<&String>,
         list: bool,
-    ) {
+    ) -> Result<(), ProxyAuthK8sError> {
         let default_server_name = self.config.default_server_name.clone();
         let mut outputs: Vec<GetOutput> = Vec::new();
 
@@ -49,5 +49,6 @@ impl CliCtx {
         let vec_output = KubeList::new(outputs);
         let output_str = vec_output.to_output(self.format.clone());
         println!("{output_str}");
+        Ok(())
     }
 }

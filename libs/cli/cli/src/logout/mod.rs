@@ -1,15 +1,22 @@
 use tracing::{error, info};
 
-use crate::{cli_config::cli_server_config::CliServerConfig, ctx::CliCtx};
+use crate::{
+    cli_config::cli_server_config::CliServerConfig, ctx::CliCtx, error::ProxyAuthK8sError,
+};
 
 impl CliCtx {
     /// Log out of a cluster (when `cluster_name` is given) or of the whole server
     /// (otherwise), removing the corresponding token(s) from the OS keyring and
     /// updating the config.
-    pub fn handle_logout(&mut self, cluster_name: Option<String>) {
+    pub fn handle_logout(
+        &mut self,
+        cluster_name: Option<String>,
+    ) -> Result<(), ProxyAuthK8sError> {
         if self.server_url.is_empty() && self.config.default_server_name.is_empty() {
             error!("Not logged in to any server; nothing to log out from.");
-            return;
+            return Err(ProxyAuthK8sError::InvalidUsage(
+                "not logged in to any server".to_string(),
+            ));
         }
         let server_name = if self.server_url.is_empty() {
             self.config.default_server_name.clone()
@@ -24,7 +31,7 @@ impl CliCtx {
                 "Server '{}' not found in configuration; nothing to do.",
                 server_name
             );
-            return;
+            return Err(ProxyAuthK8sError::ServerNotFound(server_name));
         };
 
         if let Some(cluster) = cluster_name {
@@ -37,7 +44,7 @@ impl CliCtx {
                 Ok(()) => info!("Logged out of cluster '{}/{}'.", namespace, cluster),
                 Err(e) => {
                     error!("Failed to remove cluster token from keyring: {}", e);
-                    return;
+                    return Err(e);
                 }
             }
             if let Some(server) = self.config.servers.get_mut(&server_name) {
@@ -56,16 +63,24 @@ impl CliCtx {
 
         if let Err(e) = self.config.write_to_file(self.config_path.clone()) {
             error!("Failed to update config file: {}", e);
+            return Err(e);
         }
+        Ok(())
     }
 
     /// Clear every cached credential (all server and cluster tokens) from the
     /// keyring and reset the stored configuration.
-    pub fn handle_cache_clear(&mut self) {
+    pub fn handle_cache_clear(&mut self) -> Result<(), ProxyAuthK8sError> {
         self.config.clear();
         match self.config.write_to_file(self.config_path.clone()) {
-            Ok(_) => info!("All cached tokens cleared."),
-            Err(e) => error!("Failed to update config file after clearing cache: {}", e),
+            Ok(_) => {
+                info!("All cached tokens cleared.");
+                Ok(())
+            }
+            Err(e) => {
+                error!("Failed to update config file after clearing cache: {}", e);
+                Err(e)
+            }
         }
     }
 }

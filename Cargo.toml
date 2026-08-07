@@ -3,6 +3,7 @@
 resolver = '2'
 members = [
   'libs/server/crd',
+  'libs/server/crd_runtime',
   'apps/server',
   'libs/server/trace',
   'apps/crdgen',

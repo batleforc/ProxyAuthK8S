@@ -229,7 +229,7 @@ pub async fn redirect(
     {
         Ok(url) => url.trim_end_matches('/').to_string(),
         Err(err) => {
-            error!(err, "couldn't get url to call");
+            error!(error = %err, "couldn't get url to call");
             audited!(audit, HttpResponse::NotFound().finish());
         }
     };

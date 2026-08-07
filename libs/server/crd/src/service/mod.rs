@@ -2,6 +2,10 @@ use kube::{Api, Client};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+mod error;
+
+pub use error::ServiceError;
+
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub enum Service {
     /// Kubernetes service
@@ -45,7 +49,11 @@ fn dial_port(svc_port: &k8s_openapi::api::core::v1::ServicePort) -> i32 {
 
 impl Service {
     /// Get the URL to call for the service
-    pub async fn url_to_call(&self, client: Client, main_ns: String) -> Result<String, String> {
+    pub async fn url_to_call(
+        &self,
+        client: Client,
+        main_ns: String,
+    ) -> Result<String, ServiceError> {
         match self {
             Service::KubernetesService {
                 name,
@@ -56,26 +64,31 @@ impl Service {
                 let target_ns = namespace.as_deref().unwrap_or(main_ns.as_str());
                 let services: Api<k8s_openapi::api::core::v1::Service> =
                     Api::namespaced(client, target_ns);
-                let svc = services.get(name).await.map_err(|e| e.to_string())?;
-                let spec = svc
-                    .spec
-                    .ok_or_else(|| format!("No spec found for service {name}"))?;
+                let svc = services.get(name).await.map_err(|source| ServiceError::Read {
+                    name: name.clone(),
+                    source,
+                })?;
+                let spec = svc.spec.ok_or_else(|| ServiceError::NoSpec { name: name.clone() })?;
                 let ports = spec
                     .ports
                     .filter(|p| !p.is_empty())
-                    .ok_or_else(|| format!("No ports found in service {name}"))?;
+                    .ok_or_else(|| ServiceError::NoPorts { name: name.clone() })?;
 
                 let svc_port = if let Some(target_port) = port {
                     ports
                         .iter()
                         .find(|p| p.port == i32::from(*target_port))
-                        .ok_or_else(|| format!("Port {target_port} not found in service {name}"))?
+                        .ok_or_else(|| ServiceError::PortNotFound {
+                            port: *target_port,
+                            name: name.clone(),
+                        })?
                 } else if let Some(port_name) = port_name {
                     ports
                         .iter()
                         .find(|p| p.name.as_deref() == Some(port_name))
-                        .ok_or_else(|| {
-                            format!("Port name {port_name} not found in service {name}")
+                        .ok_or_else(|| ServiceError::PortNameNotFound {
+                            port_name: port_name.clone(),
+                            name: name.clone(),
                         })?
                 } else {
                     // Safe: `ports` is guaranteed non-empty above.
@@ -110,5 +123,32 @@ mod tests {
     fn missing_or_empty_cluster_ip_falls_back_to_dns_name() {
         assert_eq!(service_host(None, "svc", "ns"), "svc.ns.svc");
         assert_eq!(service_host(Some(""), "svc", "ns"), "svc.ns.svc");
+    }
+
+    #[test]
+    fn service_error_messages_name_the_offending_object() {
+        assert_eq!(
+            ServiceError::NoSpec {
+                name: "api".to_string()
+            }
+            .to_string(),
+            "no spec found for service api"
+        );
+        assert_eq!(
+            ServiceError::PortNotFound {
+                port: 8443,
+                name: "api".to_string()
+            }
+            .to_string(),
+            "port 8443 not found in service api"
+        );
+        assert_eq!(
+            ServiceError::PortNameNotFound {
+                port_name: "https".to_string(),
+                name: "api".to_string()
+            }
+            .to_string(),
+            "port name https not found in service api"
+        );
     }
 }

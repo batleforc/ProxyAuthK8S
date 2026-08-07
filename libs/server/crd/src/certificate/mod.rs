@@ -4,8 +4,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 mod client_certificate;
+mod error;
 
 pub use client_certificate::ClientCertificate;
+pub use error::CertError;
 
 #[derive(Serialize, Deserialize, Clone, JsonSchema)]
 pub enum CertSource {
@@ -97,7 +99,7 @@ fn resolve_cert_namespace<'a>(requested: Option<&'a str>, cr_ns: &'a str) -> &'a
 }
 
 impl CertSource {
-    pub async fn get_cert(&self, client: Client, ns: &str) -> Result<Option<String>, String> {
+    pub async fn get_cert(&self, client: Client, ns: &str) -> Result<Option<String>, CertError> {
         match self {
             CertSource::Secret {
                 name,
@@ -107,28 +109,40 @@ impl CertSource {
                 let target_ns = resolve_cert_namespace(namespace.as_deref(), ns);
                 let secrets: kube::Api<k8s_openapi::api::core::v1::Secret> =
                     kube::Api::namespaced(client, target_ns);
-                let secret = secrets.get(name).await.map_err(|e| e.to_string())?;
+                let secret = secrets.get(name).await.map_err(|source| CertError::Read {
+                    kind: "secret",
+                    name: name.clone(),
+                    source,
+                })?;
                 if let Some(data) = secret.data {
                     if let Some(cert) = data.get(key) {
-                        let cert_str =
-                            String::from_utf8(cert.0.clone()).map_err(|e| e.to_string())?;
+                        let cert_str = String::from_utf8(cert.0.clone())?;
                         // decode the cert if it's base64 encoded
-                        let decoded = BASE64_STANDARD
-                            .decode(cert_str)
-                            .map_err(|e| e.to_string())?;
+                        let decoded = BASE64_STANDARD.decode(cert_str)?;
                         return Ok(Some(decoded.into_iter().map(|c| c as char).collect()));
                     }
-                    return Err(format!("Key {key} not found in secret {name}"));
+                    return Err(CertError::KeyNotFound {
+                        kind: "secret",
+                        key: key.clone(),
+                        name: name.clone(),
+                    });
                 }
                 if let Some(data) = secret.string_data {
                     if let Some(cert) = data.get(key) {
-                        let decode = BASE64_STANDARD.decode(cert).map_err(|e| e.to_string())?;
-                        let cert_str = String::from_utf8(decode).map_err(|e| e.to_string())?;
+                        let decode = BASE64_STANDARD.decode(cert)?;
+                        let cert_str = String::from_utf8(decode)?;
                         return Ok(Some(cert_str));
                     }
-                    return Err(format!("Key {key} not found in secret {name}"));
+                    return Err(CertError::KeyNotFound {
+                        kind: "secret",
+                        key: key.clone(),
+                        name: name.clone(),
+                    });
                 }
-                Err(format!("No data found in secret {name}"))
+                Err(CertError::NoData {
+                    kind: "secret",
+                    name: name.clone(),
+                })
             }
             CertSource::ConfigMap {
                 name,
@@ -138,24 +152,30 @@ impl CertSource {
                 let target_ns = resolve_cert_namespace(namespace.as_deref(), ns);
                 let configmaps: kube::Api<k8s_openapi::api::core::v1::ConfigMap> =
                     kube::Api::namespaced(client, target_ns);
-                let configmap = configmaps.get(name).await.map_err(|e| e.to_string())?;
+                let configmap = configmaps.get(name).await.map_err(|source| CertError::Read {
+                    kind: "configmap",
+                    name: name.clone(),
+                    source,
+                })?;
                 if let Some(data) = configmap.data {
                     if let Some(cert) = data.get(key) {
                         return Ok(Some(cert.clone()));
                     }
-                    return Err(format!("Key {key} not found in configmap {name}"));
+                    return Err(CertError::KeyNotFound {
+                        kind: "configmap",
+                        key: key.clone(),
+                        name: name.clone(),
+                    });
                 }
-                Err(format!("No data found in configmap {name}"))
+                Err(CertError::NoData {
+                    kind: "configmap",
+                    name: name.clone(),
+                })
             }
             CertSource::Cert(c) => {
                 // base64 decode the cert
-                let decoded = BASE64_STANDARD
-                    .decode(c)
-                    .map_err(|_| "Failed to decode base64")?;
-                match String::from_utf8(decoded) {
-                    Ok(s) => Ok(Some(s)),
-                    Err(e) => Err(e.to_string()),
-                }
+                let decoded = BASE64_STANDARD.decode(c)?;
+                Ok(Some(String::from_utf8(decoded)?))
             }
             CertSource::Insecure(_) => Ok(None),
         }

@@ -40,7 +40,10 @@ impl TableRow for GetClusterOutput {
 }
 
 impl CliCtx {
-    pub async fn handle_get_clusters(&mut self, cluster_name: Option<String>) {
+    pub async fn handle_get_clusters(
+        &mut self,
+        cluster_name: Option<String>,
+    ) -> Result<(), ProxyAuthK8sError> {
         let server_config =
             match self
                 .config
@@ -55,7 +58,7 @@ impl CliCtx {
                         "Error retrieving server configuration, please login to server first: {}",
                         e
                     );
-                    return;
+                    return Err(e.into());
                 }
             };
 
@@ -96,10 +99,11 @@ impl CliCtx {
 
                 let output = KubeList::new(outputs);
                 println!("{}", output.to_output(self.format.clone()));
+                Ok(())
             }
             Err(e) => {
                 error!("Failed to retrieve clusters: {}", e);
-                match e {
+                match &e {
                     ProxyAuthK8sError::Unauthenticated(_) => {
                         info!("Authentication failed: invalid or missing server token. Please run login first.");
                     }
@@ -110,6 +114,7 @@ impl CliCtx {
                         info!("An unexpected error occurred while retrieving clusters.");
                     }
                 }
+                Err(e)
             }
         }
     }

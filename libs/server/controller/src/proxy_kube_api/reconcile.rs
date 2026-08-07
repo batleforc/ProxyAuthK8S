@@ -1,5 +1,6 @@
 use common::{traits::ObjectRedis, State};
 use crd::{status::ProxyKubeApiStatus, ProxyKubeApi};
+use crd_runtime::ProxyKubeApiRuntime;
 use kube::{api::PatchParams, runtime::controller::Action, Api};
 use std::sync::Arc;
 use tracing::{info, instrument, warn};
