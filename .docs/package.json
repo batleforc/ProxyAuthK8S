@@ -12,12 +12,11 @@
   },
   "dependencies": {
     "@icons-pack/react-simple-icons": "^13.13.0",
-    "@orama/orama": "^3.1.18",
-    "@takumi-rs/image-response": "^0.73.1",
-    "fumadocs-core": "16.7.7",
-    "fumadocs-mdx": "14.2.11",
-    "fumadocs-openapi": "^10.6.0",
-    "fumadocs-ui": "16.7.7",
+    "@takumi-rs/image-response": "2.5.11",
+    "fumadocs-core": "16.14.2",
+    "fumadocs-mdx": "15.2.2",
+    "fumadocs-openapi": "11.2.3",
+    "fumadocs-ui": "16.14.2",
     "lucide-react": "^1.7.0",
     "mermaid": "^11.13.0",
     "next": "16.2.1",
@@ -26,7 +25,9 @@
     "react-dom": "^19.2.4",
     "shiki": "^4.0.2",
     "tailwind-merge": "^3.5.0",
-    "yaml": "^2.8.3"
+    "takumi-js": "^2.5.11",
+    "yaml": "^2.8.3",
+    "zbsearch": "^3.3.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
@@ -34,7 +35,7 @@
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "eslint": "^9.39.4",
+    "eslint": "9.39.5",
     "eslint-config-next": "16.2.1",
     "postcss": "^8.5.8",
     "serve": "^14.2.6",

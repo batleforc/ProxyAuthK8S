@@ -5,15 +5,12 @@ metadata:
 spec:
   group: weebo.si.rs
   names:
-    categories: []
     kind: ProxyKubeApi
     plural: proxykubeapis
-    shortNames: []
     singular: proxykubeapi
   scope: Namespaced
   versions:
-  - additionalPrinterColumns: []
-    name: v1
+  - name: v1
     schema:
       openAPIV3Schema:
         description: Auto-generated derived type for ProxyKubeApiSpec via `CustomResource`

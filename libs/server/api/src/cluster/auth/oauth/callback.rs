@@ -15,6 +15,7 @@ use crate::cluster::auth::{
         model::{IssuedCode, PendingAuthorization, CODE_PREFIX, CODE_TTL_SECONDS, PENDING_PREFIX},
         redirect_with_error,
     },
+    throttle_oauth_as,
 };
 use crate::helper::extract_ns_cluster;
 
@@ -62,6 +63,9 @@ pub async fn callback(
         Ok(proxy) => proxy,
         Err(response) => return response,
     };
+    if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
+        return response;
+    }
 
     let pending_key = format!("{PENDING_PREFIX}:{ns}/{cluster}/{}", callback.state);
     let pending = match data.redis_get(&pending_key).await {

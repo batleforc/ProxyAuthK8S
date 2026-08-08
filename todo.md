@@ -69,5 +69,13 @@ than a rushed change. Roughly ordered by score impact / value.
       pinned) once the otel ecosystem moves to 0.13.
 - [ ] Revisit the alpha `oauth2-reqwest` (0.1.0-alpha.3) dependency on the core
       `common` lib.
-- [ ] `task audit` is wired up (`cargo audit` + `yarn npm audit` + `trivy`) and
-      currently reports **5 dependency CVEs** — triage and update.
+- [x] `task audit` is wired up (`cargo audit` + `yarn npm audit` + `trivy`).
+      Fixed 2026-08-08: bumped `rustls-webpki` 0.103.10 → 0.103.13
+      (RUSTSEC-2026-0098/0099/0104) and `quinn-proto` 0.11.14 → 0.11.16
+      (RUSTSEC-2026-0185, high severity) via `cargo update -p <crate>` — both
+      were pure `Cargo.lock` bumps within the existing semver constraints, no
+      `Cargo.toml` change needed. Verified: workspace build, clippy, and the
+      full 241-test suite (nextest) all green after the bump.
+      **Still open:** `rsa` (RUSTSEC-2023-0071, Marvin timing sidechannel
+      attack) has **no fixed upgrade available upstream** — nothing to do
+      here until `rsa` ships one; re-check periodically.

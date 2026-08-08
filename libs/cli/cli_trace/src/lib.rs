@@ -14,7 +14,9 @@ use tracing_subscriber::{
 pub mod level;
 
 pub fn init_tracing(verbose_level: level::VerboseLevel, name: String) {
-    let time_format = format_description::parse("[hour]:[minute]:[second]")
+    // Pinned to version 1 (what the now-deprecated `parse()` used) to keep the
+    // exact same parsing behavior rather than adopt v3's different syntax.
+    let time_format = format_description::parse_borrowed::<1>("[hour]:[minute]:[second]")
         .expect("format string should be valid!");
     let timer = UtcTime::new(time_format);
     // A malformed RUST_LOG in the environment must not crash the CLI (it runs as

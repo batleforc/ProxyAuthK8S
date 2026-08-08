@@ -300,6 +300,7 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
                     .map(|cert| BASE64_STANDARD.encode(cert)),
                 ..Default::default()
             }),
+            other: Default::default(),
         });
         kubeconfig.auth_infos.push(kube::config::NamedAuthInfo {
             name: self.name_any(),
@@ -309,6 +310,7 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
                     .map(|t| secrecy::SecretBox::new(t.clone().into())),
                 ..Default::default()
             }),
+            other: Default::default(),
         });
         kubeconfig.contexts.push(kube::config::NamedContext {
             name: self.name_any(),
@@ -318,6 +320,7 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
                 namespace: default_ns,
                 ..Default::default()
             }),
+            other: Default::default(),
         });
         kubeconfig.current_context = Some(self.name_any());
         Ok(kubeconfig)

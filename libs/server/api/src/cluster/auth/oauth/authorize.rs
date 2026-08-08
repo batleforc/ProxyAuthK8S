@@ -15,6 +15,7 @@ use crate::cluster::auth::{
         },
         redirect_with_error,
     },
+    throttle_oauth_as,
 };
 use crate::helper::extract_ns_cluster;
 
@@ -71,6 +72,9 @@ pub async fn authorize(
         Ok(proxy) => proxy,
         Err(response) => return response,
     };
+    if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
+        return response;
+    }
 
     let Some(redirect_uri) = parse_loopback_redirect_uri(&query.redirect_uri) else {
         return HttpResponse::BadRequest()

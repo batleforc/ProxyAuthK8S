@@ -4,7 +4,7 @@ use crd_runtime::ProxyKubeApiRuntime;
 use serde_json::Value;
 use tracing::{error, instrument};
 
-use crate::cluster::auth::load_discovery_enabled_proxy;
+use crate::cluster::auth::{load_discovery_enabled_proxy, throttle_oauth_as};
 use crate::helper::extract_ns_cluster;
 
 /// The upstream identity provider's JSON Web Key Set, mirrored under the cluster's own path
@@ -38,6 +38,9 @@ pub async fn jwks(req: HttpRequest, data: web::Data<State>) -> impl Responder {
         Ok(proxy) => proxy,
         Err(response) => return response,
     };
+    if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
+        return response;
+    }
 
     let oidc_conf = if let Some(conf) = proxy.get_oidc_conf(data.into_inner(), false, None) {
         conf

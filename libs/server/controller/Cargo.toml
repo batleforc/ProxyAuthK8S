@@ -14,7 +14,7 @@ deadpool-redis = { workspace = true }
 opentelemetry = { workspace = true }
 thiserror = { workspace = true }
 
-kube-leader-election = "0.43.0"
+kube-leader-election = "0.44.0"
 
 crd = { path = "../crd", version = "0.1.9" }
 crd_runtime = { path = "../crd_runtime", version = "0.1.9" }

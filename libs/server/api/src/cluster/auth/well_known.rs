@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, instrument};
 use utoipa::ToSchema;
 
-use crate::cluster::auth::load_discovery_enabled_proxy;
+use crate::cluster::auth::{load_discovery_enabled_proxy, throttle_oauth_as};
 use crate::helper::extract_ns_cluster;
 
 /// OAuth 2.0 Authorization Server Metadata (RFC 8414) for a proxied cluster.
@@ -60,6 +60,9 @@ pub async fn oauth_authorization_server(
         Ok(proxy) => proxy,
         Err(response) => return response,
     };
+    if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
+        return response;
+    }
 
     let scopes_supported = proxy
         .spec

@@ -7,6 +7,7 @@ use utoipa::ToSchema;
 use crate::cluster::auth::{
     load_discovery_enabled_proxy,
     oauth::model::{verify_pkce_s256, IssuedCode, CODE_PREFIX},
+    throttle_oauth_as,
 };
 use crate::helper::extract_ns_cluster;
 
@@ -76,7 +77,11 @@ pub async fn token(
         error!(path = %req.path(), "missing ns/cluster path parameters");
         return HttpResponse::NotFound().finish();
     };
-    if let Err(response) = load_discovery_enabled_proxy(&data, &ns, &cluster).await {
+    let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
+        Ok(proxy) => proxy,
+        Err(response) => return response,
+    };
+    if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
         return response;
     }
 
