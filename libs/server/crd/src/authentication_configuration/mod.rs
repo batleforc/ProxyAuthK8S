@@ -56,6 +56,14 @@ impl AuthenticationConfiguration {
                 );
             }
         }
+        // Mirrors the OidcProvider CEL rule: the well-known discovery document
+        // has nothing to expose without an enabled provider.
+        if self.oidc_provider.expose_oauth_authorization_server && !self.oidc_provider.enabled {
+            return Err(
+                "expose_oauth_authorization_server requires the OIDC provider to be enabled"
+                    .to_string(),
+            );
+        }
         Ok(())
     }
 }

@@ -53,5 +53,14 @@ jobs:
         # libdbus-1-dev is required by the `keyring` crate used by the CLI.
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
 
+      - name: 📦 Install cargo-nextest
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        with:
+          tool: nextest
+
       - name: 🧪 Run Tests
-        run: cargo test --workspace --all-targets
+        run: cargo nextest run --workspace --all-targets
+
+      - name: 📖 Run Doctests
+        # nextest doesn't run doctests; kept as a safety net in case one is added.
+        run: cargo test --doc

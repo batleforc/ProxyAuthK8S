@@ -21,7 +21,7 @@ pub enum Service {
     },
     /// External service
     ExternalService {
-        /// URL of the external service (e.g. <https://example.com>)
+        /// URL of the external service (e.g. `https://example.com`)
         url: String,
     },
 }

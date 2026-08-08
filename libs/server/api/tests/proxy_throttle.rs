@@ -15,6 +15,13 @@ use harness::{
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// A JWT-shaped access token whose `aud` claim names `oidc_auth_config`'s
+/// `client_id` (`proxyauthk8s`) — needed so `ensure_token_audience` (which
+/// fails closed under the default Enforce mode on an opaque token) doesn't
+/// reject it before it can count as a "valid" authentication. Signature is
+/// not verified here.
+const VALID_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJwcm94eWF1dGhrOHMiLCJzdWIiOiJhbGljZS1zdWIifQ.c2lnbmF0dXJlLW5vdC12ZXJpZmllZC1pbi10aGVzZS10ZXN0cw";
+
 macro_rules! proxy_app {
     ($state:expr) => {
         test::init_service(
@@ -146,7 +153,7 @@ async fn bans_a_client_after_repeated_authentication_failures() {
     // Even a valid token is refused while the ban is in force.
     let req = test::TestRequest::get()
         .uri(&uri)
-        .insert_header(("authorization", "Bearer valid-token"))
+        .insert_header(("authorization", format!("Bearer {VALID_TOKEN}")))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
@@ -197,7 +204,7 @@ async fn a_successful_authentication_clears_the_failure_counter() {
 
     let req = test::TestRequest::get()
         .uri(&uri)
-        .insert_header(("authorization", "Bearer valid-token"))
+        .insert_header(("authorization", format!("Bearer {VALID_TOKEN}")))
         .to_request();
     assert_eq!(test::call_service(&app, req).await.status(), StatusCode::OK);
 
@@ -211,7 +218,7 @@ async fn a_successful_authentication_clears_the_failure_counter() {
 
     let req = test::TestRequest::get()
         .uri(&uri)
-        .insert_header(("authorization", "Bearer valid-token"))
+        .insert_header(("authorization", format!("Bearer {VALID_TOKEN}")))
         .to_request();
     assert_eq!(
         test::call_service(&app, req).await.status(),

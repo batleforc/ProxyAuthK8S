@@ -38,6 +38,11 @@ pub fn init_cluster_api() -> impl FnOnce(&mut ServiceConfig) {
     |cfg: &mut ServiceConfig| {
         cfg.service(auth::login::cluster_login)
             .service(auth::callback::callback_login)
+            .service(auth::well_known::oauth_authorization_server)
+            .service(auth::oauth::authorize::authorize)
+            .service(auth::oauth::callback::callback)
+            .service(auth::oauth::token::token)
+            .service(auth::oauth::jwks::jwks)
             .service(redirect::get_redirect)
             .service(redirect::post_redirect)
             .service(redirect::put_redirect)

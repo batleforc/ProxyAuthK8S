@@ -155,7 +155,7 @@ Default: false<br/>
         <td>
           The oidc group required to proxy requests to this cluster
 Set it to decouple proxy access from dashboard access
-Default: the dashboard group when expose_via_dashboard is true,
+Default: the dashboard group when `expose_via_dashboard` is true,
 otherwise no group is required<br/>
         </td>
         <td>false</td>
@@ -365,7 +365,7 @@ External service
         <td><b>url</b></td>
         <td>string</td>
         <td>
-          URL of the external service (e.g. https://example.com)<br/>
+          URL of the external service (e.g. `https://example.com`)<br/>
         </td>
         <td>true</td>
       </tr></tbody>
@@ -447,7 +447,7 @@ Main configuration for authentication
           An enabled provider that cannot be contacted is a cluster that never
 authenticates anyone, so the apiserver refuses the CR outright.<br/>
           <br/>
-            <i>Validations</i>:<li>!self.enabled || (self.issuer_url != '' && self.client_id != ''): an enabled OIDC provider requires a non-empty issuer_url and client_id</li>
+            <i>Validations</i>:<li>!self.enabled || (self.issuer_url != '' && self.client_id != ''): an enabled OIDC provider requires a non-empty issuer_url and client_id</li><li>!self.expose_oauth_authorization_server || self.enabled: expose_oauth_authorization_server requires the OIDC provider to be enabled</li>
         </td>
         <td>true</td>
       </tr><tr>
@@ -455,7 +455,7 @@ authenticates anyone, so the apiserver refuses the CR outright.<br/>
         <td>boolean</td>
         <td>
           Disable validation of the token against the configured JWT authenticators, OIDC provider or Kubernetes API
-If the AuthenticationConfiguration is not provided, does not validate the token against any of the configured JWT authenticators, OIDC provider or Kubernetes API
+If the `AuthenticationConfiguration` is not provided, does not validate the token against any of the configured JWT authenticators, OIDC provider or Kubernetes API
 Default : false<br/>
           <br/>
             <i>Default</i>: false<br/>
@@ -475,7 +475,7 @@ Default : false<br/>
         <td>enum</td>
         <td>
           Validate against the configured JWT authenticators, OIDC provider or Kubernetes API
-Default : OidcProvider if enabled, otherwise JwtAuthenticators if configured, otherwise Kubernetes<br/>
+Default : `OidcProvider` if enabled, otherwise `JwtAuthenticators` if configured, otherwise Kubernetes<br/>
           <br/>
             <i>Enum</i>: OidcProvider, Kubernetes<br/>
             <i>Default</i>: Kubernetes<br/>
@@ -557,6 +557,34 @@ expected audience (what the token is for) are configured independently.<br/>
         <td>boolean</td>
         <td>
           <br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>expose_oauth_authorization_server</b></td>
+        <td>boolean</td>
+        <td>
+          Expose a mediated OAuth 2.0 Authorization Server (RFC 6749 + PKCE) for
+this cluster, advertised at `/.well-known/oauth-authorization-server`
+(RFC 8414), like OpenShift does for its own OAuth server.
+
+The proxy itself becomes the authorization server an external caller
+talks to — `issuer`, `authorization_endpoint`, `token_endpoint`, and
+`jwks_uri` are all this cluster's own proxy URLs — mediating the whole
+exchange with the configured `issuer_url` server-side. A caller (e.g.
+`oc login`, or any RFC-8414-aware tool) never needs to be registered
+with — or even learn the hostname of — the upstream provider, and no
+companion `oauth2-proxy` is needed to serve this document.
+
+Off by default and unauthenticated by nature (discovery, and the
+authorization/token endpoints it advertises, must be reachable before
+a caller has a token): enabling it lets anonymous callers learn that
+this cluster exists and start a login against it. `redirect_uri` at
+`/oauth/authorize` is restricted to loopback addresses
+(`http://localhost`/`http://127.0.0.1`, RFC 8252) since callers are
+not pre-registered — accepting an arbitrary `redirect_uri` would be an
+open redirect. Requires `enabled: true`.<br/>
           <br/>
             <i>Default</i>: false<br/>
         </td>
@@ -1295,7 +1323,7 @@ budget the apiserver allows for a whole CRD schema.<br/>
         <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindex">allowed_ressources</a></b></td>
         <td>[]object</td>
         <td>
-          Deprecated misspelling of allowed_resources, merged with it
+          Deprecated misspelling of `allowed_resources`, merged with it
 
 Kept as a real field rather than a serde alias on purpose: the apiserver
 prunes fields absent from the schema, so an alias alone would silently
@@ -1370,7 +1398,7 @@ How an allowed resource is described.
         <td><b><a href="#proxykubeapispecsecurity_configallowed_resourcesindexcrd">Crd</a></b></td>
         <td>object</td>
         <td>
-          Allowed crd configuration, used in conjunction with the allowed_paths configuration
+          Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
 /apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/<br/>
         </td>
         <td>false</td>
@@ -1378,7 +1406,7 @@ How an allowed resource is described.
         <td><b><a href="#proxykubeapispecsecurity_configallowed_resourcesindexpath">Path</a></b></td>
         <td>object</td>
         <td>
-          Allowed path configuration, used in conjunction with the allowed_paths configuration
+          Allowed path configuration, used in conjunction with the `allowed_paths` configuration
 
 The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
 rule is refused at admission rather than at reconcile time.
@@ -1400,7 +1428,7 @@ template where two consecutive `{` would be read as a Go template action.<br/>
 
 
 
-Allowed crd configuration, used in conjunction with the allowed_paths configuration
+Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
 /apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/
 
 <table>
@@ -1455,7 +1483,7 @@ default: true<br/>
         <td>string</td>
         <td>
           Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind
-for example, if the kind is "MyResource" and the plural form is "MyResources"
+for example, if the kind is "`MyResource`" and the plural form is "`MyResources`"
 the path will be /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresources/
 instead of       /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresource/
 In case of cluster-scoped crd
@@ -1553,7 +1581,7 @@ allowed parameters are : \{\{username\}\} and \{\{group\}\}<br/>
 
 
 
-Allowed path configuration, used in conjunction with the allowed_paths configuration
+Allowed path configuration, used in conjunction with the `allowed_paths` configuration
 
 The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
 rule is refused at admission rather than at reconcile time.
@@ -1631,7 +1659,7 @@ How an allowed resource is described.
         <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindexcrd">Crd</a></b></td>
         <td>object</td>
         <td>
-          Allowed crd configuration, used in conjunction with the allowed_paths configuration
+          Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
 /apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/<br/>
         </td>
         <td>false</td>
@@ -1639,7 +1667,7 @@ How an allowed resource is described.
         <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindexpath">Path</a></b></td>
         <td>object</td>
         <td>
-          Allowed path configuration, used in conjunction with the allowed_paths configuration
+          Allowed path configuration, used in conjunction with the `allowed_paths` configuration
 
 The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
 rule is refused at admission rather than at reconcile time.
@@ -1661,7 +1689,7 @@ template where two consecutive `{` would be read as a Go template action.<br/>
 
 
 
-Allowed crd configuration, used in conjunction with the allowed_paths configuration
+Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
 /apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/
 
 <table>
@@ -1716,7 +1744,7 @@ default: true<br/>
         <td>string</td>
         <td>
           Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind
-for example, if the kind is "MyResource" and the plural form is "MyResources"
+for example, if the kind is "`MyResource`" and the plural form is "`MyResources`"
 the path will be /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresources/
 instead of       /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresource/
 In case of cluster-scoped crd
@@ -1814,7 +1842,7 @@ allowed parameters are : \{\{username\}\} and \{\{group\}\}<br/>
 
 
 
-Allowed path configuration, used in conjunction with the allowed_paths configuration
+Allowed path configuration, used in conjunction with the `allowed_paths` configuration
 
 The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
 rule is refused at admission rather than at reconcile time.

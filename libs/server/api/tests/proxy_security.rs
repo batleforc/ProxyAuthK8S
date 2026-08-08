@@ -15,6 +15,14 @@ use harness::{
 use wiremock::matchers::{header_exists, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// A JWT-shaped access token whose `aud` claim names `oidc_auth_config`'s
+/// `client_id` (`proxyauthk8s`). `/userinfo` (mocked below) doesn't check the
+/// token value, but `ensure_token_audience` runs on every request after it and
+/// fails closed under the default Enforce mode — an opaque token has no `aud`
+/// to check, so it would be rejected before ever reaching the group/path
+/// checks these tests exist to exercise. Signature is not verified here.
+const VALID_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJwcm94eWF1dGhrOHMiLCJzdWIiOiJhbGljZS1zdWIifQ.c2lnbmF0dXJlLW5vdC12ZXJpZmllZC1pbi10aGVzZS10ZXN0cw";
+
 macro_rules! proxy_app {
     ($state:expr) => {
         test::init_service(
@@ -67,7 +75,7 @@ async fn allows_a_user_inside_the_proxy_group() {
     let app = proxy_app!(test_state(upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
-        .insert_header(("authorization", "Bearer valid-token"))
+        .insert_header(("authorization", format!("Bearer {VALID_TOKEN}")))
         .to_request();
     let resp = test::call_service(&app, req).await;
 
@@ -97,7 +105,7 @@ async fn rejects_a_user_outside_the_proxy_group() {
     let app = proxy_app!(test_state(upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
-        .insert_header(("authorization", "Bearer valid-token"))
+        .insert_header(("authorization", format!("Bearer {VALID_TOKEN}")))
         .to_request();
     let resp = test::call_service(&app, req).await;
 
@@ -153,7 +161,7 @@ async fn dashboard_exposure_restricts_the_proxy_too() {
     let app = proxy_app!(test_state(upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
-        .insert_header(("authorization", "Bearer valid-token"))
+        .insert_header(("authorization", format!("Bearer {VALID_TOKEN}")))
         .to_request();
     let resp = test::call_service(&app, req).await;
 
@@ -284,7 +292,7 @@ async fn forwards_the_caller_identity_and_appends_to_the_forwarded_chain() {
     let app = proxy_app!(test_state(upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
-        .insert_header(("authorization", "Bearer valid-token"))
+        .insert_header(("authorization", format!("Bearer {VALID_TOKEN}")))
         .insert_header(("x-forwarded-for", "203.0.113.7"))
         .to_request();
     let resp = test::call_service(&app, req).await;

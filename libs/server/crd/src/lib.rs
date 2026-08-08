@@ -199,6 +199,7 @@ mod tests {
             extra_scope: "groups".to_string(),
             audience: String::new(),
             accept_authorized_party: false,
+            expose_oauth_authorization_server: false,
         }
     }
 
@@ -254,6 +255,28 @@ mod tests {
     fn validate_accepts_oidc_validation_with_an_enabled_provider() {
         let mut spec = spec();
         spec.auth_config = Some(auth_config(ValidateAgainst::OidcProvider, true));
+        assert!(proxy(spec).validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_well_known_discovery_without_an_enabled_provider() {
+        let mut spec = spec();
+        let mut config = auth_config(ValidateAgainst::Kubernetes, false);
+        config.oidc_provider.expose_oauth_authorization_server = true;
+        spec.auth_config = Some(config);
+        let err = proxy(spec).validate().unwrap_err();
+        assert!(
+            err.contains("expose_oauth_authorization_server"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn validate_accepts_well_known_discovery_with_an_enabled_provider() {
+        let mut spec = spec();
+        let mut config = auth_config(ValidateAgainst::Kubernetes, true);
+        config.oidc_provider.expose_oauth_authorization_server = true;
+        spec.auth_config = Some(config);
         assert!(proxy(spec).validate().is_ok());
     }
 

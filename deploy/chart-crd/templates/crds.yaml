@@ -28,7 +28,7 @@ spec:
                     default: false
                     description: |-
                       Disable validation of the token against the configured JWT authenticators, OIDC provider or Kubernetes API
-                      If the AuthenticationConfiguration is not provided, does not validate the token against any of the configured JWT authenticators, OIDC provider or Kubernetes API
+                      If the `AuthenticationConfiguration` is not provided, does not validate the token against any of the configured JWT authenticators, OIDC provider or Kubernetes API
                       Default : false
                     type: boolean
                   jwt:
@@ -190,6 +190,30 @@ spec:
                       enabled:
                         default: false
                         type: boolean
+                      expose_oauth_authorization_server:
+                        default: false
+                        description: |-
+                          Expose a mediated OAuth 2.0 Authorization Server (RFC 6749 + PKCE) for
+                          this cluster, advertised at `/.well-known/oauth-authorization-server`
+                          (RFC 8414), like OpenShift does for its own OAuth server.
+
+                          The proxy itself becomes the authorization server an external caller
+                          talks to — `issuer`, `authorization_endpoint`, `token_endpoint`, and
+                          `jwks_uri` are all this cluster's own proxy URLs — mediating the whole
+                          exchange with the configured `issuer_url` server-side. A caller (e.g.
+                          `oc login`, or any RFC-8414-aware tool) never needs to be registered
+                          with — or even learn the hostname of — the upstream provider, and no
+                          companion `oauth2-proxy` is needed to serve this document.
+
+                          Off by default and unauthenticated by nature (discovery, and the
+                          authorization/token endpoints it advertises, must be reachable before
+                          a caller has a token): enabling it lets anonymous callers learn that
+                          this cluster exists and start a login against it. `redirect_uri` at
+                          `/oauth/authorize` is restricted to loopback addresses
+                          (`http://localhost`/`http://127.0.0.1`, RFC 8252) since callers are
+                          not pre-registered — accepting an arbitrary `redirect_uri` would be an
+                          open redirect. Requires `enabled: true`.
+                        type: boolean
                       extra_scope:
                         default: ''
                         type: string
@@ -202,11 +226,13 @@ spec:
                     x-kubernetes-validations:
                     - message: an enabled OIDC provider requires a non-empty issuer_url and client_id
                       rule: '!self.enabled || (self.issuer_url != '''' && self.client_id != '''')'
+                    - message: expose_oauth_authorization_server requires the OIDC provider to be enabled
+                      rule: '!self.expose_oauth_authorization_server || self.enabled'
                   validate_against:
                     default: Kubernetes
                     description: |-
                       Validate against the configured JWT authenticators, OIDC provider or Kubernetes API
-                      Default : OidcProvider if enabled, otherwise JwtAuthenticators if configured, otherwise Kubernetes
+                      Default : `OidcProvider` if enabled, otherwise `JwtAuthenticators` if configured, otherwise Kubernetes
                     enum:
                     - OidcProvider
                     - Kubernetes
@@ -389,7 +415,7 @@ spec:
                 description: |-
                   The oidc group required to proxy requests to this cluster
                   Set it to decouple proxy access from dashboard access
-                  Default: the dashboard group when expose_via_dashboard is true,
+                  Default: the dashboard group when `expose_via_dashboard` is true,
                   otherwise no group is required
                 nullable: true
                 type: string
@@ -419,7 +445,7 @@ spec:
                       properties:
                         Crd:
                           description: |-
-                            Allowed crd configuration, used in conjunction with the allowed_paths configuration
+                            Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
                             /apis/{group}/{version}/namespaces/{namespace}/{kind}/
                           properties:
                             group:
@@ -475,7 +501,7 @@ spec:
                             plural:
                               description: |-
                                 Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind
-                                for example, if the kind is "MyResource" and the plural form is "MyResources"
+                                for example, if the kind is "`MyResource`" and the plural form is "`MyResources`"
                                 the path will be /apis/{group}/{version}/namespaces/{namespace}/myresources/
                                 instead of       /apis/{group}/{version}/namespaces/{namespace}/myresource/
                                 In case of cluster-scoped crd
@@ -494,7 +520,7 @@ spec:
                           type: object
                         Path:
                           description: |-
-                            Allowed path configuration, used in conjunction with the allowed_paths configuration
+                            Allowed path configuration, used in conjunction with the `allowed_paths` configuration
 
                             The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
                             rule is refused at admission rather than at reconcile time.
@@ -543,7 +569,7 @@ spec:
                   allowed_ressources:
                     default: []
                     description: |-
-                      Deprecated misspelling of allowed_resources, merged with it
+                      Deprecated misspelling of `allowed_resources`, merged with it
 
                       Kept as a real field rather than a serde alias on purpose: the apiserver
                       prunes fields absent from the schema, so an alias alone would silently
@@ -564,7 +590,7 @@ spec:
                       properties:
                         Crd:
                           description: |-
-                            Allowed crd configuration, used in conjunction with the allowed_paths configuration
+                            Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
                             /apis/{group}/{version}/namespaces/{namespace}/{kind}/
                           properties:
                             group:
@@ -620,7 +646,7 @@ spec:
                             plural:
                               description: |-
                                 Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind
-                                for example, if the kind is "MyResource" and the plural form is "MyResources"
+                                for example, if the kind is "`MyResource`" and the plural form is "`MyResources`"
                                 the path will be /apis/{group}/{version}/namespaces/{namespace}/myresources/
                                 instead of       /apis/{group}/{version}/namespaces/{namespace}/myresource/
                                 In case of cluster-scoped crd
@@ -639,7 +665,7 @@ spec:
                           type: object
                         Path:
                           description: |-
-                            Allowed path configuration, used in conjunction with the allowed_paths configuration
+                            Allowed path configuration, used in conjunction with the `allowed_paths` configuration
 
                             The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
                             rule is refused at admission rather than at reconcile time.
@@ -790,7 +816,7 @@ spec:
                     description: External service
                     properties:
                       url:
-                        description: URL of the external service (e.g. https://example.com)
+                        description: URL of the external service (e.g. `https://example.com`)
                         type: string
                     required:
                     - url

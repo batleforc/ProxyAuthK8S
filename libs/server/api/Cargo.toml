@@ -25,6 +25,8 @@ serde_json = { workspace = true }
 rustls = { workspace = true }
 rustls-platform-verifier = { workspace = true }
 tokio-rustls = { workspace = true }
+base64 = "0.22"
+sha2 = "0.10"
 
 common = { path = "../common", version = "0.1.9" }
 crd = { path = "../crd", version = "0.1.9" }
@@ -42,6 +44,7 @@ deadpool-redis = { workspace = true }
 serde_yaml = { workspace = true }
 secrecy = "0.10.3"
 k8s-openapi = { workspace = true }
+jsonwebtoken = "9"
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

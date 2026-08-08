@@ -194,10 +194,19 @@ pub fn oidc_auth_config(issuer_url: &str) -> AuthenticationConfiguration {
             extra_scope: "groups".to_string(),
             audience: String::new(),
             accept_authorized_party: false,
+            expose_oauth_authorization_server: false,
         },
         disable_validation: false,
         validate_against: ValidateAgainst::OidcProvider,
     }
+}
+
+/// An `AuthenticationConfiguration` that also exposes the well-known
+/// OAuth authorization server discovery document.
+pub fn oidc_auth_config_with_well_known(issuer_url: &str) -> AuthenticationConfiguration {
+    let mut config = oidc_auth_config(issuer_url);
+    config.oidc_provider.expose_oauth_authorization_server = true;
+    config
 }
 
 pub fn security_config(paths: Vec<(&str, bool)>) -> SecurityConfiguration {
@@ -330,4 +339,151 @@ pub async fn delete_proxy(pool: &Pool, ns: &str, cluster: &str) {
     let mut conn = pool.get().await.expect("redis connection");
     let _ = conn.del(&key).await;
     let _ = conn.srem(format!("{}:index", REDIS_PREFIX), &key).await;
+}
+
+/// A fixed RSA-2048 test keypair, generated once with `openssl genrsa` purely
+/// for signing test ID tokens. Not used for anything but these tests.
+const TEST_RSA_PRIVATE_KEY_PEM: &str = "-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCVWDLfDvI6z8rf
+b25gM0mJDih3rqsYac61YHG7vHAgzQxpGsY14+tTiEn9/9jE3mXzmya7HcVnuazT
+61Ca2YeFBTMIRY1zH5K5Mh/mJIMMWOzE57ZC8bQhx1XpJv5v7j6s5NUzwwxcSg+J
+u98gphEwYp7m2TElLnoFufeDv98THz/gz3mbKY8m71FU88mnqiQ56FTuR6G0Gotd
+0wiBuH+ec67hmtE1TtezajOiBBushf13+4PQSZtAQbwBJn4StggtAHAgmiJD67sR
+jKUPSXd8heG3XyVi0tTQlTXqzPn3VH8WZzTQEExlApjbIRA6CX48kwAv3/DXRwLI
+zmn+5pbvAgMBAAECggEAIQdWiNpnW/ZkqbGdOY1eL/9/l6h7knSkEJz5yklMixSO
+MBiJyZVUkC7OHmyc5j1BUvT3Rd65r8zymhOqyfRd8l9KAARR2iobavXY9C8TBIIO
+KyYLuxZ1fhr1txC2qM6J8fbR6Ba0/xwp/44bNL9FgevttKRIKC71MZsFUI/4p+Ok
+4SX/jCLf9dMfnSUxeEcNgkp0XzjC0ybF/Fp3HOiHZLpYLetKTPZ+OT53w6/SF5T7
+zR4C0syvwA1xcbVXECgaEuf6UigHQep3AuD5Cm45VCGq1hJoTnqdffCKiXKexMwE
+lAEOPLJmFRQt1eWuJYM5udFuXzdXynqSSAY//aT/sQKBgQDFbMqbErHw61jQur2i
+gyZ+/2gMrgNwJvezv0v6+hjDNlpycUbk8uAjRByE8LFgNsD8x/UO1wwQ6OhSKzkH
+uhEv0XIHDOyKvytFoR5A4kXOeQi0z/yZYROeHQi/IHB4wIHNa5DeaE0rDpsZ9Jzg
+P3Nv6ejOArXCkTz5gRZgxvzztQKBgQDBp4HfPLkb3w18mx2gYyLb2j3A7USd2/QE
+QAZ6uvUcbtmroxlisxrkn2dhk1bwmW3Cy+ZiBmzduvrbfbUR7SEmTVHFafiGxogi
+ZtvCQbpLZW1wTviZxJVIkOTx09fkGVkd1PyFANlxHEpEDDd1+MuxVETziKlVNHDj
+nPvlHj/OkwKBgQCrH5+GRvAh6X00f4j8Ij3t+qhPxU2Jmt092mSbiMiJ/MTtSa6v
+qK4LI3Cs8oxs30jsUs3hLRlyVs942ao3PlrDXgI+hj9KDGYPlpZIm1jynQqk31sN
+/40nkfcQ46dZo1NfoQsTHMk2txRNrS+FWLpQmSmH1+WAXq/BfNjOzexXuQKBgFEp
+bjHsljxLKLDfpfQReIuiFR2lk4uBouyhFNYdQxtujgX0bnBCVnQZJs/rW5WtCCaL
+JHxS6w+nDPou3lOsCaeu4iWV+1YpIOciKtpoh7aPxOU8A88WZ+ao63s66RGtWf85
+w7fOmlNgovOQFzJ3Wo9wnRFgZm/ScbnDkoL9QYrHAoGBAMCFrAVPhkeCbhEE3d72
+2GtWI9pLBSDdjHcFsKPHSH4OLV+xnId2YtnqnWxxCbrEXwZrKwHQ//0JY68hwYk6
+MMbXBdtd9gV1rhXUavlYXcfj0yKGz0sG9D6nXTc4t/40qaLR3138VpTHQaMJ69oy
+ek6nnHwctKRm0DIafA6KY8tj
+-----END PRIVATE KEY-----
+";
+
+const TEST_RSA_KID: &str = "test-key-1";
+
+/// The JWKS matching [`TEST_RSA_PRIVATE_KEY_PEM`], as the upstream provider
+/// would publish at its `jwks_uri`.
+pub fn test_jwks() -> serde_json::Value {
+    serde_json::json!({
+        "keys": [{
+            "kty": "RSA",
+            "use": "sig",
+            "alg": "RS256",
+            "kid": TEST_RSA_KID,
+            "n": "lVgy3w7yOs_K329uYDNJiQ4od66rGGnOtWBxu7xwIM0MaRrGNePrU4hJ_f_YxN5l85smux3FZ7ms0-tQmtmHhQUzCEWNcx-SuTIf5iSDDFjsxOe2QvG0IcdV6Sb-b-4-rOTVM8MMXEoPibvfIKYRMGKe5tkxJS56Bbn3g7_fEx8_4M95mymPJu9RVPPJp6okOehU7kehtBqLXdMIgbh_nnOu4ZrRNU7Xs2ozogQbrIX9d_uD0EmbQEG8ASZ-ErYILQBwIJoiQ-u7EYylD0l3fIXht18lYtLU0JU16sz591R_Fmc00BBMZQKY2yEQOgl-PJMAL9_w10cCyM5p_uaW7w",
+            "e": "AQAB",
+        }]
+    })
+}
+
+/// Sign a minimal, valid OIDC ID token with [`TEST_RSA_PRIVATE_KEY_PEM`].
+///
+/// Deliberately omits `at_hash`: both `callback.rs` handlers only check it
+/// when present, and computing a spec-correct hash here would just duplicate
+/// that (unchanged, already-shipped) verification logic instead of testing
+/// anything new.
+pub fn sign_id_token(issuer: &str, audience: &str, subject: &str, nonce: &str) -> String {
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system clock should be after the epoch")
+        .as_secs();
+    let claims = serde_json::json!({
+        "iss": issuer,
+        "sub": subject,
+        "aud": audience,
+        "iat": now,
+        "exp": now + 300,
+        "nonce": nonce,
+    });
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some(TEST_RSA_KID.to_string());
+    let key = EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_KEY_PEM.as_bytes())
+        .expect("test RSA key should parse");
+    encode(&header, &claims, &key).expect("test id_token should sign")
+}
+
+/// Mount a full, signature-capable OIDC provider: discovery, a real JWKS
+/// (unlike [`mount_oidc_provider`]'s empty one), and `/userinfo`.
+///
+/// Does not mount `/token`: the response depends on a nonce/id_token only
+/// known once the flow under test has started (see `sign_id_token`), so
+/// callers mount it themselves, per-test, once they have that value.
+pub async fn mount_full_oidc_provider(server: &wiremock::MockServer, username: &str, groups: &[&str]) {
+    use serde_json::json;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    let issuer = server.uri();
+
+    Mock::given(method("GET"))
+        .and(path("/.well-known/openid-configuration"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "issuer": issuer,
+            "authorization_endpoint": format!("{issuer}/authorize"),
+            "token_endpoint": format!("{issuer}/token"),
+            "userinfo_endpoint": format!("{issuer}/userinfo"),
+            "jwks_uri": format!("{issuer}/jwks"),
+            "response_types_supported": ["code"],
+            "subject_types_supported": ["public"],
+            "id_token_signing_alg_values_supported": ["RS256"],
+        })))
+        .mount(server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/jwks"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks()))
+        .mount(server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/userinfo"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/json")
+                .set_body_json(json!({
+                    "sub": format!("{username}-sub"),
+                    "preferred_username": username,
+                    "email": format!("{username}@example.com"),
+                    "groups": groups,
+                })),
+        )
+        .mount(server)
+        .await;
+}
+
+/// Mount `/token`, returning `id_token` alongside a fixed access/refresh
+/// token pair. Mount this only after `id_token` has been signed with the
+/// nonce the flow under test actually generated.
+pub async fn mount_token_endpoint(server: &wiremock::MockServer, id_token: &str) {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "access_token": "upstream-access-token",
+            "token_type": "Bearer",
+            "refresh_token": "upstream-refresh-token",
+            "id_token": id_token,
+            "expires_in": 3600,
+        })))
+        .mount(server)
+        .await;
 }

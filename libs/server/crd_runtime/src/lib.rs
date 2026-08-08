@@ -73,6 +73,15 @@ pub trait ProxyKubeApiRuntime {
         redirect_kubectl: Option<String>,
     ) -> Option<OidcConf>;
 
+    /// Derive the [`OidcConf`] used by the mediated OAuth Authorization Server
+    /// flow (`/oauth/authorize`, `/oauth/callback`, `/oauth/token`).
+    ///
+    /// Its `redirect_url` is this proxy's own `/oauth/callback` for the
+    /// cluster — distinct from the front/kubectl redirect variants — since the
+    /// upstream provider must hand the code back to the proxy itself, not to
+    /// an external caller.
+    fn get_oauth_as_oidc_conf(&self, state: Arc<State>) -> Option<OidcConf>;
+
     /// Render a [`Kubeconfig`] targeting this cluster with the given token.
     async fn to_kubeconfig(
         &self,
@@ -252,6 +261,17 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
             }
             None => None,
         }
+    }
+
+    fn get_oauth_as_oidc_conf(&self, state: Arc<State>) -> Option<OidcConf> {
+        let redirect_url = format!(
+            "{}/clusters/{}/oauth/callback",
+            state.oidc_cluster_redirect_base_url,
+            self.to_path()
+        );
+        let mut conf = self.get_oidc_conf(state, false, None)?;
+        conf.redirect_url = Some(redirect_url);
+        Some(conf)
     }
 
     #[instrument(skip(self, state, token))]
