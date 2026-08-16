@@ -226,9 +226,11 @@ async fn redirects_with_a_server_error_when_the_id_token_nonce_is_wrong() {
     let authorize_resp = test::call_service(&app, authorize_req).await;
     let upstream_auth_url = location(&authorize_resp);
     let correlation_id = query_param(&upstream_auth_url, "state");
+    let real_nonce = query_param(&upstream_auth_url, "nonce");
 
     // Signed with a nonce that does not match the one `/oauth/authorize` sent upstream.
-    let id_token = sign_id_token(&idp.uri(), "proxyauthk8s", "alice-sub", "wrong-nonce");
+    let tampered_nonce: String = real_nonce.chars().rev().collect();
+    let id_token = sign_id_token(&idp.uri(), "proxyauthk8s", "alice-sub", &tampered_nonce);
     mount_token_endpoint(&idp, &id_token).await;
 
     let callback_req = test::TestRequest::get()
