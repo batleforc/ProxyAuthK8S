@@ -5,7 +5,9 @@ use crate::cli_config::error::CliConfigError;
 
 #[derive(Debug, Error)]
 pub enum ProxyAuthK8sError {
-    #[error("ERR000001: Kubeconfig path could not be calculated, either provide via --kubeconfig flag or set the KUBECONFIG environment variable")]
+    #[error(
+        "ERR000001: Kubeconfig path could not be calculated, either provide via --kubeconfig flag or set the KUBECONFIG environment variable"
+    )]
     KubeconfigPathCouldNotBeCalculated,
     #[error("ERR000002: Failed to read kubeconfig file: {0}")]
     KubeconfigReadError(String),
@@ -21,7 +23,9 @@ pub enum ProxyAuthK8sError {
     YamlParseError(String),
     #[error("ERR000007: YAML Serialize Error: {0}")]
     YamlSerializeError(String),
-    #[error("ERR000008: Configuration path could not be calculated, either provide via --proxy-auth-config flag or set the HOME environment variable")]
+    #[error(
+        "ERR000008: Configuration path could not be calculated, either provide via --proxy-auth-config flag or set the HOME environment variable"
+    )]
     ConfigPathCouldNotBeCalculated,
     #[error("ERR000009: Failed to write kubeconfig file: {0}")]
     KubeconfigWriteError(String),

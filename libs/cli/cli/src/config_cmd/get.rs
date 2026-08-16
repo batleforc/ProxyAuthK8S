@@ -35,10 +35,10 @@ impl CliCtx {
                         continue;
                     }
                 }
-                if let Some(filter_namespace) = namespace {
-                    if &server_config.namespace != filter_namespace {
-                        continue;
-                    }
+                if let Some(filter_namespace) = namespace
+                    && &server_config.namespace != filter_namespace
+                {
+                    continue;
                 }
                 let output =
                     GetOutput::new_from_servers(server_config.clone(), default_server_name.clone());

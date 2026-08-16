@@ -1,12 +1,13 @@
 use actix_web::{
+    FromRequest,
     error::{ErrorInternalServerError, ErrorUnauthorized},
-    web, FromRequest,
+    web,
 };
-use common::{oidc_conf::OidcConf, State};
+use common::{State, oidc_conf::OidcConf};
 use crd::ProxyKubeApi;
 use crd_runtime::ProxyKubeApiRuntime;
 use k8s_openapi::api::authentication::v1::SelfSubjectReview;
-use kube::{api::PostParams, Api};
+use kube::{Api, api::PostParams};
 use openidconnect::{AccessToken, UserInfoError};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;

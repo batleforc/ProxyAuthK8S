@@ -18,8 +18,8 @@ mod envtest_support;
 
 use envtest_support::EnvTest;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
-use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::ResourceExt;
+use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use serde_json::json;
 
 macro_rules! envtest_or_skip {

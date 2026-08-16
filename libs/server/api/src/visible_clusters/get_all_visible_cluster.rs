@@ -1,4 +1,4 @@
-use actix_web::{dev::PeerAddr, get, http, web::Data, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, dev::PeerAddr, get, http, web::Data};
 use common::State;
 use crd::ProxyKubeApi;
 use tracing::{error, instrument};

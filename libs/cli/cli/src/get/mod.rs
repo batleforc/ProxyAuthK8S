@@ -105,7 +105,9 @@ impl CliCtx {
                 error!("Failed to retrieve clusters: {}", e);
                 match &e {
                     ProxyAuthK8sError::Unauthenticated(_) => {
-                        info!("Authentication failed: invalid or missing server token. Please run login first.");
+                        info!(
+                            "Authentication failed: invalid or missing server token. Please run login first."
+                        );
                     }
                     ProxyAuthK8sError::RemoteServerError(_) => {
                         info!("Server error occurred while retrieving clusters.");

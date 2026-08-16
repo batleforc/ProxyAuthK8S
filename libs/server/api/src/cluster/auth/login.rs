@@ -1,8 +1,8 @@
-use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
 use common::State;
 use crd::ProxyKubeApi;
 use crd_runtime::ProxyKubeApiRuntime;
-use openidconnect::{core::CoreAuthenticationFlow, CsrfToken, Nonce, PkceCodeChallenge, Scope};
+use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge, Scope, core::CoreAuthenticationFlow};
 use tracing::{error, info, instrument};
 
 use crate::{

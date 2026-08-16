@@ -2,8 +2,8 @@ use std::fmt::Debug;
 
 use oauth2_reqwest::ReqwestClient;
 use openidconnect::{
-    core::{CoreClient, CoreProviderMetadata},
     ClientId, ClientSecret, EndpointMaybeSet, EndpointNotSet, EndpointSet, IssuerUrl, RedirectUrl,
+    core::{CoreClient, CoreProviderMetadata},
 };
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
@@ -146,7 +146,7 @@ impl OidcConf {
     /// fails closed).
     #[instrument(skip(self, token))]
     pub async fn ensure_token_audience(&self, token: &str) -> Result<(), OidcError> {
-        use crate::token_audience::{extract_jwt_audiences, AudienceValidationMode};
+        use crate::token_audience::{AudienceValidationMode, extract_jwt_audiences};
 
         let mode = AudienceValidationMode::from_env();
         if mode == AudienceValidationMode::Off {

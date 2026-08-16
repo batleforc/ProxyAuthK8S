@@ -3,8 +3,8 @@ use common::State;
 use crd::ProxyKubeApi;
 use kube::ResourceExt;
 use rustls::{
-    pki_types::{pem::PemObject as _, CertificateDer, PrivateKeyDer},
     ClientConfig, RootCertStore,
+    pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject as _},
 };
 use rustls_platform_verifier::BuilderVerifierExt;
 

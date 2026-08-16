@@ -8,10 +8,7 @@ impl CliCtx {
     /// Log out of a cluster (when `cluster_name` is given) or of the whole server
     /// (otherwise), removing the corresponding token(s) from the OS keyring and
     /// updating the config.
-    pub fn handle_logout(
-        &mut self,
-        cluster_name: Option<String>,
-    ) -> Result<(), ProxyAuthK8sError> {
+    pub fn handle_logout(&mut self, cluster_name: Option<String>) -> Result<(), ProxyAuthK8sError> {
         if self.server_url.is_empty() && self.config.default_server_name.is_empty() {
             error!("Not logged in to any server; nothing to log out from.");
             return Err(ProxyAuthK8sError::InvalidUsage(

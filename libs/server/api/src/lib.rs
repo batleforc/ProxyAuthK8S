@@ -11,8 +11,8 @@ use crate::{
     visible_clusters::get_all_visible_cluster::get_all_visible_cluster,
 };
 use actix_web::App;
-use utoipa::{openapi::OpenApi as OpenApiType, OpenApi};
-use utoipa_actix_web::{scope, service_config::ServiceConfig, AppExt};
+use utoipa::{OpenApi, openapi::OpenApi as OpenApiType};
+use utoipa_actix_web::{AppExt, scope, service_config::ServiceConfig};
 
 pub mod api_doc;
 pub mod base;

@@ -2,12 +2,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::State;
-use crd::ProxyKubeApi;
 use crd::PROXY_KUBE_FINALIZER;
-use kube::runtime::controller::Action;
-use kube::runtime::finalizer;
+use crd::ProxyKubeApi;
 use kube::Api;
 use kube::ResourceExt;
+use kube::runtime::controller::Action;
+use kube::runtime::finalizer;
 use opentelemetry::TraceId;
 use trace::helper::get_trace_id;
 use tracing::{instrument, warn};

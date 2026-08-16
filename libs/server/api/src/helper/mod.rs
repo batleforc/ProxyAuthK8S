@@ -1,7 +1,7 @@
 //! Request-handling helpers: the [`AuthError`] type and the extractors that
 //! pull the bearer token and the namespace/cluster pair out of a request.
 
-use actix_web::{http::header::ContentType, HttpRequest, HttpResponse};
+use actix_web::{HttpRequest, HttpResponse, http::header::ContentType};
 use thiserror::Error;
 
 #[derive(Error, Debug)]

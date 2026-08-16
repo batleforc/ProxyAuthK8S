@@ -1,7 +1,7 @@
 [package]
 name = "api"
 version = "0.1.9"
-edition = "2021"
+edition = "2024"
 
 [features]
 # Opt-in tier that needs a real kube-apiserver and etcd (see `task envtest:setup`).
@@ -44,7 +44,7 @@ deadpool-redis = { workspace = true }
 serde_yaml = { workspace = true }
 secrecy = "0.10.3"
 k8s-openapi = { workspace = true }
-jsonwebtoken = "9"
+jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

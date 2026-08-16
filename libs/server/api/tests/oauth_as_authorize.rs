@@ -3,7 +3,7 @@
 
 mod harness;
 
-use actix_web::{http::StatusCode, test, web, App};
+use actix_web::{App, http::StatusCode, test, web};
 use api::cluster::auth::oauth::authorize;
 use harness::{
     delete_proxy, mount_oidc_provider, oidc_auth_config, oidc_auth_config_with_well_known,
@@ -15,7 +15,7 @@ use wiremock::MockServer;
 const VALID_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
 macro_rules! authorize_app {
-    ($state:expr) => {
+    ($state:expr_2021) => {
         test::init_service(
             App::new()
                 .app_data(web::Data::new($state))
@@ -71,7 +71,10 @@ async fn redirects_to_the_upstream_provider_and_stores_pending_state() {
     assert_eq!(redirect.path(), "/authorize");
 
     let pairs: std::collections::HashMap<_, _> = redirect.query_pairs().collect();
-    assert_eq!(pairs.get("client_id").map(|v| v.as_ref()), Some("proxyauthk8s"));
+    assert_eq!(
+        pairs.get("client_id").map(|v| v.as_ref()),
+        Some("proxyauthk8s")
+    );
     assert_eq!(
         pairs.get("redirect_uri").map(|v| v.as_ref()),
         Some(format!("https://proxy.example.com/clusters/{ns}/{cluster}/oauth/callback").as_str())
@@ -83,7 +86,10 @@ async fn redirects_to_the_upstream_provider_and_stores_pending_state() {
     );
     // The proxy mints its own PKCE pair for the upstream leg — never the
     // external client's challenge.
-    assert_ne!(pairs.get("code_challenge").map(|v| v.as_ref()), Some(VALID_CHALLENGE));
+    assert_ne!(
+        pairs.get("code_challenge").map(|v| v.as_ref()),
+        Some(VALID_CHALLENGE)
+    );
     let correlation_id = pairs.get("state").expect("state must be set").clone();
 
     let mut conn = pool.get().await.expect("redis connection");
@@ -151,7 +157,10 @@ async fn redirects_with_an_error_for_an_unsupported_response_type() {
         pairs.get("error").map(|v| v.as_ref()),
         Some("unsupported_response_type")
     );
-    assert_eq!(pairs.get("state").map(|v| v.as_ref()), Some("external-state"));
+    assert_eq!(
+        pairs.get("state").map(|v| v.as_ref()),
+        Some("external-state")
+    );
 
     delete_proxy(&pool, &ns, &cluster).await;
 }
@@ -180,7 +189,10 @@ async fn redirects_with_an_error_for_a_malformed_code_challenge() {
     assert_eq!(resp.status(), StatusCode::FOUND);
     let redirect = location(&resp);
     let pairs: std::collections::HashMap<_, _> = redirect.query_pairs().collect();
-    assert_eq!(pairs.get("error").map(|v| v.as_ref()), Some("invalid_request"));
+    assert_eq!(
+        pairs.get("error").map(|v| v.as_ref()),
+        Some("invalid_request")
+    );
 
     delete_proxy(&pool, &ns, &cluster).await;
 }
@@ -209,7 +221,10 @@ async fn redirects_with_an_error_for_an_unsupported_code_challenge_method() {
     assert_eq!(resp.status(), StatusCode::FOUND);
     let redirect = location(&resp);
     let pairs: std::collections::HashMap<_, _> = redirect.query_pairs().collect();
-    assert_eq!(pairs.get("error").map(|v| v.as_ref()), Some("invalid_request"));
+    assert_eq!(
+        pairs.get("error").map(|v| v.as_ref()),
+        Some("invalid_request")
+    );
 
     delete_proxy(&pool, &ns, &cluster).await;
 }

@@ -23,7 +23,9 @@ impl CliCtx {
             };
         }
         let Some(server_url) = server_url else {
-            warn!("Please provide either --all to clear all configurations or --server_url to clear a specific server configuration.");
+            warn!(
+                "Please provide either --all to clear all configurations or --server_url to clear a specific server configuration."
+            );
             return Err(ProxyAuthK8sError::InvalidUsage(
                 "provide either --all or --server_url".to_string(),
             ));

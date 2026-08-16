@@ -9,21 +9,21 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "otel")]
 use opentelemetry::trace::TracerProvider;
-use opentelemetry::{global, InstrumentationScope, KeyValue};
-use opentelemetry_otlp::tonic_types::metadata;
+use opentelemetry::{InstrumentationScope, KeyValue, global};
 #[cfg(feature = "metrics")]
 use opentelemetry_otlp::MetricExporter;
 use opentelemetry_otlp::SpanExporter;
 use opentelemetry_otlp::WithTonicConfig;
+use opentelemetry_otlp::tonic_types::metadata;
 #[cfg(feature = "metrics")]
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 #[cfg(feature = "metrics")]
 use opentelemetry_sdk::metrics::{Instrument, Stream};
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler};
-use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
+use opentelemetry_sdk::{Resource, trace::SdkTracerProvider};
 use tracing_subscriber::Registry;
-use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Layer};
+use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt};
 #[derive(Clone)]
 pub struct Context {
     pub pod_name: String,

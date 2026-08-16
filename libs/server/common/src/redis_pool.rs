@@ -5,8 +5,8 @@
 //! command goes through [`RedisPool::query`]. That leaves exactly one place
 //! where the two modes differ.
 
-use deadpool_redis::redis::{aio::ConnectionLike, Cmd, FromRedisValue, RedisError};
-use deadpool_redis::{cluster, Config, Pool, Runtime};
+use deadpool_redis::redis::{Cmd, FromRedisValue, RedisError, aio::ConnectionLike};
+use deadpool_redis::{Config, Pool, Runtime, cluster};
 use tracing::info;
 
 /// Everything that can go wrong reaching Redis.

@@ -11,17 +11,17 @@
 //! Response rewriting means buffering, which is why watches get their own
 //! newline-delimited path: a watch never ends, so it can never be buffered.
 
-use actix_web::{dev::PeerAddr, http, web, HttpRequest, HttpResponse};
+use actix_web::{HttpRequest, HttpResponse, dev::PeerAddr, http, web};
 use common::State;
 use crd::ProxyKubeApi;
 use futures_util::StreamExt;
 use serde_json::Value;
 use tracing::{debug, error, warn};
-use virtual_api::discovery::{
-    api_group_response, api_resource_list_response, classify, merge_api_group_list,
-    DiscoveryRequest,
-};
 use virtual_api::MapperRegistry;
+use virtual_api::discovery::{
+    DiscoveryRequest, api_group_response, api_resource_list_response, classify,
+    merge_api_group_list,
+};
 
 use super::upstream::{apply_forward_headers, upstream_client};
 use crate::cluster::redirect::audit::AuditContext;
@@ -149,10 +149,10 @@ async fn read_response_capped(
     limit: usize,
 ) -> Result<web::Bytes, ReadCapError> {
     // Reject early when the upstream announced an oversized body.
-    if let Some(len) = res.content_length() {
-        if len > limit as u64 {
-            return Err(ReadCapError::TooLarge);
-        }
+    if let Some(len) = res.content_length()
+        && len > limit as u64
+    {
+        return Err(ReadCapError::TooLarge);
     }
     let mut body = web::BytesMut::new();
     let mut stream = res.bytes_stream();

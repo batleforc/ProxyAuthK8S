@@ -13,17 +13,17 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use common::{oidc_conf::OidcConf, State};
+use common::{State, oidc_conf::OidcConf};
 use crd::{
+    ProxyKubeApi, ProxyKubeApiSpec,
     authentication_configuration::{AuthenticationConfiguration, OidcProvider, ValidateAgainst},
     certificate::CertSource,
     security::SecurityConfiguration,
     service::Service,
-    ProxyKubeApi, ProxyKubeApiSpec,
 };
 use deadpool_redis::{
-    redis::{AsyncTypedCommands, RedisResult},
     Config, Pool, Runtime,
+    redis::{AsyncTypedCommands, RedisResult},
 };
 
 pub const REDIS_PREFIX: &str = crd::REDIS_PREFIX;
@@ -397,7 +397,7 @@ pub fn test_jwks() -> serde_json::Value {
 /// that (unchanged, already-shipped) verification logic instead of testing
 /// anything new.
 pub fn sign_id_token(issuer: &str, audience: &str, subject: &str, nonce: &str) -> String {
-    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -424,7 +424,11 @@ pub fn sign_id_token(issuer: &str, audience: &str, subject: &str, nonce: &str) -
 /// Does not mount `/token`: the response depends on a nonce/id_token only
 /// known once the flow under test has started (see `sign_id_token`), so
 /// callers mount it themselves, per-test, once they have that value.
-pub async fn mount_full_oidc_provider(server: &wiremock::MockServer, username: &str, groups: &[&str]) {
+pub async fn mount_full_oidc_provider(
+    server: &wiremock::MockServer,
+    username: &str,
+    groups: &[&str],
+) {
     use serde_json::json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, ResponseTemplate};

@@ -1,6 +1,6 @@
 //! Building the upstream request, shared by the standard and virtual paths.
 
-use actix_web::{dev::PeerAddr, web, HttpRequest};
+use actix_web::{HttpRequest, dev::PeerAddr, web};
 use common::State;
 use crd::ProxyKubeApi;
 use tracing::info;

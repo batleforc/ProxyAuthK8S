@@ -64,11 +64,16 @@ impl Service {
                 let target_ns = namespace.as_deref().unwrap_or(main_ns.as_str());
                 let services: Api<k8s_openapi::api::core::v1::Service> =
                     Api::namespaced(client, target_ns);
-                let svc = services.get(name).await.map_err(|source| ServiceError::Read {
-                    name: name.clone(),
-                    source,
-                })?;
-                let spec = svc.spec.ok_or_else(|| ServiceError::NoSpec { name: name.clone() })?;
+                let svc = services
+                    .get(name)
+                    .await
+                    .map_err(|source| ServiceError::Read {
+                        name: name.clone(),
+                        source,
+                    })?;
+                let spec = svc
+                    .spec
+                    .ok_or_else(|| ServiceError::NoSpec { name: name.clone() })?;
                 let ports = spec
                     .ports
                     .filter(|p| !p.is_empty())

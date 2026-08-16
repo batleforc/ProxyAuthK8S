@@ -48,13 +48,13 @@ pub struct AuthenticationConfiguration {
 impl AuthenticationConfiguration {
     pub fn validate(&self) -> Result<(), String> {
         // Validate that if validate_against is OidcProvider, then the OIDC provider is enabled
-        if let ValidateAgainst::OidcProvider = self.validate_against {
-            if !self.oidc_provider.enabled {
-                return Err(
-                    "validate_against is set to OidcProvider but the OIDC provider is not enabled"
-                        .to_string(),
-                );
-            }
+        if let ValidateAgainst::OidcProvider = self.validate_against
+            && !self.oidc_provider.enabled
+        {
+            return Err(
+                "validate_against is set to OidcProvider but the OIDC provider is not enabled"
+                    .to_string(),
+            );
         }
         // Mirrors the OidcProvider CEL rule: the well-known discovery document
         // has nothing to expose without an enabled provider.

@@ -11,7 +11,7 @@
 
 mod harness;
 
-use actix_web::{http::StatusCode, test, web, App};
+use actix_web::{App, http::StatusCode, test, web};
 use api::cluster::auth::oauth::{authorize, callback};
 use harness::{
     delete_proxy, mount_full_oidc_provider, mount_token_endpoint, oidc_auth_config,
@@ -24,7 +24,7 @@ use wiremock::MockServer;
 const EXTERNAL_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
 macro_rules! callback_app {
-    ($state:expr) => {
+    ($state:expr_2021) => {
         test::init_service(
             App::new().app_data(web::Data::new($state)).service(
                 web::scope("/clusters")
@@ -78,7 +78,9 @@ async fn rejects_an_unknown_state() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, "https://cluster.example.com:6443");
-    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known("https://issuer.example.com"));
+    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(
+        "https://issuer.example.com",
+    ));
     seed_proxy(&pool, &proxy).await;
 
     let app = callback_app!(test_state("https://issuer.example.com".to_string()));
@@ -148,7 +150,10 @@ async fn redirects_with_access_denied_when_the_upstream_token_exchange_fails() {
 
     assert_eq!(callback_resp.status(), StatusCode::FOUND);
     let redirect = location(&callback_resp);
-    assert_eq!(redirect.origin().unicode_serialization(), "http://localhost:12345");
+    assert_eq!(
+        redirect.origin().unicode_serialization(),
+        "http://localhost:12345"
+    );
     assert_eq!(query_param(&redirect, "error"), "access_denied");
     assert_eq!(query_param(&redirect, "state"), "external-state");
 
@@ -276,10 +281,18 @@ async fn state_is_single_use_and_cannot_be_replayed() {
     let callback_uri = format!(
         "/clusters/{ns}/{cluster}/oauth/callback?code=upstream-code&state={correlation_id}"
     );
-    let first = test::call_service(&app, test::TestRequest::get().uri(&callback_uri).to_request()).await;
+    let first = test::call_service(
+        &app,
+        test::TestRequest::get().uri(&callback_uri).to_request(),
+    )
+    .await;
     assert_eq!(first.status(), StatusCode::FOUND);
 
-    let second = test::call_service(&app, test::TestRequest::get().uri(&callback_uri).to_request()).await;
+    let second = test::call_service(
+        &app,
+        test::TestRequest::get().uri(&callback_uri).to_request(),
+    )
+    .await;
     assert_eq!(second.status(), StatusCode::BAD_REQUEST);
 
     delete_proxy(&pool, &ns, &cluster).await;

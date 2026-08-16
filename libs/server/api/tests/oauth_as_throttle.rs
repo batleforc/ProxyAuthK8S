@@ -6,7 +6,7 @@
 
 mod harness;
 
-use actix_web::{http::StatusCode, test, web, App};
+use actix_web::{App, http::StatusCode, test, web};
 use api::cluster::auth::{oauth, well_known};
 use deadpool_redis::redis::AsyncTypedCommands;
 use harness::{
@@ -16,7 +16,7 @@ use harness::{
 use wiremock::MockServer;
 
 macro_rules! well_known_app {
-    ($state:expr) => {
+    ($state:expr_2021) => {
         test::init_service(
             App::new().app_data(web::Data::new($state)).service(
                 web::scope("/clusters")
@@ -54,13 +54,19 @@ async fn rate_limit_applies_to_the_well_known_endpoint() {
 
     for attempt in 1..=2 {
         let resp = test::call_service(&app, test::TestRequest::get().uri(&uri).to_request()).await;
-        assert_eq!(resp.status(), StatusCode::OK, "request {attempt} should pass");
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "request {attempt} should pass"
+        );
     }
 
     let resp = test::call_service(&app, test::TestRequest::get().uri(&uri).to_request()).await;
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
-        resp.headers().get("retry-after").and_then(|v| v.to_str().ok()),
+        resp.headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok()),
         Some("60")
     );
 
@@ -113,6 +119,8 @@ async fn a_banned_client_is_refused_on_the_oauth_as_surface() {
     .await;
     assert_eq!(jwks_resp.status(), StatusCode::TOO_MANY_REQUESTS);
 
-    let _ = conn.del(format!("proxyk8sauth:ban:{ns}/{cluster}:unknown")).await;
+    let _ = conn
+        .del(format!("proxyk8sauth:ban:{ns}/{cluster}:unknown"))
+        .await;
     delete_proxy(&pool, &ns, &cluster).await;
 }

@@ -1,4 +1,4 @@
-use openidconnect::{core::CoreGenderClaim, AdditionalClaims, UserInfoClaims};
+use openidconnect::{AdditionalClaims, UserInfoClaims, core::CoreGenderClaim};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq, Serialize)]

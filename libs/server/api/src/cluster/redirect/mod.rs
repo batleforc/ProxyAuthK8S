@@ -1,4 +1,4 @@
-use actix_web::{delete, dev::PeerAddr, get, http, patch, post, put, web, HttpRequest, Responder};
+use actix_web::{HttpRequest, Responder, delete, dev::PeerAddr, get, http, patch, post, put, web};
 use common::State;
 use kube_redirect::redirect;
 use tracing::instrument;

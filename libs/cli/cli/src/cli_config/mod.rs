@@ -109,7 +109,7 @@ impl CliConfig {
                 return Err(CliConfigError::InvalidServerUrl(
                     url.to_string(),
                     err.to_string(),
-                ))
+                ));
             }
         };
 

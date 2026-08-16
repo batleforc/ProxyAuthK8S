@@ -6,9 +6,9 @@
 use time::format_description;
 use tracing::{level_filters::LevelFilter, subscriber};
 use tracing_subscriber::{
+    EnvFilter, Layer, Registry,
     fmt::{self, time::UtcTime},
     layer::SubscriberExt,
-    EnvFilter, Layer, Registry,
 };
 
 pub mod level;

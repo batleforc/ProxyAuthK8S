@@ -10,7 +10,7 @@
 //!   external client. Holds the upstream tokens `/oauth/token` will release
 //!   once the external client proves possession of the PKCE verifier.
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -131,6 +131,9 @@ mod tests {
         let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
         let challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
         assert!(verify_pkce_s256(verifier, challenge));
-        assert!(!verify_pkce_s256("wrong-verifier-wrong-verifier-wrong-verifi", challenge));
+        assert!(!verify_pkce_s256(
+            "wrong-verifier-wrong-verifier-wrong-verifi",
+            challenge
+        ));
     }
 }

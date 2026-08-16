@@ -5,7 +5,7 @@
 //! leader election so only one replica reconciles at a time.
 
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 
@@ -13,8 +13,8 @@ use common::State;
 use crd::ProxyKubeApi;
 use futures_util::StreamExt;
 use kube::{
-    runtime::{watcher::Config, Controller},
     Api,
+    runtime::{Controller, watcher::Config},
 };
 use kube_leader_election::{LeaseLock, LeaseLockParams, LeaseLockResult};
 use tokio::time::interval;

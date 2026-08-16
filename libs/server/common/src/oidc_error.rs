@@ -1,4 +1,4 @@
-use openidconnect::{url::ParseError, HttpClientError};
+use openidconnect::{HttpClientError, url::ParseError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

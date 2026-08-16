@@ -16,7 +16,7 @@ pub mod discovery;
 pub mod openshift;
 pub mod route;
 
-pub use route::{segments, UpstreamRequest, VirtualRoute};
+pub use route::{UpstreamRequest, VirtualRoute, segments};
 
 use crd::virtual_api::VirtualApiKind;
 
@@ -151,9 +151,11 @@ mod tests {
     fn an_empty_registry_resolves_nothing() {
         let registry = MapperRegistry::new();
         assert!(registry.is_empty());
-        assert!(registry
-            .resolve("/apis/project.openshift.io/v1/projects")
-            .is_none());
+        assert!(
+            registry
+                .resolve("/apis/project.openshift.io/v1/projects")
+                .is_none()
+        );
     }
 
     #[test]
@@ -178,12 +180,16 @@ mod tests {
     #[test]
     fn group_lookups_find_the_mapper() {
         let registry = MapperRegistry::from_kinds(&[VirtualApiKind::OpenShiftProject]);
-        assert!(registry
-            .find_group_version("project.openshift.io", "v1")
-            .is_some());
-        assert!(registry
-            .find_group_version("project.openshift.io", "v2")
-            .is_none());
+        assert!(
+            registry
+                .find_group_version("project.openshift.io", "v1")
+                .is_some()
+        );
+        assert!(
+            registry
+                .find_group_version("project.openshift.io", "v2")
+                .is_none()
+        );
         assert!(registry.find_group("project.openshift.io").is_some());
         assert!(registry.find_group("apps").is_none());
     }

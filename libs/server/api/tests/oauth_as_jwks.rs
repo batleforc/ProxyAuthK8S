@@ -3,7 +3,7 @@
 
 mod harness;
 
-use actix_web::{http::StatusCode, test, web, App};
+use actix_web::{App, http::StatusCode, test, web};
 use api::cluster::auth::oauth::jwks;
 use harness::{
     delete_proxy, mount_full_oidc_provider, oidc_auth_config, oidc_auth_config_with_well_known,
@@ -12,7 +12,7 @@ use harness::{
 use wiremock::MockServer;
 
 macro_rules! jwks_app {
-    ($state:expr) => {
+    ($state:expr_2021) => {
         test::init_service(
             App::new()
                 .app_data(web::Data::new($state))

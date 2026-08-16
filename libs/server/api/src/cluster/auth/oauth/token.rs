@@ -1,4 +1,4 @@
-use actix_web::{post, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
 use common::State;
 use serde::{Deserialize, Serialize};
 use tracing::{error, instrument};
@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 
 use crate::cluster::auth::{
     load_discovery_enabled_proxy,
-    oauth::model::{verify_pkce_s256, IssuedCode, CODE_PREFIX},
+    oauth::model::{CODE_PREFIX, IssuedCode, verify_pkce_s256},
     throttle_oauth_as,
 };
 use crate::helper::extract_ns_cluster;
@@ -86,7 +86,10 @@ pub async fn token(
     }
 
     if form.grant_type != "authorization_code" {
-        return token_error(actix_web::http::StatusCode::BAD_REQUEST, "unsupported_grant_type");
+        return token_error(
+            actix_web::http::StatusCode::BAD_REQUEST,
+            "unsupported_grant_type",
+        );
     }
 
     let code_key = format!("{CODE_PREFIX}:{ns}/{cluster}/{}", form.code);

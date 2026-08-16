@@ -9,7 +9,7 @@
 //! a resource missing from the `OpenAPI` document (they lose client-side field
 //! validation and `kubectl explain` for it, nothing more).
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::route::segments;
 use crate::{MapperRegistry, VirtualApiMapper};

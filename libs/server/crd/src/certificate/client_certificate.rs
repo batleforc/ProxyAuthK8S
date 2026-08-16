@@ -23,7 +23,9 @@ impl ClientCertificate {
             .cert
             .get_cert(client.clone(), ns)
             .await?
-            .ok_or(CertError::Empty { half: "certificate" })?;
+            .ok_or(CertError::Empty {
+                half: "certificate",
+            })?;
         let key = self
             .key
             .get_cert(client, ns)

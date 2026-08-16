@@ -13,7 +13,7 @@ use security::SecurityConfiguration;
 use serde::{Deserialize, Serialize};
 use service::Service;
 use status::ProxyKubeApiStatus;
-use virtual_api::{enabled_kinds, VirtualApiConfiguration, VirtualApiKind};
+use virtual_api::{VirtualApiConfiguration, VirtualApiKind, enabled_kinds};
 
 pub mod authentication_configuration;
 pub mod certificate;

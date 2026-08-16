@@ -1,4 +1,4 @@
-use actix_web::{dev::PeerAddr, http, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, dev::PeerAddr, http, web};
 use common::State;
 use crd::ProxyKubeApi;
 use tracing::{debug, error, info, instrument, warn};
@@ -22,7 +22,7 @@ use virtual_redirect::virtual_redirect as serve_virtual_api;
 
 /// Answer with `response`, recording the audit event for it first.
 macro_rules! audited {
-    ($audit:expr, $response:expr) => {{
+    ($audit:expr_2021, $response:expr_2021) => {{
         let response = $response;
         $audit.emit(response.status().as_u16());
         return response;
@@ -181,7 +181,9 @@ pub async fn redirect(
                 );
                 audited!(
                     audit,
-                    forbidden("this cluster requires an authenticated user but token validation is disabled")
+                    forbidden(
+                        "this cluster requires an authenticated user but token validation is disabled"
+                    )
                 );
             }
         }

@@ -6,7 +6,7 @@
 
 mod harness;
 
-use actix_web::{http::StatusCode, test, web, App};
+use actix_web::{App, http::StatusCode, test, web};
 use api::cluster::redirect;
 use harness::{
     delete_proxy, fail2login_config, mount_oidc_provider, oidc_auth_config, proxy_fixture,
@@ -23,7 +23,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 const VALID_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJwcm94eWF1dGhrOHMiLCJzdWIiOiJhbGljZS1zdWIifQ.c2lnbmF0dXJlLW5vdC12ZXJpZmllZC1pbi10aGVzZS10ZXN0cw";
 
 macro_rules! proxy_app {
-    ($state:expr) => {
+    ($state:expr_2021) => {
         test::init_service(
             App::new()
                 .app_data(web::Data::new($state))

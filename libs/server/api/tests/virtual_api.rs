@@ -5,19 +5,19 @@
 
 mod harness;
 
-use actix_web::{http::StatusCode, test, web, App};
+use actix_web::{App, http::StatusCode, test, web};
 use api::cluster::redirect;
 use crd::virtual_api::VirtualApiKind;
 use harness::{
     delete_proxy, proxy_fixture, security_config, seed_proxy, test_state, try_redis_pool,
     unique_cluster, with_virtual_api,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 macro_rules! proxy_app {
-    ($state:expr) => {
+    ($state:expr_2021) => {
         test::init_service(
             App::new().app_data(web::Data::new($state)).service(
                 web::scope("/clusters")
@@ -76,11 +76,13 @@ async fn serves_group_discovery_without_touching_the_cluster() {
         "project.openshift.io/v1"
     );
     // The cluster was never contacted for this.
-    assert!(upstream
-        .received_requests()
-        .await
-        .unwrap_or_default()
-        .is_empty());
+    assert!(
+        upstream
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty()
+    );
 
     delete_proxy(&pool, &ns, &cluster).await;
 }
@@ -478,11 +480,13 @@ async fn the_allow_list_also_covers_the_mapped_upstream_path() {
     let resp = test::call_service(&app, req).await;
 
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-    assert!(upstream
-        .received_requests()
-        .await
-        .unwrap_or_default()
-        .is_empty());
+    assert!(
+        upstream
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty()
+    );
 
     delete_proxy(&pool, &ns, &cluster).await;
 }

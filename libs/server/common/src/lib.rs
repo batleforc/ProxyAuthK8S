@@ -1,7 +1,7 @@
 use std::{env, sync::Arc};
 
 use kube::Client;
-use rustls::pki_types::{pem::PemObject as _, CertificateDer, PrivateKeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject as _};
 use tracing::{info, instrument};
 
 use deadpool_redis::redis;

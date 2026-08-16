@@ -1,4 +1,4 @@
-use actix_web::{dev::PeerAddr, http, web, HttpRequest, HttpResponse};
+use actix_web::{HttpRequest, HttpResponse, dev::PeerAddr, http, web};
 use common::State;
 use crd::ProxyKubeApi;
 use futures_util::stream::StreamExt;

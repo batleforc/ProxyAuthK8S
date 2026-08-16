@@ -2,6 +2,11 @@
   "name": "proxyauthk8s-docs",
   "version": "0.1.9",
   "private": true,
+  "packageManager": "yarn@4.17.1",
+  "resolutions": {
+    "next/postcss": "8.5.26",
+    "next/sharp": "^0.35.3"
+  },
   "scripts": {
     "build": "next build",
     "dev": "next dev",
@@ -19,7 +24,7 @@
     "fumadocs-ui": "16.14.2",
     "lucide-react": "^1.7.0",
     "mermaid": "^11.13.0",
-    "next": "16.2.1",
+    "next": "16.2.12",
     "next-themes": "^0.4.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -36,7 +41,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "eslint": "9.39.5",
-    "eslint-config-next": "16.2.1",
+    "eslint-config-next": "16.2.12",
     "postcss": "^8.5.8",
     "serve": "^14.2.6",
     "tailwindcss": "^4.2.2",

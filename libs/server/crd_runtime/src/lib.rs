@@ -10,10 +10,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use base64::{prelude::BASE64_STANDARD, Engine};
-use common::{oidc_conf::OidcConf, State};
+use base64::{Engine, prelude::BASE64_STANDARD};
+use common::{State, oidc_conf::OidcConf};
 use crd::ProxyKubeApi;
-use kube::{config::Kubeconfig, Client, ResourceExt};
+use kube::{Client, ResourceExt, config::Kubeconfig};
 use reqwest::Url;
 use tracing::instrument;
 
@@ -193,8 +193,8 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
             .get_cert(ctx.client.clone(), &self.namespace().unwrap_or_default())
             .await?
         {
-            reqwest_client =
-                reqwest_client.add_root_certificate(reqwest::Certificate::from_pem(cert.as_bytes())?);
+            reqwest_client = reqwest_client
+                .add_root_certificate(reqwest::Certificate::from_pem(cert.as_bytes())?);
         }
         reqwest_client = reqwest_client
             .use_rustls_tls()

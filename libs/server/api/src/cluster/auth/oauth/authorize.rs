@@ -1,7 +1,7 @@
-use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
 use common::State;
 use crd_runtime::ProxyKubeApiRuntime;
-use openidconnect::{core::CoreAuthenticationFlow, CsrfToken, Nonce, PkceCodeChallenge, Scope};
+use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge, Scope, core::CoreAuthenticationFlow};
 use serde::Deserialize;
 use tracing::{error, instrument};
 use utoipa::{IntoParams, ToSchema};
@@ -10,8 +10,8 @@ use crate::cluster::auth::{
     load_discovery_enabled_proxy,
     oauth::{
         model::{
-            is_valid_pkce_value, parse_loopback_redirect_uri, PendingAuthorization, PENDING_PREFIX,
-            PENDING_TTL_SECONDS,
+            PENDING_PREFIX, PENDING_TTL_SECONDS, PendingAuthorization, is_valid_pkce_value,
+            parse_loopback_redirect_uri,
         },
         redirect_with_error,
     },
@@ -82,7 +82,11 @@ pub async fn authorize(
     };
 
     if query.response_type != "code" {
-        return redirect_with_error(&redirect_uri, "unsupported_response_type", query.state.as_deref());
+        return redirect_with_error(
+            &redirect_uri,
+            "unsupported_response_type",
+            query.state.as_deref(),
+        );
     }
     if !is_valid_pkce_value(&query.code_challenge) {
         return redirect_with_error(&redirect_uri, "invalid_request", query.state.as_deref());

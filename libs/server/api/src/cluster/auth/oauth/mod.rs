@@ -22,7 +22,11 @@ use reqwest::Url;
 /// Used once `redirect_uri` itself has been validated: from that point on,
 /// failures are reported to the external client via redirect rather than a
 /// bare error body, so a CLI driving the flow can surface them.
-pub(crate) fn redirect_with_error(redirect_uri: &Url, error: &str, state: Option<&str>) -> actix_web::HttpResponse {
+pub(crate) fn redirect_with_error(
+    redirect_uri: &Url,
+    error: &str,
+    state: Option<&str>,
+) -> actix_web::HttpResponse {
     let mut url = redirect_uri.clone();
     {
         let mut pairs = url.query_pairs_mut();

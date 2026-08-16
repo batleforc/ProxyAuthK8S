@@ -1,4 +1,4 @@
-use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
 use common::State;
 use crd_runtime::ProxyKubeApiRuntime;
 use serde::{Deserialize, Serialize};

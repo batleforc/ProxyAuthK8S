@@ -1,4 +1,4 @@
-use actix_web::{get, web, HttpRequest, HttpResponse, Responder};
+use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
 use common::State;
 use crd_runtime::ProxyKubeApiRuntime;
 use openidconnect::{
@@ -12,7 +12,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::cluster::auth::{
     load_discovery_enabled_proxy,
     oauth::{
-        model::{IssuedCode, PendingAuthorization, CODE_PREFIX, CODE_TTL_SECONDS, PENDING_PREFIX},
+        model::{CODE_PREFIX, CODE_TTL_SECONDS, IssuedCode, PENDING_PREFIX, PendingAuthorization},
         redirect_with_error,
     },
     throttle_oauth_as,
@@ -100,31 +100,48 @@ pub async fn callback(
         conf
     } else {
         error!("OIDC config not found");
-        return redirect_with_error(&client_redirect_uri, "server_error", pending.client_state.as_deref());
+        return redirect_with_error(
+            &client_redirect_uri,
+            "server_error",
+            pending.client_state.as_deref(),
+        );
     };
     let client_reqwest = match oauth_conf.oidc_reqwest_client() {
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't build oidc http client");
-            return redirect_with_error(&client_redirect_uri, "server_error", pending.client_state.as_deref());
+            return redirect_with_error(
+                &client_redirect_uri,
+                "server_error",
+                pending.client_state.as_deref(),
+            );
         }
     };
     let client_oidc = match oauth_conf.oidc_core().await {
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't get oidc client");
-            return redirect_with_error(&client_redirect_uri, "server_error", pending.client_state.as_deref());
+            return redirect_with_error(
+                &client_redirect_uri,
+                "server_error",
+                pending.client_state.as_deref(),
+            );
         }
     };
     info!(%ns, %cluster, "OAuth AS callback received for cluster");
 
-    let exchange_code = match client_oidc.exchange_code(AuthorizationCode::new(callback.code.clone())) {
-        Ok(code) => code,
-        Err(e) => {
-            error!(error = %e, "couldn't exchange code");
-            return redirect_with_error(&client_redirect_uri, "server_error", pending.client_state.as_deref());
-        }
-    };
+    let exchange_code =
+        match client_oidc.exchange_code(AuthorizationCode::new(callback.code.clone())) {
+            Ok(code) => code,
+            Err(e) => {
+                error!(error = %e, "couldn't exchange code");
+                return redirect_with_error(
+                    &client_redirect_uri,
+                    "server_error",
+                    pending.client_state.as_deref(),
+                );
+            }
+        };
     let token_response = match exchange_code
         .set_pkce_verifier(PkceCodeVerifier::new(pending.upstream_pkce_verifier))
         .request_async(&client_reqwest)
@@ -133,7 +150,11 @@ pub async fn callback(
         Ok(token) => token,
         Err(e) => {
             error!(error = %e, "couldn't get token response");
-            return redirect_with_error(&client_redirect_uri, "access_denied", pending.client_state.as_deref());
+            return redirect_with_error(
+                &client_redirect_uri,
+                "access_denied",
+                pending.client_state.as_deref(),
+            );
         }
     };
 
@@ -141,14 +162,22 @@ pub async fn callback(
         id_token
     } else {
         error!("No ID token received");
-        return redirect_with_error(&client_redirect_uri, "server_error", pending.client_state.as_deref());
+        return redirect_with_error(
+            &client_redirect_uri,
+            "server_error",
+            pending.client_state.as_deref(),
+        );
     };
     let id_token_verifier = client_oidc.id_token_verifier();
     let claims = match id_token.claims(&id_token_verifier, &Nonce::new(pending.upstream_nonce)) {
         Ok(claims) => claims,
         Err(e) => {
             error!(error = %e, "couldn't verify ID token");
-            return redirect_with_error(&client_redirect_uri, "server_error", pending.client_state.as_deref());
+            return redirect_with_error(
+                &client_redirect_uri,
+                "server_error",
+                pending.client_state.as_deref(),
+            );
         }
     };
     if let Some(expected_access_token_hash) = claims.access_token_hash() {
@@ -156,26 +185,45 @@ pub async fn callback(
             Ok(alg) => alg,
             Err(e) => {
                 error!(error = %e, "couldn't get signing alg");
-                return redirect_with_error(&client_redirect_uri, "server_error", pending.client_state.as_deref());
+                return redirect_with_error(
+                    &client_redirect_uri,
+                    "server_error",
+                    pending.client_state.as_deref(),
+                );
             }
         };
         let signing_key = match id_token.signing_key(&id_token_verifier) {
             Ok(key) => key,
             Err(e) => {
                 error!(error = %e, "couldn't get signing key");
-                return redirect_with_error(&client_redirect_uri, "server_error", pending.client_state.as_deref());
+                return redirect_with_error(
+                    &client_redirect_uri,
+                    "server_error",
+                    pending.client_state.as_deref(),
+                );
             }
         };
-        let actual_access_token_hash =
-            match AccessTokenHash::from_token(token_response.access_token(), signing_alg, signing_key) {
-                Ok(hash) => hash,
-                Err(e) => {
-                    error!(error = %e, "couldn't get access token hash");
-                    return redirect_with_error(&client_redirect_uri, "server_error", pending.client_state.as_deref());
-                }
-            };
+        let actual_access_token_hash = match AccessTokenHash::from_token(
+            token_response.access_token(),
+            signing_alg,
+            signing_key,
+        ) {
+            Ok(hash) => hash,
+            Err(e) => {
+                error!(error = %e, "couldn't get access token hash");
+                return redirect_with_error(
+                    &client_redirect_uri,
+                    "server_error",
+                    pending.client_state.as_deref(),
+                );
+            }
+        };
         if actual_access_token_hash != *expected_access_token_hash {
-            return redirect_with_error(&client_redirect_uri, "access_denied", pending.client_state.as_deref());
+            return redirect_with_error(
+                &client_redirect_uri,
+                "access_denied",
+                pending.client_state.as_deref(),
+            );
         }
     }
 
@@ -197,7 +245,11 @@ pub async fn callback(
         Ok(json) => json,
         Err(e) => {
             error!(error = %e, "couldn't serialize issued code");
-            return redirect_with_error(&client_redirect_uri, "server_error", pending.client_state.as_deref());
+            return redirect_with_error(
+                &client_redirect_uri,
+                "server_error",
+                pending.client_state.as_deref(),
+            );
         }
     };
     if let Err(e) = data
@@ -209,7 +261,11 @@ pub async fn callback(
         .await
     {
         error!(error = %e, "couldn't store issued code");
-        return redirect_with_error(&client_redirect_uri, "server_error", pending.client_state.as_deref());
+        return redirect_with_error(
+            &client_redirect_uri,
+            "server_error",
+            pending.client_state.as_deref(),
+        );
     }
 
     info!(subject = %claims.subject().as_str(), "OAuth AS mediated login succeeded");

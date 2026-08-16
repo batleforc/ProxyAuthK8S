@@ -1,5 +1,5 @@
 use clap::Parser;
-use cli::{ctx::CliCtx, Cli};
+use cli::{Cli, ctx::CliCtx};
 use cli_trace::init_tracing;
 
 #[tokio::main]

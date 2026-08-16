@@ -10,7 +10,7 @@
 //! Redis plumbing around it.
 
 use common::State;
-use crd::{security::SecurityConfiguration, ProxyKubeApi};
+use crd::{ProxyKubeApi, security::SecurityConfiguration};
 use tracing::{debug, warn};
 
 /// Window over which requests are counted.
@@ -211,9 +211,9 @@ pub async fn check_rate_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crd::ProxyKubeApiSpec;
     use crd::certificate::CertSource;
     use crd::service::Service;
-    use crd::ProxyKubeApiSpec;
 
     fn proxy() -> ProxyKubeApi {
         let mut proxy = ProxyKubeApi::new(

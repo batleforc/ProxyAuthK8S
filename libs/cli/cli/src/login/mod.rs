@@ -20,11 +20,7 @@ impl CliCtx {
             return None;
         }
         let token = input.trim().to_string();
-        if token.is_empty() {
-            None
-        } else {
-            Some(token)
-        }
+        if token.is_empty() { None } else { Some(token) }
     }
 
     pub async fn handle_login(
@@ -42,7 +38,9 @@ impl CliCtx {
         }
         // if server_url is not provided and none exist in config, return error
         if self.server_url.is_empty() && self.config.default_server_name.is_empty() {
-            error!("Error: No ProxyAuthK8S server URL provided and no existing configuration found. Please provide a server URL using the --server-url option or login to server first.");
+            error!(
+                "Error: No ProxyAuthK8S server URL provided and no existing configuration found. Please provide a server URL using the --server-url option or login to server first."
+            );
             return Err(ProxyAuthK8sError::InvalidUsage(
                 "no server URL provided and no existing configuration found".to_string(),
             ));
@@ -70,7 +68,10 @@ impl CliCtx {
         ) {
             Ok(config) => config,
             Err(e) => {
-                error!("Error retrieving server configuration, please login to server before login to cluster: {}", e);
+                error!(
+                    "Error retrieving server configuration, please login to server before login to cluster: {}",
+                    e
+                );
                 return Err(e.into());
             }
         };
@@ -97,7 +98,9 @@ impl CliCtx {
                         // The user is told to re-login rather than being pushed
                         // through the flow: doing it here would need the login
                         // command to be re-entrant, which it is not yet.
-                        error!("Authentication failed: Invalid server token, please re-login to the server.");
+                        error!(
+                            "Authentication failed: Invalid server token, please re-login to the server."
+                        );
                     }
                     ProxyAuthK8sError::RemoteServerError(_) => {
                         error!("Server error occurred while retrieving clusters.");

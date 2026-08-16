@@ -15,7 +15,7 @@
 
 mod harness;
 
-use actix_web::{http::StatusCode, test, web, App};
+use actix_web::{App, http::StatusCode, test, web};
 use api::cluster::auth::{callback::callback_login, login::cluster_login, oauth};
 use harness::{
     delete_proxy, mount_full_oidc_provider, mount_token_endpoint, oidc_auth_config,
@@ -34,7 +34,7 @@ const EXTERNAL_VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
 const EXTERNAL_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
 macro_rules! login_app {
-    ($state:expr) => {
+    ($state:expr_2021) => {
         test::init_service(
             App::new().app_data(web::Data::new($state)).service(
                 web::scope("/clusters")
@@ -164,7 +164,10 @@ async fn mediated_oauth_flow_succeeds_with_a_real_signed_id_token() {
     let callback_resp = test::call_service(&app, callback_req).await;
     assert_eq!(callback_resp.status(), StatusCode::FOUND);
     let client_redirect = location(&callback_resp);
-    assert_eq!(client_redirect.origin().unicode_serialization(), "http://localhost:12345");
+    assert_eq!(
+        client_redirect.origin().unicode_serialization(),
+        "http://localhost:12345"
+    );
     assert_eq!(client_redirect.path(), "/callback");
     assert_eq!(query_param(&client_redirect, "state"), "external-state");
     let proxy_code = query_param(&client_redirect, "code");

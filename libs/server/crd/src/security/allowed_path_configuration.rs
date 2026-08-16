@@ -88,7 +88,9 @@ impl AllowedPathConfiguration {
             for cap in MUSTACHE_REGEX.captures_iter(&self.path) {
                 let param = &cap[1];
                 if param != "username" && param != "group" {
-                    return Err(format!("Invalid parameter in path: {param}, allowed parameters are {{username}} and {{group}}"));
+                    return Err(format!(
+                        "Invalid parameter in path: {param}, allowed parameters are {{username}} and {{group}}"
+                    ));
                 }
             }
         }
@@ -213,12 +215,16 @@ mod tests {
 
     #[test]
     fn validate_accepts_known_parameters() {
-        assert!(rule("/api/v1/namespaces/{{username}}/pods", true)
-            .validate()
-            .is_ok());
-        assert!(rule("/api/v1/namespaces/{{group}}/pods", true)
-            .validate()
-            .is_ok());
+        assert!(
+            rule("/api/v1/namespaces/{{username}}/pods", true)
+                .validate()
+                .is_ok()
+        );
+        assert!(
+            rule("/api/v1/namespaces/{{group}}/pods", true)
+                .validate()
+                .is_ok()
+        );
     }
 
     #[test]
@@ -231,9 +237,11 @@ mod tests {
 
     #[test]
     fn validate_ignores_parameters_when_not_parametised() {
-        assert!(rule("/api/v1/namespaces/{{tenant}}/pods", false)
-            .validate()
-            .is_ok());
+        assert!(
+            rule("/api/v1/namespaces/{{tenant}}/pods", false)
+                .validate()
+                .is_ok()
+        );
     }
 
     /// The CEL admission rule and `validate()` must agree, otherwise a CR is

@@ -3,7 +3,7 @@
 
 mod harness;
 
-use actix_web::{http::StatusCode, test, web, App};
+use actix_web::{App, http::StatusCode, test, web};
 use api::cluster::auth::well_known;
 use harness::{
     delete_proxy, mount_oidc_provider, oidc_auth_config, oidc_auth_config_with_well_known,
@@ -12,7 +12,7 @@ use harness::{
 use wiremock::MockServer;
 
 macro_rules! well_known_app {
-    ($state:expr) => {
+    ($state:expr_2021) => {
         test::init_service(
             App::new()
                 .app_data(web::Data::new($state))
@@ -67,7 +67,10 @@ async fn serves_metadata_mirroring_the_upstream_provider_when_enabled() {
         body["jwks_uri"].as_str(),
         Some(format!("{issuer}/oauth/jwks")).as_deref()
     );
-    assert_eq!(body["response_types_supported"], serde_json::json!(["code"]));
+    assert_eq!(
+        body["response_types_supported"],
+        serde_json::json!(["code"])
+    );
     assert_eq!(
         body["grant_types_supported"],
         serde_json::json!(["authorization_code"])

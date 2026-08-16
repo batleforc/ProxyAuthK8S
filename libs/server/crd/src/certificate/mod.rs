@@ -1,4 +1,4 @@
-use base64::{prelude::BASE64_STANDARD, Engine};
+use base64::{Engine, prelude::BASE64_STANDARD};
 use kube::Client;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -152,11 +152,14 @@ impl CertSource {
                 let target_ns = resolve_cert_namespace(namespace.as_deref(), ns);
                 let configmaps: kube::Api<k8s_openapi::api::core::v1::ConfigMap> =
                     kube::Api::namespaced(client, target_ns);
-                let configmap = configmaps.get(name).await.map_err(|source| CertError::Read {
-                    kind: "configmap",
-                    name: name.clone(),
-                    source,
-                })?;
+                let configmap = configmaps
+                    .get(name)
+                    .await
+                    .map_err(|source| CertError::Read {
+                        kind: "configmap",
+                        name: name.clone(),
+                        source,
+                    })?;
                 if let Some(data) = configmap.data {
                     if let Some(cert) = data.get(key) {
                         return Ok(Some(cert.clone()));

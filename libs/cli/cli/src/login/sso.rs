@@ -279,7 +279,7 @@ fn open_in_browser(url: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_callback, CallbackResult};
+    use super::{CallbackResult, parse_callback};
 
     #[test]
     fn parses_code_and_state() {

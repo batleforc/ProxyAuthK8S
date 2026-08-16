@@ -17,10 +17,10 @@
 //! `SelfSubjectAccessReview` fallback.
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIResource, APIResourceList};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use crate::route::{segments, UpstreamRequest, VirtualRoute};
 use crate::VirtualApiMapper;
+use crate::route::{UpstreamRequest, VirtualRoute, segments};
 
 pub const GROUP: &str = "project.openshift.io";
 pub const VERSION: &str = "v1";
@@ -103,17 +103,15 @@ impl OpenShiftProjectMapper {
             .into_iter()
             .filter_map(|(key, value)| value.and_then(Value::as_str).map(|value| (key, value)))
             .collect();
-        if !to_set.is_empty() {
-            if let Some(meta) = namespace.get_mut("metadata").and_then(Value::as_object_mut) {
-                if let Some(anns) = meta
-                    .entry("annotations")
-                    .or_insert_with(|| json!({}))
-                    .as_object_mut()
-                {
-                    for (key, value) in to_set {
-                        anns.insert(key.to_string(), json!(value));
-                    }
-                }
+        if !to_set.is_empty()
+            && let Some(meta) = namespace.get_mut("metadata").and_then(Value::as_object_mut)
+            && let Some(anns) = meta
+                .entry("annotations")
+                .or_insert_with(|| json!({}))
+                .as_object_mut()
+        {
+            for (key, value) in to_set {
+                anns.insert(key.to_string(), json!(value));
             }
         }
 
@@ -283,12 +281,16 @@ mod tests {
         let mapper = mapper();
         assert!(mapper.matches("/api/v1/namespaces").is_none());
         assert!(mapper.matches("/apis/apps/v1/deployments").is_none());
-        assert!(mapper
-            .matches("/apis/project.openshift.io/v1/projecthelpers")
-            .is_none());
-        assert!(mapper
-            .matches("/apis/project.openshift.io/v2/projects")
-            .is_none());
+        assert!(
+            mapper
+                .matches("/apis/project.openshift.io/v1/projecthelpers")
+                .is_none()
+        );
+        assert!(
+            mapper
+                .matches("/apis/project.openshift.io/v2/projects")
+                .is_none()
+        );
         assert!(mapper.matches("/apis/project.openshift.io/v1").is_none());
     }
 
@@ -425,19 +427,23 @@ mod tests {
             )),
             Some("GET, POST".to_string())
         );
-        assert!(mapper
-            .method_not_allowed(&route(
-                "POST",
-                "/apis/project.openshift.io/v1/projectrequests"
-            ))
-            .is_none());
+        assert!(
+            mapper
+                .method_not_allowed(&route(
+                    "POST",
+                    "/apis/project.openshift.io/v1/projectrequests"
+                ))
+                .is_none()
+        );
         // projects supports get/list/watch (GET) and delete (DELETE).
-        assert!(mapper
-            .method_not_allowed(&route(
-                "DELETE",
-                "/apis/project.openshift.io/v1/projects/dev"
-            ))
-            .is_none());
+        assert!(
+            mapper
+                .method_not_allowed(&route(
+                    "DELETE",
+                    "/apis/project.openshift.io/v1/projects/dev"
+                ))
+                .is_none()
+        );
         assert_eq!(
             mapper.method_not_allowed(&route("POST", "/apis/project.openshift.io/v1/projects")),
             Some("GET, DELETE".to_string())

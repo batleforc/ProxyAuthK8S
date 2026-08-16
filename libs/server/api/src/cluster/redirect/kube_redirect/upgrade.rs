@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use actix_web::{dev::PeerAddr, http, web, HttpRequest, HttpResponse};
+use actix_web::{HttpRequest, HttpResponse, dev::PeerAddr, http, web};
 use common::State;
 use crd::ProxyKubeApi;
 use futures_util::stream::StreamExt;
@@ -336,15 +336,13 @@ pub(super) async fn upgrade_redirect(
     });
 
     let mut client_resp = HttpResponse::build(status);
-    if status == http::StatusCode::SWITCHING_PROTOCOLS {
-        if let Some((_, upgrade_value)) = headers
+    if status == http::StatusCode::SWITCHING_PROTOCOLS
+        && let Some((_, upgrade_value)) = headers
             .iter()
             .find(|(name, _)| name.eq_ignore_ascii_case("upgrade"))
-        {
-            if let Ok(upgrade_value) = std::str::from_utf8(upgrade_value) {
-                client_resp.upgrade(upgrade_value);
-            }
-        }
+        && let Ok(upgrade_value) = std::str::from_utf8(upgrade_value)
+    {
+        client_resp.upgrade(upgrade_value);
     }
 
     for (header_name, header_value) in headers {

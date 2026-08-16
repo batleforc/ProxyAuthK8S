@@ -39,6 +39,11 @@ jobs:
           cache: "yarn" # 🚀 Speed up builds with yarn cache
           node-version: "24"
 
+      - name: 🧶 Enable Corepack
+        run: corepack enable
+        # 🔒 Honor the "packageManager" pin in package.json (Yarn Berry) instead
+        # of the runner's preinstalled Yarn Classic.
+
       - name: 🛠️ Install ESLint SARIF Formatter
         run: |
           yarn add @microsoft/eslint-formatter-sarif -D

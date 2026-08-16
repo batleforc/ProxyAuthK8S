@@ -33,7 +33,8 @@ pub(crate) async fn load_discovery_enabled_proxy(
         }
     };
     let discovery_exposed = proxy.spec.auth_config.as_ref().is_some_and(|auth_config| {
-        auth_config.oidc_provider.enabled && auth_config.oidc_provider.expose_oauth_authorization_server
+        auth_config.oidc_provider.enabled
+            && auth_config.oidc_provider.expose_oauth_authorization_server
     });
     if !proxy.spec.enabled || !discovery_exposed {
         return Err(HttpResponse::NotFound().finish());
@@ -66,11 +67,17 @@ pub(crate) async fn throttle_oauth_as(
         let retry_after = throttle::ban_retry_after(data, proxy, &peer_id).await;
         let throttled = throttle::Throttled::Banned { retry_after };
         tracing::warn!(peer = %peer_id, "refusing a banned client on the OAuth-AS surface");
-        return Some(too_many_requests(&throttled.message(), throttled.retry_after()));
+        return Some(too_many_requests(
+            &throttled.message(),
+            throttled.retry_after(),
+        ));
     }
 
     if let Some(throttled) = throttle::check_rate_limit(data, proxy, &peer_id, &[]).await {
-        return Some(too_many_requests(&throttled.message(), throttled.retry_after()));
+        return Some(too_many_requests(
+            &throttled.message(),
+            throttled.retry_after(),
+        ));
     }
     None
 }

@@ -4,7 +4,7 @@
 //! look like apiserver rejections — otherwise `kubectl` prints a raw body
 //! instead of a readable message.
 
-use actix_web::{http::header::ContentType, HttpResponse};
+use actix_web::{HttpResponse, http::header::ContentType};
 use serde_json::json;
 
 fn status_body(code: u16, reason: &str, message: &str) -> serde_json::Value {
@@ -81,9 +81,11 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("60")
         );
-        assert!(too_many_requests("slow down", None)
-            .headers()
-            .get("retry-after")
-            .is_none());
+        assert!(
+            too_many_requests("slow down", None)
+                .headers()
+                .get("retry-after")
+                .is_none()
+        );
     }
 }

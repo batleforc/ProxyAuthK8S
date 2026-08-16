@@ -6,7 +6,7 @@
 
 mod harness;
 
-use actix_web::{http::StatusCode, test, web, App};
+use actix_web::{App, http::StatusCode, test, web};
 use api::cluster::redirect;
 use harness::{
     delete_proxy, mount_oidc_provider, oidc_auth_config, proxy_fixture, security_config,
@@ -24,7 +24,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 const VALID_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJwcm94eWF1dGhrOHMiLCJzdWIiOiJhbGljZS1zdWIifQ.c2lnbmF0dXJlLW5vdC12ZXJpZmllZC1pbi10aGVzZS10ZXN0cw";
 
 macro_rules! proxy_app {
-    ($state:expr) => {
+    ($state:expr_2021) => {
         test::init_service(
             App::new().app_data(web::Data::new($state)).service(
                 web::scope("/clusters")
@@ -198,11 +198,13 @@ async fn rejects_a_path_outside_the_allow_list() {
 
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     assert_kubernetes_status(resp, 403).await;
-    assert!(upstream
-        .received_requests()
-        .await
-        .unwrap_or_default()
-        .is_empty());
+    assert!(
+        upstream
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty()
+    );
 
     delete_proxy(&pool, &ns, &cluster).await;
 }

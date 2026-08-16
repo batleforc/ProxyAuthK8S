@@ -11,7 +11,9 @@ impl CliCtx {
 
         // if server_url is not provided and none exist in config, return error
         if self.server_url.is_empty() && self.config.default_server_name.is_empty() {
-            error!("Error: No ProxyAuthK8S server URL provided and no existing configuration found. Please provide a server URL using the --server-url option or login to server first.");
+            error!(
+                "Error: No ProxyAuthK8S server URL provided and no existing configuration found. Please provide a server URL using the --server-url option or login to server first."
+            );
             return Err(());
         }
 
@@ -57,7 +59,9 @@ impl CliCtx {
                 });
             (name, exec_ns)
         } else {
-            debug!("No cluster name provided, extracting from KUBERNETES_EXEC_INFO spec.cluster.server");
+            debug!(
+                "No cluster name provided, extracting from KUBERNETES_EXEC_INFO spec.cluster.server"
+            );
             let cluster_server_url = if let Some(url) = exec_info
                 .get("spec")
                 .and_then(|s| s.get("cluster"))
@@ -66,7 +70,9 @@ impl CliCtx {
             {
                 url
             } else {
-                error!("Cluster name not provided and spec.cluster.server not found in KUBERNETES_EXEC_INFO. Please provide the cluster name as argument.");
+                error!(
+                    "Cluster name not provided and spec.cluster.server not found in KUBERNETES_EXEC_INFO. Please provide the cluster name as argument."
+                );
                 return Err(());
             };
             match crate::cli_config::CliConfig::proxy_url_to_tuple(cluster_server_url) {
@@ -88,23 +94,22 @@ impl CliCtx {
         };
 
         // Resolve server config (via --server-url arg or default)
-        let server_config =
-            match self
-                .config
-                .get_server_config_by_url(if self.server_url.is_empty() {
-                    None
-                } else {
-                    Some(self.server_url.clone())
-                }) {
-                Ok(config) => config,
-                Err(e) => {
-                    error!(
+        let server_config = match self.config.get_server_config_by_url(
+            if self.server_url.is_empty() {
+                None
+            } else {
+                Some(self.server_url.clone())
+            },
+        ) {
+            Ok(config) => config,
+            Err(e) => {
+                error!(
                     "Error retrieving server configuration: {}. Please login to the server first.",
                     e
                 );
-                    return Err(());
-                }
-            };
+                return Err(());
+            }
+        };
 
         // Determine namespace: CLI arg > exec info > server default
         let namespace = if !self.namespace.is_empty() {

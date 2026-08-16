@@ -9,9 +9,9 @@
 
 mod harness;
 
-use actix_web::{test, web, App};
+use actix_web::{App, test, web};
 use api::cluster::auth::oauth::{model::IssuedCode, token};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use deadpool_redis::redis::AsyncTypedCommands;
 use harness::{
     delete_proxy, oidc_auth_config_with_well_known, proxy_fixture, seed_proxy, test_state,
@@ -26,7 +26,7 @@ fn s256_challenge(verifier: &str) -> String {
 }
 
 macro_rules! token_app {
-    ($state:expr) => {
+    ($state:expr_2021) => {
         test::init_service(
             App::new()
                 .app_data(web::Data::new($state))
@@ -45,7 +45,13 @@ macro_rules! redis_or_skip {
     };
 }
 
-async fn seed_code(pool: &deadpool_redis::Pool, ns: &str, cluster: &str, code: &str, issued: &IssuedCode) {
+async fn seed_code(
+    pool: &deadpool_redis::Pool,
+    ns: &str,
+    cluster: &str,
+    code: &str,
+    issued: &IssuedCode,
+) {
     let mut conn = pool.get().await.expect("redis connection");
     conn.set_ex(
         format!("oauth_as_code:{ns}/{cluster}/{code}"),
@@ -73,7 +79,9 @@ async fn exchanges_a_valid_code_for_the_upstream_tokens() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, "https://cluster.example.com:6443");
-    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known("https://issuer.example.com"));
+    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(
+        "https://issuer.example.com",
+    ));
     seed_proxy(&pool, &proxy).await;
     seed_code(
         &pool,
@@ -112,7 +120,9 @@ async fn a_code_can_only_be_redeemed_once() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, "https://cluster.example.com:6443");
-    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known("https://issuer.example.com"));
+    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(
+        "https://issuer.example.com",
+    ));
     seed_proxy(&pool, &proxy).await;
     seed_code(
         &pool,
@@ -162,7 +172,9 @@ async fn rejects_a_mismatched_pkce_verifier() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, "https://cluster.example.com:6443");
-    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known("https://issuer.example.com"));
+    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(
+        "https://issuer.example.com",
+    ));
     seed_proxy(&pool, &proxy).await;
     seed_code(
         &pool,
@@ -180,7 +192,10 @@ async fn rejects_a_mismatched_pkce_verifier() {
             ("grant_type", "authorization_code"),
             ("code", "the-code"),
             ("redirect_uri", "http://localhost:12345/callback"),
-            ("code_verifier", "wrong-verifier-wrong-verifier-wrong-verifi"),
+            (
+                "code_verifier",
+                "wrong-verifier-wrong-verifier-wrong-verifi",
+            ),
         ])
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -197,7 +212,9 @@ async fn rejects_a_mismatched_redirect_uri() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, "https://cluster.example.com:6443");
-    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known("https://issuer.example.com"));
+    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(
+        "https://issuer.example.com",
+    ));
     seed_proxy(&pool, &proxy).await;
     seed_code(
         &pool,
@@ -232,7 +249,9 @@ async fn rejects_an_unknown_code() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, "https://cluster.example.com:6443");
-    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known("https://issuer.example.com"));
+    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(
+        "https://issuer.example.com",
+    ));
     seed_proxy(&pool, &proxy).await;
 
     let app = token_app!(test_state("https://issuer.example.com".to_string()));
@@ -259,7 +278,9 @@ async fn rejects_an_unsupported_grant_type() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, "https://cluster.example.com:6443");
-    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known("https://issuer.example.com"));
+    proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(
+        "https://issuer.example.com",
+    ));
     seed_proxy(&pool, &proxy).await;
 
     let app = token_app!(test_state("https://issuer.example.com".to_string()));

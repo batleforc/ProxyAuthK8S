@@ -290,16 +290,22 @@ mod tests {
             CliClusterConfig { token_exist: true },
         );
 
-        assert!(config
-            .get_clusters_from_ns_name(Some("team-a".to_string()), "prod".to_string())
-            .is_some());
+        assert!(
+            config
+                .get_clusters_from_ns_name(Some("team-a".to_string()), "prod".to_string())
+                .is_some()
+        );
         // Wrong namespace -> not found.
-        assert!(config
-            .get_clusters_from_ns_name(Some("team-b".to_string()), "prod".to_string())
-            .is_none());
+        assert!(
+            config
+                .get_clusters_from_ns_name(Some("team-b".to_string()), "prod".to_string())
+                .is_none()
+        );
         // None uses the default namespace, which has no "prod" entry here.
-        assert!(config
-            .get_clusters_from_ns_name(None, "prod".to_string())
-            .is_none());
+        assert!(
+            config
+                .get_clusters_from_ns_name(None, "prod".to_string())
+                .is_none()
+        );
     }
 }

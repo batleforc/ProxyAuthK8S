@@ -1,12 +1,12 @@
 use std::net::Ipv4Addr;
 
 use actix_cors::Cors;
-use actix_web::{dev::Service, http::header, middleware::Compress, web::Data, App, HttpServer};
+use actix_web::{App, HttpServer, dev::Service, http::header, middleware::Compress, web::Data};
 use api::{api_doc::ApiDoc, init_api, init_base_api, init_cluster_api};
 use trace::{shutdown_tracing, start_tracing};
 use tracing_actix_web::{RequestId, TracingLogger};
 use utoipa::OpenApi;
-use utoipa_actix_web::{scope, AppExt};
+use utoipa_actix_web::{AppExt, scope};
 use utoipa_scalar::{Scalar, Servable};
 
 #[tokio::main]
