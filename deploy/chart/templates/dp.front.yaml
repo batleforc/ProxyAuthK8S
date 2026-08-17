@@ -1,10 +1,13 @@
 # Deployment for Frontend Service
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: "{{ .Release.Name }}-proxyauthk8s-front"
   namespace: "{{ .Release.Namespace }}"
 spec:
-  replicas: 1
+  {{- if not .Values.front.autoscaling.enabled }}
+  replicas: {{ .Values.front.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       app: "{{ .Release.Name }}-proxyauthk8s-front"
@@ -13,12 +16,14 @@ spec:
       labels:
         app: "{{ .Release.Name }}-proxyauthk8s-front"
     spec:
+      {{- include "proxyauthk8s.podSecurityContext" . | nindent 6 }}
       containers:
         - name: proxyauthk8s-front
           image: '{{ .Values.registry.front.image.repository }}:{{ .Values.registry.front.image.tag }}'
           imagePullPolicy: '{{ .Values.registry.front.image.pullPolicy }}'
+          {{- include "proxyauthk8s.containerSecurityContext" . | nindent 10 }}
           ports:
-            - containerPort: 4200
+            - containerPort: {{ .Values.front.port }}
           env:
             - name: ENV
               value: "production"
@@ -54,12 +59,24 @@ spec:
           livenessProbe:
             httpGet:
               path: /
-              port: 4200
+              port: {{ .Values.front.port }}
             initialDelaySeconds: 30
             periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /
-              port: 4200
+              port: {{ .Values.front.port }}
             initialDelaySeconds: 10
             periodSeconds: 20
+          # A static web server writes its cache and pid under /tmp and /var/run,
+          # which readOnlyRootFilesystem would otherwise deny.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /var/run
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: run
+          emptyDir: {}

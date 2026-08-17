@@ -14,7 +14,7 @@ tasks:
       - DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock DOCKER_SOCK=$XDG_RUNTIME_DIR/podman/podman.sock k3d cluster create --config .k3d/k3d.cluster.yaml
       - task k3d:kubeconfig
       - task k3d:crd
-      - task k3d:k -- apply -f ./deploy/exemple/min-local-talos.crd.yaml
+      - task k3d:k -- apply -f ./deploy/example/min-local-talos.crd.yaml
       - task tool:create-kubeconfig-proxy
       - task tool:create-kubeconfig-oidc
       - task tool:create-kubeconfig-sa

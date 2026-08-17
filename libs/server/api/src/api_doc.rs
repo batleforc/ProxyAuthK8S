@@ -1,13 +1,15 @@
 use utoipa::{
-    openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
     Modify, OpenApi,
+    openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
 };
 
 pub struct SecurityAddons;
 
 impl Modify for SecurityAddons {
     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
-        let components = openapi.components.as_mut().unwrap(); // we can unwrap safely since there already is components registered.
+        // A modifier must not panic if no components have been registered yet;
+        // create the container on demand instead of unwrapping.
+        let components = openapi.components.get_or_insert_with(Default::default);
         components.add_security_scheme(
             "bearer_auth",
             SecurityScheme::Http(
@@ -16,7 +18,7 @@ impl Modify for SecurityAddons {
                     .bearer_format("JWT")
                     .build(),
             ),
-        )
+        );
     }
 }
 

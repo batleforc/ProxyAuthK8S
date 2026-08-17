@@ -1,0 +1,17 @@
+[package]
+name = "crd_runtime"
+version = "0.1.9"
+edition = "2024"
+
+[dependencies]
+kube = { workspace = true }
+tracing = { workspace = true }
+reqwest = { workspace = true }
+thiserror = { workspace = true }
+base64 = "0.22"
+secrecy = "0.10.3"
+
+crd = { path = "../crd", version = "0.1.9" }
+common = { path = "../common", version = "0.1.9" }
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

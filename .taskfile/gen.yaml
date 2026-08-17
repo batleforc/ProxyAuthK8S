@@ -79,10 +79,35 @@ tasks:
   docs:crd:
     desc: "Generate documentation for Custom Resource Definitions"
     silent: true
+    vars:
+      CRD_YAML: deploy/crds.yaml
+      CRD_MDX: .docs/content/docs/crds.mdx
+      CRDOC_IMAGE: ghcr.io/fybrik/crdoc:latest
     cmds:
       - echo "Generating documentation for Custom Resource Definitions"
-      - podman run -u $(id -u):$(id -g) --rm -v ${PWD}:/workdir ghcr.io/fybrik/crdoc:latest --resources /workdir/deploy/crds.yaml --output /workdir/.docs/content/docs/crds.mdx
-      - echo "Replacing all curly braces with escaped version in the generated documentation"
-      - sed -i -e 's/{{ "{{" }}/\\{\\{/g' -e 's/{{ "}}" }}/\\}\\}/g' .docs/content/docs/crds.mdx
+      # Run crdoc via a container engine if available (docker/podman), otherwise
+      # fall back to a native crdoc binary (e.g. installed through mise). This
+      # keeps the task usable in sandboxes without a container engine.
+      - |
+        if command -v docker >/dev/null 2>&1; then
+          echo "Using docker + crdoc image"
+          docker run -u "$(id -u):$(id -g)" --rm -v "${PWD}:/workdir" {{.CRDOC_IMAGE}} --resources "/workdir/{{.CRD_YAML}}" --output "/workdir/{{.CRD_MDX}}"
+        elif command -v podman >/dev/null 2>&1; then
+          echo "Using podman + crdoc image"
+          podman run -u "$(id -u):$(id -g)" --rm -v "${PWD}:/workdir" {{.CRDOC_IMAGE}} --resources "/workdir/{{.CRD_YAML}}" --output "/workdir/{{.CRD_MDX}}"
+        elif command -v crdoc >/dev/null 2>&1; then
+          echo "No container engine found; using native crdoc binary"
+          crdoc --resources "{{.CRD_YAML}}" --output "{{.CRD_MDX}}"
+        else
+          echo "Error: need docker, podman, or a native 'crdoc' binary (install e.g. with: go install fybrik.io/crdoc@latest)" >&2
+          exit 1
+        fi
+      - echo "Escaping braces outside inline code spans for MDX/JSX safety"
+      # MDX (fumadocs) treats any unescaped '{' as a JSX expression. crdoc emits
+      # raw braces from CRD descriptions: double braces ({{username}}/{{group}}),
+      # path templates like /apis/{group}/..., and CEL validation regexes. Escape
+      # every { and } to \{ \}, but only OUTSIDE inline `code` spans, whose braces
+      # must stay raw (a \{ inside backticks would render the backslash literally).
+      - perl -i -pe 'my @p=split /(`[^`]*`)/,$_,-1; for(@p){next if /^`.*`$/s; s/(?<!\\)\{/\\{/g; s/(?<!\\)\}/\\}/g} $_=join("",@p);' {{.CRD_MDX}}
       - echo "Add front matter to the generated documentation"
-      - .docs/scripts/add-frontmatter.sh --title "Custom Resource Definitions" --icon DraftingCompass --output .docs/content/docs/crds.mdx .docs/content/docs/crds.mdx
+      - .docs/scripts/add-frontmatter.sh --title "Custom Resource Definitions" --icon DraftingCompass --output {{.CRD_MDX}} {{.CRD_MDX}}

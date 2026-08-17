@@ -35,7 +35,7 @@ const authenticationComplete = ref(false);
 
 // Lifecycle
 onMounted(async () => {
-  console.info(`Well it does not work`, { inited: authStore.inited, user: authStore.user, cluster: clustersStore.inited });
+  // Never log `authStore.user`: it holds the id/access/refresh tokens.
   if (authStore.isInited && authStore.isAuthenticated && clustersStore.inited === false) {
     toast.info('Récupération des clusters en cours...', { duration: 3000 });
     await clustersStore.fetchClusters(toast);

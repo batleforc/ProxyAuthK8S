@@ -33,9 +33,10 @@ pub struct UrlInfo {
 }
 
 impl CliConfig {
+    #[must_use]
     pub fn new() -> Self {
         CliConfig {
-            default_server_name: "".to_string(),
+            default_server_name: String::new(),
             servers: vec![].into_iter().collect(),
         }
     }
@@ -46,7 +47,7 @@ impl CliConfig {
             server.clear_all_tokens();
         }
         self.servers = HashMap::new();
-        self.default_server_name = "".to_string();
+        self.default_server_name = String::new();
         self
     }
 
@@ -64,11 +65,10 @@ impl CliConfig {
     pub fn write_to_file(&self, path: PathBuf) -> Result<&Self, ProxyAuthK8sError> {
         let yaml_str = self.to_yaml().map_err(|e| {
             ProxyAuthK8sError::KubeconfigWriteError(format!(
-                "Failed to serialize CLI config to YAML: {}",
-                e
+                "Failed to serialize CLI config to YAML: {e}"
             ))
         })?;
-        std::fs::write(path.clone(), yaml_str).map_err(|e| {
+        crate::helper::secure_write(path.clone(), &yaml_str).map_err(|e| {
             ProxyAuthK8sError::KubeconfigWriteError(format!(
                 "Failed to write CLI config file at {}: {}",
                 path.to_string_lossy(),
@@ -92,18 +92,6 @@ impl CliConfig {
         }
     }
 
-    pub fn get_cluster_config(
-        &self,
-        server_name: Option<String>,
-        cluster_name: String,
-        ns: Option<String>,
-    ) -> Option<&CliClusterConfig> {
-        let server_name = server_name.unwrap_or_else(|| self.default_server_name.clone());
-        self.servers
-            .get(&server_name)
-            .and_then(|server| server.get_clusters_from_name_ns(cluster_name, ns))
-    }
-
     pub fn get_or_insert_server_config(
         &mut self,
         server_name: String,
@@ -121,39 +109,46 @@ impl CliConfig {
                 return Err(CliConfigError::InvalidServerUrl(
                     url.to_string(),
                     err.to_string(),
-                ))
+                ));
             }
         };
 
-        let host = match parsed_url.host_str() {
-            Some(h) => h,
-            None => {
-                return Err(CliConfigError::InvalidServerUrl(
-                    url.to_string(),
-                    "No host found in URL".to_string(),
-                ))
-            }
+        let Some(host) = parsed_url.host_str() else {
+            return Err(CliConfigError::InvalidServerUrl(
+                url.to_string(),
+                "No host found in URL".to_string(),
+            ));
         };
-        let server_name = host.replace(".", "-").replace(":", "-");
-        let ns = parsed_url
-            .path_segments()
-            .and_then(|mut segments| segments.nth(1))
-            .map(|s| s.to_string());
-        let cluster_name = parsed_url
-            .path_segments()
-            .and_then(|mut segments| segments.nth(2))
-            .map(|s| s.to_string());
-        if ns.is_none() || cluster_name.is_none() {
+        // Derive the server name exactly like logins do
+        // (`CliServerConfig::url_to_name`), INCLUDING the port — otherwise a
+        // cluster-by-URL lookup keyed on `localhost` would never match a server
+        // stored under `localhost-5437`. `host_str()` drops the port, so rebuild
+        // the origin before running it through the shared name function.
+        let origin = match parsed_url.port() {
+            Some(port) => format!("{}://{host}:{port}", parsed_url.scheme()),
+            None => format!("{}://{host}", parsed_url.scheme()),
+        };
+        let server_name = CliServerConfig::url_to_name_from_string(origin);
+        let (Some(namespace), Some(cluster_name)) = (
+            parsed_url
+                .path_segments()
+                .and_then(|mut segments| segments.nth(1))
+                .map(std::string::ToString::to_string),
+            parsed_url
+                .path_segments()
+                .and_then(|mut segments| segments.nth(2))
+                .map(std::string::ToString::to_string),
+        ) else {
             return Err(CliConfigError::InvalidServerUrl(
                 url.to_string(),
                 "Namespace or cluster name not found in URL path".to_string(),
             ));
-        }
+        };
 
         Ok(UrlInfo {
             server_name,
-            namespace: ns.unwrap(),
-            cluster_name: cluster_name.unwrap(),
+            namespace,
+            cluster_name,
         })
     }
 
@@ -164,12 +159,18 @@ impl CliConfig {
         // Cluster url should look like "https://localhost:5437/clusters/default/local-sso"
         let url_info = Self::proxy_url_to_tuple(&cluster_url)?;
 
-        self.servers
+        // Distinguish "no such server" from "server exists but no such cluster"
+        // so the caller can tell a wrong host from a wrong cluster.
+        let server = self
+            .servers
             .get(&url_info.server_name)
-            .and_then(|server| {
-                server.get_clusters_from_name_ns(url_info.cluster_name, Some(url_info.namespace))
+            .ok_or_else(|| CliConfigError::ServerNotFound(url_info.server_name.clone()))?;
+        server
+            .get_clusters_from_ns_name(Some(url_info.namespace), url_info.cluster_name.clone())
+            .ok_or(CliConfigError::ClusterNotFound {
+                server: url_info.server_name,
+                cluster: url_info.cluster_name,
             })
-            .ok_or(CliConfigError::ServerNotFound(cluster_url))
     }
 
     pub fn get_server_config_by_url(
@@ -183,5 +184,40 @@ impl CliConfig {
         self.servers
             .get(&server_name)
             .ok_or(CliConfigError::ServerNotFound(server_name))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn proxy_url_to_tuple_extracts_server_ns_and_cluster() {
+        let info = CliConfig::proxy_url_to_tuple("https://proxy.example.com/clusters/team-a/prod")
+            .expect("a well-formed proxy URL parses");
+        assert_eq!(info.server_name, "proxy-example-com");
+        assert_eq!(info.namespace, "team-a");
+        assert_eq!(info.cluster_name, "prod");
+    }
+
+    #[test]
+    fn proxy_url_to_tuple_rejects_malformed_urls() {
+        // Not a URL at all.
+        assert!(CliConfig::proxy_url_to_tuple("not a url").is_err());
+        // Missing the namespace/cluster path segments.
+        assert!(CliConfig::proxy_url_to_tuple("https://localhost:5437").is_err());
+    }
+
+    #[test]
+    fn proxy_url_to_tuple_server_name_keeps_the_port_and_matches_url_to_name() {
+        // Regression: the server name must include the port so a cluster-by-URL
+        // lookup matches the key a server login stores (url_to_name keeps it).
+        let info = CliConfig::proxy_url_to_tuple("https://localhost:5437/clusters/default/local")
+            .expect("a well-formed proxy URL parses");
+        assert_eq!(info.server_name, "localhost-5437");
+        assert_eq!(
+            info.server_name,
+            CliServerConfig::url_to_name_from_string("https://localhost:5437".to_string())
+        );
     }
 }

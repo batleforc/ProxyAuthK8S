@@ -2,7 +2,7 @@ use crate::default::{default_ban_duration, default_disabled, default_max_failed_
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// Pseudo Fail2Ban configuration
+/// Pseudo `Fail2Ban` configuration
 /// If the user has too many failed login attempts, he will be banned for a certain time
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub struct Fail2LoginEqualBanConfiguration {

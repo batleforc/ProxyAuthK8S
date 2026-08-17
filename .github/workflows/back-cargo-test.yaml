@@ -1,0 +1,66 @@
+name: 🦀 Rust tests
+
+# 🧪 Unit tests plus the fast integration tier: the upstream Kubernetes API and
+# the OIDC provider are wiremock stubs, Redis is a real service container.
+# REQUIRE_TEST_REDIS makes a missing Redis a failure instead of a silent skip.
+
+on:
+  push:
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/back-cargo-test.yaml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/back-cargo-test.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-test:
+    name: 🧪 Run cargo test
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_REDIS_URL: redis://127.0.0.1:6379
+      REQUIRE_TEST_REDIS: "1"
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 🦀 Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+        with:
+          toolchain: stable
+
+      - name: 🧱 Install System Dependencies
+        # libdbus-1-dev is required by the `keyring` crate used by the CLI.
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - name: 📦 Install cargo-nextest
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        with:
+          tool: nextest
+
+      - name: 🧪 Run Tests
+        run: cargo nextest run --workspace --all-targets
+
+      - name: 📖 Run Doctests
+        # nextest doesn't run doctests; kept as a safety net in case one is added.
+        run: cargo test --doc

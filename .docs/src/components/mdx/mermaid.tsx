@@ -1,7 +1,20 @@
 'use client';
 
-import { use, useId, useEffect, useState } from 'react';
+import { use, useId, useSyncExternalStore } from 'react';
 import { useTheme } from 'next-themes';
+
+const emptySubscribe = () => () => {};
+
+// True only once hydrated on the client; avoids calling `setState` inside an
+// effect just to detect mount (the pattern `react-hooks/set-state-in-effect`
+// flags).
+function useHydrated() {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
+}
 
 export function Mermaid({ chart }: { chart: string }) {
   return <MermaidContent chart={chart} />;
@@ -21,14 +34,10 @@ function cachePromise<T>(key: string, setPromise: () => Promise<T>): Promise<T> 
 function MermaidContent({ chart }: { chart: string }) {
   const id = useId();
   const { resolvedTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useHydrated();
 
   // Don't render on server or before hydration
-  if (!mounted || typeof window === 'undefined') {
+  if (!mounted) {
     return <div className="mermaid-loading">Loading diagram...</div>;
   }
 

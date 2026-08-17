@@ -2,6 +2,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Per-user group rate limiting configuration
+///
+/// Groups come from the user resolved by the configured authentication, so no
+/// claim mapping is needed here.
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub struct PerUserGroupRateLimitingConfiguration {
     /// Group name
@@ -10,6 +13,4 @@ pub struct PerUserGroupRateLimitingConfiguration {
     /// This setting overrides the global rate limiting setting
     /// 0 disables the rate limiting for this group
     pub max_requests_per_minute: u32,
-    /// Claim to identify the user group, used in conjunction with claim_mappings in the JWTAuthenticator or the generated user from either kube or oauth2 authentication
-    pub claim: String,
 }

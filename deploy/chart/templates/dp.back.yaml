@@ -5,7 +5,9 @@ metadata:
   name: "{{ .Release.Name }}-proxyauthk8s-back"
   namespace: "{{ .Release.Namespace }}"
 spec:
+  {{- if not .Values.back.autoscaling.enabled }}
   replicas: {{ .Values.back.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       app: "{{ .Release.Name }}-proxyauthk8s-back"
@@ -14,12 +16,14 @@ spec:
       labels:
         app: "{{ .Release.Name }}-proxyauthk8s-back"
     spec:
-      serviceAccountName: "{{ .Release.Name }}-proxyauthk8s-back-sa"
+      serviceAccountName: "{{ .Release.Name }}-proxyauthk8s-operator"
       automountServiceAccountToken: true
+      {{- include "proxyauthk8s.podSecurityContext" . | nindent 6 }}
       containers:
         - name: proxyauthk8s-back
           image: '{{ .Values.registry.back.image.repository }}:{{ .Values.registry.back.image.tag }}'
           imagePullPolicy: '{{ .Values.registry.back.image.pullPolicy }}'
+          {{- include "proxyauthk8s.containerSecurityContext" . | nindent 10 }}
           ports:
             - containerPort: {{ .Values.back.port }}
           env:
@@ -37,7 +41,7 @@ spec:
             {{- end }}
             {{- if eq .Values.back.redis.source "env" }}
             - name: REDIS_URL
-              value: '{{ .Values.back.redis.value.url }}'
+              value: '{{ include "proxyauthk8s.redisUrl" . }}'
             {{- end }}
             {{- if eq .Values.oidc.source "env" }}
             - name: OIDC_ISSUER_URL
@@ -89,3 +93,10 @@ spec:
               port: {{ .Values.back.port }}
             initialDelaySeconds: 10
             periodSeconds: 20
+          # readOnlyRootFilesystem still needs somewhere to write scratch files.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

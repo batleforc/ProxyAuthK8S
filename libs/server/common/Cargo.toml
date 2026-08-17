@@ -1,7 +1,12 @@
 [package]
 name = "common"
 version = "0.1.9"
-edition = "2021"
+edition = "2024"
+
+[features]
+# Exposes constructors that bypass the real Kubernetes/Redis/OIDC discovery a
+# running server performs at boot. Enabled from dev-dependencies only.
+test-util = []
 
 [dependencies]
 kube = { workspace = true }
@@ -10,10 +15,14 @@ tracing = { workspace = true }
 rustls = { workspace = true }
 openidconnect = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = "0.22"
 reqwest = { workspace = true }
 thiserror = { workspace = true }
 k8s-openapi = { workspace = true }
 oauth2-reqwest = { workspace = true }
+
+crd = { path = "../crd", version = "0.1.9" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [package.metadata.cargo-machete]

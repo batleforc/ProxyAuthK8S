@@ -2,24 +2,27 @@ use crate::ctx::CliCtx;
 use tracing::{debug, error};
 //https://kubernetes.io/docs/reference/access-authn-authz/authentication/#input-and-output-formats
 impl CliCtx {
-    pub async fn handle_get_token(&mut self, cluster_name: Option<String>) {
+    /// Returns `Err(())` on any failure so the caller can propagate a non-zero
+    /// exit code. `kubectl` treats a zero exit from an exec-credential plugin as
+    /// "credentials produced"; exiting 0 on failure would make it retry/fail with
+    /// a confusing error instead of surfacing our message.
+    pub async fn handle_get_token(&mut self, cluster_name: Option<String>) -> Result<(), ()> {
         debug!("Handling get token for cluster: {:?}", cluster_name);
 
         // if server_url is not provided and none exist in config, return error
         if self.server_url.is_empty() && self.config.default_server_name.is_empty() {
-            error!("Error: No ProxyAuthK8S server URL provided and no existing configuration found. Please provide a server URL using the --server-url option or login to server first.");
-            return;
+            error!(
+                "Error: No ProxyAuthK8S server URL provided and no existing configuration found. Please provide a server URL using the --server-url option or login to server first."
+            );
+            return Err(());
         }
 
         // KUBERNETES_EXEC_INFO is always set by kubectl when invoking an exec plugin
-        let exec_ctx = match std::env::var("KUBERNETES_EXEC_INFO") {
-            Ok(info) => info,
-            Err(_) => {
-                error!(
-                    "KUBERNETES_EXEC_INFO environment variable is not set. Cannot retrieve ctx."
-                );
-                return;
-            }
+        let exec_ctx = if let Ok(info) = std::env::var("KUBERNETES_EXEC_INFO") {
+            info
+        } else {
+            error!("KUBERNETES_EXEC_INFO environment variable is not set. Cannot retrieve ctx.");
+            return Err(());
         };
         debug!("KUBERNETES_EXEC_INFO: {}", exec_ctx);
 
@@ -27,7 +30,7 @@ impl CliCtx {
             Ok(info) => info,
             Err(e) => {
                 error!("Failed to parse KUBERNETES_EXEC_INFO as JSON: {}", e);
-                return;
+                return Err(());
             }
         };
 
@@ -56,18 +59,21 @@ impl CliCtx {
                 });
             (name, exec_ns)
         } else {
-            debug!("No cluster name provided, extracting from KUBERNETES_EXEC_INFO spec.cluster.server");
-            let cluster_server_url = match exec_info
+            debug!(
+                "No cluster name provided, extracting from KUBERNETES_EXEC_INFO spec.cluster.server"
+            );
+            let cluster_server_url = if let Some(url) = exec_info
                 .get("spec")
                 .and_then(|s| s.get("cluster"))
                 .and_then(|s| s.get("server"))
                 .and_then(|v| v.as_str())
             {
-                Some(url) => url,
-                None => {
-                    error!("Cluster name not provided and spec.cluster.server not found in KUBERNETES_EXEC_INFO. Please provide the cluster name as argument.");
-                    return;
-                }
+                url
+            } else {
+                error!(
+                    "Cluster name not provided and spec.cluster.server not found in KUBERNETES_EXEC_INFO. Please provide the cluster name as argument."
+                );
+                return Err(());
             };
             match crate::cli_config::CliConfig::proxy_url_to_tuple(cluster_server_url) {
                 Ok(url_info) => {
@@ -82,29 +88,28 @@ impl CliCtx {
                         "Failed to extract cluster name from server URL '{}': {}. Please provide the cluster name as argument.",
                         cluster_server_url, e
                     );
-                    return;
+                    return Err(());
                 }
             }
         };
 
         // Resolve server config (via --server-url arg or default)
-        let server_config =
-            match self
-                .config
-                .get_server_config_by_url(if self.server_url.is_empty() {
-                    None
-                } else {
-                    Some(self.server_url.clone())
-                }) {
-                Ok(config) => config,
-                Err(e) => {
-                    error!(
+        let server_config = match self.config.get_server_config_by_url(
+            if self.server_url.is_empty() {
+                None
+            } else {
+                Some(self.server_url.clone())
+            },
+        ) {
+            Ok(config) => config,
+            Err(e) => {
+                error!(
                     "Error retrieving server configuration: {}. Please login to the server first.",
                     e
                 );
-                    return;
-                }
-            };
+                return Err(());
+            }
+        };
 
         // Determine namespace: CLI arg > exec info > server default
         let namespace = if !self.namespace.is_empty() {
@@ -128,7 +133,7 @@ impl CliCtx {
                     "Failed to retrieve token for cluster '{}/{}': {}. Please login using 'login --cluster-name {}'.",
                     namespace, cluster_name, e, cluster_name
                 );
-                return;
+                return Err(());
             }
         };
 
@@ -153,9 +158,13 @@ impl CliCtx {
         });
 
         match serde_json::to_string(&exec_credential) {
-            Ok(output) => println!("{}", output),
+            Ok(output) => {
+                println!("{output}");
+                Ok(())
+            }
             Err(e) => {
                 error!("Failed to serialize ExecCredential response: {}", e);
+                Err(())
             }
         }
     }

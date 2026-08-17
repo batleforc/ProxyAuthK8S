@@ -5,7 +5,9 @@ use crate::cli_config::error::CliConfigError;
 
 #[derive(Debug, Error)]
 pub enum ProxyAuthK8sError {
-    #[error("ERR000001: Kubeconfig path could not be calculated, either provide via --kubeconfig flag or set the KUBECONFIG environment variable")]
+    #[error(
+        "ERR000001: Kubeconfig path could not be calculated, either provide via --kubeconfig flag or set the KUBECONFIG environment variable"
+    )]
     KubeconfigPathCouldNotBeCalculated,
     #[error("ERR000002: Failed to read kubeconfig file: {0}")]
     KubeconfigReadError(String),
@@ -15,11 +17,15 @@ pub enum ProxyAuthK8sError {
     InvalidServerUrl(String, String),
     #[error("ERR000005: Server '{0}' not found in configuration")]
     ServerNotFound(String),
+    #[error("ERR000016: Cluster '{cluster}' not found under server '{server}'")]
+    ClusterNotFound { server: String, cluster: String },
     #[error("ERR000006: YAML Parse Error: {0}")]
     YamlParseError(String),
     #[error("ERR000007: YAML Serialize Error: {0}")]
     YamlSerializeError(String),
-    #[error("ERR000008: Configuration path could not be calculated, either provide via --proxy-auth-config flag or set the HOME environment variable")]
+    #[error(
+        "ERR000008: Configuration path could not be calculated, either provide via --proxy-auth-config flag or set the HOME environment variable"
+    )]
     ConfigPathCouldNotBeCalculated,
     #[error("ERR000009: Failed to write kubeconfig file: {0}")]
     KubeconfigWriteError(String),
@@ -33,6 +39,10 @@ pub enum ProxyAuthK8sError {
     RemoteServerError(String),
     #[error("ERR000014: Unauthenticated: {0}")]
     Unauthenticated(String),
+    #[error("ERR000015: Interactive SSO login failed: {0}")]
+    SsoLoginError(String),
+    #[error("ERR000017: {0}")]
+    InvalidUsage(String),
 }
 
 impl From<CliConfigError> for ProxyAuthK8sError {
@@ -42,6 +52,9 @@ impl From<CliConfigError> for ProxyAuthK8sError {
                 ProxyAuthK8sError::InvalidServerUrl(url, error)
             }
             CliConfigError::ServerNotFound(server) => ProxyAuthK8sError::ServerNotFound(server),
+            CliConfigError::ClusterNotFound { server, cluster } => {
+                ProxyAuthK8sError::ClusterNotFound { server, cluster }
+            }
             CliConfigError::YamlParseError(error) => ProxyAuthK8sError::YamlParseError(error),
             CliConfigError::YamlSerializeError(error) => {
                 ProxyAuthK8sError::YamlSerializeError(error)
@@ -60,7 +73,7 @@ impl From<GetAllVisibleClusterError> for ProxyAuthK8sError {
                 "Invalid response from server, see debug to have more details".to_owned(),
             ),
             GetAllVisibleClusterError::UnknownValue(val) => {
-                ProxyAuthK8sError::RemoteServerError(format!("Unknown error from server: {}", val))
+                ProxyAuthK8sError::RemoteServerError(format!("Unknown error from server: {val}"))
             }
         }
     }
@@ -76,9 +89,9 @@ impl From<client_api::apis::Error<GetAllVisibleClusterError>> for ProxyAuthK8sEr
                 ),
             },
             client_api::apis::Error::Serde(err) => {
-                ProxyAuthK8sError::RemoteServerError(format!("Serialization error: {}", err))
+                ProxyAuthK8sError::RemoteServerError(format!("Serialization error: {err}"))
             }
-            other => ProxyAuthK8sError::RemoteServerError(format!("Unexpected error: {:?}", other)),
+            other => ProxyAuthK8sError::RemoteServerError(format!("Unexpected error: {other:?}")),
         }
     }
 }

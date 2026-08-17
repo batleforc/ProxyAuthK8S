@@ -1,0 +1,320 @@
+//! Path pattern matching used by `SecurityConfiguration::allowed_resources`.
+//!
+//! Patterns are matched segment by segment against the *upstream* request path
+//! (the path as it is sent to the Kubernetes API, i.e. after the
+//! `/clusters/{ns}/{cluster}` prefix has been stripped):
+//!
+//! - a literal segment matches itself;
+//! - `*` inside a segment matches any run of characters within that segment
+//!   only, so `dev-*` matches `dev-team` but never `dev-team/pods`;
+//! - a `**` segment matches any number of remaining segments, which is what
+//!   makes subresources (`.../pods/mypod/log`) reachable.
+//!
+//! Matching never looks at the query string.
+
+/// Split a path into its non-empty segments, ignoring leading/trailing slashes.
+fn split_segments(value: &str) -> Vec<&str> {
+    value.split('/').filter(|s| !s.is_empty()).collect()
+}
+
+/// Percent-decode a segment a single pass, mirroring what the upstream apiserver
+/// does before it path-cleans the request. `%2e` becomes `.`, `%2f` becomes `/`,
+/// and so on; invalid or truncated escapes are left untouched. A single pass is
+/// deliberate: the apiserver decodes once, so `%252e` reaches it as `%2e` (not a
+/// dot) and must not be treated as traversal here.
+fn percent_decode_once(segment: &str) -> String {
+    let bytes = segment.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = (bytes[i + 1] as char).to_digit(16);
+            let lo = (bytes[i + 2] as char).to_digit(16);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                out.push((hi * 16 + lo) as u8);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// A request segment that carries no authorization meaning by itself but changes
+/// the effective resource once the upstream apiserver path-cleans it.
+///
+/// `..`/`.` (and their percent-encodings, including mixed forms such as `.%2e`)
+/// let a request like `/api/v1/namespaces/dev/../prod/secrets` slip past an allow
+/// rule scoped to `dev` while the apiserver resolves it to `prod`. Encoded
+/// slashes (`%2f`) and backslashes (`%5c`) are equally dangerous because they
+/// hide a segment boundary from the matcher. We decode the segment the same way
+/// the apiserver will, then test the result — so any encoding that resolves to a
+/// dot-segment or a separator is caught, not just the exact spellings.
+fn is_traversal_segment(segment: &str) -> bool {
+    let decoded = percent_decode_once(segment);
+    decoded == "." || decoded == ".." || decoded.contains('/') || decoded.contains('\\')
+}
+
+/// Reject any request path that contains a traversal / encoded-separator segment
+/// so the matcher and the upstream agree on which resource is addressed.
+fn request_path_is_safe(path_segments: &[&str]) -> bool {
+    !path_segments
+        .iter()
+        .any(|segment| is_traversal_segment(segment))
+}
+
+/// Whether `path` is free of traversal / encoded-separator segments.
+///
+/// Exposed so matchers that do their own positional path parsing (the CRD rule
+/// matcher) can apply the exact same guard the pattern matchers use, instead of
+/// silently ignoring segments that change which resource is really addressed.
+#[must_use]
+pub fn path_has_no_traversal(path: &str) -> bool {
+    request_path_is_safe(&split_segments(path))
+}
+
+/// Match a single segment against a pattern segment that may contain `*`.
+fn segment_matches(pattern: &str, segment: &str) -> bool {
+    if !pattern.contains('*') {
+        return pattern == segment;
+    }
+
+    let parts: Vec<&str> = pattern.split('*').collect();
+    let last_index = parts.len() - 1;
+    let mut rest = segment;
+
+    for (index, part) in parts.iter().enumerate() {
+        if index == 0 {
+            match rest.strip_prefix(part) {
+                Some(remainder) => rest = remainder,
+                None => return false,
+            }
+        } else if index == last_index {
+            // A trailing `*` swallows whatever is left.
+            if part.is_empty() {
+                return true;
+            }
+            return rest.len() >= part.len() && rest.ends_with(part);
+        } else {
+            match rest.find(part) {
+                Some(idx) => rest = &rest[idx + part.len()..],
+                None => return false,
+            }
+        }
+    }
+
+    true
+}
+
+fn match_segments(pattern: &[&str], path: &[&str]) -> bool {
+    match pattern.split_first() {
+        None => path.is_empty(),
+        Some((&"**", rest)) => {
+            if rest.is_empty() {
+                return true;
+            }
+            (0..=path.len()).any(|skipped| match_segments(rest, &path[skipped..]))
+        }
+        Some((head, rest)) => match path.split_first() {
+            Some((path_head, path_rest)) if segment_matches(head, path_head) => {
+                match_segments(rest, path_rest)
+            }
+            _ => false,
+        },
+    }
+}
+
+/// Match a request path against a configured pattern.
+#[must_use]
+pub fn path_matches_pattern(pattern: &str, path: &str) -> bool {
+    let path_segments = split_segments(path);
+    if !request_path_is_safe(&path_segments) {
+        return false;
+    }
+    match_segments(&split_segments(pattern), &path_segments)
+}
+
+/// Compare two paths ignoring leading/trailing slash differences only.
+#[must_use]
+pub fn path_equals(configured: &str, path: &str) -> bool {
+    let path_segments = split_segments(path);
+    if !request_path_is_safe(&path_segments) {
+        return false;
+    }
+    split_segments(configured) == path_segments
+}
+
+/// Whether a username/group claim value can be substituted into a single path
+/// segment without leaking pattern semantics into the matcher.
+///
+/// Rejects empty values, wildcard characters (`*`), segment separators (`/`) and
+/// traversal segments so the injected value can only ever match itself literally
+/// (otherwise a caller whose claim is `*` could self-escalate).
+#[must_use]
+pub fn is_safe_placeholder_value(value: &str) -> bool {
+    !value.is_empty()
+        && !value.contains('*')
+        && !value.contains('/')
+        && value != "."
+        && value != ".."
+}
+
+/// Expand a parametised template by substituting `{{username}}` / `{{group}}`
+/// with the caller's (literal-safe) claim values, yielding candidate patterns.
+///
+/// A `{{username}}` whose value is unsafe collapses the whole expansion to no
+/// candidate (fail-closed); unsafe individual groups are simply skipped. Shared
+/// by the allowed-path rules and the namespace access rules so both apply the
+/// exact same substitution hardening.
+#[must_use]
+pub fn expand_parametised_patterns(
+    template: &str,
+    username: &str,
+    groups: &[String],
+) -> Vec<String> {
+    let mut path = template.to_string();
+    if path.contains("{{username}}") {
+        if !is_safe_placeholder_value(username) {
+            return Vec::new();
+        }
+        path = path.replace("{{username}}", username);
+    }
+    if path.contains("{{group}}") {
+        groups
+            .iter()
+            .filter(|group| is_safe_placeholder_value(group))
+            .map(|group| path.replace("{{group}}", group))
+            .collect()
+    } else {
+        vec![path]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn literal_paths_match_exactly() {
+        assert!(path_matches_pattern("/api/v1/pods", "/api/v1/pods"));
+        assert!(!path_matches_pattern("/api/v1/pods", "/api/v1/services"));
+        assert!(!path_matches_pattern("/api/v1/pods", "/api/v1/pods/mypod"));
+    }
+
+    #[test]
+    fn leading_and_trailing_slashes_are_irrelevant() {
+        assert!(path_matches_pattern("api/v1/pods", "/api/v1/pods"));
+        assert!(path_matches_pattern("/api/v1/pods/", "/api/v1/pods"));
+        assert!(path_equals("/api/v1/pods/", "api/v1/pods"));
+    }
+
+    #[test]
+    fn star_matches_a_single_segment() {
+        assert!(path_matches_pattern(
+            "/api/v1/namespaces/*/pods",
+            "/api/v1/namespaces/dev/pods"
+        ));
+        // `*` must not cross a `/`.
+        assert!(!path_matches_pattern(
+            "/api/v1/namespaces/*/pods",
+            "/api/v1/namespaces/dev/team/pods"
+        ));
+        assert!(!path_matches_pattern(
+            "/api/v1/namespaces/*/pods",
+            "/api/v1/namespaces/dev/pods/mypod"
+        ));
+    }
+
+    #[test]
+    fn star_matches_a_prefix_inside_a_segment() {
+        assert!(path_matches_pattern(
+            "/api/v1/namespaces/dev-*/pods",
+            "/api/v1/namespaces/dev-team/pods"
+        ));
+        assert!(!path_matches_pattern(
+            "/api/v1/namespaces/dev-*/pods",
+            "/api/v1/namespaces/prod-team/pods"
+        ));
+        // A bare `dev-*` must not match the empty-suffix-only case `dev`.
+        assert!(!path_matches_pattern(
+            "/api/v1/namespaces/dev-*/pods",
+            "/api/v1/namespaces/dev/pods"
+        ));
+    }
+
+    #[test]
+    fn star_can_appear_in_the_middle_of_a_segment() {
+        assert!(segment_matches("dev-*-front", "dev-team-front"));
+        assert!(!segment_matches("dev-*-front", "dev-team-back"));
+        assert!(segment_matches("*-front", "dev-front"));
+        assert!(segment_matches("*", "anything"));
+        assert!(segment_matches("*", ""));
+    }
+
+    #[test]
+    fn double_star_matches_any_number_of_segments() {
+        assert!(path_matches_pattern(
+            "/api/v1/namespaces/dev/pods/**",
+            "/api/v1/namespaces/dev/pods"
+        ));
+        assert!(path_matches_pattern(
+            "/api/v1/namespaces/dev/pods/**",
+            "/api/v1/namespaces/dev/pods/mypod/log"
+        ));
+        assert!(!path_matches_pattern(
+            "/api/v1/namespaces/dev/pods/**",
+            "/api/v1/namespaces/prod/pods/mypod"
+        ));
+        assert!(path_matches_pattern("/**", "/apis/apps/v1/deployments"));
+    }
+
+    #[test]
+    fn double_star_in_the_middle_backtracks() {
+        assert!(path_matches_pattern("/api/**/log", "/api/v1/pods/x/log"));
+        assert!(path_matches_pattern("/api/**/log", "/api/log"));
+        assert!(!path_matches_pattern("/api/**/log", "/api/v1/pods/x/exec"));
+    }
+
+    #[test]
+    fn empty_pattern_only_matches_the_root() {
+        assert!(path_matches_pattern("/", "/"));
+        assert!(!path_matches_pattern("/", "/api"));
+    }
+
+    #[test]
+    fn traversal_segments_are_rejected() {
+        // `..` must not let a `dev`-scoped rule reach `prod`.
+        assert!(!path_matches_pattern(
+            "/api/v1/namespaces/dev/**",
+            "/api/v1/namespaces/dev/../prod/secrets"
+        ));
+        assert!(!path_matches_pattern("/**", "/api/v1/../secrets"));
+        assert!(!path_matches_pattern("/api/./v1/pods", "/api/./v1/pods"));
+        // Percent-encoded dot segments and encoded slashes are refused too.
+        assert!(!path_matches_pattern("/**", "/api/v1/%2e%2e/secrets"));
+        assert!(!path_matches_pattern(
+            "/**",
+            "/api/v1/namespaces%2fprod/secrets"
+        ));
+        // Mixed literal/encoded dot segments decode to `..` upstream and must be
+        // refused as well (uppercase and lowercase hex).
+        assert!(!path_matches_pattern("/**", "/api/v1/.%2e/secrets"));
+        assert!(!path_matches_pattern("/**", "/api/v1/%2e./secrets"));
+        assert!(!path_matches_pattern("/**", "/api/v1/.%2E/secrets"));
+        assert!(!path_matches_pattern(
+            "/**",
+            "/api/v1/namespaces%2Fprod/secrets"
+        ));
+        assert!(!path_matches_pattern("/**", "/api/v1/dir%5c..%5csecrets"));
+        // `path_equals` is guarded identically.
+        assert!(!path_equals("/api/v1/../secrets", "/api/v1/../secrets"));
+        // A double-encoded dot (`%252e`) reaches the apiserver as `%2e`, not a
+        // dot, so it is not traversal and must NOT be rejected here.
+        assert!(path_matches_pattern(
+            "/api/v1/%252e/pods",
+            "/api/v1/%252e/pods"
+        ));
+    }
+}

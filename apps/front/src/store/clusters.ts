@@ -73,10 +73,15 @@ export const useClustersStore = defineStore('clusters', {
         },
       }).then((response) => {
         if (response.status === 200 && response.data) {
-          // Validate that response.data is a URL
+          // Actually validate the redirect target before navigating: only allow
+          // http(s) URLs so a malformed/attacker-influenced response cannot turn
+          // this into an open redirect or a `javascript:` sink.
           try {
-            console.log('Redirecting to cluster login URL:', response.data);
-            window.location.href = response.data;
+            const target = new URL(response.data);
+            if (target.protocol !== 'https:' && target.protocol !== 'http:') {
+              throw new Error(`unexpected protocol: ${target.protocol}`);
+            }
+            window.location.href = target.href;
           } catch (e) {
             console.error('Invalid URL received for cluster login redirect', e);
           }

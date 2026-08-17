@@ -1,14 +1,20 @@
+//! Kubernetes controller for the `ProxyKubeApi` custom resource.
+//!
+//! Runs the reconcile loop that watches `ProxyKubeApi` objects, mirrors their
+//! desired state into Redis for the request path to consume, and manages
+//! leader election so only one replica reconciles at a time.
+
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 
 use common::State;
 use crd::ProxyKubeApi;
-use futures::StreamExt;
+use futures_util::StreamExt;
 use kube::{
-    runtime::{watcher::Config, Controller},
     Api,
+    runtime::{Controller, watcher::Config},
 };
 use kube_leader_election::{LeaseLock, LeaseLockParams, LeaseLockResult};
 use tokio::time::interval;
@@ -24,14 +30,19 @@ pub async fn run_leader_election(state: State, leadership: LeaseLock) {
     loop {
         match leadership.try_acquire_or_renew().await {
             Ok(lease) => {
-                if !state.is_leader.load(Ordering::Relaxed)
-                    && matches!(lease, LeaseLockResult::Acquired(_))
-                {
-                    info!("Successfully acquired leadership");
-                    state.is_leader.store(
-                        matches!(lease, LeaseLockResult::Acquired(_)),
-                        Ordering::Relaxed,
-                    )
+                let acquired = matches!(lease, LeaseLockResult::Acquired(_));
+                // The election must demote as well as promote: `try_acquire_or_renew`
+                // returns `Ok(NotAcquired)` (not an `Err`) when another instance holds
+                // the lease, so a leader that fails to renew in time would keep
+                // `is_leader = true` and run a second, competing reconcile loop
+                // (split-brain) unless we clear it here.
+                if state.is_leader.load(Ordering::Relaxed) != acquired {
+                    if acquired {
+                        info!("Successfully acquired leadership");
+                    } else {
+                        info!("Lost leadership, stepping down as leader");
+                    }
+                    state.is_leader.store(acquired, Ordering::Relaxed);
                 }
             }
             Err(e) => {
@@ -51,7 +62,7 @@ pub async fn run(state: State) {
             "Failed to list ProxyKubeApi resources (the CRD maybe not installed) : {}",
             e
         );
-        panic!("Failed to list ProxyKubeApi resources: {}", e);
+        panic!("Failed to list ProxyKubeApi resources: {e}");
     }
 
     let leadership = LeaseLock::new(
@@ -82,7 +93,7 @@ pub async fn run(state: State) {
     let controller_state = Arc::new(state.clone());
 
     tokio::select! {
-        _ = Controller::new(proxy_kube_apis.clone(), Config::default().any_semantic())
+        () = Controller::new(proxy_kube_apis.clone(), Config::default().any_semantic())
             .shutdown_on_signal()
             .run(
                 main_reconcile_proxy_kube_api,
@@ -90,9 +101,9 @@ pub async fn run(state: State) {
                 controller_state.clone(),
             )
             .filter_map(|x| async move { std::result::Result::ok(x) })
-            .for_each(|_| futures::future::ready(())) => {
+            .for_each(|_| futures_util::future::ready(())) => {
         },
-        _ = run_leader_election(state.clone(), leadership) => {
+        () = run_leader_election(state.clone(), leadership) => {
         }
     };
 }

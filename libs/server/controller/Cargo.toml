@@ -1,22 +1,23 @@
 [package]
 name = "controller"
 version = "0.1.9"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 tracing = { workspace = true }
 kube = { workspace = true }
 serde_json = { workspace = true }
-futures = { workspace = true }
+futures-util = { workspace = true }
 k8s-openapi = { workspace = true }
 tokio = { workspace = true }
 deadpool-redis = { workspace = true }
 opentelemetry = { workspace = true }
 thiserror = { workspace = true }
 
-kube-leader-election = "0.43.0"
+kube-leader-election = "0.44.0"
 
 crd = { path = "../crd", version = "0.1.9" }
+crd_runtime = { path = "../crd_runtime", version = "0.1.9" }
 common = { path = "../common", version = "0.1.9" }
 trace = { path = "../trace", version = "0.1.9" }
 

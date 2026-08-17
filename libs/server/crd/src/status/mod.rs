@@ -1,7 +1,7 @@
 use kube::api::Patch;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Serialize, Deserialize, Clone, JsonSchema, Default, Debug)]
 pub struct ProxyKubeApiStatus {
@@ -11,6 +11,7 @@ pub struct ProxyKubeApiStatus {
 }
 
 impl ProxyKubeApiStatus {
+    #[must_use]
     pub fn new(exposed: bool, path: Option<String>, error: Option<String>) -> Self {
         Self {
             exposed,
@@ -18,13 +19,15 @@ impl ProxyKubeApiStatus {
             error,
         }
     }
-    pub fn get_patch(&self) -> Patch<Value> {
+    #[must_use]
+    pub fn patch(&self) -> Patch<Value> {
         Patch::Apply(json!({
             "apiVersion": "weebo.si.rs/v1",
             "kind": "ProxyKubeApi",
             "status": &self
         }))
     }
+    #[must_use]
     pub fn equal(&self, other: &ProxyKubeApiStatus) -> bool {
         self.exposed == other.exposed && self.path == other.path && self.error == other.error
     }

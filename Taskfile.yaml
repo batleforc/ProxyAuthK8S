@@ -7,6 +7,9 @@ includes:
   k3d: .taskfile/kube3d.yaml
   tool: .taskfile/tool.yaml
   lint: .taskfile/lint.yaml
+  audit: .taskfile/audit.yaml
+  test: .taskfile/test.yaml
+  envtest: .taskfile/envtest.yaml
   tmux: .taskfile/tmux.yaml
 
 dotenv:

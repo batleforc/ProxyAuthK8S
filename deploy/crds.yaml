@@ -5,15 +5,12 @@ metadata:
 spec:
   group: weebo.si.rs
   names:
-    categories: []
     kind: ProxyKubeApi
     plural: proxykubeapis
-    shortNames: []
     singular: proxykubeapi
   scope: Namespaced
   versions:
-  - additionalPrinterColumns: []
-    name: v1
+  - name: v1
     schema:
       openAPIV3Schema:
         description: Auto-generated derived type for ProxyKubeApiSpec via `CustomResource`
@@ -28,7 +25,7 @@ spec:
                     default: false
                     description: |-
                       Disable validation of the token against the configured JWT authenticators, OIDC provider or Kubernetes API
-                      If the AuthenticationConfiguration is not provided, does not validate the token against any of the configured JWT authenticators, OIDC provider or Kubernetes API
+                      If the `AuthenticationConfiguration` is not provided, does not validate the token against any of the configured JWT authenticators, OIDC provider or Kubernetes API
                       Default : false
                     type: boolean
                   jwt:
@@ -157,7 +154,31 @@ spec:
                       type: object
                     type: array
                   oidc_provider:
+                    description: |-
+                      An enabled provider that cannot be contacted is a cluster that never
+                      authenticates anyone, so the apiserver refuses the CR outright.
                     properties:
+                      accept_authorized_party:
+                        default: false
+                        description: |-
+                          Accept a token whose `aud` does not name this service but whose
+                          `azp`/`client_id` does.
+
+                          Off by default: `azp`/`client_id` identify the client the token was issued
+                          to, not the resource, so accepting them weakens audience validation.
+                          Enable only for providers (e.g. Keycloak) that mint self-audience tokens
+                          carrying the client only in `azp`.
+                        type: boolean
+                      audience:
+                        default: ''
+                        description: |-
+                          Audience the access token must carry (its `aud` claim) to be accepted.
+
+                          When empty, `client_id` is used — correct for providers that put the
+                          client id in `aud`. Set it explicitly when the provider mints tokens for a
+                          distinct resource audience, so `client_id` (who the token is for) and the
+                          expected audience (what the token is for) are configured independently.
+                        type: string
                       client_id:
                         type: string
                       client_secret:
@@ -165,6 +186,30 @@ spec:
                         type: string
                       enabled:
                         default: false
+                        type: boolean
+                      expose_oauth_authorization_server:
+                        default: false
+                        description: |-
+                          Expose a mediated OAuth 2.0 Authorization Server (RFC 6749 + PKCE) for
+                          this cluster, advertised at `/.well-known/oauth-authorization-server`
+                          (RFC 8414), like OpenShift does for its own OAuth server.
+
+                          The proxy itself becomes the authorization server an external caller
+                          talks to — `issuer`, `authorization_endpoint`, `token_endpoint`, and
+                          `jwks_uri` are all this cluster's own proxy URLs — mediating the whole
+                          exchange with the configured `issuer_url` server-side. A caller (e.g.
+                          `oc login`, or any RFC-8414-aware tool) never needs to be registered
+                          with — or even learn the hostname of — the upstream provider, and no
+                          companion `oauth2-proxy` is needed to serve this document.
+
+                          Off by default and unauthenticated by nature (discovery, and the
+                          authorization/token endpoints it advertises, must be reachable before
+                          a caller has a token): enabling it lets anonymous callers learn that
+                          this cluster exists and start a login against it. `redirect_uri` at
+                          `/oauth/authorize` is restricted to loopback addresses
+                          (`http://localhost`/`http://127.0.0.1`, RFC 8252) since callers are
+                          not pre-registered — accepting an arbitrary `redirect_uri` would be an
+                          open redirect. Requires `enabled: true`.
                         type: boolean
                       extra_scope:
                         default: ''
@@ -175,11 +220,16 @@ spec:
                     - client_id
                     - issuer_url
                     type: object
+                    x-kubernetes-validations:
+                    - message: an enabled OIDC provider requires a non-empty issuer_url and client_id
+                      rule: '!self.enabled || (self.issuer_url != '''' && self.client_id != '''')'
+                    - message: expose_oauth_authorization_server requires the OIDC provider to be enabled
+                      rule: '!self.expose_oauth_authorization_server || self.enabled'
                   validate_against:
                     default: Kubernetes
                     description: |-
                       Validate against the configured JWT authenticators, OIDC provider or Kubernetes API
-                      Default : OidcProvider if enabled, otherwise JwtAuthenticators if configured, otherwise Kubernetes
+                      Default : `OidcProvider` if enabled, otherwise `JwtAuthenticators` if configured, otherwise Kubernetes
                     enum:
                     - OidcProvider
                     - Kubernetes
@@ -187,6 +237,9 @@ spec:
                 required:
                 - oidc_provider
                 type: object
+                x-kubernetes-validations:
+                - message: validate_against is set to OidcProvider but the OIDC provider is not enabled
+                  rule: self.validate_against != 'OidcProvider' || self.oidc_provider.enabled
               cert:
                 description: Certificate for the Kubernetes API
                 oneOf:
@@ -234,6 +287,110 @@ spec:
                     - name
                     type: object
                 type: object
+              client_cert:
+                description: |-
+                  Client certificate presented to the Kubernetes API for mutual TLS
+                  Leave unset when the cluster does not require client certificates
+                nullable: true
+                properties:
+                  cert:
+                    description: PEM client certificate chain
+                    oneOf:
+                    - required:
+                      - Secret
+                    - required:
+                      - Cert
+                    - required:
+                      - ConfigMap
+                    - required:
+                      - Insecure
+                    properties:
+                      Cert:
+                        description: Base64 encoded cert
+                        type: string
+                      ConfigMap:
+                        description: Configmap
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            nullable: true
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      Insecure:
+                        description: Insecure, do not use TLS
+                        type: boolean
+                      Secret:
+                        description: Use a cert from a secret
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            nullable: true
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    type: object
+                  key:
+                    description: PEM private key matching the certificate
+                    oneOf:
+                    - required:
+                      - Secret
+                    - required:
+                      - Cert
+                    - required:
+                      - ConfigMap
+                    - required:
+                      - Insecure
+                    properties:
+                      Cert:
+                        description: Base64 encoded cert
+                        type: string
+                      ConfigMap:
+                        description: Configmap
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            nullable: true
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                      Insecure:
+                        description: Insecure, do not use TLS
+                        type: boolean
+                      Secret:
+                        description: Use a cert from a secret
+                        properties:
+                          key:
+                            type: string
+                          name:
+                            type: string
+                          namespace:
+                            nullable: true
+                            type: string
+                        required:
+                        - key
+                        - name
+                        type: object
+                    type: object
+                required:
+                - cert
+                - key
+                type: object
               dashboard_group:
                 description: |-
                   If the proxy exposition is accessible via the dashboard
@@ -246,25 +403,129 @@ spec:
                 description: Enable or disable the proxy
                 type: boolean
               expose_via_dashboard:
-                default: true
+                default: false
                 description: |-
                   If the proxy exposition should be accessible via the Dashboard
                   Default: false
                 type: boolean
+              proxy_group:
+                description: |-
+                  The oidc group required to proxy requests to this cluster
+                  Set it to decouple proxy access from dashboard access
+                  Default: the dashboard group when `expose_via_dashboard` is true,
+                  otherwise no group is required
+                nullable: true
+                type: string
               security_config:
                 description: Security configuration
                 nullable: true
                 properties:
-                  allowed_ressources:
-                    description: Allowed resources, limit the access to the proxy to only these resources, if empty all resources are allowed
+                  allowed_resources:
+                    default: []
+                    description: |-
+                      Allowed resources, limit the access to the proxy to only these resources, if empty all resources are allowed
+
+                      The bound keeps the estimated cost of the per-item CEL rules within the
+                      budget the apiserver allows for a whole CRD schema.
                     items:
-                      description: Enum of the allowed paths configuration, currently only supports path and crd, but can be extended in the future
+                      description: |-
+                        How an allowed resource is described.
+
+                        - `Path` matches on the raw upstream path (with `*`/`**`/`{{...}}` semantics);
+                        - `Crd` matches on group/version/kind and applies the per-namespace access
+                          rules, translating to a path via [`super::AllowedCrdConfiguration`].
                       oneOf:
                       - required:
                         - Path
+                      - required:
+                        - Crd
                       properties:
+                        Crd:
+                          description: |-
+                            Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
+                            /apis/{group}/{version}/namespaces/{namespace}/{kind}/
+                          properties:
+                            group:
+                              description: The group of the crd
+                              type: string
+                            kind:
+                              description: The kind of the crd
+                              type: string
+                            namespace:
+                              description: Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource
+                              properties:
+                                enabled:
+                                  default: false
+                                  description: |-
+                                    If the feature is enabled
+                                    default: false
+                                  type: boolean
+                                rule_kind:
+                                  description: The kind of the namespace access rule
+                                  oneOf:
+                                  - required:
+                                    - AllowedNamespaces
+                                  - required:
+                                    - DeniedNamespaces
+                                  - required:
+                                    - ParametisedRule
+                                  properties:
+                                    AllowedNamespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    DeniedNamespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    ParametisedRule:
+                                      description: |-
+                                        The parametised rule is a string that can contain the {{username}} parameter
+                                        which will be replaced by the username of the user making the request, and the {{group}} parameter
+                                        which will be replaced by the groups of the user making the request
+                                        allowed parameters are : {{username}} and {{group}}
+                                      type: string
+                                  type: object
+                              required:
+                              - rule_kind
+                              type: object
+                            namespaced:
+                              default: true
+                              description: |-
+                                Namespaced or not
+                                default: true
+                              type: boolean
+                            plural:
+                              description: |-
+                                Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind
+                                for example, if the kind is "`MyResource`" and the plural form is "`MyResources`"
+                                the path will be /apis/{group}/{version}/namespaces/{namespace}/myresources/
+                                instead of       /apis/{group}/{version}/namespaces/{namespace}/myresource/
+                                In case of cluster-scoped crd
+                                the path will be /apis/{group}/{version}/myresources/
+                                instead of       /apis/{group}/{version}/myresource/
+                              nullable: true
+                              type: string
+                            version:
+                              description: The version of the crd
+                              type: string
+                          required:
+                          - group
+                          - kind
+                          - namespace
+                          - version
+                          type: object
                         Path:
-                          description: Allowed path configuration, used in conjunction with the allowed_paths configuration
+                          description: |-
+                            Allowed path configuration, used in conjunction with the `allowed_paths` configuration
+
+                            The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
+                            rule is refused at admission rather than at reconcile time.
+
+                            The placeholder regex matches braces through character classes (`[{]`)
+                            rather than backslash escapes, for two independent reasons: CEL string
+                            literals reject `\{` outright, and the CRD is also shipped as a Helm
+                            template where two consecutive `{` would be read as a Go template action.
                           properties:
                             parametised:
                               default: false
@@ -278,22 +539,267 @@ spec:
                                 if the selected field is an array, like the groups claim, it will try to match any of the values in the array
                                 for example, if the groups claim is ["dev-alice", "dev-bob"] and the path is "/api/v1/namespaces/{{group}}/pods", it will allow all requests to pods in namespaces that match either "dev-alice" or "dev-bob"
                                 Allowed parameters are : {{username}} and {{group}}
+                                A `*` only matches inside a single path segment; use a `**` segment to
+                                match any number of remaining segments (needed for subresources such as
+                                "/api/v1/namespaces/dev/pods/mypod/log")
                                 default: false
                               type: boolean
                             path:
-                              description: The path to allow, if the request path equals this path, it will be allowed
+                              description: |-
+                                The path to allow, if the request path equals this path, it will be allowed
+
+                                The length bound is not cosmetic: without it the apiserver assumes an
+                                unbounded string and refuses the CEL rule above as too expensive.
+                              maxLength: 512
                               type: string
                           required:
                           - path
                           type: object
+                          x-kubernetes-validations:
+                          - message: path must start with '/'
+                            rule: self.path.startsWith('/')
+                          - message: a parametised path only accepts the username and group placeholders
+                            rule: '!self.parametised || self.path.matches(''^[^{}]*(([{][{](username|group)[}][}])[^{}]*)*$'')'
                       type: object
+                    maxItems: 128
+                    type: array
+                  allowed_ressources:
+                    default: []
+                    description: |-
+                      Deprecated misspelling of `allowed_resources`, merged with it
+
+                      Kept as a real field rather than a serde alias on purpose: the apiserver
+                      prunes fields absent from the schema, so an alias alone would silently
+                      drop the security configuration of every existing resource. Remove it in
+                      the next major, once resources have been migrated.
+                    items:
+                      description: |-
+                        How an allowed resource is described.
+
+                        - `Path` matches on the raw upstream path (with `*`/`**`/`{{...}}` semantics);
+                        - `Crd` matches on group/version/kind and applies the per-namespace access
+                          rules, translating to a path via [`super::AllowedCrdConfiguration`].
+                      oneOf:
+                      - required:
+                        - Path
+                      - required:
+                        - Crd
+                      properties:
+                        Crd:
+                          description: |-
+                            Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
+                            /apis/{group}/{version}/namespaces/{namespace}/{kind}/
+                          properties:
+                            group:
+                              description: The group of the crd
+                              type: string
+                            kind:
+                              description: The kind of the crd
+                              type: string
+                            namespace:
+                              description: Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource
+                              properties:
+                                enabled:
+                                  default: false
+                                  description: |-
+                                    If the feature is enabled
+                                    default: false
+                                  type: boolean
+                                rule_kind:
+                                  description: The kind of the namespace access rule
+                                  oneOf:
+                                  - required:
+                                    - AllowedNamespaces
+                                  - required:
+                                    - DeniedNamespaces
+                                  - required:
+                                    - ParametisedRule
+                                  properties:
+                                    AllowedNamespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    DeniedNamespaces:
+                                      items:
+                                        type: string
+                                      type: array
+                                    ParametisedRule:
+                                      description: |-
+                                        The parametised rule is a string that can contain the {{username}} parameter
+                                        which will be replaced by the username of the user making the request, and the {{group}} parameter
+                                        which will be replaced by the groups of the user making the request
+                                        allowed parameters are : {{username}} and {{group}}
+                                      type: string
+                                  type: object
+                              required:
+                              - rule_kind
+                              type: object
+                            namespaced:
+                              default: true
+                              description: |-
+                                Namespaced or not
+                                default: true
+                              type: boolean
+                            plural:
+                              description: |-
+                                Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind
+                                for example, if the kind is "`MyResource`" and the plural form is "`MyResources`"
+                                the path will be /apis/{group}/{version}/namespaces/{namespace}/myresources/
+                                instead of       /apis/{group}/{version}/namespaces/{namespace}/myresource/
+                                In case of cluster-scoped crd
+                                the path will be /apis/{group}/{version}/myresources/
+                                instead of       /apis/{group}/{version}/myresource/
+                              nullable: true
+                              type: string
+                            version:
+                              description: The version of the crd
+                              type: string
+                          required:
+                          - group
+                          - kind
+                          - namespace
+                          - version
+                          type: object
+                        Path:
+                          description: |-
+                            Allowed path configuration, used in conjunction with the `allowed_paths` configuration
+
+                            The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed
+                            rule is refused at admission rather than at reconcile time.
+
+                            The placeholder regex matches braces through character classes (`[{]`)
+                            rather than backslash escapes, for two independent reasons: CEL string
+                            literals reject `\{` outright, and the CRD is also shipped as a Helm
+                            template where two consecutive `{` would be read as a Go template action.
+                          properties:
+                            parametised:
+                              default: false
+                              description: |-
+                                Wether or not the path is parametised
+                                if true, the path will be treated as a template, it either handle wildcard parameters, like "*" or "dev-*", or mustache-like parameters, like "{{username}}" or "{{group}}"
+                                for example, if the path is "/api/v1/namespaces/*/pods", it will allow all requests to pods in any namespace
+                                if the path is "/api/v1/namespaces/dev-*/pods", it will allow all requests to pods in namespaces that start with "dev-"
+                                It will also try to detect mustache-like parameters, for example, if the path is "/api/v1/namespaces/{{username}}/pods"
+                                it will allow all requests to pods in namespaces carrying the username as a parameter
+                                if the selected field is an array, like the groups claim, it will try to match any of the values in the array
+                                for example, if the groups claim is ["dev-alice", "dev-bob"] and the path is "/api/v1/namespaces/{{group}}/pods", it will allow all requests to pods in namespaces that match either "dev-alice" or "dev-bob"
+                                Allowed parameters are : {{username}} and {{group}}
+                                A `*` only matches inside a single path segment; use a `**` segment to
+                                match any number of remaining segments (needed for subresources such as
+                                "/api/v1/namespaces/dev/pods/mypod/log")
+                                default: false
+                              type: boolean
+                            path:
+                              description: |-
+                                The path to allow, if the request path equals this path, it will be allowed
+
+                                The length bound is not cosmetic: without it the apiserver assumes an
+                                unbounded string and refuses the CEL rule above as too expensive.
+                              maxLength: 512
+                              type: string
+                          required:
+                          - path
+                          type: object
+                          x-kubernetes-validations:
+                          - message: path must start with '/'
+                            rule: self.path.startsWith('/')
+                          - message: a parametised path only accepts the username and group placeholders
+                            rule: '!self.parametised || self.path.matches(''^[^{}]*(([{][{](username|group)[}][}])[^{}]*)*$'')'
+                      type: object
+                    maxItems: 128
                     type: array
                   enabled:
                     default: true
                     description: Whether the token is validated beforehand
                     type: boolean
-                required:
-                - allowed_ressources
+                  fail2login_equal_ban:
+                    default:
+                      ban_duration: 300
+                      enabled: false
+                      exponential_backoff: false
+                      max_failed_logins: 5
+                    description: Configuration for banning callers after multiple failed authentications
+                    properties:
+                      ban_duration:
+                        default: 300
+                        description: |-
+                          The duration of the ban in seconds
+                          default: 300 (5 minutes)
+                          0 means permanent ban
+                        format: uint32
+                        minimum: 0.0
+                        type: integer
+                      enabled:
+                        default: false
+                        description: |-
+                          If the feature is enabled
+                          default: false
+                        type: boolean
+                      exponential_backoff:
+                        default: false
+                        description: |-
+                          If the time is exponentially increased with each failed login attempt
+                          default: false
+                        type: boolean
+                      max_failed_logins:
+                        default: 5
+                        description: |-
+                          The number of failed login attempts before the user is banned
+                          default: 5
+                        format: uint32
+                        minimum: 0.0
+                        type: integer
+                    type: object
+                  per_user_group_rate_limiting:
+                    default: []
+                    description: |-
+                      Per group rate limiting configuration
+                      This takes precedence over the global rate limiting configuration
+                    items:
+                      description: |-
+                        Per-user group rate limiting configuration
+
+                        Groups come from the user resolved by the configured authentication, so no
+                        claim mapping is needed here.
+                      properties:
+                        group:
+                          description: Group name
+                          type: string
+                        max_requests_per_minute:
+                          description: |-
+                            The maximum number of requests per minute for this group
+                            This setting overrides the global rate limiting setting
+                            0 disables the rate limiting for this group
+                          format: uint32
+                          minimum: 0.0
+                          type: integer
+                      required:
+                      - group
+                      - max_requests_per_minute
+                      type: object
+                    type: array
+                  rate_limiting:
+                    default:
+                      enabled: false
+                      max_requests_per_minute: 60
+                    description: Global rate limiting configuration
+                    properties:
+                      enabled:
+                        default: false
+                        description: |-
+                          If the feature is enabled
+                          default: false
+                        type: boolean
+                      max_requests_per_minute:
+                        default: 60
+                        description: |-
+                          The maximum number of requests per minute
+                          default: 60
+                          0 disables the rate global rate limiting
+                        format: uint32
+                        minimum: 0.0
+                        type: integer
+                    type: object
                 type: object
               service:
                 description: Service to expose the proxy
@@ -307,7 +813,7 @@ spec:
                     description: External service
                     properties:
                       url:
-                        description: URL of the external service (e.g. https://example.com)
+                        description: URL of the external service (e.g. `https://example.com`)
                         type: string
                     required:
                     - url
@@ -337,10 +843,38 @@ spec:
                     - name
                     type: object
                 type: object
+              virtual_apis:
+                default: []
+                description: |-
+                  Virtual APIs to expose on top of this cluster
+                  A virtual API is an API the cluster does not serve, that the proxy
+                  synthesises by translating requests and responses
+                items:
+                  properties:
+                    enabled:
+                      default: true
+                      description: |-
+                        Enable or disable this virtual API
+                        Default: true
+                      type: boolean
+                    kind:
+                      description: Which virtual API to expose
+                      enum:
+                      - OpenShiftProject
+                      type: string
+                  required:
+                  - kind
+                  type: object
+                type: array
             required:
             - cert
             - service
             type: object
+            x-kubernetes-validations:
+            - message: dashboard_group must not be empty when it is set
+              rule: '!has(self.dashboard_group) || self.dashboard_group != '''''
+            - message: proxy_group must not be empty when it is set
+              rule: '!has(self.proxy_group) || self.proxy_group != '''''
           status:
             nullable: true
             properties:

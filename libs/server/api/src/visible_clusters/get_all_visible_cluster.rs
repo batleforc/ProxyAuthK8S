@@ -1,12 +1,11 @@
-use actix_web::{dev::PeerAddr, get, http, web::Data, HttpRequest, HttpResponse, Responder};
-use common::{traits::ObjectRedis, State};
+use actix_web::{HttpRequest, HttpResponse, Responder, dev::PeerAddr, get, http, web::Data};
+use common::State;
 use crd::ProxyKubeApi;
-use deadpool_redis::redis::AsyncCommands;
-use tracing::instrument;
+use tracing::{error, instrument};
 
 use crate::{
-    api::get_all_visible_cluster_model::{GetAllVisibleClusterBody, VisibleCluster},
     model::user::User,
+    visible_clusters::get_all_visible_cluster_model::{GetAllVisibleClusterBody, VisibleCluster},
 };
 
 /// Get all cluster visible to the user.
@@ -34,15 +33,19 @@ pub async fn get_all_visible_cluster(
     user: User,
     state: Data<State>,
 ) -> impl Responder {
-    let mut conn = state.get_redis_conn().await.unwrap();
-    // Get all the keys matching the pattern "cluster:*"
-    let keys: Vec<String> = conn.keys("proxyk8sauth:*").await.unwrap_or_default();
-    // Get all the values for the keys
-    let values: Vec<String> = conn.mget(&keys).await.unwrap_or_default();
-    // Parse the values into ProxyKubeApi objects
-    let proxies: Vec<VisibleCluster> = values
+    // Read through the index the controller maintains rather than scanning with
+    // `KEYS`: the scan is O(N) and blocking, and a Redis cluster only answers it
+    // for the node that happened to be reached.
+    let cached: Vec<ProxyKubeApi> = match state.list_objects(crd::REDIS_PREFIX).await {
+        Ok(cached) => cached,
+        Err(e) => {
+            error!(error = %e, "couldn't list the cached clusters");
+            return HttpResponse::ServiceUnavailable().finish();
+        }
+    };
+
+    let proxies: Vec<VisibleCluster> = cached
         .into_iter()
-        .filter_map(|v| ProxyKubeApi::from_json(&v))
         .filter(|kube_api| kube_api.is_user_allowed(&user.groups))
         .map(VisibleCluster::from)
         .collect();

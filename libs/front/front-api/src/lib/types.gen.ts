@@ -5,14 +5,16 @@ export type ClientOptions = {
 };
 
 /**
- * Model representing a cluster visible to the user.
+ * Model for the callback response after successful authentication with the cluster.
+ *
+ * This model contains the access token, refresh token, cluster URL, subject, and ID token returned by the cluster after successful authentication.
  */
-export type VisibleCluster = {
-    enabled: boolean;
-    is_reachable?: boolean | null;
-    name: string;
-    namespace: string;
-    sso_enabled: boolean;
+export type CallbackModel = {
+    access_token: string;
+    cluster_url: string;
+    id_token: string;
+    refresh_token: string;
+    subject: string;
 };
 
 /**
@@ -26,16 +28,14 @@ export type GetAllVisibleClusterBody = {
 };
 
 /**
- * Model for the callback response after successful authentication with the cluster.
- *
- * This model contains the access token, refresh token, cluster URL, subject, and ID token returned by the cluster after successful authentication.
+ * Model representing a cluster visible to the user.
  */
-export type CallbackModel = {
-    access_token: string;
-    cluster_url: string;
-    id_token: string;
-    refresh_token: string;
-    subject: string;
+export type VisibleCluster = {
+    enabled: boolean;
+    is_reachable?: boolean | null;
+    name: string;
+    namespace: string;
+    sso_enabled: boolean;
 };
 
 export type GetAllVisibleClusterData = {

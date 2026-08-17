@@ -1,16 +1,58 @@
 use actix_web::{
+    FromRequest,
     error::{ErrorInternalServerError, ErrorUnauthorized},
-    web, FromRequest,
+    web,
 };
-use common::{oidc_conf::OidcConf, State};
+use common::{State, oidc_conf::OidcConf};
 use crd::ProxyKubeApi;
+use crd_runtime::ProxyKubeApiRuntime;
 use k8s_openapi::api::authentication::v1::SelfSubjectReview;
-use kube::{api::PostParams, Api};
+use kube::{Api, api::PostParams};
 use openidconnect::{AccessToken, UserInfoError};
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use crate::{helper::extract_authorization_header, model::user_claim::GroupsUserInfoClaims};
+
+/// Failure resolving a caller's identity for a proxied cluster.
+///
+/// Distinguishes the underlying cause (Redis, missing proxy, upstream client
+/// build, Kubernetes `SelfSubjectReview`, OIDC discovery/userinfo/audience) for
+/// logging and the controller status. Callers on the request path still collapse
+/// every variant into an opaque 401 — the detail never reaches the client.
+#[derive(Debug, thiserror::Error)]
+pub enum UserAuthError {
+    /// No `ProxyKubeApi` matched the requested namespace/cluster.
+    #[error("proxy not found")]
+    ProxyNotFound,
+    /// The proxy lookup against Redis failed.
+    #[error("error fetching proxy from redis: {0}")]
+    Redis(String),
+    /// Building the upstream kube client for the caller's token failed.
+    #[error(transparent)]
+    Runtime(#[from] crd_runtime::ProxyRuntimeError),
+    /// The `SelfSubjectReview` request to the target cluster failed.
+    #[error("SelfSubjectReview request failed: {0}")]
+    SelfSubjectReview(#[source] kube::Error),
+    /// The proxy has no usable OIDC configuration.
+    #[error("no OIDC configuration found for this proxy")]
+    OidcConfigMissing,
+    /// Discovering / building the OIDC core client failed.
+    #[error("error getting OIDC core client: {0}")]
+    OidcCore(String),
+    /// Building the OIDC HTTP client failed.
+    #[error("error building OIDC http client: {0}")]
+    OidcHttpClient(String),
+    /// The `/userinfo` request could not be constructed.
+    #[error("invalid user info request: {0}")]
+    UserInfoRequest(String),
+    /// The `/userinfo` response was missing or invalid.
+    #[error("invalid user info response")]
+    UserInfoResponse,
+    /// The token failed audience validation.
+    #[error("token audience validation failed: {0}")]
+    AudienceValidation(String),
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct User {
@@ -39,12 +81,11 @@ impl FromRequest for User {
                     return Err(e.into_actix_error());
                 }
             };
-            let oidc_handler = match req.app_data::<web::Data<State>>() {
-                Some(handler) => handler.clone(),
-                None => {
-                    tracing::error!("Error while getting oidc handler");
-                    return Err(ErrorInternalServerError("Invalid OIDC handler"));
-                }
+            let oidc_handler = if let Some(handler) = req.app_data::<web::Data<State>>() {
+                handler.clone()
+            } else {
+                tracing::error!("Error while getting oidc handler");
+                return Err(ErrorInternalServerError("Invalid OIDC handler"));
             };
 
             match User::get_user_info_from_oidc_token(
@@ -68,6 +109,7 @@ impl FromRequest for User {
 }
 
 impl User {
+    #[must_use]
     pub fn is_in_group(&self, group: &str) -> bool {
         self.groups.iter().any(|g| g == group)
     }
@@ -77,14 +119,14 @@ impl User {
         ns: String,
         cluster: String,
         token: String,
-    ) -> Result<Option<Self>, String> {
+    ) -> Result<Option<Self>, UserAuthError> {
         let proxy: ProxyKubeApi = match state
-            .get_object_from_redis("proxyk8sauth".to_string(), format!("{}/{}", ns, cluster))
+            .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
             .await
         {
             Ok(Some(proxy)) => proxy,
-            Ok(None) => return Err("Proxy not found".to_string()),
-            Err(e) => return Err(format!("Error fetching proxy from Redis: {}", e)),
+            Ok(None) => return Err(UserAuthError::ProxyNotFound),
+            Err(e) => return Err(UserAuthError::Redis(e.to_string())),
         };
         User::get_user_info_with_proxy(state, proxy, token).await
     }
@@ -94,16 +136,16 @@ impl User {
         state: State,
         proxy: ProxyKubeApi,
         token: String,
-    ) -> Result<Option<Self>, String> {
-        if proxy.spec.auth_config.clone().is_none() {
+    ) -> Result<Option<Self>, UserAuthError> {
+        let Some(auth_config) = proxy.spec.auth_config.clone() else {
             return Ok(None);
-        }
+        };
 
-        match proxy.spec.auth_config.clone().unwrap().validate_against {
-            crd::authentication_configuration::validate_against::ValidateAgainst::OidcProvider => {
+        match auth_config.validate_against {
+            crd::authentication_configuration::ValidateAgainst::OidcProvider => {
                 Self::auth_against_oidc_provider(state, proxy, token).await
             }
-            crd::authentication_configuration::validate_against::ValidateAgainst::Kubernetes => {
+            crd::authentication_configuration::ValidateAgainst::Kubernetes => {
                 Self::auth_against_kubernetes(state, proxy, token).await
             }
         }
@@ -114,7 +156,7 @@ impl User {
         state: State,
         proxy: ProxyKubeApi,
         token: String,
-    ) -> Result<Option<Self>, String> {
+    ) -> Result<Option<Self>, UserAuthError> {
         // Create a Kubernetes client using the provided token and targeting the proxy from the request
         let client = proxy
             .to_kube_client(
@@ -123,9 +165,8 @@ impl User {
                 Some(token),
             )
             .await
-            .map_err(|e| {
+            .inspect_err(|e| {
                 tracing::error!("Error while creating Kubernetes client: {}", e);
-                format!("Error while creating Kubernetes client: {}", e)
             })?;
         let review: Api<SelfSubjectReview> = Api::all(client);
 
@@ -154,7 +195,7 @@ impl User {
             }
             Err(e) => {
                 tracing::warn!("Error while executing SelfSubjectReview request: {}", e);
-                Err("Invalid SelfSubjectReview response".to_string())
+                Err(UserAuthError::SelfSubjectReview(e))
             }
         }
     }
@@ -164,18 +205,21 @@ impl User {
         state: State,
         proxy: ProxyKubeApi,
         token: String,
-    ) -> Result<Option<Self>, String> {
-        let oidc_conf = match proxy.get_oidc_conf(state.clone().into(), false, None) {
-            Some(conf) => conf,
-            None => {
-                tracing::warn!(
-                    "No OIDC configuration found for proxy {:?}",
-                    proxy.metadata.name
-                );
-                return Err("No OIDC configuration found for this proxy".to_string());
-            }
+    ) -> Result<Option<Self>, UserAuthError> {
+        let oidc_conf = if let Some(conf) = proxy.get_oidc_conf(state.clone().into(), false, None) {
+            conf
+        } else {
+            tracing::warn!(
+                "No OIDC configuration found for proxy {:?}",
+                proxy.metadata.name
+            );
+            return Err(UserAuthError::OidcConfigMissing);
         };
-        tracing::debug!("OIDC configuration found for proxy: {:?}", oidc_conf);
+        tracing::debug!(
+            issuer_url = %oidc_conf.issuer_url,
+            client_id = %oidc_conf.client_id,
+            "OIDC configuration found for proxy"
+        );
         Self::get_user_info_from_oidc_token(token, oidc_conf).await
     }
 
@@ -183,22 +227,25 @@ impl User {
     pub async fn get_user_info_from_oidc_token(
         token: String,
         oidc_conf: OidcConf,
-    ) -> Result<Option<Self>, String> {
-        let oidc_core = oidc_conf.get_oidc_core().await.map_err(|e| {
+    ) -> Result<Option<Self>, UserAuthError> {
+        let oidc_core = oidc_conf.oidc_core().await.map_err(|e| {
             tracing::error!("Error while getting OIDC core client: {}", e);
-            format!("Error while getting OIDC core client: {}", e)
+            UserAuthError::OidcCore(e.to_string())
         })?;
-        let http_client = oidc_conf.get_oidc_reqwest_client();
+        let http_client = oidc_conf.oidc_reqwest_client().map_err(|e| {
+            tracing::error!("Error while building OIDC http client: {}", e);
+            UserAuthError::OidcHttpClient(e.to_string())
+        })?;
 
         tracing::debug!(
             "Creating user info request for OIDC provider with token of length: {}",
             token.len()
         );
-        let user_claim_req = match oidc_core.user_info(AccessToken::new(token.to_owned()), None) {
+        let user_claim_req = match oidc_core.user_info(AccessToken::new(token.clone()), None) {
             Ok(req) => req,
             Err(e) => {
                 tracing::warn!("Error while creating user info request: {}", e);
-                return Err("Invalid user info request".to_string());
+                return Err(UserAuthError::UserInfoRequest(e.to_string()));
             }
         };
         let user_info: GroupsUserInfoClaims = match user_claim_req.request_async(&http_client).await
@@ -206,31 +253,35 @@ impl User {
             Ok(info) => info,
             Err(UserInfoError::Other(err)) => {
                 tracing::warn!("Error while executing user info request: {}", err);
-                return Err("Invalid user info response".to_string());
+                return Err(UserAuthError::UserInfoResponse);
             }
             Err(e) => {
                 tracing::warn!("Error while executing user info request: {:#?}", e);
-                return Err("Invalid user info response".to_string());
+                return Err(UserAuthError::UserInfoResponse);
             }
         };
-        let email = match user_info.email() {
-            Some(email) => email.to_string(),
-            None => {
-                tracing::warn!("No email found in user info");
-                "".to_string()
-            }
+        // `/userinfo` proved the token is validly signed and active, but not that
+        // it was minted for THIS service. Enforce the audience now, before the
+        // token's groups are trusted for authorization. (Must run after userinfo
+        // so the JWT-claims fallback can trust the — now verified — signature.)
+        if let Err(e) = oidc_conf.ensure_token_audience(&token).await {
+            tracing::warn!("Token rejected by audience validation: {}", e);
+            return Err(UserAuthError::AudienceValidation(e.to_string()));
+        }
+        let email = if let Some(email) = user_info.email() {
+            email.to_string()
+        } else {
+            tracing::warn!("No email found in user info");
+            String::new()
         };
-        let username = match user_info.preferred_username() {
-            Some(username) => username.to_string(),
-            None => {
-                tracing::warn!("No preferred username found in user info");
-                "".to_string()
-            }
+        let username = if let Some(username) = user_info.preferred_username() {
+            username.to_string()
+        } else {
+            tracing::warn!("No preferred username found in user info");
+            String::new()
         };
         let groups = user_info.additional_claims().groups.clone();
-        tracing::info!("User groups: {:?}", groups);
-        // In a real implementation, extract user info from request (e.g., headers, tokens)
-        // Here we return a dummy user for illustration
+        tracing::debug!(group_count = groups.len(), "resolved user groups");
         Ok(Some(User {
             username,
             email,

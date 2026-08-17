@@ -39,7 +39,8 @@ export const useAuthStore = defineStore('auth', {
           !user.expired &&
           window.location.pathname !== '/auth/callback'
         ) {
-          console.log('User is logged in', user);
+          // Never log the `user` object: it contains access/id/refresh tokens.
+          console.log('User is logged in');
           toast.success('Successfully logged in');
           return user;
         } else if (
@@ -50,7 +51,7 @@ export const useAuthStore = defineStore('auth', {
           return userManager
             .signinSilent()
             .then((silentUser) => {
-              console.log('Silent renew successful', silentUser);
+              console.log('Silent renew successful');
               return silentUser;
             })
             .catch((err) => {
@@ -70,7 +71,7 @@ export const useAuthStore = defineStore('auth', {
           return this.callback()
             .then((user) => {
               this.router.push('/');
-              console.log('User logged in after callback', user);
+              console.log('User logged in after callback');
               toast.success('Successfully logged in');
               return user;
             })
@@ -96,6 +97,9 @@ export const useAuthStore = defineStore('auth', {
           console.log('Route requires auth, redirecting to login');
           toast.info('Please log in to access this page');
           this.logIn();
+          // Cancel the navigation so the protected view does not mount (and
+          // render user data) for the split second before the redirect fires.
+          return false;
         }
       });
       return user;

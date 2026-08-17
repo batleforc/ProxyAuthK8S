@@ -1,0 +1,47 @@
+version: "3"
+
+# envtest runs a real, ephemeral kube-apiserver backed by etcd. It covers what
+# a mock cannot: CRD admission (including the CEL rules), finalizers, leader
+# election and exact apiserver semantics.
+#
+# Binaries live under ENVTEST_DIR (default ~/.local/share/kubebuilder-envtest)
+# and are downloaded once. The Rust suite is behind the `envtest` feature so a
+# plain `cargo test` works without them.
+
+vars:
+  ENVTEST_K8S_VERSION: '{{ .ENVTEST_K8S_VERSION | default "1.31.0" }}'
+  ENVTEST_DIR: '{{ .ENVTEST_DIR | default (printf "%s/.local/share/kubebuilder-envtest" .HOME) }}'
+
+tasks:
+  setup:
+    desc: "Download the kube-apiserver and etcd binaries used by the envtest suite"
+    silent: true
+    status:
+      - test -x "{{ .ENVTEST_DIR }}/kube-apiserver"
+      - test -x "{{ .ENVTEST_DIR }}/etcd"
+    cmds:
+      - echo "Fetching envtest binaries for Kubernetes {{ .ENVTEST_K8S_VERSION }}"
+      - mkdir -p "{{ .ENVTEST_DIR }}"
+      - |
+        curl -sSL -o /tmp/envtest.tar.gz \
+          "https://github.com/kubernetes-sigs/controller-tools/releases/download/envtest-v{{ .ENVTEST_K8S_VERSION }}/envtest-v{{ .ENVTEST_K8S_VERSION }}-linux-amd64.tar.gz"
+      - tar xzf /tmp/envtest.tar.gz -C "{{ .ENVTEST_DIR }}" --strip-components=2
+      - rm -f /tmp/envtest.tar.gz
+      - echo "envtest binaries installed in {{ .ENVTEST_DIR }}"
+  clean:
+    desc: "Remove the downloaded envtest binaries"
+    silent: true
+    cmds:
+      - rm -rf "{{ .ENVTEST_DIR }}"
+  run:
+    desc: "Run the envtest suite against a real ephemeral kube-apiserver"
+    silent: true
+    deps:
+      - setup
+    env:
+      KUBEBUILDER_ASSETS: "{{ .ENVTEST_DIR }}"
+    cmds:
+      - echo "Running the envtest suite"
+      # Serialised: each test owns an apiserver, and running several at once
+      # only multiplies the memory footprint for no wall-clock gain.
+      - cargo nextest run -p api --features envtest --test envtest -j 1

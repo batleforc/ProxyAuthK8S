@@ -1,20 +1,28 @@
 use clap::Parser;
-use cli::{ctx::CliCtx, Cli};
+use cli::{Cli, ctx::CliCtx};
 use cli_trace::init_tracing;
-use tracing::debug;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> std::process::ExitCode {
     let mut cli = Cli::parse();
 
-    let ctx = CliCtx::from(cli.clone());
+    let ctx = match CliCtx::try_from(cli.clone()) {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            // Clean error + non-zero exit rather than a panic backtrace, so the
+            // `kubectl` exec-credential path fails gracefully on a bad config.
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }
+    };
 
     init_tracing(
         ctx.to_tracing_verbose_level(),
         "kubectl_proxyauth".to_string(),
     );
-    debug!("CLI : {:#?}", cli);
-    debug!("CTX : {:#?}", ctx);
+    // NOTE: never debug-print `cli` or `ctx` here: `cli` carries the `--token`
+    // value and `ctx` embeds the full kubeconfig (client keys, bearer tokens),
+    // which would end up in cleartext on stderr at `-v`.
 
-    cli.run_cli(ctx).await;
+    cli.run_cli(ctx).await
 }

@@ -1,0 +1,43 @@
+version: "3"
+
+# Two tiers, run with cargo-nextest (one process per test):
+#   - unit tests, no external dependency;
+#   - a fast integration tier where the upstream Kubernetes API and the OIDC
+#     provider are wiremock stubs and Redis is a real server.
+#
+# The Redis location comes from TEST_REDIS_URL (default redis://127.0.0.1:6379).
+# Without a reachable Redis the integration tests print "SKIPPED" and pass;
+# set REQUIRE_TEST_REDIS=1 (as CI does) to turn that into a failure instead.
+#
+# Nextest never runs doctests (none exist today, but `all` still checks for
+# them via a trailing `cargo test --doc` so a future one isn't silently
+# skipped).
+
+tasks:
+  all:
+    desc: "Run every Rust test in the workspace"
+    silent: true
+    cmds:
+      - echo "Running the whole Rust test suite"
+      - cargo nextest run --workspace --all-targets
+      - cargo test --doc
+  server:
+    desc: "Run the server-side Rust tests only (skips the CLI crates and their system dependencies)"
+    silent: true
+    cmds:
+      - echo "Running the server-side Rust tests"
+      - cargo nextest run -p common -p crd -p api -p controller -p server
+  unit:
+    desc: "Run the unit tests only (no Redis, no network)"
+    silent: true
+    cmds:
+      - echo "Running unit tests"
+      - cargo nextest run -p crd -p api --lib
+  integration:
+    desc: "Run the fast integration tier and fail if the test Redis is unreachable"
+    silent: true
+    env:
+      REQUIRE_TEST_REDIS: "1"
+    cmds:
+      - echo "Running the fast integration tier against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
+      - cargo nextest run -p api --test proxy_redirect --test oidc_user

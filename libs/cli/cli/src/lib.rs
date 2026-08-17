@@ -1,22 +1,32 @@
+//! Core logic for the `kubectl_proxyauth` CLI.
+//!
+//! Implements the command handlers (login, logout, config, context, get) and
+//! the persisted configuration model that the thin `kubectl_proxyauth` binary
+//! dispatches to.
+
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use tracing::{debug, warn};
 
 use crate::{
-    config::ConfigCommands,
+    config_cmd::ConfigCommands,
     ctx::{CliCtx, ContextFormat},
+    error::ProxyAuthK8sError,
 };
 
 pub mod cli_config;
-pub mod config;
+pub mod config_cmd;
 pub mod context;
 pub mod ctx;
 pub mod error;
 pub mod get;
+pub mod helper;
 pub mod login;
+pub mod logout;
+pub mod output;
 
-/// Kubectl ProxyAuth CLI
+/// Kubectl `ProxyAuth` CLI
 #[derive(Parser, Debug, Clone)]
 #[command(
     name = "Kubectl_ProxyAuthK8S",
@@ -63,7 +73,7 @@ pub struct Cli {
     #[arg(short,global = true, long, action = clap::ArgAction::Count)]
     pub verbose: Option<u8>,
 
-    /// ProxyAuthK8S server URL
+    /// `ProxyAuthK8S` server URL
     #[arg(short, long, global = true, value_name = "URL", default_value = "")]
     pub server_url: String,
 
@@ -91,7 +101,7 @@ pub enum Commands {
         /// Get a specific cluster by name
         cluster_name: Option<String>,
     },
-    /// Login either to ProxyAuthK8S server or to a specific cluster
+    /// Login either to `ProxyAuthK8S` server or to a specific cluster
     Login {
         /// Cluster name to login to
         cluster_name: Option<String>,
@@ -99,15 +109,15 @@ pub enum Commands {
         #[arg(short, long, value_name = "TOKEN")]
         token: Option<String>,
     },
-    /// Logout either from ProxyAuthK8S server or from a specific cluster
+    /// Logout either from `ProxyAuthK8S` server or from a specific cluster
     Logout {
         /// Cluster name to logout from
         cluster_name: Option<String>,
     },
-    /// Clear cached authentication tokens
+    /// Manage cached authentication tokens
     Cache {
-        /// Clear all cached tokens
-        clear: bool,
+        #[command(subcommand)]
+        command: CacheCommands,
     },
     /// Retrieve the current authentication token for a specific cluster
     GetToken {
@@ -122,7 +132,9 @@ pub enum Commands {
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         list: bool,
         /// Set the current context to the specified cluster
-        #[arg(short, long, action = clap::ArgAction::SetTrue)]
+        // No `short`: `-s` is already the global `--server-url`; clap rejects the
+        // duplicate short within this subcommand. Long-only `--set`.
+        #[arg(long, action = clap::ArgAction::SetTrue)]
         set: bool,
     },
     /// Configuration management
@@ -132,37 +144,54 @@ pub enum Commands {
     },
 }
 
+#[derive(Subcommand, Debug, Clone)]
+pub enum CacheCommands {
+    /// Clear all cached authentication tokens
+    Clear,
+}
+
 impl Cli {
-    pub async fn run_cli(&mut self, mut ctx: CliCtx) {
-        // Match and execute the appropriate command
-        match &self.command {
+    pub async fn run_cli(&mut self, mut ctx: CliCtx) -> std::process::ExitCode {
+        // Each handler returns `Result<(), ProxyAuthK8sError>` and logs its own
+        // error detail; here we only translate the outcome into the process exit
+        // code so a failed command exits non-zero (previously every command but
+        // `get-token` exited 0 regardless of failure).
+        let result: Result<(), ProxyAuthK8sError> = match &self.command {
             Some(Commands::Get { cluster_name }) => {
                 debug!("Getting cluster info for: {:?}", cluster_name);
-                ctx.handle_get_clusters(cluster_name.clone()).await;
+                ctx.handle_get_clusters(cluster_name.clone()).await
             }
             Some(Commands::Login {
                 cluster_name,
                 token,
             }) => {
+                // Never log the token value; only whether one was supplied.
                 debug!(
-                    "Logging in to cluster: {:?} with token: {:?}",
-                    cluster_name, token
+                    "Logging in to cluster: {:?} (token provided: {})",
+                    cluster_name,
+                    token.is_some()
                 );
-                ctx.handle_login(cluster_name.clone(), token.clone()).await;
+                ctx.handle_login(cluster_name.clone(), token.clone()).await
             }
             Some(Commands::Logout { cluster_name }) => {
-                //ctx.handle_logout(cluster_name.clone());
                 debug!("Logging out from cluster: {:?}", cluster_name);
+                ctx.handle_logout(cluster_name.clone())
             }
-            Some(Commands::Cache { clear }) => {
-                //ctx.handle_cache(*clear);
-                debug!("Handling cache clear: {}", clear);
-            }
+            Some(Commands::Cache { command }) => match command {
+                CacheCommands::Clear => {
+                    debug!("Clearing all cached tokens");
+                    ctx.handle_cache_clear()
+                }
+            },
             Some(Commands::GetToken { cluster_name }) => {
-                //ctx.handle_get_token(cluster_name.clone());
-                // Detect if env var KUBERNETES_EXEC_INFO is set, change context accordingly
                 debug!("Getting token for cluster: {:?}", cluster_name);
-                ctx.handle_get_token(cluster_name.clone()).await;
+                // Propagate a non-zero exit code so `kubectl` sees the exec-credential
+                // plugin failed instead of treating a 0 exit as "no credential".
+                return if ctx.handle_get_token(cluster_name.clone()).await.is_err() {
+                    std::process::ExitCode::FAILURE
+                } else {
+                    std::process::ExitCode::SUCCESS
+                };
             }
             Some(Commands::Context {
                 context_name,
@@ -173,21 +202,27 @@ impl Cli {
                     "Handling context for cluster: {:?}, list: {}, set: {}",
                     context_name, list, set
                 );
-                ctx.handle_context(context_name.clone(), *list, *set);
+                ctx.handle_context(context_name.clone(), *list, *set)
             }
             Some(Commands::Config { command }) => {
-                //ctx.handle_config(server_url.clone(), namespace.clone(), *clear);
                 debug!("Handling config command: {:?}", command);
                 if let Some(command) = command {
-                    command.handle_config_commands(&mut ctx);
+                    ctx.handle_config(command)
                 } else {
                     warn!("No config subcommand provided. Use --help for more information.");
+                    // No subcommand is a usage hint, not a failed operation.
+                    Ok(())
                 }
             }
             None => {
-                // If no subcommand is provided, you can show help or a default action
+                // If no subcommand is provided, show a hint (not a failure).
                 warn!("No command provided. Use --help for more information.");
+                Ok(())
             }
+        };
+        match result {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(_) => std::process::ExitCode::FAILURE,
         }
     }
 }

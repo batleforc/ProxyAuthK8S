@@ -1,24 +1,29 @@
+//! Tracing, logging, and OpenTelemetry setup for the server binary.
+//!
+//! Wires `tracing` subscribers to stdout and, when configured, an OTLP
+//! exporter, and exposes the start/shutdown hooks the server calls at boot.
+
 // https://github.com/open-telemetry/opentelemetry-rust/blob/main/opentelemetry-otlp/examples/basic-otlp/src/main.rs#L33
 
 use std::sync::OnceLock;
 
 #[cfg(feature = "otel")]
 use opentelemetry::trace::TracerProvider;
-use opentelemetry::{global, InstrumentationScope, KeyValue};
-use opentelemetry_otlp::tonic_types::metadata;
+use opentelemetry::{InstrumentationScope, KeyValue, global};
 #[cfg(feature = "metrics")]
 use opentelemetry_otlp::MetricExporter;
 use opentelemetry_otlp::SpanExporter;
 use opentelemetry_otlp::WithTonicConfig;
+use opentelemetry_otlp::tonic_types::metadata;
 #[cfg(feature = "metrics")]
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 #[cfg(feature = "metrics")]
 use opentelemetry_sdk::metrics::{Instrument, Stream};
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use opentelemetry_sdk::trace::{RandomIdGenerator, Sampler};
-use opentelemetry_sdk::{trace::SdkTracerProvider, Resource};
+use opentelemetry_sdk::{Resource, trace::SdkTracerProvider};
 use tracing_subscriber::Registry;
-use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Layer};
+use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt};
 #[derive(Clone)]
 pub struct Context {
     pub pod_name: String,
@@ -50,8 +55,15 @@ fn get_resource(ctx: &Context) -> Resource {
 
 fn get_metadata(ctx: &Context) -> metadata::MetadataMap {
     let mut metadata = metadata::MetadataMap::new();
-    metadata.insert("service.name", ctx.service_name.clone().parse().unwrap());
-    metadata.insert("service.pod", ctx.pod_name.clone().parse().unwrap());
+    // service_name / pod_name come from env (POD_NAME / HOSTNAME); a value with
+    // characters invalid for a gRPC metadata value must not crash the process at
+    // boot — skip the offending key instead.
+    if let Ok(value) = ctx.service_name.clone().parse() {
+        metadata.insert("service.name", value);
+    }
+    if let Ok(value) = ctx.pod_name.clone().parse() {
+        metadata.insert("service.pod", value);
+    }
     metadata
 }
 
@@ -97,6 +109,7 @@ fn init_metrics(ctx: &Context) -> SdkMeterProvider {
         .build()
 }
 
+#[must_use]
 pub fn start_tracing(ctx: &Context) -> TracingOutput {
     global::set_text_map_propagator(TraceContextPropagator::new());
 

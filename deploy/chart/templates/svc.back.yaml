@@ -1,4 +1,5 @@
 # Service for Backend Application
+apiVersion: v1
 kind: Service
 metadata:
   name: "{{ .Release.Name }}-proxyauthk8s-back"

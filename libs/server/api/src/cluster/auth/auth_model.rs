@@ -11,25 +11,34 @@ pub struct LoginToCallBackModel {
 }
 
 impl LoginToCallBackModel {
+    #[must_use]
     pub fn new(nonce: String, pkce_verifier: String) -> Self {
         LoginToCallBackModel {
             nonce,
             pkce_verifier,
         }
     }
+    #[must_use]
     pub fn from_string(s: &str) -> Option<LoginToCallBackModel> {
         serde_json::from_str::<LoginToCallBackModel>(s).ok()
     }
-    pub fn get_nonce(&self) -> Nonce {
+    #[must_use]
+    pub fn nonce(&self) -> Nonce {
         Nonce::new(self.nonce.clone())
     }
-    pub fn get_pkce_verifier(&self) -> PkceCodeVerifier {
+    #[must_use]
+    pub fn pkce_verifier(&self) -> PkceCodeVerifier {
         PkceCodeVerifier::new(self.pkce_verifier.clone())
     }
 }
 
 impl Display for LoginToCallBackModel {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", serde_json::to_string(self).unwrap())
+        // Two plain `String` fields always serialize; treat a failure as a
+        // formatting error rather than panicking inside `Display`.
+        match serde_json::to_string(self) {
+            Ok(json) => write!(f, "{json}"),
+            Err(_) => Err(std::fmt::Error),
+        }
     }
 }

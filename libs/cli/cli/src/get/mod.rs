@@ -1,10 +1,10 @@
-use comfy_table::Table;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
 use crate::{
-    ctx::{CliCtx, ContextFormat},
+    ctx::CliCtx,
     error::ProxyAuthK8sError,
+    output::{KubeList, TableRow},
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -16,8 +16,18 @@ pub struct GetClusterOutput {
     pub sso_enabled: bool,
 }
 
-impl GetClusterOutput {
-    pub fn to_row(&self) -> Vec<String> {
+impl TableRow for GetClusterOutput {
+    fn headers() -> Vec<String> {
+        vec![
+            "NAME".to_string(),
+            "NAMESPACE".to_string(),
+            "ENABLED".to_string(),
+            "REACHABLE".to_string(),
+            "SSO".to_string(),
+        ]
+    }
+
+    fn row(&self) -> Vec<String> {
         vec![
             self.name.clone(),
             self.namespace.clone(),
@@ -27,65 +37,13 @@ impl GetClusterOutput {
             self.sso_enabled.to_string(),
         ]
     }
-
-    pub fn to_row_headers() -> Vec<String> {
-        vec![
-            "NAME".to_string(),
-            "NAMESPACE".to_string(),
-            "ENABLED".to_string(),
-            "REACHABLE".to_string(),
-            "SSO".to_string(),
-        ]
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct VecGetClusterOutput {
-    pub api_version: String,
-    pub kind: String,
-    pub metadata: Option<serde_json::Value>,
-    pub items: Vec<GetClusterOutput>,
-}
-
-impl VecGetClusterOutput {
-    pub fn new(items: Vec<GetClusterOutput>) -> Self {
-        VecGetClusterOutput {
-            api_version: "v1".to_string(),
-            kind: "List".to_string(),
-            metadata: None,
-            items,
-        }
-    }
-
-    pub fn to_json(&self) -> String {
-        serde_json::to_string_pretty(self).unwrap_or_default()
-    }
-
-    pub fn to_yaml(&self) -> String {
-        serde_yaml::to_string(self).unwrap_or_default()
-    }
-
-    pub fn to_table(&self) -> String {
-        let mut table = Table::new();
-        table.load_preset(comfy_table::presets::NOTHING);
-        table.set_header(GetClusterOutput::to_row_headers());
-        for item in &self.items {
-            table.add_row(item.to_row());
-        }
-        table.to_string()
-    }
-
-    pub fn to_output(&self, format: ContextFormat) -> String {
-        match format {
-            ContextFormat::Json => self.to_json(),
-            ContextFormat::Yaml => self.to_yaml(),
-            ContextFormat::Table => self.to_table(),
-        }
-    }
 }
 
 impl CliCtx {
-    pub async fn handle_get_clusters(&mut self, cluster_name: Option<String>) {
+    pub async fn handle_get_clusters(
+        &mut self,
+        cluster_name: Option<String>,
+    ) -> Result<(), ProxyAuthK8sError> {
         let server_config =
             match self
                 .config
@@ -100,7 +58,7 @@ impl CliCtx {
                         "Error retrieving server configuration, please login to server first: {}",
                         e
                     );
-                    return;
+                    return Err(e.into());
                 }
             };
 
@@ -110,7 +68,7 @@ impl CliCtx {
             Some(self.namespace.clone())
         };
 
-        match server_config.get_clusters_from_remote().await {
+        match server_config.clusters_from_remote().await {
             Ok(clusters) => {
                 let mut outputs: Vec<GetClusterOutput> = clusters
                     .clusters
@@ -139,14 +97,17 @@ impl CliCtx {
                         .then_with(|| a.name.cmp(&b.name))
                 });
 
-                let output = VecGetClusterOutput::new(outputs);
+                let output = KubeList::new(outputs);
                 println!("{}", output.to_output(self.format.clone()));
+                Ok(())
             }
             Err(e) => {
                 error!("Failed to retrieve clusters: {}", e);
-                match e {
+                match &e {
                     ProxyAuthK8sError::Unauthenticated(_) => {
-                        info!("Authentication failed: invalid or missing server token. Please run login first.");
+                        info!(
+                            "Authentication failed: invalid or missing server token. Please run login first."
+                        );
                     }
                     ProxyAuthK8sError::RemoteServerError(_) => {
                         info!("Server error occurred while retrieving clusters.");
@@ -155,6 +116,7 @@ impl CliCtx {
                         info!("An unexpected error occurred while retrieving clusters.");
                     }
                 }
+                Err(e)
             }
         }
     }

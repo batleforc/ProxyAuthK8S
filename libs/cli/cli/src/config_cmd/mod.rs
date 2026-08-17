@@ -1,5 +1,7 @@
 use clap::Subcommand;
 
+use crate::{ctx::CliCtx, error::ProxyAuthK8sError};
+
 pub mod clear;
 pub mod get;
 pub mod get_output;
@@ -45,18 +47,28 @@ pub enum ConfigCommands {
     },
 }
 
-impl ConfigCommands {
-    pub fn handle_config_commands(&self, ctx: &mut crate::ctx::CliCtx) {
-        match self {
-            ConfigCommands::SetDef { .. } => {
-                self.handle_set_def(ctx);
+impl CliCtx {
+    /// Dispatch a `config` subcommand, mirroring how every other top-level
+    /// command is invoked as `ctx.handle_*(...)`.
+    pub fn handle_config(&mut self, command: &ConfigCommands) -> Result<(), ProxyAuthK8sError> {
+        match command {
+            ConfigCommands::SetDef {
+                server_url,
+                namespace,
+                default_server,
+            } => self.handle_set_def(
+                server_url.as_ref(),
+                namespace.as_ref(),
+                default_server.as_ref(),
+            ),
+            ConfigCommands::Clear { all, server_url } => {
+                self.handle_clear_config(*all, server_url.as_ref())
             }
-            ConfigCommands::Clear { .. } => {
-                self.handle_clear(ctx);
-            }
-            ConfigCommands::Get { .. } => {
-                self.handle_get(ctx);
-            }
+            ConfigCommands::Get {
+                server_url,
+                namespace,
+                list,
+            } => self.handle_get_config(server_url.as_ref(), namespace.as_ref(), *list),
         }
     }
 }

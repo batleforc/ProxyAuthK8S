@@ -1,0 +1,155 @@
+---
+title: APIs virtuelles
+description: Exposer une API que le cluster cible ne sert pas
+icon: Shuffle
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Une **API virtuelle** est une API que le cluster cible ne sert pas, et que ProxyAuthK8S
+synthétise : il répond lui-même à la discovery, puis traduit les requêtes vers une API que le
+cluster sert réellement, et retraduit les réponses.
+
+Le premier mapper expose `project.openshift.io/v1 Project` par-dessus les `Namespace` du cœur
+Kubernetes : un client habitué à `oc` peut donc faire `kubectl get projects` sur un cluster
+vanilla.
+
+## Activation
+
+```yaml
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+metadata:
+  name: local
+  namespace: default
+spec:
+  cert:
+    Insecure: true
+  service:
+    KubernetesService:
+      name: kubernetes
+      namespace: default
+      port: 443
+  virtual_apis:
+    - kind: OpenShiftProject
+      enabled: true
+```
+
+`kind` est une énumération fermée : seuls les mappers compilés dans le binaire sont
+acceptés, un CR demandant un mapper inconnu est rejeté à l'admission.
+
+Tant que `virtual_apis` est vide (le défaut), rien n'est construit et le chemin de proxy
+n'est pas modifié.
+
+## Mapper OpenShiftProject
+
+| Requête cliente                                            | Requête envoyée au cluster           |
+| ---------------------------------------------------------- | ------------------------------------ |
+| `GET /apis/project.openshift.io/v1/projects`               | `GET /api/v1/namespaces`             |
+| `GET /apis/project.openshift.io/v1/projects?watch=true`    | `GET /api/v1/namespaces?watch=true`  |
+| `GET /apis/project.openshift.io/v1/projects/{name}`        | `GET /api/v1/namespaces/{name}`      |
+| `DELETE /apis/project.openshift.io/v1/projects/{name}`     | `DELETE /api/v1/namespaces/{name}`   |
+| `POST /apis/project.openshift.io/v1/projectrequests`       | `POST /api/v1/namespaces`            |
+
+Traductions appliquées aux objets :
+
+- `Namespace` → `Project`, `NamespaceList` → `ProjectList` (`kind` et `apiVersion` réécrits,
+  le reste de l'objet est conservé tel quel) ;
+- les annotations `openshift.io/display-name` et `openshift.io/description` sont conservées ;
+- à la création, les champs `displayName` et `description` d'un `ProjectRequest` deviennent
+  ces mêmes annotations sur le `Namespace` ;
+- chaque évènement d'un `watch` est retraduit individuellement, au fil du flux ;
+- un objet `Status` (une erreur de l'apiserver) traverse **sans** être modifié : le client
+  doit voir la vraie erreur.
+
+Les verbes non supportés par une ressource virtuelle sont **refusés** (`405` + en-tête `Allow`)
+sans appel au cluster, pour qu'un verbe ne soit pas mappé sur une opération amont non voulue :
+`projectrequests` n'accepte que `GET`/`POST`, `projects` que `GET`/`DELETE` (ainsi un
+`DELETE projectrequests` ne peut plus atterrir sur un *deletecollection* de namespaces).
+
+## Discovery
+
+- `GET /apis` est transmis au cluster puis fusionné avec les groupes virtuels. Si le cluster
+  sert déjà le groupe (un vrai cluster OpenShift derrière le proxy), **le groupe réel gagne** :
+  le proxy ne masque jamais une API existante.
+- `GET /apis/project.openshift.io` et `GET /apis/project.openshift.io/v1` sont répondus
+  directement par le proxy, sans appel au cluster.
+
+<Callout type="warn">
+`/openapi/v2` et `/openapi/v3` ne sont **pas** modifiés. Les clients tolèrent qu'une ressource
+manque du document OpenAPI : on y perd la validation de champs côté client et
+`kubectl explain projects`, rien de plus.
+</Callout>
+
+## Limitations connues
+
+### LIST projects nécessite les droits de list cluster-wide
+
+Sur OpenShift, `LIST projects` ne renvoie que les projets visibles par l'appelant, parce que
+l'apiserver les filtre par utilisateur. `LIST namespaces` n'a pas ce comportement et exige des
+droits de list au niveau du cluster.
+
+Conséquence : un utilisateur sans ces droits reçoit le **403 de l'apiserver** là où OpenShift
+lui aurait renvoyé une liste (éventuellement vide). Le proxy transmet cette erreur telle
+quelle.
+
+Un repli via `SelfSubjectAccessReview` par namespace est envisagé (voir la roadmap) mais
+n'est pas implémenté.
+
+### N'activez pas un mapper sur un cluster qui sert déjà le groupe
+
+La discovery d'un groupe virtuel (`GET /apis/{group}` et `GET /apis/{group}/{version}`) est
+répondue **localement** par le mapper, sans appel au cluster. Sur un cluster qui sert déjà réellement
+ce groupe d'API (ex. un vrai OpenShift pour `project.openshift.io`), la discovery de ce groupe ne
+renverrait alors que la ressource virtuelle et masquerait les ressources réelles. Le mapper est
+prévu pour émuler le groupe sur un cluster qui **ne le sert pas** ; ne l'activez pas là où le groupe
+existe déjà. (La liste globale `GET /apis`, elle, fusionne et ne masque jamais un groupe réel.)
+
+### Interaction avec `security_config.allowed_resources`
+
+Quand une API virtuelle réécrit une requête, la liste d'autorisation est évaluée sur **les
+deux** chemins : celui tapé par le client et celui réellement atteint sur le cluster. Autoriser
+`/apis/project.openshift.io/v1/projects` ne donne donc pas un accès détourné à
+`/api/v1/namespaces`.
+
+Pour autoriser explicitement l'usage des Projects, les deux chemins doivent figurer dans la
+liste :
+
+```yaml
+security_config:
+  enabled: true
+  allowed_resources:
+    - Path:
+        path: /apis/project.openshift.io/v1/projects
+    - Path:
+        path: /api/v1/namespaces
+```
+
+### Taille des réponses
+
+Une réponse traduite doit être tenue en mémoire en entier (un `watch` fait exception : il est
+traduit évènement par évènement). La limite est de 32 Mio par défaut, réglable via
+`PROXY_VIRTUAL_MAX_BODY_BYTES` ; au-delà la requête est refusée avec un 502. La lecture est
+**bornée au fil de l'eau** (et coupe court si l'amont annonce un `Content-Length` trop grand),
+donc un corps surdimensionné n'est jamais bufferisé en entier avant d'être refusé. Côté `watch`,
+une même ligne d'évènement non terminée est plafonnée à cette limite.
+
+## Ajouter un mapper
+
+Un mapper implémente le trait `VirtualApiMapper` du crate `libs/server/virtual_api` :
+
+```rust
+pub trait VirtualApiMapper: Send + Sync {
+    fn group_version(&self) -> (&str, &str);
+    fn api_resources(&self) -> APIResourceList;
+    fn matches(&self, path: &str) -> Option<VirtualRoute>;
+    fn map_request(&self, route: &VirtualRoute) -> UpstreamRequest;
+    fn map_response(&self, body: serde_json::Value) -> serde_json::Value;
+    fn map_watch_event(&self, event: serde_json::Value) -> serde_json::Value;
+    fn map_request_body(&self, route: &VirtualRoute, body: serde_json::Value) -> serde_json::Value;
+}
+```
+
+Tout y est de la traduction pure : aucune I/O, aucun accès au cluster. Une fois le mapper
+écrit, il reste à l'ajouter à l'énumération `VirtualApiKind` (crate `crd`) et à
+`build_mapper`.

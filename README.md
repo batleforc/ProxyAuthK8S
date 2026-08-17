@@ -114,16 +114,35 @@ The imported realm is [realm-proxyauthk8s.json](.compose/keycloak/realm-proxyaut
   - [x] Use an auto generated client from the OpenAPI spec of the API to interact with the API
 - [ ] CI/CD
   - [ ] In case of TAG
-    - [ ] Build and push Krew plugin to Krew Index
+    - [x] Build the plugin archives and render the Krew manifest
+    - [ ] Open the PR against the Krew Index
+  - [ ] Pin `actions/upload-artifact` and `actions/download-artifact` to a SHA in
+        `release-prepare.yml`, like every other action in the workflows
 - [ ] Have a clean git history
 
 ### v1.0.0
 
-- [ ] Add more tests
-- [ ] Add [redis cluster](https://docs.rs/deadpool-redis/latest/deadpool_redis/#example-cluster) support for HA and state storage
-- [ ] Add security features (details later)
+- [x] Add more tests
+  - [x] Unit tests on the CRD, the path matcher and the security policy
+  - [x] Fast integration tier (wiremock upstream + real Redis)
+  - [x] envtest tier against a real ephemeral kube-apiserver
+- [x] Add [redis cluster](https://docs.rs/deadpool-redis/latest/deadpool_redis/#example-cluster) support for HA and state storage
+- [ ] Add security features
+  - [x] Enforce `allowed_resources` on the proxy path
+  - [x] Per-cluster authorization (`proxy_group`)
+  - [x] Rate limiting and fail2login, backed by Redis counters
+  - [x] Audit trail on every proxied request
+  - [x] mTLS between the proxy and the target clusters
+  - [x] CEL admission rules on the CRD
+  - [ ] Local JWT validation against the `jwt` authenticators (signature, claim
+        validation rules and claim mappings, as the apiserver's structured
+        authentication configuration does)
   - [ ] Allow getting oidc configuration from an external secrets
-- [ ] Add Oidc token validation
+- [x] Add Oidc token validation
+- [ ] Match allowed resources on group/version/kind (`AllowedCrdConfiguration`)
+      instead of only on paths
+- [ ] Drop the deprecated `allowed_ressources` spelling once resources have been
+      migrated to `allowed_resources` (breaking, hence the next major)
 - [ ] CI/CD
   - [ ] In case of TAG
     - [ ] Publish the documentation on GitHub Pages
@@ -132,5 +151,7 @@ The imported realm is [realm-proxyauthk8s.json](.compose/keycloak/realm-proxyaut
 
 - [ ] Redesign the UI (I hate the current look of it)
 - [ ] Setup Exchange token between IdP and ProxyAuthK8S main auth server
-- [ ] Add ability to go through a proxy (exemple with Netbird)
+- [ ] Add ability to go through a proxy (example with Netbird)
+- [ ] Virtual APIs: fall back to per-namespace `SelfSubjectAccessReview` when
+      `LIST namespaces` is denied, so `LIST projects` behaves like OpenShift's
 - [ ] Setup Agent Mode, Allow to not expose each cluster to the world and just have an agent doing a tunnel between the Cluster ApiServer and ProxyAuthK8S

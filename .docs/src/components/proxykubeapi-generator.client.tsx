@@ -384,7 +384,7 @@ function buildPresetDefinitions(): PresetDefinition[] {
         };
         specValue.security_config = {
           enabled: true,
-          allowed_ressources: [
+          allowed_resources: [
             {
               Path: {
                 path: '/api/v1/namespaces/{{group}}/pods',

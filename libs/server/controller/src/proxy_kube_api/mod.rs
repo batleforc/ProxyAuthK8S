@@ -2,12 +2,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common::State;
-use crd::ProxyKubeApi;
 use crd::PROXY_KUBE_FINALIZER;
-use kube::runtime::controller::Action;
-use kube::runtime::finalizer;
+use crd::ProxyKubeApi;
 use kube::Api;
 use kube::ResourceExt;
+use kube::runtime::controller::Action;
+use kube::runtime::finalizer;
 use opentelemetry::TraceId;
 use trace::helper::get_trace_id;
 use tracing::{instrument, warn};
@@ -17,6 +17,12 @@ use crate::error::Result;
 
 pub mod cleanup;
 pub mod reconcile;
+
+/// Redis key prefix under which cluster configurations are cached.
+///
+/// Must match [`ProxyKubeApi::to_identifier`], which produces
+/// `proxyk8sauth:{namespace}/{name}`.
+pub const REDIS_PREFIX: &str = crd::REDIS_PREFIX;
 
 #[instrument(skip(ctx))]
 pub fn error_policy_proxy_kube_api(
@@ -30,7 +36,9 @@ pub fn error_policy_proxy_kube_api(
             proxy.namespace().as_deref().unwrap_or_default(),
             proxy.name_any()
         );
-        return Action::requeue(Duration::from_hours(1));
+        // Keep this short (~lease TTL) so that once this instance is promoted it
+        // converges quickly instead of leaving stale state for up to an hour.
+        return Action::requeue(Duration::from_secs(20));
     }
     warn!(
         "Reconciliation error for ProxyKubeApi {}/{}",
@@ -52,21 +60,22 @@ pub async fn main_reconcile_proxy_kube_api(
             proxy.namespace().as_deref().unwrap_or_default(),
             proxy.name_any()
         );
-        // Even if not the leader, still wait in case of becoming the leader soon, and avoid hot looping when there are many events
-        return Ok(Action::requeue(Duration::from_hours(1)));
+        // Even if not the leader, requeue soon (~lease TTL) so a freshly promoted
+        // leader re-reconciles already-seen objects quickly instead of leaving
+        // their state stale for up to an hour, while still avoiding a hot loop.
+        return Ok(Action::requeue(Duration::from_secs(20)));
     }
     let trace_id = get_trace_id();
     if trace_id != TraceId::INVALID {
         tracing::Span::current().record("trace_id", tracing::field::display(trace_id));
     }
-    let ns = match proxy.namespace() {
-        Some(ns) => ns,
-        None => {
-            tracing::error!(name = proxy.metadata.name, "ProxyKubeApi has no namespace");
-            return Err(ControllerError::InvalidResource(
-                "ProxyKubeApi has no namespace".to_string(),
-            ));
-        }
+    let ns = if let Some(ns) = proxy.namespace() {
+        ns
+    } else {
+        tracing::error!(name = proxy.metadata.name, "ProxyKubeApi has no namespace");
+        return Err(ControllerError::InvalidResource(
+            "ProxyKubeApi has no namespace".to_string(),
+        ));
     };
     let proxys: Api<ProxyKubeApi> = Api::namespaced(ctx.client.clone(), &ns);
 
