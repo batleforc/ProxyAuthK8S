@@ -30,14 +30,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: 🧶 Enable Corepack
+        run: corepack enable
+        # 🔒 Honor the "packageManager" pin in package.json (Yarn Berry) instead
+        # of the runner's preinstalled Yarn Classic. Must run BEFORE setup-node,
+        # since setup-node's cache:"yarn" option shells out to `yarn` itself to
+        # resolve the cache directory.
       - name: Use Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           cache: "yarn"
-      - name: 🧶 Enable Corepack
-        run: corepack enable
-        # 🔒 Honor the "packageManager" pin in package.json (Yarn Berry) instead
-        # of the runner's preinstalled Yarn Classic.
       - name: Install Task
         uses: go-task/setup-task@3be4020d41929789a01026e0e427a4321ce0ad44 # v2.0.0
       - name: Install dependencies
