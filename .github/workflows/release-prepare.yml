@@ -261,7 +261,7 @@ jobs:
           sha256sum "$ARCHIVE" > "$ARCHIVE.sha256" 2>/dev/null || shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
 
       - name: ⬆️ Upload the archive
-        uses: actions/upload-artifact@v4 # NOTE: pin to a SHA before merging, like every other action here
+        uses: actions/upload-artifact@v7 # NOTE: pin to a SHA before merging, like every other action here
         with:
           name: kubectl-proxyauth-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
@@ -306,7 +306,7 @@ jobs:
           cat "$MANIFEST"
 
       - name: ⬆️ Upload the manifest
-        uses: actions/upload-artifact@v4 # NOTE: pin to a SHA before merging, like every other action here
+        uses: actions/upload-artifact@v7 # NOTE: pin to a SHA before merging, like every other action here
         with:
           name: krew-manifest
           path: .krew/proxyauth.yaml
