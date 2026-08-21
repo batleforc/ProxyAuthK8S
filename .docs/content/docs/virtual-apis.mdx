@@ -83,18 +83,114 @@ manque du document OpenAPI : on y perd la validation de champs côté client et
 
 ## Limitations connues
 
-### LIST projects nécessite les droits de list cluster-wide
+### LIST projects — filtrage par utilisateur (`list_fallback_token`)
 
 Sur OpenShift, `LIST projects` ne renvoie que les projets visibles par l'appelant, parce que
-l'apiserver les filtre par utilisateur. `LIST namespaces` n'a pas ce comportement et exige des
-droits de list au niveau du cluster.
+l'apiserver les filtre par utilisateur. Un simple `LIST namespaces` n'a pas ce comportement :
+soit tout, soit rien, selon que l'appelant a le droit de lister les namespaces au niveau du
+cluster.
 
-Conséquence : un utilisateur sans ces droits reçoit le **403 de l'apiserver** là où OpenShift
-lui aurait renvoyé une liste (éventuellement vide). Le proxy transmet cette erreur telle
-quelle.
+Sans configuration supplémentaire, le comportement reste ce "tout ou rien" : un utilisateur
+sans droits de list cluster-wide reçoit le **403 de l'apiserver** là où OpenShift lui aurait
+renvoyé une liste (éventuellement vide), et un utilisateur qui a ces droits voit tous les
+namespaces sans filtrage.
 
-Un repli via `SelfSubjectAccessReview` par namespace est envisagé (voir la roadmap) mais
-n'est pas implémenté.
+En configurant `list_fallback_token` sur l'entrée `OpenShiftProject`, `LIST projects` est
+filtré comme sur OpenShift, de façon **inconditionnelle** : que l'appelant ait ou non des
+droits de list cluster-wide, seuls les namespaces sur lesquels il a individuellement le droit
+`get` sont renvoyés (jamais un 403, jamais une liste non filtrée). Le mécanisme :
+
+1. le token — un jeton à privilège minimal, `list` sur `namespaces` et rien d'autre — sert à
+   énumérer les namespaces candidats ;
+2. chaque candidat est ensuite vérifié — voir la section suivante pour le détail — avec
+   l'identité impersonnée de l'appelant ; aucun droit RBAC supplémentaire n'est nécessaire côté
+   utilisateur, `system:basic-user` accorde déjà `create selfsubjectaccessreviews` et `create
+   selfsubjectrulesreviews` à tout utilisateur authentifié par défaut ;
+3. seuls les namespaces confirmés visibles sont conservés.
+
+```yaml
+spec:
+  virtual_apis:
+    - kind: OpenShiftProject
+      enabled: true
+      list_fallback_token:
+        Secret:
+          name: proxyauthk8s-project-lister-token
+          key: token
+```
+
+RBAC minimal requis sur le cluster cible pour l'identité de ce token — `list` uniquement,
+rien d'autre (ni `get`, ni `watch`, ni création de reviews, ni cluster-admin) :
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: proxyauthk8s-project-lister
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: proxyauthk8s-project-lister
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: proxyauthk8s-project-lister
+subjects:
+  - kind: ServiceAccount
+    name: proxyauthk8s-project-lister
+    namespace: default
+```
+
+<Callout type="warn">
+Si l'appel privilégié échoue (token mal configuré, RBAC manquant, cluster injoignable), le
+proxy répond **503** plutôt que de se rabattre sur une liste non filtrée (fuite de visibilité)
+ou une liste vide silencieuse (résultat trompeur). Si la review d'un namespace précis échoue
+(erreur réseau, par exemple), seul ce namespace est exclu — le reste de la liste est renvoyé
+normalement.
+</Callout>
+
+Limitation restante : `WATCH` n'est **pas** filtré, avec ou sans `list_fallback_token` — un
+flux de watch sur `projects` continue de retransmettre chaque évènement de namespace sans
+filtrage.
+
+#### Coût : un `SelfSubjectRulesReview` d'abord, puis un cache
+
+Vérifier chaque candidat un par un via `SelfSubjectAccessReview` coûterait un appel HTTP par
+namespace — 300 namespaces, c'est potentiellement 300 appels à chaque `LIST projects`. Deux
+mécanismes évitent ça, dans l'ordre :
+
+1. **Un seul `SelfSubjectRulesReview`** est tenté d'abord. Il renvoie en un appel l'ensemble des
+   règles RBAC de l'appelant ; celles qui portent sur `namespaces` avec un `resourceNames`
+   explicite (ou sans restriction du tout) résolvent directement la visibilité des candidats
+   correspondants, sans aucun `SelfSubjectAccessReview`. Comme `Namespace` est une ressource
+   cluster-scoped, seuls des `ClusterRole` liés via `ClusterRoleBinding` peuvent y donner accès
+   — un `RoleBinding` namespaced n'y change jamais rien — donc un résultat complet
+   (`incomplete: false`) de cette review couvre exactement le même calcul qu'un vrai
+   `SelfSubjectAccessReview` pour ce cas précis. Un candidat que la review ne résout pas
+   (règles agrégées, `incomplete: true`, review indisponible) retombe sur une vraie vérification
+   individuelle — la review ne sert jamais à **refuser**, seulement à raccourcir un **accord**.
+2. **Le résultat résolu est mis en cache** (Redis) par `(cluster, identité de l'appelant)`
+   pendant `PROXY_VIRTUAL_LIST_FALLBACK_CACHE_TTL_SECONDS` (30s par défaut, `0` désactive le
+   cache). Un appelant qui reliste ses projets dans cette fenêtre — un dashboard qui rafraîchit
+   toutes les quelques secondes, typiquement — ne redéclenche ni la review ni aucune vérification
+   d'accès ; seule la liste de candidats elle-même (`list_fallback_token`) est toujours refaite à
+   chaque requête, pour rester à jour vis-à-vis des namespaces créés/supprimés et des filtres
+   (`labelSelector`, etc.) envoyés par le client.
+
+<Callout type="warn">
+Le cache introduit un délai — jusqu'à `PROXY_VIRTUAL_LIST_FALLBACK_CACHE_TTL_SECONDS` — entre la
+révocation d'un droit RBAC et sa prise en compte dans `LIST projects`. L'accès réel à un
+namespace précis (`GET`/`DELETE /projects/{name}`) n'est jamais concerné : il repasse toujours
+par une autorisation en direct sur le cluster cible, la mise en cache ne porte que sur la liste.
+</Callout>
+
+Le nombre de connexions simultanées pour la vérification individuelle (le repli, quand la review
+ne résout pas tout) est borné par `PROXY_VIRTUAL_LIST_FALLBACK_CONCURRENCY` (16 par défaut).
 
 ### N'activez pas un mapper sur un cluster qui sert déjà le groupe
 

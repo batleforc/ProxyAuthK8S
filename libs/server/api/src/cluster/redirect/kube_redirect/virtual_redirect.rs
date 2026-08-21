@@ -23,6 +23,7 @@ use virtual_api::discovery::{
     merge_api_group_list,
 };
 
+use super::list_fallback;
 use super::upstream::{apply_forward_headers, upstream_client};
 use crate::cluster::redirect::audit::AuditContext;
 use crate::model::user::User;
@@ -266,6 +267,47 @@ pub(super) async fn virtual_redirect(
             return HttpResponse::ServiceUnavailable().body("upstream unavailable");
         }
     };
+
+    // A mapper offering per-item visibility filtering, on a cluster that has
+    // opted into it: skip the plain forward entirely and always return the
+    // filtered collection, whether or not the caller could also have listed
+    // it directly. See `list_fallback` for why this can't just be a 403
+    // rescue.
+    if matches!(plan, VirtualPlan::Mapped { .. })
+        && method.as_str().eq_ignore_ascii_case("GET")
+        && !is_watch(query_string)
+        && list_fallback::is_configured(&proxy)
+        && let Some((mapper, mut route)) = registry.resolve(&upstream_path)
+    {
+        route.method = method.as_str().to_ascii_uppercase();
+        if let Some(probe) = mapper.list_access_probe(&route) {
+            return match list_fallback::list_projects_filtered(
+                &proxy,
+                &data,
+                &client,
+                &req,
+                peer_addr,
+                user.as_ref(),
+                &base_url,
+                query_string,
+                probe,
+            )
+            .await
+            {
+                Ok(json) => {
+                    audit.emit(200);
+                    json_response(http::StatusCode::OK, &mapper.map_response(json))
+                }
+                Err(list_fallback::DiscoveryError(err)) => {
+                    error!(err, "list fallback discovery failed");
+                    audit.emit(503);
+                    HttpResponse::ServiceUnavailable().body("upstream unavailable")
+                }
+            };
+        }
+        // Else: this route has no per-item probe (e.g. a single-object GET);
+        // fall through to the plain forward below, unchanged.
+    }
 
     let upstream_method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
         Ok(method) => method,

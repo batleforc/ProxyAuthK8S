@@ -11,11 +11,15 @@ use rustls_platform_verifier::BuilderVerifierExt;
 /// TLS configuration used to reach the target cluster.
 ///
 /// The trust anchor comes from the cluster's `cert` (or the platform store when
-/// it has none), and a client certificate is attached when the cluster is
-/// configured for mutual TLS.
+/// it has none). A client certificate is attached when the cluster is
+/// configured for mutual TLS and `attach_client_cert` is `true`; pass `false`
+/// to build a CA-only connection (e.g. a privileged bearer-token call, which
+/// must authenticate unambiguously as the token and never be conflated with
+/// the front-proxy mTLS identity used for impersonated calls).
 pub(super) async fn build_tls_config(
     proxy: &ProxyKubeApi,
     state: &web::Data<State>,
+    attach_client_cert: bool,
 ) -> Result<ClientConfig, String> {
     let namespace = proxy.namespace().unwrap_or_default();
     let cert_pem = proxy
@@ -41,7 +45,12 @@ pub(super) async fn build_tls_config(
             .map_err(|e| e.to_string())?
     };
 
-    let Some(client_cert) = &proxy.spec.client_cert else {
+    let client_cert = if attach_client_cert {
+        proxy.spec.client_cert.as_ref()
+    } else {
+        None
+    };
+    let Some(client_cert) = client_cert else {
         return Ok(builder.with_no_client_auth());
     };
 

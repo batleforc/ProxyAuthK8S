@@ -17,7 +17,28 @@ pub(super) async fn upstream_client(
     proxy: &ProxyKubeApi,
     data: &web::Data<State>,
 ) -> Result<reqwest::Client, String> {
-    let tls_config = build_tls_config(proxy, data).await?;
+    build_client(proxy, data, true).await
+}
+
+/// A reqwest client trusting the cluster's CA but never presenting a client
+/// certificate, even when the cluster is configured for mutual TLS.
+///
+/// For a privileged bearer-token call (see `list_fallback`): its identity must
+/// never be conflated with the front-proxy mTLS identity used for impersonated
+/// calls, so it authenticates by the token alone.
+pub(super) async fn ca_only_client(
+    proxy: &ProxyKubeApi,
+    data: &web::Data<State>,
+) -> Result<reqwest::Client, String> {
+    build_client(proxy, data, false).await
+}
+
+async fn build_client(
+    proxy: &ProxyKubeApi,
+    data: &web::Data<State>,
+    attach_client_cert: bool,
+) -> Result<reqwest::Client, String> {
+    let tls_config = build_tls_config(proxy, data, attach_client_cert).await?;
     reqwest::ClientBuilder::new()
         .use_preconfigured_tls(tls_config)
         // Never follow redirects to the upstream: a Kubernetes apiserver does not

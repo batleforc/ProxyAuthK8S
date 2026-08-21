@@ -9,6 +9,7 @@ use crate::cluster::redirect::throttle;
 use crate::helper::{extract_authorization_header, extract_ns_cluster};
 use crate::model::user::User;
 
+mod list_fallback;
 mod standard;
 mod tls;
 mod upgrade;

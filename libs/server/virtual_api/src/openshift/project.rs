@@ -9,18 +9,37 @@
 //! | `GET/DELETE .../projects/{name}`                     | `.../namespaces/{name}`         |
 //! | `POST .../projectrequests`                           | `POST /api/v1/namespaces`       |
 //!
-//! Known limitation: `OpenShift`'s `LIST projects` returns only the projects the
-//! caller can see, because the apiserver filters them per user. `LIST
-//! namespaces` has no such behaviour and requires cluster-wide list rights, so
-//! a user without them gets a 403 here where `OpenShift` would have returned a
-//! (possibly empty) list. See the roadmap entry about per-namespace
-//! `SelfSubjectAccessReview` fallback.
+//! `OpenShift`'s `LIST projects` returns only the projects the caller can see,
+//! because the apiserver filters them per user. A plain `LIST namespaces` has
+//! no such behaviour: it is all-or-nothing on cluster-wide list rights.
+//!
+//! When the cluster's `list_fallback_token` is configured, `LIST projects` is
+//! filtered to match: a least-privilege credential (`list` only on
+//! `namespaces`, see `ProxyKubeApi`'s virtual API configuration) enumerates the
+//! candidates, and each one is kept only if the caller can individually `get`
+//! it. This is unconditional — it applies even when the caller could also
+//! have listed namespaces directly, matching `OpenShift`'s model where there
+//! is no unfiltered path at all. Without the token configured, the behaviour
+//! is unchanged: `LIST namespaces` is forwarded as-is, unfiltered on success,
+//! and the apiserver's own 403 passes through untouched on failure.
+//!
+//! The per-candidate check itself is a `SelfSubjectAccessReview`, but that
+//! doesn't run once per namespace on every request: a `SelfSubjectRulesReview`
+//! first tries to resolve every candidate in one call, and the outcome is
+//! cached per caller for a short TTL, so a repeatedly-polled `LIST projects`
+//! (dashboards, `oc projects`) does not re-run access reviews at all within
+//! that window. See `list_fallback` (the `api` crate) for the mechanics and
+//! why trusting the rules review for an *allow* decision is safe here
+//! specifically.
+//!
+//! Known limitation: `WATCH` is not filtered either way — a watched project
+//! list still streams every namespace event unfiltered.
 
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIResource, APIResourceList};
 use serde_json::{Value, json};
 
 use crate::VirtualApiMapper;
-use crate::route::{UpstreamRequest, VirtualRoute, segments};
+use crate::route::{AccessProbe, UpstreamRequest, VirtualRoute, segments};
 
 pub const GROUP: &str = "project.openshift.io";
 pub const VERSION: &str = "v1";
@@ -242,6 +261,18 @@ impl VirtualApiMapper for OpenShiftProjectMapper {
             *object = mapped;
         }
         event
+    }
+
+    fn list_access_probe(&self, route: &VirtualRoute) -> Option<AccessProbe> {
+        if route.resource == PROJECTS_RESOURCE && route.name.is_none() && route.method == "GET" {
+            Some(AccessProbe {
+                group: "",
+                resource: "namespaces",
+                verb: "get",
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -522,6 +553,40 @@ mod tests {
         let mapped = mapper().map_watch_event(event);
         assert_eq!(mapped["type"], "BOOKMARK");
         assert_eq!(mapped["object"]["metadata"]["resourceVersion"], "99");
+    }
+
+    #[test]
+    fn list_access_probe_is_only_offered_for_the_list_route() {
+        let mapper = mapper();
+
+        let probe = mapper
+            .list_access_probe(&route("GET", "/apis/project.openshift.io/v1/projects"))
+            .expect("LIST projects should offer a probe");
+        assert_eq!(probe.group, "");
+        assert_eq!(probe.resource, "namespaces");
+        assert_eq!(probe.verb, "get");
+
+        assert!(
+            mapper
+                .list_access_probe(&route("GET", "/apis/project.openshift.io/v1/projects/dev"))
+                .is_none()
+        );
+        assert!(
+            mapper
+                .list_access_probe(&route(
+                    "DELETE",
+                    "/apis/project.openshift.io/v1/projects/dev"
+                ))
+                .is_none()
+        );
+        assert!(
+            mapper
+                .list_access_probe(&route(
+                    "GET",
+                    "/apis/project.openshift.io/v1/projectrequests"
+                ))
+                .is_none()
+        );
     }
 
     #[test]

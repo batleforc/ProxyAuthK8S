@@ -862,6 +862,62 @@ spec:
                       enum:
                       - OpenShiftProject
                       type: string
+                    list_fallback_token:
+                      description: |-
+                        A least-privilege bearer token (`list` only on `namespaces`, nothing
+                        else) used to enumerate candidate namespaces so `OpenShiftProject`'s
+                        `LIST projects` can be filtered to what the caller can individually
+                        `get`, matching `OpenShift`'s per-project visibility model.
+
+                        Unset by default: `LIST projects` then behaves as a plain,
+                        unfiltered `LIST namespaces`. Only meaningful for
+                        `VirtualApiKind::OpenShiftProject`.
+                      nullable: true
+                      oneOf:
+                      - required:
+                        - Secret
+                      - required:
+                        - Cert
+                      - required:
+                        - ConfigMap
+                      - required:
+                        - Insecure
+                      properties:
+                        Cert:
+                          description: Base64 encoded cert
+                          type: string
+                        ConfigMap:
+                          description: Configmap
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              nullable: true
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        Insecure:
+                          description: Insecure, do not use TLS
+                          type: boolean
+                        Secret:
+                          description: Use a cert from a secret
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              nullable: true
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                      type: object
                   required:
                   - kind
                   type: object

@@ -104,7 +104,7 @@ async fn connect_upgrade_stream(
         return Ok(Box::new(tcp_stream) as BoxedAsyncIo);
     }
 
-    let tls_config = build_tls_config(proxy, state).await?;
+    let tls_config = build_tls_config(proxy, state, true).await?;
     let server_name = ServerName::try_from(host.to_string()).map_err(|e| e.to_string())?;
     let connector = TlsConnector::from(Arc::new(tls_config));
     let tls_stream = connector

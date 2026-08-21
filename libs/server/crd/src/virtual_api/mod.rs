@@ -8,6 +8,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::certificate::CertSource;
 use crate::default::default_enabled;
 
 /// The virtual APIs this build knows how to synthesise.
@@ -25,6 +26,16 @@ pub struct VirtualApiConfiguration {
     /// Default: true
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// A least-privilege bearer token (`list` only on `namespaces`, nothing
+    /// else) used to enumerate candidate namespaces so `OpenShiftProject`'s
+    /// `LIST projects` can be filtered to what the caller can individually
+    /// `get`, matching `OpenShift`'s per-project visibility model.
+    ///
+    /// Unset by default: `LIST projects` then behaves as a plain,
+    /// unfiltered `LIST namespaces`. Only meaningful for
+    /// `VirtualApiKind::OpenShiftProject`.
+    #[serde(default)]
+    pub list_fallback_token: Option<CertSource>,
 }
 
 impl VirtualApiConfiguration {
@@ -33,6 +44,7 @@ impl VirtualApiConfiguration {
         Self {
             kind,
             enabled: true,
+            list_fallback_token: None,
         }
     }
 }
@@ -58,6 +70,7 @@ mod tests {
         let configurations = vec![VirtualApiConfiguration {
             kind: VirtualApiKind::OpenShiftProject,
             enabled: false,
+            list_fallback_token: None,
         }];
         assert!(enabled_kinds(&configurations).is_empty());
     }
@@ -80,5 +93,29 @@ mod tests {
             serde_json::from_value(serde_json::json!({ "kind": "OpenShiftProject" }))
                 .expect("configuration should deserialize");
         assert!(configuration.enabled);
+    }
+
+    #[test]
+    fn list_fallback_token_defaults_to_none_when_omitted() {
+        let configuration: VirtualApiConfiguration =
+            serde_json::from_value(serde_json::json!({ "kind": "OpenShiftProject" }))
+                .expect("configuration should deserialize");
+        assert!(configuration.list_fallback_token.is_none());
+
+        let configuration = VirtualApiConfiguration::new(VirtualApiKind::OpenShiftProject);
+        assert!(configuration.list_fallback_token.is_none());
+    }
+
+    #[test]
+    fn list_fallback_token_deserializes_when_present() {
+        let configuration: VirtualApiConfiguration = serde_json::from_value(serde_json::json!({
+            "kind": "OpenShiftProject",
+            "list_fallback_token": { "Cert": "dGVzdA==" },
+        }))
+        .expect("configuration should deserialize");
+        assert!(matches!(
+            configuration.list_fallback_token,
+            Some(CertSource::Cert(_))
+        ));
     }
 }
