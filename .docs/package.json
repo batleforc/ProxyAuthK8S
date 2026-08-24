@@ -19,7 +19,7 @@
     "@icons-pack/react-simple-icons": "^13.15.1",
     "@takumi-rs/image-response": "2.10.0",
     "fumadocs-core": "16.14.4",
-    "fumadocs-mdx": "15.2.3",
+    "fumadocs-mdx": "15.3.0",
     "fumadocs-openapi": "11.2.4",
     "fumadocs-ui": "16.14.4",
     "lucide-react": "^1.31.0",
