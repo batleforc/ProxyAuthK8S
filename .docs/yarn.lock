@@ -6694,6 +6694,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"lucide-react@npm:^1.33.0":
+  version: 1.33.0
+  resolution: "lucide-react@npm:1.33.0"
+  peerDependencies:
+    react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+  checksum: 10/5696bde795e1513f2cd9b018e45465e61a2b582b10024643997ced9d262b34cad4a0b8fb076672dbb7ac9f2cf92484015f6674bc511d40c6883431c44808b86c
+  languageName: node
+  linkType: hard
+
 "magic-string@npm:^0.30.21":
   version: 0.30.21
   resolution: "magic-string@npm:0.30.21"
@@ -8042,7 +8051,7 @@ __metadata:
     fumadocs-mdx: "npm:15.2.3"
     fumadocs-openapi: "npm:11.2.4"
     fumadocs-ui: "npm:16.14.4"
-    lucide-react: "npm:^1.31.0"
+    lucide-react: "npm:^1.33.0"
     mermaid: "npm:^11.16.1"
     next: "npm:16.3.1"
     next-themes: "npm:^0.4.6"
