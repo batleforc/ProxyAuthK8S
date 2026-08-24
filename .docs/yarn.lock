@@ -5267,9 +5267,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"fumadocs-core@npm:16.14.4":
-  version: 16.14.4
-  resolution: "fumadocs-core@npm:16.14.4"
+"fumadocs-core@npm:16.14.5":
+  version: 16.14.5
+  resolution: "fumadocs-core@npm:16.14.5"
   dependencies:
     "@fumari/image-size": "npm:^0.1.0"
     estree-util-value-to-estree: "npm:^3.5.0"
@@ -5346,7 +5346,7 @@ __metadata:
       optional: true
     zod:
       optional: true
-  checksum: 10/b434d8618700dc6746958b6a33ec80828274225442430173554924dcfc7cd6e1e574dc08f8db44ab0f367ac86bbe44c6fafcd12d3d4dbeec19327cd40049dd51
+  checksum: 10/47a515475ff352f97fe5629f374a333ef7fe663102d48d1e236b060721c8426767dc21541d0eeec609df4e0ae5472d941c8abd50f264f28c114a95938708462c
   languageName: node
   linkType: hard
 
@@ -8038,7 +8038,7 @@ __metadata:
     "@types/react-dom": "npm:^19.2.4"
     eslint: "npm:9.39.5"
     eslint-config-next: "npm:16.3.1"
-    fumadocs-core: "npm:16.14.4"
+    fumadocs-core: "npm:16.14.5"
     fumadocs-mdx: "npm:15.2.3"
     fumadocs-openapi: "npm:11.2.4"
     fumadocs-ui: "npm:16.14.4"
