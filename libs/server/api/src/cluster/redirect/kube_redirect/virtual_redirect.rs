@@ -201,6 +201,22 @@ pub(super) async fn virtual_redirect(
 
     let limit = max_buffered_bytes();
 
+    // Resolved once and reused for both the request-body rewrite below and
+    // the list-fallback check further down, rather than resolving the same
+    // `upstream_path` against the registry twice per request.
+    let resolved = match &plan {
+        VirtualPlan::Mapped { .. } => {
+            let Some((mapper, mut route)) = registry.resolve(&upstream_path) else {
+                error!(path = %upstream_path, "virtual plan without a matching mapper");
+                audit.emit(500);
+                return HttpResponse::InternalServerError().finish();
+            };
+            route.method = method.as_str().to_ascii_uppercase();
+            Some((mapper, route))
+        }
+        _ => None,
+    };
+
     // A mapper may need to rewrite the client body (a ProjectRequest becoming a
     // Namespace); the body has to be read in full for that.
     let (mapped_path, request_body) = match &plan {
@@ -208,19 +224,16 @@ pub(super) async fn virtual_redirect(
         VirtualPlan::Mapped {
             upstream_path: mapped,
         } => {
-            let Some((mapper, mut route)) = registry.resolve(&upstream_path) else {
-                error!(path = %upstream_path, "virtual plan without a matching mapper");
-                audit.emit(500);
-                return HttpResponse::InternalServerError().finish();
-            };
-            route.method = method.as_str().to_ascii_uppercase();
+            let (mapper, route) = resolved
+                .as_ref()
+                .expect("resolved is Some for a Mapped plan, set above");
 
             let body = match read_client_body(&mut payload, limit).await {
                 Ok(body) if body.is_empty() => None,
                 Ok(body) => match serde_json::from_slice::<Value>(&body) {
                     Ok(json) => Some(
                         mapper
-                            .map_request_body(&route, json)
+                            .map_request_body(route, json)
                             .to_string()
                             .into_bytes(),
                     ),
@@ -273,41 +286,44 @@ pub(super) async fn virtual_redirect(
     // filtered collection, whether or not the caller could also have listed
     // it directly. See `list_fallback` for why this can't just be a 403
     // rescue.
-    if matches!(plan, VirtualPlan::Mapped { .. })
+    if let Some((mapper, route)) = resolved.as_ref()
         && method.as_str().eq_ignore_ascii_case("GET")
         && !is_watch(query_string)
         && list_fallback::is_configured(&proxy)
-        && let Some((mapper, mut route)) = registry.resolve(&upstream_path)
+        && let Some(probe) = mapper.list_access_probe(route)
     {
-        route.method = method.as_str().to_ascii_uppercase();
-        if let Some(probe) = mapper.list_access_probe(&route) {
-            return match list_fallback::list_projects_filtered(
-                &proxy,
-                &data,
-                &client,
-                &req,
-                peer_addr,
-                user.as_ref(),
-                &base_url,
-                query_string,
-                probe,
-            )
-            .await
-            {
-                Ok(json) => {
-                    audit.emit(200);
-                    json_response(http::StatusCode::OK, &mapper.map_response(json))
-                }
-                Err(list_fallback::DiscoveryError(err)) => {
-                    error!(err, "list fallback discovery failed");
-                    audit.emit(503);
-                    HttpResponse::ServiceUnavailable().body("upstream unavailable")
-                }
-            };
-        }
-        // Else: this route has no per-item probe (e.g. a single-object GET);
-        // fall through to the plain forward below, unchanged.
+        // The same path mapping the plain forward would use for this route —
+        // derived here instead of duplicated as a literal, so it can never
+        // drift from `OpenShiftProjectMapper`'s own mapping.
+        let namespaces_path = mapper.map_request(route).path;
+        return match list_fallback::list_projects_filtered(
+            &proxy,
+            &data,
+            &client,
+            &req,
+            peer_addr,
+            user.as_ref(),
+            &base_url,
+            &namespaces_path,
+            query_string,
+            probe,
+        )
+        .await
+        {
+            Ok(json) => {
+                audit.emit(200);
+                json_response(http::StatusCode::OK, &mapper.map_response(json))
+            }
+            Err(list_fallback::DiscoveryError(err)) => {
+                error!(err, "list fallback discovery failed");
+                audit.emit(503);
+                HttpResponse::ServiceUnavailable().body("upstream unavailable")
+            }
+        };
     }
+    // Else: this route has no per-item probe (e.g. a single-object GET), or
+    // the mapper isn't `Mapped`, or the request isn't a plain GET; fall
+    // through to the plain forward below, unchanged.
 
     let upstream_method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
         Ok(method) => method,

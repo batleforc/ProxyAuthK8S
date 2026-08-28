@@ -116,10 +116,12 @@ impl CertSource {
                 })?;
                 if let Some(data) = secret.data {
                     if let Some(cert) = data.get(key) {
+                        // `Secret.data` is already base64-decoded by the k8s
+                        // client on deserialization (`ByteString`); decoding
+                        // it again would corrupt any value containing bytes
+                        // outside the base64 alphabet (e.g. a raw JWT token).
                         let cert_str = String::from_utf8(cert.0.clone())?;
-                        // decode the cert if it's base64 encoded
-                        let decoded = BASE64_STANDARD.decode(cert_str)?;
-                        return Ok(Some(decoded.into_iter().map(|c| c as char).collect()));
+                        return Ok(Some(cert_str));
                     }
                     return Err(CertError::KeyNotFound {
                         kind: "secret",
@@ -129,9 +131,13 @@ impl CertSource {
                 }
                 if let Some(data) = secret.string_data {
                     if let Some(cert) = data.get(key) {
-                        let decode = BASE64_STANDARD.decode(cert)?;
-                        let cert_str = String::from_utf8(decode)?;
-                        return Ok(Some(cert_str));
+                        // `stringData` is a write-only convenience field: the
+                        // apiserver accepts plain text through it and never
+                        // returns it populated on a read, but on the off
+                        // chance it ever is, its value is plain text too (the
+                        // server folds it into `data`, base64-encoded, before
+                        // persisting) — not base64 to decode here.
+                        return Ok(Some(cert.clone()));
                     }
                     return Err(CertError::KeyNotFound {
                         kind: "secret",

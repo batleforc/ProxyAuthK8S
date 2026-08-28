@@ -97,6 +97,10 @@ impl ProxyKubeApi {
                 .security_config
                 .as_ref()
                 .map_or(Ok(()), security::SecurityConfiguration::validate)?;
+            self.spec
+                .virtual_apis
+                .iter()
+                .try_for_each(VirtualApiConfiguration::validate)?;
         }
         Ok(())
     }

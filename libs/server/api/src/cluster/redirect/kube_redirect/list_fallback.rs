@@ -10,21 +10,30 @@
 //! alone, and why the token exists at all.
 //!
 //! A cluster with many namespaces makes this expensive if every `LIST` runs
-//! one `SelfSubjectAccessReview` per candidate, so two optimizations sit in
-//! front of that per-item loop:
+//! one `SelfSubjectAccessReview` per candidate, so several optimizations sit
+//! in front of that per-item loop:
 //!
 //! - a single `SelfSubjectRulesReview` resolves most or all candidates in one
 //!   call (see [`interpret_rules_review`] for why this is trustworthy here
 //!   specifically, unlike the general case);
-//! - the resolved allow-set is cached per `(cluster, caller identity)` for a
-//!   short TTL, so repeated polling (dashboards, `oc projects`) does not
-//!   re-run either the rules review or any access review at all.
+//! - the resolved outcome — both what is allowed and what is explicitly
+//!   denied — is cached per `(cluster, caller identity, probe)` for a short
+//!   TTL, so repeated polling (dashboards, `oc projects`) does not re-run the
+//!   rules review, and does not re-run a per-item access review for a name
+//!   already resolved either way;
+//! - concurrent requests that all observe a cache miss for the same key are
+//!   deduplicated behind a per-key lock, so only one of them pays for the
+//!   rules review — the rest find the cache populated once unblocked;
+//! - fetching the candidate collection and resolving the cached/rules-review
+//!   outcome are independent upstream calls, so they run concurrently rather
+//!   than one after the other.
 //!
 //! Per-item `SelfSubjectAccessReview` is still the fallback whenever the
 //! rules review can't resolve a candidate — it is the only source ever
 //! trusted for the actual allow/deny decision when there is any doubt.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 
 use actix_web::{HttpRequest, dev::PeerAddr, http, web};
 use common::State;
@@ -36,6 +45,7 @@ use kube::ResourceExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use tokio::sync::Mutex as AsyncMutex;
 use tracing::{debug, warn};
 
 use super::upstream::{apply_forward_headers, ca_only_client};
@@ -44,12 +54,18 @@ use crate::model::user::User;
 /// Upper bound on concurrent `SelfSubjectAccessReview` calls for one LIST.
 const DEFAULT_CONCURRENCY: usize = 16;
 
+/// Environment variables are process-global and never change after startup,
+/// so each of these knobs is parsed once and cached rather than re-read from
+/// `std::env` on every call in what can be a per-request hot path.
 fn concurrency() -> usize {
-    std::env::var("PROXY_VIRTUAL_LIST_FALLBACK_CONCURRENCY")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_CONCURRENCY)
+    static CONCURRENCY: OnceLock<usize> = OnceLock::new();
+    *CONCURRENCY.get_or_init(|| {
+        std::env::var("PROXY_VIRTUAL_LIST_FALLBACK_CONCURRENCY")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(DEFAULT_CONCURRENCY)
+    })
 }
 
 /// How long a resolved allow-set is trusted before being recomputed.
@@ -60,10 +76,36 @@ fn concurrency() -> usize {
 const DEFAULT_CACHE_TTL_SECONDS: u64 = 30;
 
 fn cache_ttl_seconds() -> u64 {
-    std::env::var("PROXY_VIRTUAL_LIST_FALLBACK_CACHE_TTL_SECONDS")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_CACHE_TTL_SECONDS)
+    static TTL: OnceLock<u64> = OnceLock::new();
+    *TTL.get_or_init(|| {
+        std::env::var("PROXY_VIRTUAL_LIST_FALLBACK_CACHE_TTL_SECONDS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(DEFAULT_CACHE_TTL_SECONDS)
+    })
+}
+
+/// Upper bound on a single upstream call this module makes directly
+/// (`SelfSubjectRulesReview`, `SelfSubjectAccessReview`, or the privileged
+/// namespace list). Applied per request via `RequestBuilder::timeout`, not on
+/// the shared client — the shared client sets none, precisely so a long-lived
+/// watch (built and used elsewhere, never through this module) is unaffected.
+/// A cache-miss resolution here runs behind a per-key lock (see
+/// [`resolve_outcome_for`]), so without this a stalled upstream call would
+/// queue every concurrent caller sharing that key indefinitely instead of
+/// just itself.
+const DEFAULT_UPSTREAM_TIMEOUT_SECONDS: u64 = 30;
+
+fn upstream_timeout() -> std::time::Duration {
+    static TIMEOUT: OnceLock<std::time::Duration> = OnceLock::new();
+    *TIMEOUT.get_or_init(|| {
+        let seconds = std::env::var("PROXY_VIRTUAL_LIST_FALLBACK_TIMEOUT_SECONDS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(DEFAULT_UPSTREAM_TIMEOUT_SECONDS);
+        std::time::Duration::from_secs(seconds)
+    })
 }
 
 /// Why the fallback could not produce a filtered list at all.
@@ -93,10 +135,16 @@ pub(super) fn is_configured(proxy: &ProxyKubeApi) -> bool {
 
 /// Fetch the full candidate collection with the privileged, least-privilege
 /// token — `list` only, nothing else required on the target cluster.
+///
+/// `namespaces_path` is the upstream path for the collection (e.g.
+/// `/api/v1/namespaces`), derived by the caller from the same mapper that
+/// planned the request, so this module never has to know or duplicate that
+/// mapping itself.
 async fn privileged_namespaces(
     proxy: &ProxyKubeApi,
     state: &web::Data<State>,
     base_url: &str,
+    namespaces_path: &str,
     query_string: &str,
 ) -> Result<Value, String> {
     let token = configured_token(proxy, VirtualApiKind::OpenShiftProject)
@@ -110,13 +158,14 @@ async fn privileged_namespaces(
 
     let client = ca_only_client(proxy, state).await?;
     let url = if query_string.is_empty() {
-        format!("{base_url}/api/v1/namespaces")
+        format!("{base_url}{namespaces_path}")
     } else {
-        format!("{base_url}/api/v1/namespaces?{query_string}")
+        format!("{base_url}{namespaces_path}?{query_string}")
     };
 
     let res = client
         .get(&url)
+        .timeout(upstream_timeout())
         .bearer_auth(token)
         .send()
         .await
@@ -132,9 +181,13 @@ async fn privileged_namespaces(
 
 /// `POST .../selfsubjectaccessreviews` as the impersonated caller.
 ///
-/// `Ok(false)` on an explicit denial, `Err(())` on any transport/parse
-/// failure — the caller treats both as "cannot confirm", but only the latter
-/// is worth a warning: a denial is expected, ordinary filtering.
+/// `Ok(false)` is an explicit denial: the caller records it into
+/// `RulesOutcome::denied` and caches it exactly like an allow. `Err(())` on
+/// any transport/parse failure means "cannot confirm" instead — the caller
+/// excludes the item for this request but never caches the result, so it is
+/// re-checked on every subsequent request until it actually resolves either
+/// way. Only the latter is worth a warning; a plain denial is expected,
+/// ordinary filtering.
 async fn check_access(
     client: &reqwest::Client,
     req: &HttpRequest,
@@ -158,7 +211,9 @@ async fn check_access(
         }
     });
 
-    let mut builder = client.request(reqwest::Method::POST, &url);
+    let mut builder = client
+        .request(reqwest::Method::POST, &url)
+        .timeout(upstream_timeout());
     builder = apply_forward_headers(builder, req, peer_addr, user);
     builder = builder
         .header(http::header::CONTENT_TYPE.as_str(), "application/json")
@@ -178,11 +233,15 @@ async fn check_access(
 /// candidate is allowed, present or future, so it is never safe to cache as a
 /// finite name set (a namespace created after the cache was populated must
 /// still be included). `names` holds every `resourceNames` entry from every
-/// matching rule, unioned.
+/// matching rule, unioned. `denied` is never populated by a rules review — it
+/// only ever fills up from a real per-item `SelfSubjectAccessReview`, so a
+/// cache hit does not have to re-review a name already known to be denied.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 struct RulesOutcome {
     unrestricted: bool,
     names: HashSet<String>,
+    #[serde(default)]
+    denied: HashSet<String>,
 }
 
 /// Interpret a `SelfSubjectRulesReview` response body against `probe`. Pure,
@@ -196,18 +255,20 @@ struct RulesOutcome {
 /// Trusting a resolved, non-incomplete result for an allow decision — which
 /// the Kubernetes API docs otherwise warn against for authorization purposes
 /// — is safe specifically for the `("", "namespaces", "get")` probe this
-/// module uses `AccessProbe` for: `Namespace` is a cluster-scoped resource,
-/// so only `ClusterRole`s bound via `ClusterRoleBinding` can ever grant `get`
-/// on one (a namespaced `RoleBinding` cannot, regardless of `resourceNames`
-/// — its grant only applies within its own namespace, which a cluster-scoped
-/// request has none of). `resourceRules` already reports every matching
-/// `ClusterRoleBinding`-derived rule regardless of the `namespace` argument
-/// the review was made with, so a complete, non-incomplete result is not
-/// just a hint here: it is the same computation a live
-/// `SelfSubjectAccessReview` would do. This still never denies on rules-review
-/// data alone — an unresolved candidate always falls through to a real
-/// per-item review (see [`list_projects_filtered`]) — it only ever shortcuts
-/// an *allow*.
+/// module uses `AccessProbe` for, and specifically because the review is
+/// always issued with an empty `namespace` (see [`resolve_via_rules_review`]):
+/// `Namespace` is a cluster-scoped resource, so only `ClusterRole`s bound via
+/// `ClusterRoleBinding` can ever grant `get` on one — a namespaced
+/// `RoleBinding` cannot, regardless of `resourceNames`, since its grant only
+/// applies within its own namespace, which a cluster-scoped request has none
+/// of. But `resourceRules` reports namespace-scoped `RoleBinding` rules too
+/// whenever the review's `namespace` argument is non-empty, and nothing in
+/// the response distinguishes those from `ClusterRoleBinding`-derived ones —
+/// so an empty `namespace` is not a cosmetic choice, it is what keeps this
+/// result trustworthy for a cluster-scoped decision. This still never denies
+/// on rules-review data alone — an unresolved candidate always falls through
+/// to a real per-item review (see [`list_projects_filtered`]) — it only ever
+/// shortcuts an *allow*.
 fn interpret_rules_review(body: &Value, probe: virtual_api::AccessProbe) -> Option<RulesOutcome> {
     let status = body.get("status")?;
     if status
@@ -250,12 +311,9 @@ fn interpret_rules_review(body: &Value, probe: virtual_api::AccessProbe) -> Opti
         match rule.get("resourceNames").and_then(Value::as_array) {
             None => outcome.unrestricted = true,
             Some(names) if names.is_empty() => outcome.unrestricted = true,
-            Some(names) => outcome.names.extend(
-                names
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string),
-            ),
+            Some(names) => outcome
+                .names
+                .extend(names.iter().filter_map(Value::as_str).map(str::to_string)),
         }
     }
     Some(outcome)
@@ -273,17 +331,24 @@ async fn resolve_via_rules_review(
     probe: virtual_api::AccessProbe,
 ) -> Option<RulesOutcome> {
     let url = format!("{base_url}/apis/authorization.k8s.io/v1/selfsubjectrulesreviews");
-    // The namespace argument only selects which namespace-local RoleBindings
-    // are consulted; ClusterRoleBindings — the only way to grant rights on a
-    // cluster-scoped resource — are included regardless, so a fixed
-    // placeholder is fine and does not need to exist.
+    // An empty namespace means no namespace-scoped RoleBindings are ever
+    // consulted by the apiserver's rule resolver; ClusterRoleBindings — the
+    // only way to grant rights on the cluster-scoped `namespaces` resource
+    // this module probes for — are reported in `resourceRules` regardless of
+    // the namespace argument. A non-empty namespace would instead also pull
+    // that namespace's RoleBinding-derived rules into `resourceRules`, which
+    // `interpret_rules_review` cannot distinguish from real ClusterRoleBinding
+    // grants — silently trusting a namespace-scoped rule as if it granted a
+    // cluster-scoped `get` on `namespaces`.
     let body = json!({
         "kind": "SelfSubjectRulesReview",
         "apiVersion": "authorization.k8s.io/v1",
-        "spec": { "namespace": "default" }
+        "spec": { "namespace": "" }
     });
 
-    let mut builder = client.request(reqwest::Method::POST, &url);
+    let mut builder = client
+        .request(reqwest::Method::POST, &url)
+        .timeout(upstream_timeout());
     builder = apply_forward_headers(builder, req, peer_addr, user);
     builder = builder
         .header(http::header::CONTENT_TYPE.as_str(), "application/json")
@@ -317,11 +382,18 @@ fn identity_fingerprint(user: Option<&User>) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn cache_key(proxy: &ProxyKubeApi, user: Option<&User>) -> String {
+/// A cache/lock key scoped to `(proxy, caller identity, probe)` — including
+/// the probe matters as soon as more than one mapper shares this module's
+/// caching path, so two unrelated (resource, verb) checks for the same caller
+/// never collide on the same entry.
+fn cache_key(proxy: &ProxyKubeApi, user: Option<&User>, probe: virtual_api::AccessProbe) -> String {
     format!(
-        "proxyk8sauth:listfallback:{}:{}",
+        "proxyk8sauth:listfallback:{}:{}:{}:{}:{}",
         proxy.to_path(),
-        identity_fingerprint(user)
+        identity_fingerprint(user),
+        probe.group,
+        probe.resource,
+        probe.verb,
     )
 }
 
@@ -329,11 +401,15 @@ async fn load_cached_outcome(
     state: &web::Data<State>,
     proxy: &ProxyKubeApi,
     user: Option<&User>,
+    probe: virtual_api::AccessProbe,
 ) -> Option<RulesOutcome> {
     if cache_ttl_seconds() == 0 {
         return None;
     }
-    let raw = state.redis_get(&cache_key(proxy, user)).await.ok()??;
+    let raw = state
+        .redis_get(&cache_key(proxy, user, probe))
+        .await
+        .ok()??;
     serde_json::from_str(&raw).ok()
 }
 
@@ -341,6 +417,7 @@ async fn store_cached_outcome(
     state: &web::Data<State>,
     proxy: &ProxyKubeApi,
     user: Option<&User>,
+    probe: virtual_api::AccessProbe,
     outcome: &RulesOutcome,
 ) {
     let ttl = cache_ttl_seconds();
@@ -350,9 +427,213 @@ async fn store_cached_outcome(
     let Ok(raw) = serde_json::to_string(outcome) else {
         return;
     };
-    if let Err(err) = state.redis_set(&cache_key(proxy, user), &raw, Some(ttl)).await {
+    if let Err(err) = state
+        .redis_set(&cache_key(proxy, user, probe), &raw, Some(ttl))
+        .await
+    {
         warn!(%err, "could not cache the resolved namespace allow-set");
     }
+}
+
+/// Per-key async locks deduplicating concurrent full-resolution work (rules
+/// review, per-item checks, and the store) for the same cache key. An entry
+/// is removed as soon as nothing else references it (see
+/// [`release_outcome_lock`]), so this does not grow without bound over the
+/// process lifetime.
+///
+/// This only dedupes within one process: the cache itself is shared (Redis)
+/// across replicas, but this lock is not, so two different pods can still
+/// each resolve the same cold key concurrently. Deduplicating across pods
+/// too would need a distributed lock instead of this in-memory one.
+static OUTCOME_LOCKS: OnceLock<StdMutex<HashMap<String, Arc<AsyncMutex<()>>>>> = OnceLock::new();
+
+fn acquire_outcome_lock(key: &str) -> Arc<AsyncMutex<()>> {
+    let registry = OUTCOME_LOCKS.get_or_init(|| StdMutex::new(HashMap::new()));
+    let mut map = registry
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    map.entry(key.to_string())
+        .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+        .clone()
+}
+
+/// Drop `key`'s entry once nothing else still holds a clone of it. Runs under
+/// the same registry mutex as [`acquire_outcome_lock`], so a concurrent
+/// caller can never observe (or race against) a torn removal.
+fn release_outcome_lock(key: &str) {
+    let registry = OUTCOME_LOCKS.get_or_init(|| StdMutex::new(HashMap::new()));
+    let mut map = registry
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(entry) = map.get(key)
+        && Arc::strong_count(entry) == 1
+    {
+        map.remove(key);
+    }
+}
+
+/// Check whatever candidates in `items` `outcome` doesn't already cover
+/// (allowed or denied), merge the results in, and — only when `outcome` was
+/// not already trusted from the cache — store the updated outcome.
+///
+/// A cache hit is deliberately never re-stored just because it left a few
+/// new candidates unresolved (e.g. a namespace created after the cache was
+/// populated): doing so would slide the entry's TTL forward on every such
+/// request, and under steady namespace churn the rules-review-derived part
+/// of the outcome would then never actually re-expire — a revoked grant
+/// would stop being "honoured soon after" as the module doc promises.
+#[allow(clippy::too_many_arguments)]
+async fn resolve_unresolved(
+    state: &web::Data<State>,
+    proxy: &ProxyKubeApi,
+    client: &reqwest::Client,
+    req: &HttpRequest,
+    peer_addr: Option<PeerAddr>,
+    user: Option<&User>,
+    base_url: &str,
+    probe: virtual_api::AccessProbe,
+    mut outcome: RulesOutcome,
+    items: &[Value],
+    from_cache: bool,
+) -> RulesOutcome {
+    let unresolved: Vec<&Value> = if outcome.unrestricted {
+        Vec::new()
+    } else {
+        items
+            .iter()
+            .filter(|item| {
+                let name = item
+                    .get("metadata")
+                    .and_then(|metadata| metadata.get("name"))
+                    .and_then(Value::as_str);
+                !name.is_some_and(|name| {
+                    outcome.names.contains(name) || outcome.denied.contains(name)
+                })
+            })
+            .collect()
+    };
+
+    if !unresolved.is_empty() {
+        let checked: Vec<(String, bool)> = stream::iter(unresolved)
+            .map(|item| async move {
+                let name = item
+                    .get("metadata")
+                    .and_then(|metadata| metadata.get("name"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)?;
+                match check_access(client, req, peer_addr, user, base_url, probe, &name).await {
+                    Ok(allowed) => Some((name, allowed)),
+                    Err(()) => {
+                        warn!(namespace = %name, "could not confirm namespace visibility, excluding it");
+                        None
+                    }
+                }
+            })
+            .buffer_unordered(concurrency())
+            .filter_map(|entry| async move { entry })
+            .collect()
+            .await;
+        for (name, allowed) in checked {
+            if allowed {
+                outcome.names.insert(name);
+            } else {
+                outcome.denied.insert(name);
+            }
+        }
+    }
+
+    if !from_cache {
+        store_cached_outcome(state, proxy, user, probe, &outcome).await;
+    }
+    outcome
+}
+
+/// Whether `outcome` already covers every candidate in `items` — either
+/// because it is `unrestricted`, or because every name is already recorded
+/// as allowed or denied — with no per-item check left to run.
+fn fully_resolved(outcome: &RulesOutcome, items: &[Value]) -> bool {
+    outcome.unrestricted
+        || items.iter().all(|item| {
+            item.get("metadata")
+                .and_then(|metadata| metadata.get("name"))
+                .and_then(Value::as_str)
+                .is_some_and(|name| outcome.names.contains(name) || outcome.denied.contains(name))
+        })
+}
+
+/// Resolve the outcome for `items` — from `cached` when it already covers
+/// every candidate, otherwise via a live rules review and/or per-item checks
+/// — deduplicating that whole live-resolution path (rules review, per-item
+/// checks, and the store) across concurrent requests for the same key within
+/// this process: only the first one actually performs it, the rest wait on a
+/// per-key lock and then find the cache populated. A `cached` outcome that
+/// already covers everything is the one case with nothing to dedupe, so it
+/// skips the lock entirely. Returns `(outcome, from_cache)`.
+#[allow(clippy::too_many_arguments)]
+async fn resolve_outcome_for(
+    proxy: &ProxyKubeApi,
+    state: &web::Data<State>,
+    client: &reqwest::Client,
+    req: &HttpRequest,
+    peer_addr: Option<PeerAddr>,
+    user: Option<&User>,
+    base_url: &str,
+    probe: virtual_api::AccessProbe,
+    cached: Option<RulesOutcome>,
+    items: &[Value],
+) -> (RulesOutcome, bool) {
+    if let Some(outcome) = cached
+        && fully_resolved(&outcome, items)
+    {
+        return (outcome, true);
+    }
+
+    // Caching disabled: nothing to dedupe, so skip the lock entirely rather
+    // than serializing concurrent requests for no benefit.
+    if cache_ttl_seconds() == 0 {
+        let outcome = resolve_via_rules_review(client, req, peer_addr, user, base_url, probe)
+            .await
+            .unwrap_or_default();
+        let outcome = resolve_unresolved(
+            state, proxy, client, req, peer_addr, user, base_url, probe, outcome, items, false,
+        )
+        .await;
+        return (outcome, false);
+    }
+
+    let key = cache_key(proxy, user, probe);
+    let lock = acquire_outcome_lock(&key);
+    let result = {
+        let _guard = lock.lock().await;
+        // Double-checked: another request for this key may have resolved and
+        // stored a fully-checked outcome — including the per-item checks —
+        // while we were waiting for the lock.
+        match load_cached_outcome(state, proxy, user, probe).await {
+            Some(outcome) => {
+                let outcome = resolve_unresolved(
+                    state, proxy, client, req, peer_addr, user, base_url, probe, outcome, items,
+                    true,
+                )
+                .await;
+                (outcome, true)
+            }
+            None => {
+                let outcome =
+                    resolve_via_rules_review(client, req, peer_addr, user, base_url, probe)
+                        .await
+                        .unwrap_or_default();
+                let outcome = resolve_unresolved(
+                    state, proxy, client, req, peer_addr, user, base_url, probe, outcome, items,
+                    false,
+                )
+                .await;
+                (outcome, false)
+            }
+        }
+    };
+    drop(lock);
+    release_outcome_lock(&key);
+    result
 }
 
 /// Produce the `NamespaceList` filtered to what the impersonated caller can
@@ -373,12 +654,18 @@ pub(super) async fn list_projects_filtered(
     peer_addr: Option<PeerAddr>,
     user: Option<&User>,
     base_url: &str,
+    namespaces_path: &str,
     query_string: &str,
     probe: virtual_api::AccessProbe,
 ) -> Result<Value, DiscoveryError> {
-    let mut candidates = privileged_namespaces(proxy, state, base_url, query_string)
-        .await
-        .map_err(DiscoveryError)?;
+    // Independent upstream calls: the candidate collection itself, and
+    // whatever a cache hit can already resolve for it. Run them concurrently
+    // rather than paying for both round-trips one after the other.
+    let (candidates_result, cached) = tokio::join!(
+        privileged_namespaces(proxy, state, base_url, namespaces_path, query_string),
+        load_cached_outcome(state, proxy, user, probe)
+    );
+    let mut candidates = candidates_result.map_err(DiscoveryError)?;
 
     let items = candidates
         .get_mut("items")
@@ -386,56 +673,10 @@ pub(super) async fn list_projects_filtered(
         .map(std::mem::take)
         .unwrap_or_default();
 
-    let cached = load_cached_outcome(state, proxy, user).await;
-    let from_cache = cached.is_some();
-    let mut outcome = match cached {
-        Some(outcome) => outcome,
-        None => resolve_via_rules_review(client, req, peer_addr, user, base_url, probe)
-            .await
-            .unwrap_or_default(),
-    };
-
-    let unresolved: Vec<Value> = if outcome.unrestricted {
-        Vec::new()
-    } else {
-        items
-            .iter()
-            .filter(|item| {
-                let name = item
-                    .get("metadata")
-                    .and_then(|metadata| metadata.get("name"))
-                    .and_then(Value::as_str);
-                !name.is_some_and(|name| outcome.names.contains(name))
-            })
-            .cloned()
-            .collect()
-    };
-
-    let checked = stream::iter(unresolved)
-        .map(|item| async move {
-            let name = item
-                .get("metadata")
-                .and_then(|metadata| metadata.get("name"))
-                .and_then(Value::as_str)
-                .map(str::to_string)?;
-            match check_access(client, req, peer_addr, user, base_url, probe, &name).await {
-                Ok(true) => Some(name),
-                Ok(false) => None,
-                Err(()) => {
-                    warn!(namespace = %name, "could not confirm namespace visibility, excluding it");
-                    None
-                }
-            }
-        })
-        .buffer_unordered(concurrency())
-        .filter_map(|name| async move { name })
-        .collect::<Vec<String>>()
-        .await;
-    outcome.names.extend(checked);
-
-    if !from_cache {
-        store_cached_outcome(state, proxy, user, &outcome).await;
-    }
+    let (outcome, from_cache) = resolve_outcome_for(
+        proxy, state, client, req, peer_addr, user, base_url, probe, cached, &items,
+    )
+    .await;
 
     let kept: Vec<Value> = items
         .into_iter()
