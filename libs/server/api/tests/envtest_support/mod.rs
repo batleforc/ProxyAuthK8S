@@ -94,8 +94,7 @@ impl EnvTest {
         let serving_cert_pem = std::fs::read_to_string(&serving_ca_cert)
             .map_err(|err| format!("could not read the generated CA cert: {err}"))?;
 
-        let mut token_lines =
-            format!("{TEST_TOKEN},envtest-admin,uid-1,\"system:masters\"\n");
+        let mut token_lines = format!("{TEST_TOKEN},envtest-admin,uid-1,\"system:masters\"\n");
         for extra in options.extra_tokens {
             token_lines.push_str(&format!(
                 "{},{},{},\"{}\"\n",
@@ -366,7 +365,14 @@ fn generate_serving_cert(dir: &Path) -> Result<(PathBuf, PathBuf, PathBuf), Stri
 
     run(&["genrsa", "-out", p(&leaf_key), "2048"])?;
     run(&[
-        "req", "-new", "-key", p(&leaf_key), "-out", p(&leaf_csr), "-subj", "/CN=127.0.0.1",
+        "req",
+        "-new",
+        "-key",
+        p(&leaf_key),
+        "-out",
+        p(&leaf_csr),
+        "-subj",
+        "/CN=127.0.0.1",
     ])?;
     std::fs::write(
         &ext_file,

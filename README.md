@@ -58,6 +58,49 @@ The imported realm is [realm-proxyauthk8s.json](.compose/keycloak/realm-proxyaut
 - client `kube_login` (cluster OIDC)
 - users `dev-admin` / `dev-user`
 
+## Local dev with Dex (alternative IdP)
+
+Dex is the closest match to the "IdP in front of the cluster" topology: its
+`/userinfo` verifies the bearer as a signed ID token, which is exactly the token
+the CLI stores and forwards, and the same token is what the target apiserver
+validates when started with `--oidc-issuer-url=https://dex.k8s.localhost`.
+
+1. Enable the Dex include in [compose.yaml](compose.yaml) and disable the
+   Authelia / Keycloak includes.
+
+1. Use the Dex env file.
+
+1. Start the stack.
+
+```sh
+cp .env.dex .env
+docker compose up -d
+```
+
+Dex URL (via Traefik): `https://dex.k8s.localhost`
+
+The config is [config.yaml](.compose/dex/config.yaml) and mirrors the Keycloak
+realm:
+
+- client `proxyauthk8s` (front login, public + PKCE)
+- client `kube_login` (cluster OIDC, secret `insecure_secret`)
+- users `dev-admin` / `dev-user` (password == username)
+
+Two Dex specifics worth knowing:
+
+- Set `extra_scope: "groups profile email"` on the `ProxyKubeApi` CR.
+  `extra_scope` replaces the scope list rather than adding to it, and without
+  the `groups` scope Dex omits the claim entirely.
+- Leave `audience` empty and `accept_authorized_party: false`. Dex puts the
+  client id in `aud`, so no `azp` workaround is needed (unlike Keycloak).
+
+Dex's local password database asserts **no groups**, so the static users above
+only reach clusters with no `proxy_group` restriction. To exercise
+group-restricted clusters — and to model the "Authentik upstream, Dex in front of
+the cluster" setup — uncomment the `oidc` connector at the bottom of the config
+and point it at Keycloak or Authentik. It needs `insecureEnableGroups: true`;
+the connector drops upstream groups otherwise.
+
 ## Left to do
 
 ### v0.1.0

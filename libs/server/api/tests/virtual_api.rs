@@ -549,7 +549,9 @@ async fn list_fallback_returns_an_empty_list_when_nothing_is_allowed() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path("/apis/authorization.k8s.io/v1/selfsubjectaccessreviews"))
+        .and(path(
+            "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "kind": "SelfSubjectAccessReview",
             "status": { "allowed": false },
@@ -626,7 +628,9 @@ async fn list_fallback_excludes_a_namespace_whose_check_errors() {
     // Only "dev"'s review is mocked; "prod"'s request matches no stub and
     // wiremock 404s it, which `check_access` treats as an error.
     Mock::given(method("POST"))
-        .and(path("/apis/authorization.k8s.io/v1/selfsubjectaccessreviews"))
+        .and(path(
+            "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+        ))
         .and(body_partial_json(json!({
             "spec": { "resourceAttributes": { "name": "dev" } }
         })))
@@ -681,7 +685,9 @@ async fn list_fallback_forwards_the_query_string_to_the_privileged_call() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path("/apis/authorization.k8s.io/v1/selfsubjectaccessreviews"))
+        .and(path(
+            "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "kind": "SelfSubjectAccessReview",
             "status": { "allowed": true },
@@ -732,7 +738,9 @@ async fn list_fallback_resolves_via_rules_review_without_any_access_review() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path("/apis/authorization.k8s.io/v1/selfsubjectrulesreviews"))
+        .and(path(
+            "/apis/authorization.k8s.io/v1/selfsubjectrulesreviews",
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "kind": "SelfSubjectRulesReview",
             "status": {
@@ -811,7 +819,9 @@ async fn list_fallback_resolves_unrestricted_rules_without_any_access_review() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path("/apis/authorization.k8s.io/v1/selfsubjectrulesreviews"))
+        .and(path(
+            "/apis/authorization.k8s.io/v1/selfsubjectrulesreviews",
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "kind": "SelfSubjectRulesReview",
             "status": {
@@ -869,7 +879,9 @@ async fn list_fallback_falls_back_to_per_item_checks_when_incomplete() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path("/apis/authorization.k8s.io/v1/selfsubjectrulesreviews"))
+        .and(path(
+            "/apis/authorization.k8s.io/v1/selfsubjectrulesreviews",
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "kind": "SelfSubjectRulesReview",
             "status": { "incomplete": true, "resourceRules": [] },
@@ -878,7 +890,9 @@ async fn list_fallback_falls_back_to_per_item_checks_when_incomplete() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path("/apis/authorization.k8s.io/v1/selfsubjectaccessreviews"))
+        .and(path(
+            "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+        ))
         .and(body_partial_json(json!({
             "spec": { "resourceAttributes": { "name": "dev" } }
         })))
@@ -888,7 +902,9 @@ async fn list_fallback_falls_back_to_per_item_checks_when_incomplete() {
         .mount(&upstream)
         .await;
     Mock::given(method("POST"))
-        .and(path("/apis/authorization.k8s.io/v1/selfsubjectaccessreviews"))
+        .and(path(
+            "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+        ))
         .and(body_partial_json(json!({
             "spec": { "resourceAttributes": { "name": "prod" } }
         })))
@@ -945,7 +961,9 @@ async fn list_fallback_caches_the_resolved_allow_set() {
         .await;
 
     Mock::given(method("POST"))
-        .and(path("/apis/authorization.k8s.io/v1/selfsubjectrulesreviews"))
+        .and(path(
+            "/apis/authorization.k8s.io/v1/selfsubjectrulesreviews",
+        ))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "kind": "SelfSubjectRulesReview",
             "status": {
@@ -988,7 +1006,10 @@ async fn list_fallback_caches_the_resolved_allow_set() {
         .iter()
         .filter(|req| req.method == "GET" && req.url.path() == "/api/v1/namespaces")
         .count();
-    assert_eq!(rules_review_calls, 1, "the second call should hit the cache");
+    assert_eq!(
+        rules_review_calls, 1,
+        "the second call should hit the cache"
+    );
     assert_eq!(
         namespace_list_calls, 2,
         "the candidate list itself is always fetched fresh"

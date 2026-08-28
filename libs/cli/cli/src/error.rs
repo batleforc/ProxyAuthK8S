@@ -43,6 +43,8 @@ pub enum ProxyAuthK8sError {
     SsoLoginError(String),
     #[error("ERR000017: {0}")]
     InvalidUsage(String),
+    #[error("ERR000018: kubectl exec credential protocol error: {0}")]
+    ExecCredential(String),
 }
 
 impl From<CliConfigError> for ProxyAuthK8sError {

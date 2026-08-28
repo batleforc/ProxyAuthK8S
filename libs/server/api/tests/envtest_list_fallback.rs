@@ -23,7 +23,9 @@ use crd::certificate::CertSource;
 use crd::service::Service;
 use crd::virtual_api::VirtualApiKind;
 use envtest_support::{EnvTest, EnvTestOptions, ExtraToken};
-use harness::{delete_proxy, proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster};
+use harness::{
+    delete_proxy, proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
+};
 use k8s_openapi::api::core::v1::Namespace;
 use k8s_openapi::api::rbac::v1::{ClusterRole, ClusterRoleBinding, PolicyRule, RoleRef, Subject};
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
@@ -186,7 +188,8 @@ async fn list_fallback_filters_to_real_rbac_visibility() {
     proxy.spec.service = Service::ExternalService {
         url: env_test.url().to_string(),
     };
-    let mut virtual_api = crd::virtual_api::VirtualApiConfiguration::new(VirtualApiKind::OpenShiftProject);
+    let mut virtual_api =
+        crd::virtual_api::VirtualApiConfiguration::new(VirtualApiKind::OpenShiftProject);
     virtual_api.list_fallback_token = Some(CertSource::Cert(BASE64_STANDARD.encode(LISTER_TOKEN)));
     proxy.spec.virtual_apis.push(virtual_api);
     seed_proxy(&pool, &proxy).await;

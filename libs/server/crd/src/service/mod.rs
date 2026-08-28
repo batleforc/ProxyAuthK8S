@@ -69,7 +69,7 @@ impl Service {
                     .await
                     .map_err(|source| ServiceError::Read {
                         name: name.clone(),
-                        source,
+                        source: Box::new(source),
                     })?;
                 let spec = svc
                     .spec

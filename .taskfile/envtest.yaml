@@ -5,20 +5,46 @@ version: "3"
 # election and exact apiserver semantics.
 #
 # Binaries live under ENVTEST_DIR (default ~/.local/share/kubebuilder-envtest)
-# and are downloaded once. The Rust suite is behind the `envtest` feature so a
-# plain `cargo test` works without them.
+# and are downloaded once. Two layouts are accepted:
+#   - flat, <dir>/{etcd,kube-apiserver}, which is what `setup` below produces;
+#   - nested, <dir>/k8s/<version>-<os>-<arch>/, which is what the upstream
+#     `setup-envtest` tool produces.
+# An install made by either route is reused as-is, so `setup` never downloads a
+# second copy on top of one that already works. When only a nested install is
+# present its version wins over ENVTEST_K8S_VERSION; run `task envtest:clean`
+# first if you need to pin the version this file declares.
+#
+# The Rust suite is behind the `envtest` feature so a plain `cargo test` works
+# without them.
 
 vars:
   ENVTEST_K8S_VERSION: '{{ .ENVTEST_K8S_VERSION | default "1.31.0" }}'
   ENVTEST_DIR: '{{ .ENVTEST_DIR | default (printf "%s/.local/share/kubebuilder-envtest" .HOME) }}'
+  # Resolve the directory to hand to KUBEBUILDER_ASSETS, preferring the flat
+  # layout and falling back to the highest-versioned nested one. Prints nothing
+  # when no usable install exists.
+  RESOLVE_ASSETS: |
+    root='{{ .ENVTEST_DIR }}'
+    assets=''
+    if [ -x "$root/kube-apiserver" ] && [ -x "$root/etcd" ]; then
+      assets="$root"
+    else
+      for candidate in $(ls -1d "$root"/k8s/*/ 2>/dev/null | sort -V); do
+        candidate="${candidate%/}"
+        if [ -x "$candidate/kube-apiserver" ] && [ -x "$candidate/etcd" ]; then
+          assets="$candidate"
+        fi
+      done
+    fi
 
 tasks:
   setup:
     desc: "Download the kube-apiserver and etcd binaries used by the envtest suite"
     silent: true
     status:
-      - test -x "{{ .ENVTEST_DIR }}/kube-apiserver"
-      - test -x "{{ .ENVTEST_DIR }}/etcd"
+      - |
+        {{ .RESOLVE_ASSETS }}
+        [ -n "$assets" ]
     cmds:
       - echo "Fetching envtest binaries for Kubernetes {{ .ENVTEST_K8S_VERSION }}"
       - mkdir -p "{{ .ENVTEST_DIR }}"
@@ -38,10 +64,19 @@ tasks:
     silent: true
     deps:
       - setup
-    env:
-      KUBEBUILDER_ASSETS: "{{ .ENVTEST_DIR }}"
     cmds:
-      - echo "Running the envtest suite"
       # Serialised: each test owns an apiserver, and running several at once
       # only multiplies the memory footprint for no wall-clock gain.
-      - cargo nextest run -p api --features envtest --test envtest -j 1
+      #
+      # Selected by binary name rather than a list of `--test` flags, so a new
+      # tests/envtest_*.rs file is picked up here the day it is added instead
+      # of being silently skipped.
+      - |
+        {{ .RESOLVE_ASSETS }}
+        if [ -z "$assets" ]; then
+          echo "envtest binaries not found under {{ .ENVTEST_DIR }}; run 'task envtest:setup'" >&2
+          exit 1
+        fi
+        echo "Running the envtest suite with KUBEBUILDER_ASSETS=$assets"
+        KUBEBUILDER_ASSETS="$assets" \
+          cargo nextest run -p api --features envtest -E 'binary(/^envtest/)' -j 1

@@ -112,7 +112,7 @@ impl CertSource {
                 let secret = secrets.get(name).await.map_err(|source| CertError::Read {
                     kind: "secret",
                     name: name.clone(),
-                    source,
+                    source: Box::new(source),
                 })?;
                 if let Some(data) = secret.data {
                     if let Some(cert) = data.get(key) {
@@ -164,7 +164,7 @@ impl CertSource {
                     .map_err(|source| CertError::Read {
                         kind: "configmap",
                         name: name.clone(),
-                        source,
+                        source: Box::new(source),
                     })?;
                 if let Some(data) = configmap.data {
                     if let Some(cert) = data.get(key) {
