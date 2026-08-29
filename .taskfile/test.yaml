@@ -12,6 +12,19 @@ version: "3"
 # Nextest never runs doctests (none exist today, but `all` still checks for
 # them via a trailing `cargo test --doc` so a future one isn't silently
 # skipped).
+#
+# The `coverage*` tasks measure the same two tiers with cargo-llvm-cov. They
+# all force REQUIRE_TEST_REDIS=1: a coverage run whose integration tier quietly
+# skipped is not just incomplete, it is wrong — the whole mediated-OAuth surface
+# reads 0% and the total drops by ~14 points while the command still exits 0.
+# The envtest tier is not included (it needs the apiserver binaries and is
+# gated behind the `envtest` feature), so the figure covers the fast tiers only.
+
+vars:
+  # Line-coverage floor enforced by `coverage:ci` and by the CI gate.
+  # A ratchet: raise it as the real figure climbs, never lower it to turn a red
+  # build green. Last measured 54.76% (580d331, workspace, fast tiers).
+  COVERAGE_MIN: '{{ .COVERAGE_MIN | default "54" }}'
 
 tasks:
   all:
@@ -41,3 +54,39 @@ tasks:
     cmds:
       - echo "Running the fast integration tier against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
       - cargo nextest run -p api --test proxy_redirect --test oidc_user
+
+  coverage:
+    desc: "Measure workspace line coverage and print a per-file summary"
+    silent: true
+    env:
+      REQUIRE_TEST_REDIS: "1"
+    cmds:
+      - echo "Measuring coverage against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
+      - cargo llvm-cov nextest --workspace --all-targets --summary-only
+
+  coverage:html:
+    desc: "Write a browsable HTML coverage report to dist/coverage/html"
+    silent: true
+    env:
+      REQUIRE_TEST_REDIS: "1"
+    cmds:
+      - echo "Measuring coverage against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
+      # --output-dir appends its own html/ subdirectory.
+      - cargo llvm-cov nextest --workspace --all-targets --html --output-dir dist/coverage
+      - echo "Report written to dist/coverage/html/index.html"
+
+  coverage:ci:
+    desc: "Measure coverage, write lcov, and fail under the floor (what CI gates on)"
+    silent: true
+    env:
+      REQUIRE_TEST_REDIS: "1"
+    cmds:
+      # Measure once, then render twice from the same profile data: --lcov and
+      # --summary-only cannot be combined in a single invocation.
+      - echo "Measuring coverage against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
+      - cargo llvm-cov nextest --workspace --all-targets --no-report
+      # --output-path will not create the parent directory itself.
+      - mkdir -p dist/coverage
+      - cargo llvm-cov report --lcov --output-path dist/coverage/lcov.info
+      - echo "Enforcing a {{ .COVERAGE_MIN }}% line-coverage floor"
+      - cargo llvm-cov report --summary-only --fail-under-lines {{ .COVERAGE_MIN }}

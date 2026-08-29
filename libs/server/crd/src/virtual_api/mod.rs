@@ -133,9 +133,11 @@ mod tests {
 
     #[test]
     fn no_list_fallback_token_is_always_valid() {
-        assert!(VirtualApiConfiguration::new(VirtualApiKind::OpenShiftProject)
-            .validate()
-            .is_ok());
+        assert!(
+            VirtualApiConfiguration::new(VirtualApiKind::OpenShiftProject)
+                .validate()
+                .is_ok()
+        );
     }
 
     #[test]

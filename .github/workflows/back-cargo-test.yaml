@@ -3,6 +3,8 @@ name: 🦀 Rust tests
 # 🧪 Unit tests plus the fast integration tier: the upstream Kubernetes API and
 # the OIDC provider are wiremock stubs, Redis is a real service container.
 # REQUIRE_TEST_REDIS makes a missing Redis a failure instead of a silent skip.
+# A second job re-runs the same two tiers under cargo-llvm-cov and fails the
+# build if line coverage drops below the floor declared in .taskfile/test.yaml.
 
 on:
   push:
@@ -10,6 +12,7 @@ on:
       - "**/*.rs"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+      - ".taskfile/test.yaml"
       - ".github/workflows/back-cargo-test.yaml"
   pull_request:
     branches: ["main"]
@@ -17,6 +20,7 @@ on:
       - "**/*.rs"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
+      - ".taskfile/test.yaml"
       - ".github/workflows/back-cargo-test.yaml"
   workflow_dispatch:
 
@@ -64,3 +68,58 @@ jobs:
       - name: 📖 Run Doctests
         # nextest doesn't run doctests; kept as a safety net in case one is added.
         run: cargo test --doc
+
+  coverage:
+    name: 📊 Measure coverage
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Overrides the committed .env, which points at the password-protected
+      # dragonfly from the local compose stack. A process env var wins over
+      # Task's dotenv, so `task` below sees this value.
+      TEST_REDIS_URL: redis://127.0.0.1:6379
+      REQUIRE_TEST_REDIS: "1"
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 🦀 Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+
+      - name: 🧱 Install System Dependencies
+        # libdbus-1-dev is required by the `keyring` crate used by the CLI.
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - name: 📦 Install cargo-nextest and cargo-llvm-cov
+        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        with:
+          tool: nextest,cargo-llvm-cov
+
+      - name: 📦 Install Task
+        uses: go-task/setup-task@3be4020d41929789a01026e0e427a4321ce0ad44 # v2.0.0
+
+      # The floor lives in .taskfile/test.yaml so it is declared once and the
+      # same gate can be reproduced locally with `task test:coverage:ci`.
+      - name: 📊 Measure coverage and enforce the floor
+        run: task test:coverage:ci
+
+      - name: 📤 Upload the lcov report
+        # Kept even on failure: the report is what tells you which files moved.
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: coverage-lcov
+          path: dist/coverage/lcov.info
+          if-no-files-found: error

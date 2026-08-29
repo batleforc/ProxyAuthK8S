@@ -1,41 +1,23 @@
-use clap::ValueEnum;
-use cli_trace::level::VerboseLevel;
-use kube::config::Kubeconfig;
-use serde::{Deserialize, Serialize};
+//! Construction of the [`CliCtx`] from the parsed [`Cli`] arguments.
+//!
+//! Split out of `mod.rs` because it is the one place that touches the
+//! filesystem: locating and reading the kubeconfig and the CLI config, and
+//! creating either when missing.
+
 use std::{env, fs, path::PathBuf};
 
-use crate::{cli_config::CliConfig, error::ProxyAuthK8sError};
+use kube::config::Kubeconfig;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default, ValueEnum)]
-pub enum ContextFormat {
-    #[default]
-    Table,
-    Json,
-    Yaml,
-}
+use crate::{Cli, cli_config::CliConfig, ctx::CliCtx, error::ProxyAuthK8sError};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CliCtx {
-    pub namespace: String,
-    pub kubeconfig_path: PathBuf,
-    pub kubeconfig: Kubeconfig,
-    pub context: Option<String>,
-    pub verbose: Option<u8>,
-    pub server_url: String,
-    pub format: ContextFormat,
-    pub invoked_from_kubectl: bool,
-    pub config: CliConfig,
-    pub config_path: PathBuf,
-}
-
-impl TryFrom<super::Cli> for CliCtx {
+impl TryFrom<Cli> for CliCtx {
     type Error = ProxyAuthK8sError;
 
     /// Build the context, surfacing every failure as a clean error instead of a
     /// panic. This matters because the CLI is also a `kubectl` exec-credential
     /// plugin: a panic would emit a Rust backtrace and a non-protocol exit,
     /// breaking `kubectl` auth with an opaque crash on a merely malformed config.
-    fn try_from(cli: super::Cli) -> Result<Self, Self::Error> {
+    fn try_from(cli: Cli) -> Result<Self, Self::Error> {
         let kubeconfig_path =
             CliCtx::detect_kubeconfig_path(cli.kubeconfig.map(|p| p.to_string_lossy().to_string()))
                 .map(PathBuf::from)
@@ -113,40 +95,5 @@ impl TryFrom<super::Cli> for CliCtx {
             config,
             config_path,
         })
-    }
-}
-
-impl CliCtx {
-    #[must_use]
-    pub fn detect_kubeconfig_path(kubeconfig: Option<String>) -> Option<String> {
-        if let Some(path) = kubeconfig {
-            Some(path)
-        } else if let Ok(env_path) = env::var("KUBECONFIG") {
-            Some(env_path)
-        } else {
-            let home_env = env::var("HOME").unwrap_or_default();
-            if home_env.is_empty() {
-                None
-            } else {
-                Some(format!("{home_env}/.kube/config"))
-            }
-        }
-    }
-
-    pub fn write_kubeconfig(&self) -> Result<(), ProxyAuthK8sError> {
-        let yaml_content = serde_yaml::to_string(&self.kubeconfig)
-            .map_err(|e| ProxyAuthK8sError::YamlSerializeError(e.to_string()))?;
-        crate::helper::secure_write(&self.kubeconfig_path, &yaml_content)
-            .map_err(|e| ProxyAuthK8sError::KubeconfigWriteError(e.to_string()))
-    }
-
-    #[must_use]
-    pub fn to_tracing_verbose_level(&self) -> VerboseLevel {
-        match self.verbose.unwrap_or(0) {
-            0 => VerboseLevel::INFO,
-            1 => VerboseLevel::DEBUG,
-            2 => VerboseLevel::TRACE,
-            _ => VerboseLevel::TRACE,
-        }
     }
 }

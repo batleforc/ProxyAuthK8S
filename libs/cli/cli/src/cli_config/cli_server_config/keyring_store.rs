@@ -1,60 +1,18 @@
-use crate::{cli_config::cli_cluster_config::CliClusterConfig, error::ProxyAuthK8sError};
-use client_api::{
-    apis::{api_clusters_api::get_all_visible_cluster, configuration::Configuration},
-    models::GetAllVisibleClusterBody,
-};
+//! Bearer-token storage, backed by the OS keyring.
+//!
+//! Two kinds of entry are kept under the `proxyauthk8s` service: the server
+//! token, keyed by the server URL, and the per-cluster tokens, keyed by
+//! `<server url>::<ns>/<cluster>`.
+
 use keyring::Entry;
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tracing::{debug, error};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CliServerConfig {
-    pub url: String,
-    pub namespace: String,
-    pub clusters: HashMap<String, CliClusterConfig>,
-}
+use crate::{
+    cli_config::{cli_cluster_config::CliClusterConfig, cli_server_config::CliServerConfig},
+    error::ProxyAuthK8sError,
+};
 
 impl CliServerConfig {
-    #[must_use]
-    pub fn new(server_url: String) -> Self {
-        CliServerConfig {
-            url: server_url,
-            namespace: "default".to_string(),
-            clusters: vec![].into_iter().collect(),
-        }
-    }
-    #[must_use]
-    pub fn url_to_name(&self) -> String {
-        let url = self.url.replace("https://", "").replace("http://", "");
-        url.replace(['.', ':'], "-")
-    }
-
-    #[must_use]
-    pub fn url_to_name_from_string(url: String) -> String {
-        let url = url.replace("https://", "").replace("http://", "");
-        url.replace(['.', ':'], "-")
-    }
-
-    #[must_use]
-    pub fn get_cluster_url_from_ns_name(&self, ns: Option<String>, name: String) -> Option<String> {
-        let ns = ns.unwrap_or_else(|| self.namespace.clone());
-        format!("{}/{}/{}", self.url, ns, name).into()
-    }
-
-    #[must_use]
-    pub fn get_clusters_from_ns_name(
-        &self,
-        ns: Option<String>,
-        name: String,
-    ) -> Option<&CliClusterConfig> {
-        self.clusters.get(&format!(
-            "{}/{}",
-            ns.unwrap_or_else(|| self.namespace.clone()),
-            name
-        ))
-    }
-
     pub fn server_token(&self) -> Result<String, ProxyAuthK8sError> {
         let entry = match Entry::new("proxyauthk8s", &self.url) {
             Ok(entry) => entry,
@@ -122,26 +80,6 @@ impl CliServerConfig {
                 )))
             }
         }
-    }
-
-    pub fn base_configuration(&self) -> Result<Configuration, ProxyAuthK8sError> {
-        let token = self.server_token()?;
-        Ok(Configuration {
-            base_path: self.url.clone(),
-            bearer_access_token: Some(token),
-            ..Default::default()
-        })
-    }
-
-    pub async fn clusters_from_remote(
-        &self,
-    ) -> Result<GetAllVisibleClusterBody, ProxyAuthK8sError> {
-        get_all_visible_cluster(&self.base_configuration()?)
-            .await
-            .map_err(|e| {
-                debug!("Error fetching clusters from remote: {:?}", e);
-                e.into()
-            })
     }
 
     pub fn set_cluster_token(
@@ -245,67 +183,5 @@ impl CliServerConfig {
         if let Err(err) = self.clear_server_token() {
             error!("Error clearing server token: {}", err);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn url_to_name_strips_scheme_and_encodes_separators() {
-        assert_eq!(
-            CliServerConfig::url_to_name_from_string("https://localhost:5437".to_string()),
-            "localhost-5437"
-        );
-        assert_eq!(
-            CliServerConfig::url_to_name_from_string("http://proxy.example.com".to_string()),
-            "proxy-example-com"
-        );
-        // Instance method agrees with the associated one.
-        let config = CliServerConfig::new("https://a.b:1".to_string());
-        assert_eq!(config.url_to_name(), "a-b-1");
-    }
-
-    #[test]
-    fn cluster_url_uses_the_given_namespace_then_falls_back_to_the_default() {
-        let config = CliServerConfig::new("https://localhost:5437".to_string());
-        // Explicit namespace wins.
-        assert_eq!(
-            config.get_cluster_url_from_ns_name(Some("team-a".to_string()), "prod".to_string()),
-            Some("https://localhost:5437/team-a/prod".to_string())
-        );
-        // None falls back to the server's default namespace ("default").
-        assert_eq!(
-            config.get_cluster_url_from_ns_name(None, "prod".to_string()),
-            Some("https://localhost:5437/default/prod".to_string())
-        );
-    }
-
-    #[test]
-    fn clusters_are_looked_up_by_ns_and_name() {
-        let mut config = CliServerConfig::new("https://localhost:5437".to_string());
-        config.clusters.insert(
-            "team-a/prod".to_string(),
-            CliClusterConfig { token_exist: true },
-        );
-
-        assert!(
-            config
-                .get_clusters_from_ns_name(Some("team-a".to_string()), "prod".to_string())
-                .is_some()
-        );
-        // Wrong namespace -> not found.
-        assert!(
-            config
-                .get_clusters_from_ns_name(Some("team-b".to_string()), "prod".to_string())
-                .is_none()
-        );
-        // None uses the default namespace, which has no "prod" entry here.
-        assert!(
-            config
-                .get_clusters_from_ns_name(None, "prod".to_string())
-                .is_none()
-        );
     }
 }
