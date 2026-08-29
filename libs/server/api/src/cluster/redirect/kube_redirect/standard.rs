@@ -1,16 +1,13 @@
-use actix_web::{HttpRequest, HttpResponse, dev::PeerAddr, http, web};
-use common::State;
-use crd::ProxyKubeApi;
+use actix_web::{HttpResponse, http, web};
 use futures_util::stream::StreamExt;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{debug, error, info, instrument, warn};
 
+use super::context::RedirectContext;
 use super::upstream::{apply_forward_headers, upstream_client};
-use crate::cluster::redirect::audit::AuditContext;
 use crate::cluster::redirect::forwarded::is_hop_by_hop;
 use crate::duration::extract_timeout_from_query;
-use crate::model::user::User;
 
 const DEBUG_BODY_LOG_LIMIT: usize = 8 * 1024;
 
@@ -70,19 +67,24 @@ fn body_for_debug_log(body: &[u8]) -> String {
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-#[instrument(skip(req, data, payload, user, audit))]
-pub(super) async fn standard_redirect(
-    req: HttpRequest,
-    data: web::Data<State>,
-    mut payload: web::Payload,
-    method: http::Method,
-    peer_addr: Option<PeerAddr>,
-    proxy: ProxyKubeApi,
-    url_to_call: String,
-    user: Option<User>,
-    audit: AuditContext,
-) -> HttpResponse {
+#[instrument(
+    skip_all,
+    fields(method = ?ctx.method, peer_addr = ?ctx.peer_addr, proxy = ?ctx.proxy, url_to_call)
+)]
+pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
+    let url_to_call = ctx.url_to_call();
+    tracing::Span::current().record("url_to_call", url_to_call.as_str());
+    let RedirectContext {
+        req,
+        data,
+        mut payload,
+        method,
+        peer_addr,
+        proxy,
+        user,
+        audit,
+        ..
+    } = ctx;
     let is_debug_enabled = tracing::enabled!(tracing::Level::DEBUG);
     // watch=true/1 and follow=true/1 produce infinite streaming responses; treat them specially
     let is_streaming_request = req

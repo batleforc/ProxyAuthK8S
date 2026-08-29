@@ -11,18 +11,15 @@
 //! Response rewriting means buffering, which is why watches get their own
 //! newline-delimited path: a watch never ends, so it can never be buffered.
 
-use actix_web::{HttpRequest, HttpResponse, dev::PeerAddr, http, web};
-use common::State;
-use crd::ProxyKubeApi;
+use actix_web::{HttpResponse, http};
 use serde_json::Value;
 use tracing::{debug, error, warn};
 use virtual_api::MapperRegistry;
 use virtual_api::discovery::merge_api_group_list;
 
+use super::context::RedirectContext;
 use super::list_fallback;
 use super::upstream::{apply_forward_headers, upstream_client};
-use crate::cluster::redirect::audit::AuditContext;
-use crate::model::user::User;
 
 mod body;
 mod plan;
@@ -35,21 +32,23 @@ use plan::is_watch;
 pub(super) use plan::{VirtualPlan, plan};
 use watch::stream_watch;
 
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn virtual_redirect(
-    req: HttpRequest,
-    data: web::Data<State>,
-    mut payload: web::Payload,
-    method: http::Method,
-    peer_addr: Option<PeerAddr>,
-    proxy: ProxyKubeApi,
-    base_url: String,
-    user: Option<User>,
-    audit: AuditContext,
+    ctx: RedirectContext,
     registry: MapperRegistry,
-    upstream_path: String,
     plan: VirtualPlan,
 ) -> HttpResponse {
+    let RedirectContext {
+        req,
+        data,
+        mut payload,
+        method,
+        peer_addr,
+        proxy,
+        user,
+        audit,
+        base_url,
+        upstream_path,
+    } = ctx;
     // Discovery the proxy owns outright: no cluster round-trip.
     if let VirtualPlan::Direct(body) = &plan {
         debug!(path = %upstream_path, "answering virtual discovery locally");

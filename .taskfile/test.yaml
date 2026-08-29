@@ -23,8 +23,9 @@ version: "3"
 vars:
   # Line-coverage floor enforced by `coverage:ci` and by the CI gate.
   # A ratchet: raise it as the real figure climbs, never lower it to turn a red
-  # build green. Last measured 54.76% (580d331, workspace, fast tiers).
-  COVERAGE_MIN: '{{ .COVERAGE_MIN | default "54" }}'
+  # build green. Last measured 63.18% (2026-08-29, workspace, fast tiers), after
+  # the CLI, Kubernetes-auth and controller test tiers landed.
+  COVERAGE_MIN: '{{ .COVERAGE_MIN | default "62" }}'
 
 tasks:
   all:
@@ -45,7 +46,7 @@ tasks:
     silent: true
     cmds:
       - echo "Running unit tests"
-      - cargo nextest run -p crd -p api --lib
+      - cargo nextest run -p crd -p api -p controller --lib
   integration:
     desc: "Run the fast integration tier and fail if the test Redis is unreachable"
     silent: true
@@ -53,7 +54,10 @@ tasks:
       REQUIRE_TEST_REDIS: "1"
     cmds:
       - echo "Running the fast integration tier against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
-      - cargo nextest run -p api --test proxy_redirect --test oidc_user
+      - cargo nextest run -p api --test proxy_redirect --test oidc_user --test kubernetes_user
+      # Separate invocation: `--test` filters apply across every selected
+      # package, so the controller's tier cannot share the line above.
+      - cargo nextest run -p controller --test reconcile
 
   coverage:
     desc: "Measure workspace line coverage and print a per-file summary"

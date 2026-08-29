@@ -14,8 +14,8 @@ use tokio_rustls::TlsConnector;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, instrument};
 
+use super::context::RedirectContext;
 use super::tls::build_tls_config;
-use crate::cluster::redirect::audit::AuditContext;
 use crate::cluster::redirect::forwarded::{
     forwarded_for_value, identity_headers, is_proxy_owned_header, is_upstream_auth_header,
 };
@@ -221,19 +221,24 @@ async fn read_upgrade_response_headers(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-#[instrument(skip(req, data, payload, user, audit))]
-pub(super) async fn upgrade_redirect(
-    req: HttpRequest,
-    data: web::Data<State>,
-    payload: web::Payload,
-    method: http::Method,
-    peer_addr: Option<PeerAddr>,
-    proxy: ProxyKubeApi,
-    url_to_call: String,
-    user: Option<User>,
-    audit: AuditContext,
-) -> HttpResponse {
+#[instrument(
+    skip_all,
+    fields(method = ?ctx.method, peer_addr = ?ctx.peer_addr, proxy = ?ctx.proxy, url_to_call)
+)]
+pub(super) async fn upgrade_redirect(ctx: RedirectContext) -> HttpResponse {
+    let url_to_call = ctx.url_to_call();
+    tracing::Span::current().record("url_to_call", url_to_call.as_str());
+    let RedirectContext {
+        req,
+        data,
+        payload,
+        method,
+        peer_addr,
+        proxy,
+        user,
+        audit,
+        ..
+    } = ctx;
     // Upgrade handshakes never carry a body; a declared body here is an attempt
     // to smuggle a second request onto the raw upstream socket.
     if upgrade_request_declares_body(&req) {

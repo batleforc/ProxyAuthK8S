@@ -9,6 +9,7 @@ use crate::cluster::redirect::throttle;
 use crate::helper::{extract_authorization_header, extract_ns_cluster};
 use crate::model::user::User;
 
+mod context;
 mod list_fallback;
 mod standard;
 mod tls;
@@ -16,6 +17,7 @@ mod upgrade;
 mod upstream;
 mod virtual_redirect;
 
+use context::RedirectContext;
 use standard::standard_redirect;
 use upgrade::{is_upgrade_request, upgrade_redirect};
 use virtual_api::MapperRegistry;
@@ -237,66 +239,36 @@ pub async fn redirect(
         }
     };
 
-    if let Some(virtual_plan) = virtual_plan {
-        info!(from = %req.uri().to_string(), method = %method.as_str(), "Serving a virtual API request");
-        return serve_virtual_api(
-            req,
-            data,
-            payload,
-            method,
-            peer_addr,
-            proxy,
-            base_url,
-            user,
-            audit,
-            registry,
-            upstream_path,
-            virtual_plan,
-        )
-        .await;
-    }
-
-    let url_to_call = {
-        let query_string = req.query_string();
-        if query_string.is_empty() {
-            format!("{base_url}{upstream_path}")
-        } else {
-            format!("{base_url}{upstream_path}?{query_string}")
-        }
-    };
-
-    info!(from = %req.uri().to_string(), to = %url_to_call, method = %method.as_str(),
-        "Forwarding request from {} to {} with method {}",
-        req.uri().to_string(),
-        url_to_call,
-        method.as_str()
-    );
-
-    if is_upgrade {
-        return upgrade_redirect(
-            req,
-            data,
-            payload,
-            method,
-            peer_addr,
-            proxy,
-            url_to_call,
-            user,
-            audit,
-        )
-        .await;
-    }
-
-    standard_redirect(
+    let from = req.uri().to_string();
+    let ctx = RedirectContext {
         req,
         data,
         payload,
         method,
         peer_addr,
         proxy,
-        url_to_call,
         user,
         audit,
-    )
-    .await
+        base_url,
+        upstream_path,
+    };
+
+    if let Some(virtual_plan) = virtual_plan {
+        info!(%from, method = %ctx.method.as_str(), "Serving a virtual API request");
+        return serve_virtual_api(ctx, registry, virtual_plan).await;
+    }
+
+    let url_to_call = ctx.url_to_call();
+    info!(%from, to = %url_to_call, method = %ctx.method.as_str(),
+        "Forwarding request from {} to {} with method {}",
+        from,
+        url_to_call,
+        ctx.method.as_str()
+    );
+
+    if is_upgrade {
+        return upgrade_redirect(ctx).await;
+    }
+
+    standard_redirect(ctx).await
 }

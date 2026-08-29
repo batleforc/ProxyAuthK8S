@@ -95,3 +95,134 @@ pub async fn main_reconcile_proxy_kube_api(
     .await
     .map_err(|e| ControllerError::FinalizerError(Box::new(e)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crd::{ProxyKubeApiSpec, certificate::CertSource, service::Service};
+
+    /// A `State` whose Kubernetes client and Redis both point at a port nothing
+    /// listens on: every test below must return before touching either, so a
+    /// regression that starts calling out shows up as a failure rather than as
+    /// a silent extra round-trip.
+    fn unreachable_state() -> State {
+        // Building a kube client reaches for the rustls provider the server
+        // installs in `main`; without it `Client::try_from` panics.
+        static CRYPTO: std::sync::Once = std::sync::Once::new();
+        CRYPTO.call_once(|| {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        });
+
+        let kube_config =
+            kube::Config::new("http://127.0.0.1:1".parse().expect("static uri parses"));
+        State::from_parts(
+            kube::Client::try_from(kube_config).expect("kube client builds"),
+            common::redis_pool::RedisPool::from_url("redis://127.0.0.1:1")
+                .expect("redis pool builds"),
+            common::oidc_conf::OidcConf {
+                client_id: "proxyauthk8s".to_string(),
+                client_secret: None,
+                issuer_url: "https://oidc.example.com".to_string(),
+                scopes: "openid".to_string(),
+                audience: "proxyauthk8s".to_string(),
+                accept_authorized_party: false,
+                redirect_url: None,
+            },
+            "https://proxy.example.com".to_string(),
+            "https://front.example.com".to_string(),
+        )
+    }
+
+    fn proxy(namespace: Option<&str>) -> Arc<ProxyKubeApi> {
+        let mut proxy = ProxyKubeApi::new(
+            "test-cluster",
+            ProxyKubeApiSpec {
+                enabled: true,
+                cert: CertSource::Insecure(true),
+                client_cert: None,
+                service: Service::ExternalService {
+                    url: "https://cluster.example.com".to_string(),
+                },
+                auth_config: None,
+                security_config: None,
+                expose_via_dashboard: false,
+                dashboard_group: None,
+                proxy_group: None,
+                virtual_apis: Vec::new(),
+            },
+        );
+        proxy.metadata.namespace = namespace.map(std::string::ToString::to_string);
+        Arc::new(proxy)
+    }
+
+    fn leader(state: &State, is_leader: bool) {
+        state
+            .is_leader
+            .store(is_leader, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[tokio::test]
+    async fn a_follower_requeues_without_reconciling() {
+        // A non-leader replica must not reconcile at all — two replicas writing
+        // the same Redis keys and patching the same status is the split-brain
+        // the lease exists to prevent.
+        let state = unreachable_state();
+        leader(&state, false);
+
+        let action = main_reconcile_proxy_kube_api(proxy(Some("default")), Arc::new(state))
+            .await
+            .expect("a follower short-circuits successfully");
+
+        // ~lease TTL, so a freshly promoted replica converges quickly instead of
+        // leaving state stale until the hourly success requeue.
+        assert_eq!(action, Action::requeue(Duration::from_secs(20)));
+    }
+
+    #[tokio::test]
+    async fn a_follower_requeues_on_the_error_policy_too() {
+        let state = unreachable_state();
+        leader(&state, false);
+
+        let action = error_policy_proxy_kube_api(
+            proxy(Some("default")),
+            &ControllerError::InvalidResource("boom".to_string()),
+            Arc::new(state),
+        );
+
+        assert_eq!(action, Action::requeue(Duration::from_secs(20)));
+    }
+
+    // Async only because building the kube client needs a Tokio reactor; the
+    // error policy itself is synchronous.
+    #[tokio::test]
+    async fn the_leader_retries_quickly_after_a_reconcile_error() {
+        let state = unreachable_state();
+        leader(&state, true);
+
+        let action = error_policy_proxy_kube_api(
+            proxy(Some("default")),
+            &ControllerError::InvalidResource("boom".to_string()),
+            Arc::new(state),
+        );
+
+        assert_eq!(action, Action::requeue(Duration::from_secs(5)));
+    }
+
+    #[tokio::test]
+    async fn a_namespaceless_proxy_is_rejected_before_any_api_call() {
+        // `Api::namespaced` would otherwise silently target "default". The check
+        // runs before the client is used, which is why an unreachable one here
+        // still returns promptly.
+        let state = unreachable_state();
+        leader(&state, true);
+
+        let error = main_reconcile_proxy_kube_api(proxy(None), Arc::new(state))
+            .await
+            .expect_err("a cluster-scoped ProxyKubeApi is not reconcilable");
+
+        assert!(
+            matches!(error, ControllerError::InvalidResource(_)),
+            "expected an invalid-resource error, got {error:?}"
+        );
+    }
+}

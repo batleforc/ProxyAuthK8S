@@ -28,6 +28,9 @@ utoipa-actix-web = { version = '0.1' }
 k8s-openapi = { version = '0', features = ['v1_34'] }
 serde = { version = '1', features = ['derive'] }
 serde_json = '1'
+# Deliberately staying on serde_yaml 0.9.34+deprecated — see todo.md. The
+# deprecation is the author archiving a feature-complete crate, not a defect,
+# and every fork was evaluated and rejected.
 serde_yaml = '0.9'
 tracing = { version = '0.1', features = ['std'] }
 kube = { version = '4', features = ['derive', 'runtime', 'client'] }
@@ -41,10 +44,14 @@ opentelemetry_sdk = { version = '0.31', features = [
   'metrics',
   'rt-tokio',
 ] }
-opentelemetry-otlp = { version = '0.31', features = [
+# default-features = false drops the `http-proto` / `reqwest-blocking-client`
+# defaults: the exporters here are tonic-only, and those defaults were the sole
+# reason `reqwest` 0.12 was built alongside the pinned 0.13.
+opentelemetry-otlp = { version = '0.31', default-features = false, features = [
   'grpc-tonic',
   'trace',
   'metrics',
+  'logs',
   'internal-logs',
   'serialize',
 ] }
@@ -58,6 +65,11 @@ tracing-opentelemetry = { version = '0.32' }
 rustls = { version = '0.23', features = ['ring'], default-features = false }
 rustls-platform-verifier = '0.7'
 tokio-rustls = '0.26'
+# default-features = false disables openidconnect's `reqwest` feature, which
+# routes to `oauth2/reqwest` and pins reqwest 0.12. `oauth2-reqwest` is the
+# upstream (same author) adapter that provides the same `AsyncHttpClient` over
+# reqwest 0.13; it is pre-release only because it is new, not unstable. Both
+# lines move together — see todo.md before touching either.
 openidconnect = { version = '4.0.1', default-features = false }
 oauth2-reqwest = "0.1.0-alpha.3"
 thiserror = { version = '2' }

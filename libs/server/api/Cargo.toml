@@ -43,6 +43,11 @@ wiremock = "0.6"
 deadpool-redis = { workspace = true }
 serde_yaml = { workspace = true }
 secrecy = "0.10.3"
+# Dev-only, for the envtest reconcile tier: the controller is tested against the
+# same ephemeral apiserver the rest of the envtest suite already spins up, rather
+# than duplicating that ~460-line harness into the controller crate. No
+# production dependency of `api` on `controller` is implied.
+controller = { path = "../controller", version = "0.1.9" }
 k8s-openapi = { workspace = true }
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 

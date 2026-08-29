@@ -32,10 +32,24 @@ jobs:
   envtest:
     name: 🧪 Run the envtest suite
     runs-on: ubuntu-latest
+    # The reconcile tier writes the cluster cache before it patches the status,
+    # so this job needs Redis as well as an apiserver.
+    services:
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       ENVTEST_K8S_VERSION: "1.31.0"
       KUBEBUILDER_ASSETS: /home/runner/.local/share/kubebuilder-envtest
       REQUIRE_ENVTEST: "1"
+      TEST_REDIS_URL: redis://127.0.0.1:6379
+      REQUIRE_TEST_REDIS: "1"
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -68,4 +82,8 @@ jobs:
       - name: 🧪 Run the envtest suite
         # Serialised: each test owns an apiserver, and running several at once
         # only multiplies the memory footprint for no wall-clock gain.
-        run: cargo nextest run -p api --features envtest --test envtest -j 1
+        #
+        # Selected by binary name rather than a single `--test` flag, matching
+        # `task envtest:run`, so every tests/envtest_*.rs file runs instead of
+        # only the one named here.
+        run: cargo nextest run -p api --features envtest -E 'binary(/^envtest/)' -j 1

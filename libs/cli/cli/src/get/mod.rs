@@ -121,3 +121,43 @@ impl CliCtx {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn output(is_reachable: Option<bool>) -> GetClusterOutput {
+        GetClusterOutput {
+            name: "prod".to_string(),
+            namespace: "team-a".to_string(),
+            enabled: true,
+            is_reachable,
+            sso_enabled: false,
+        }
+    }
+
+    #[test]
+    fn a_row_lines_up_with_the_headers() {
+        assert_eq!(
+            GetClusterOutput::headers(),
+            vec!["NAME", "NAMESPACE", "ENABLED", "REACHABLE", "SSO"]
+        );
+        assert_eq!(
+            output(Some(true)).row(),
+            vec!["prod", "team-a", "true", "true", "false"]
+        );
+        assert_eq!(
+            GetClusterOutput::headers().len(),
+            output(Some(true)).row().len()
+        );
+    }
+
+    #[test]
+    fn reachability_renders_the_three_states_apart() {
+        // The server reports reachability as an Option: "not probed yet" must
+        // not be flattened into "unreachable".
+        assert_eq!(output(Some(true)).row()[3], "true");
+        assert_eq!(output(Some(false)).row()[3], "false");
+        assert_eq!(output(None).row()[3], "unknown");
+    }
+}

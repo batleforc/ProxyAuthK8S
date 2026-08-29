@@ -201,6 +201,29 @@ pub fn oidc_auth_config(issuer_url: &str) -> AuthenticationConfiguration {
     }
 }
 
+/// An `AuthenticationConfiguration` that forces token validation against the
+/// target cluster's own apiserver (`SelfSubjectReview`) rather than OIDC.
+///
+/// The OIDC provider block is still filled in but left disabled: it is what the
+/// `validate_against` CEL rule requires, and nothing on this path reads it.
+pub fn kubernetes_auth_config() -> AuthenticationConfiguration {
+    AuthenticationConfiguration {
+        jwt: Vec::new(),
+        oidc_provider: OidcProvider {
+            enabled: false,
+            issuer_url: String::new(),
+            client_id: "proxyauthk8s".to_string(),
+            client_secret: None,
+            extra_scope: String::new(),
+            audience: String::new(),
+            accept_authorized_party: false,
+            expose_oauth_authorization_server: false,
+        },
+        disable_validation: false,
+        validate_against: ValidateAgainst::Kubernetes,
+    }
+}
+
 /// An `AuthenticationConfiguration` that also exposes the well-known
 /// OAuth authorization server discovery document.
 pub fn oidc_auth_config_with_well_known(issuer_url: &str) -> AuthenticationConfiguration {
@@ -310,6 +333,16 @@ pub async fn mount_oidc_provider(server: &wiremock::MockServer, username: &str, 
         )
         .mount(server)
         .await;
+}
+
+/// Read a cached object straight out of Redis, by its `to_identifier()` key.
+pub async fn cached_value(pool: &Pool, id: &str) -> Option<String> {
+    pool.get()
+        .await
+        .expect("redis connection")
+        .get(id)
+        .await
+        .expect("GET should succeed")
 }
 
 /// Cache a proxy the way the controller does, so `redirect()` can find it.
