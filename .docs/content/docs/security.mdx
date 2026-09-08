@@ -172,6 +172,32 @@ Restreindre au loopback ramène l'attaque à un scénario où l'attaquant contr�
 processus sur la machine de la victime — une machine déjà compromise.
 </Callout>
 
+<Callout type="warn">
+Si le cluster proxifié est lui-même OpenShift (ou tout autre apiserver qui expose déjà
+`/.well-known/oauth-authorization-server` nativement), ce document **remplace** le sien sans
+fusion : la route explicite du proxy est enregistrée avant la route générique
+`/{ns}/{cluster}/{path:.*}` et gagne donc toujours. C'est voulu — l'appelant ne doit jamais
+avoir besoin de connaître le fournisseur réel, seulement le proxy — mais n'activez
+`expose_oauth_authorization_server` sur un tel cluster que si vous voulez délibérément masquer
+son propre serveur OAuth natif derrière celui du proxy ; sinon, deux serveurs d'autorisation
+incohérents coexisteront selon que l'appelant passe par le proxy ou par le cluster directement.
+</Callout>
+
+<Callout type="warn">
+`GET /clusters/{ns}/{cluster}/.well-known/openid-configuration` — le document de *Service
+Account Issuer Discovery* qu'un apiserver Kubernetes expose nativement, sans authentification,
+pour la vérification des jetons de compte de service — n'est **pas** intercepté par le proxy :
+faute de route dédiée, il tombe sur la route générique de redirection comme n'importe quelle
+autre ressource. Si le cluster requiert la validation des jetons (`oidc_provider.enabled` ou
+`jwt` configuré), cette requête devra donc, elle aussi, porter un jeton Bearer valide —
+contrairement à un apiserver direct, où ce document est public par défaut (RBAC
+`system:service-account-issuer-discovery` lié à `system:public-info-viewer`). Décision
+délibérée, pas un correctif : rendre ce chemin public par défaut réintroduirait exactement le
+risque d'énumération anonyme que `expose_oauth_authorization_server` rend opt-in ci-dessus. Un
+vérificateur externe de jetons de compte de service qui attend une découverte publique doit
+viser l'apiserver réel, pas ce chemin via le proxy.
+</Callout>
+
 ## 3. Autorisation par cluster
 
 ```yaml
