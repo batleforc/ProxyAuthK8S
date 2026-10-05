@@ -36,7 +36,7 @@ schemars = { version = '1' }
 futures-util = '0.3'
 deadpool-redis = { version = '0.23', features = ['serde', 'cluster'] }
 opentelemetry = { version = '0.31', features = ['trace', 'metrics', 'logs'] }
-opentelemetry_sdk = { version = '0.31', features = [
+opentelemetry_sdk = { version = '0.32', features = [
   'trace',
   'metrics',
   'rt-tokio',
