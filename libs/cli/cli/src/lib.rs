@@ -22,6 +22,7 @@ pub mod ctx;
 pub mod error;
 pub mod get;
 pub mod helper;
+pub mod keystore;
 pub mod login;
 pub mod logout;
 pub mod output;

@@ -54,6 +54,54 @@
         ]
       }
     },
+    "/clusters/{ns}/{cluster}/.well-known/oauth-authorization-server": {
+      "get": {
+        "tags": [
+          "auth_clusters"
+        ],
+        "summary": "OAuth 2.0 Authorization Server Metadata for the cluster's mediated OAuth Authorization Server",
+        "description": "Unauthenticated by nature (RFC 8414 discovery). If the cluster is not\nfound, disabled, or does not have discovery enabled, return 404.",
+        "operationId": "oauth_authorization_server",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name that should exist in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OAuth 2.0 authorization server metadata (RFC 8414).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthAuthorizationServerMetadata"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cluster not found, disabled, or discovery not enabled."
+          },
+          "503": {
+            "description": "Cache unreachable."
+          }
+        }
+      }
+    },
     "/clusters/{ns}/{cluster}/auth/callback": {
       "get": {
         "tags": [
@@ -219,6 +267,292 @@
             "bearer_auth": []
           }
         ]
+      }
+    },
+    "/clusters/{ns}/{cluster}/oauth/authorize": {
+      "get": {
+        "tags": [
+          "auth_clusters"
+        ],
+        "summary": "Start the mediated OAuth Authorization Server flow for a cluster",
+        "description": "Redirects the caller's browser to the cluster's upstream OIDC provider. If\nthe cluster is not found, disabled, or discovery is not enabled, return 404.",
+        "operationId": "authorize",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name that should exist in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "response_type",
+            "in": "query",
+            "description": "Must be `code`; this server only implements the authorization code grant.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "description": "Unvalidated: the proxy mediates the whole flow, so external clients\nnever need to register with the upstream provider.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "redirect_uri",
+            "in": "query",
+            "description": "Must be a loopback URI (`http://localhost` or `http://127.0.0.1`), any port/path.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "Opaque value echoed back verbatim on redirect.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "code_challenge",
+            "in": "query",
+            "description": "RFC 7636 PKCE code challenge (43-128 chars, unreserved charset).",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code_challenge_method",
+            "in": "query",
+            "description": "Must be `S256` when present; only S256 is supported.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the upstream identity provider."
+          },
+          "400": {
+            "description": "Malformed authorization request (invalid or non-loopback redirect_uri)."
+          },
+          "404": {
+            "description": "Cluster not found, disabled, or discovery not enabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
+    "/clusters/{ns}/{cluster}/oauth/callback": {
+      "get": {
+        "tags": [
+          "auth_clusters"
+        ],
+        "summary": "Callback from the cluster's upstream OIDC provider, for the mediated OAuth Authorization Server flow",
+        "description": "Not meant to be opened directly: the upstream provider redirects here after\nthe caller authenticates. On success, redirects to the external client's\nown `redirect_uri` with a proxy-minted authorization code.",
+        "operationId": "callback",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name that should exist in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Authorization code from the upstream OIDC provider.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "The correlation id this proxy generated at `/oauth/authorize`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the external client's redirect_uri, with a proxy-minted code (or an error)."
+          },
+          "400": {
+            "description": "Unknown or expired state."
+          },
+          "404": {
+            "description": "Cluster not found, disabled, or discovery not enabled."
+          },
+          "500": {
+            "description": "Internal server error."
+          }
+        }
+      }
+    },
+    "/clusters/{ns}/{cluster}/oauth/jwks": {
+      "get": {
+        "tags": [
+          "auth_clusters"
+        ],
+        "summary": "The upstream identity provider's JSON Web Key Set, mirrored under the cluster's own path",
+        "description": "Stateless passthrough of the upstream provider's `jwks_uri`, so a caller\nverifying a token never needs to learn or contact the upstream provider's\nown hostname. If the cluster is not found, disabled, or does not have\ndiscovery enabled, return 404.",
+        "operationId": "jwks",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name that should exist in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The upstream identity provider's JSON Web Key Set."
+          },
+          "404": {
+            "description": "Cluster not found, disabled, or discovery not enabled."
+          },
+          "503": {
+            "description": "Upstream OIDC provider unreachable or its discovery document is invalid."
+          }
+        }
+      }
+    },
+    "/clusters/{ns}/{cluster}/oauth/token": {
+      "post": {
+        "tags": [
+          "auth_clusters"
+        ],
+        "summary": "Exchange a proxy-minted authorization code for the upstream tokens",
+        "description": "RFC 6749 §4.1.3 token endpoint. If the cluster is not found, disabled, or\ndiscovery is not enabled, return 404.",
+        "operationId": "token",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "description": "Namespace containing the cluster.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cluster",
+            "in": "path",
+            "description": "Cluster name that should exist in the namespace.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Token response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponseBody"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_request / invalid_grant / unsupported_grant_type.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cluster not found, disabled, or discovery not enabled."
+          },
+          "503": {
+            "description": "Cache unreachable."
+          }
+        }
       }
     },
     "/clusters/{ns}/{cluster}/{path}": {
@@ -528,15 +862,44 @@
         "tags": [
           "health"
         ],
-        "summary": "Base path just to answer if the server is up and running.",
-        "description": "This is also used for health checks.",
+        "summary": "Liveness: the process is up and serving HTTP.",
+        "description": "Deliberately checks no dependency, so a Redis or IdP outage never makes\nKubernetes restart otherwise-healthy pods. Use `/management/ready` to decide\nwhether a pod should receive traffic.",
         "operationId": "health",
         "responses": {
           "200": {
-            "description": "If the server is healthy."
+            "description": "The server process is up."
+          }
+        }
+      }
+    },
+    "/management/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness: the pod can serve proxied traffic.",
+        "description": "Every proxied request needs Redis (cluster registry, sessions, throttling),\nso the pod is only ready when Redis answers a `PING` within 2 seconds.",
+        "operationId": "ready",
+        "responses": {
+          "200": {
+            "description": "Ready to serve traffic.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessBody"
+                }
+              }
+            }
           },
-          "500": {
-            "description": "Internal server error."
+          "503": {
+            "description": "A required dependency (Redis) is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessBody"
+                }
+              }
+            }
           }
         }
       }
@@ -574,7 +937,7 @@
       },
       "GetAllVisibleClusterBody": {
         "type": "object",
-        "description": "Body of the response for the get_all_visible_cluster endpoint.\n\nContains a list of clusters visible to the user.\nWill be empty if the user has no clusters visible to them.",
+        "description": "Body of the response for the `get_all_visible_cluster` endpoint.\n\nContains a list of clusters visible to the user.\nWill be empty if the user has no clusters visible to them.",
         "required": [
           "clusters"
         ],
@@ -584,6 +947,152 @@
             "items": {
               "$ref": "#/components/schemas/VisibleCluster"
             }
+          }
+        }
+      },
+      "OAuthAuthorizationServerMetadata": {
+        "type": "object",
+        "description": "OAuth 2.0 Authorization Server Metadata (RFC 8414) for a proxied cluster.\n\n`issuer` is this proxy's own cluster URL, and so are every other endpoint:\nthis proxy is a full mediating Authorization Server (see\n[`crate::cluster::auth::oauth`]), not a pointer to the cluster's upstream\nOIDC provider. A caller never needs to be registered with — or even learn\nthe hostname of — the upstream provider; the proxy is.",
+        "required": [
+          "issuer",
+          "authorization_endpoint",
+          "token_endpoint",
+          "jwks_uri",
+          "scopes_supported",
+          "response_types_supported",
+          "grant_types_supported",
+          "token_endpoint_auth_methods_supported",
+          "code_challenge_methods_supported"
+        ],
+        "properties": {
+          "authorization_endpoint": {
+            "type": "string"
+          },
+          "code_challenge_methods_supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "grant_types_supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "jwks_uri": {
+            "type": "string"
+          },
+          "response_types_supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scopes_supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint": {
+            "type": "string"
+          },
+          "token_endpoint_auth_methods_supported": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ReadinessBody": {
+        "type": "object",
+        "description": "Body of the readiness probe.",
+        "required": [
+          "redis"
+        ],
+        "properties": {
+          "redis": {
+            "type": "string",
+            "description": "`ok` when Redis answered a `PING`, `unavailable` otherwise."
+          }
+        }
+      },
+      "TokenErrorBody": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "TokenRequest": {
+        "type": "object",
+        "required": [
+          "grant_type",
+          "code",
+          "redirect_uri",
+          "code_verifier"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The proxy-minted code returned by `/oauth/callback`."
+          },
+          "code_verifier": {
+            "type": "string",
+            "description": "RFC 7636 PKCE verifier for the `code_challenge` presented at `/oauth/authorize`."
+          },
+          "grant_type": {
+            "type": "string",
+            "description": "Must be `authorization_code`; this server only implements that grant."
+          },
+          "redirect_uri": {
+            "type": "string",
+            "description": "Must match the `redirect_uri` presented at `/oauth/authorize` (RFC 6749 §4.1.3)."
+          }
+        }
+      },
+      "TokenResponseBody": {
+        "type": "object",
+        "required": [
+          "access_token",
+          "token_type",
+          "id_token",
+          "scope"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "id_token": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": "string"
+          },
+          "token_type": {
+            "type": "string"
           }
         }
       },

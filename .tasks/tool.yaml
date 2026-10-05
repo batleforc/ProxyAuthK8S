@@ -65,13 +65,16 @@ tasks:
     desc: "Upgrade documentation dependencies"
     dir: .docs
     cmds:
-      - yarn
-      - yarn upgrade
+      # Yarn 4 has no `yarn upgrade`: bump package.json within the current
+      # majors (patch/minor), then refresh the lockfile. Majors stay a manual,
+      # reviewed change.
+      - npx -y npm-check-updates -t minor -u
+      - yarn install
   upgrade-front:
     desc: "Upgrade frontend dependencies"
     cmds:
-      - yarn
-      - yarn upgrade
+      - npx -y npm-check-updates -t minor -u
+      - yarn install
   upgrade-back:
     desc: "Upgrade backend dependencies"
     cmds:

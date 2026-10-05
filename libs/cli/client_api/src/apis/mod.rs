@@ -89,12 +89,7 @@ pub fn parse_deep_object(prefix: &str, value: &serde_json::Value) -> Vec<(String
         return params;
     }
 
-    // style=deepObject only serializes object values. A non-object root has no
-    // key/value pairs to expand, so yield nothing rather than panicking. (This
-    // function is only ever entered recursively on object values today, so the
-    // branch is unreachable in practice; kept defensive since this is generated
-    // client code that a bad spec could otherwise turn into a runtime panic.)
-    vec![]
+    unimplemented!("Only objects are supported with style=deepObject")
 }
 
 /// Internal use only

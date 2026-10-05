@@ -21,3 +21,11 @@ tasks:
     cmds:
       - echo "Running main linters"
       - yarn nx run-many --target=lint --all
+  actions:
+    desc: "Lint the GitHub Actions workflows (actionlint + shellcheck)"
+    silent: true
+    cmds:
+      - echo "Running actionlint on .github/workflows"
+      # Only the live workflows (not .github/workflows/.bck), and shellcheck
+      # findings from `warning` up (style/info notes don't fail the lint).
+      - SHELLCHECK_OPTS="--severity=warning" actionlint .github/workflows/*.yml .github/workflows/*.yaml

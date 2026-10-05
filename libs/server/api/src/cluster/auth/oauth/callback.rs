@@ -61,7 +61,7 @@ pub async fn callback(
     };
     let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
         Ok(proxy) => proxy,
-        Err(response) => return response,
+        Err(gate) => return gate.into_response(),
     };
     if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
         return response;

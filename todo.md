@@ -138,25 +138,28 @@ than a rushed change. Roughly ordered by score impact / value.
 
 ## Testing
 
-- [ ] **Add controller / reconcile coverage.** The reconcile loop has zero tests.
-      The exponential-backoff retry-delay calculation is extractable and pure —
-      pull it out and unit-test it. Broader reconcile coverage needs an
-      envtest-tier integration test (real apiserver + Redis), like the existing
-      envtest suite. Test health is the top mechanical drag (50% strict).
+- [x] **Add controller / reconcile coverage.** Done 2026-10-05: unit tests
+      (backoff, leader demotion) + envtest-tier `api/tests/envtest_reconcile.rs`
+      running the real controller (create → Redis + status + finalizer,
+      disable, unreachable target, delete → cleanup; follower writes nothing).
+      Found and fixed: cleanup left the `requeue_retry:<id>` counter in Redis.
 
-- [ ] **Test the Kubernetes auth mode.** `User::auth_against_kubernetes` (the
-      `SelfSubjectReview` path) is uncovered; needs an envtest / mock-apiserver
-      test. The OIDC mode is already wiremock-tested.
+- [x] **Test the Kubernetes auth mode.** Done 2026-10-05:
+      `api/tests/envtest_kube_auth.rs` (ServiceAccount token via TokenRequest →
+      identity + groups; unknown / deleted-SA token rejected; proxy forwards a
+      valid token, 401 without detail otherwise).
 
-- [ ] **Broaden CLI test coverage.** Only a few of the CLI crate's files have
+- [x] **Broaden CLI test coverage.** Done 2026-10-05: 28 tests (output
+      renderers, `secure_write` permissions, ctx helpers, login helpers). Was: Only a few of the CLI crate's files have
       tests. Add tests for the remaining pure output/mapping logic (e.g. the
       `KubeList`/`TableRow` renderers, `detect_kubeconfig_path`,
       `to_tracing_verbose_level`, and `helper::secure_write` file permissions).
 
 ## Dependencies (maintainer decisions)
 
-- [ ] Migrate off the deprecated `serde_yaml` (0.9.34+deprecated) — preserve exact
-      CRD YAML output.
+- [x] Migrated off `serde_yaml` to `serde_yaml_ng` 0.10 (same libyaml
+      backend; CRD, kubeconfig and `-f yaml` output byte-identical; no longer
+      in Cargo.lock).
 - [ ] Resolve the dual `reqwest` build (0.12 via the OpenTelemetry stack + 0.13
       pinned) once the otel ecosystem moves to 0.13.
 - [ ] Revisit the alpha `oauth2-reqwest` (0.1.0-alpha.3) dependency on the core
@@ -171,3 +174,182 @@ than a rushed change. Roughly ordered by score impact / value.
       **Still open:** `rsa` (RUSTSEC-2023-0071, Marvin timing sidechannel
       attack) has **no fixed upgrade available upstream** — nothing to do
       here until `rsa` ships one; re-check periodically.
+
+## Production-readiness review (2026-10-05)
+
+Findings of the code-quality / prod-readiness / docs-coverage review. Verdict:
+alpha / early beta (0.1.9) — app-level security is careful, operations are not
+there yet.
+
+### Blockers (must fix before prod)
+
+- [x] **Helm: leader election can never succeed.** Fixed: namespaced
+      `Role`/`RoleBinding` granting `get`/`create`/`patch` on `leases` in the
+      release namespace (`rbac.operator.yaml`); `LEASE_NAMESPACE` and `POD_NAME`
+      set via the downward API (`dp.back.yaml`). Was: The operator ClusterRole has
+      no `coordination.k8s.io/leases` rule, so `try_acquire_or_renew` fails
+      forever, `is_leader` stays false, reconcile never runs, Redis is never
+      filled and every `/clusters/...` call is a 404. `LEASE_NAMESPACE` is not
+      set by the chart either (falls back to `default`).
+- [x] **No timeouts on outbound calls.** Fixed: shared IdP client with 5s
+      connect / 10s total; upstream apiserver client and upgrade (exec /
+      port-forward) connections get a 10s connect + TLS-handshake bound only,
+      so long-lived streams are not cut. Was: The upstream client
+      (`kube_redirect/upstream.rs`) and the OIDC HTTP client
+      (`common/src/oidc_conf.rs`) set no connect/request timeout: a hung
+      apiserver or IdP pins workers.
+- [x] **2–3 IdP round-trips per authenticated request, nothing cached.**
+      Fixed (`common::oidc_cache`): discovery + introspection endpoint cached
+      per issuer (5 min); validated tokens cached by SHA-256 key scoped to
+      issuer/client/audience for `OIDC_TOKEN_CACHE_TTL` (30s, `0` disables,
+      capped by JWT `exp`); one pooled IdP client. Caches are not populated
+      under the `test-util` feature (wiremock reuses ports). **Still open:** a
+      new upstream reqwest client + TLS config per proxied request (see
+      "per-cluster upstream client pool"). Was:
+      `get_user_info_from_oidc_token` re-runs OIDC discovery, then userinfo
+      (and maybe introspection) on every call; a fresh reqwest client + TLS
+      config is also built per upstream request.
+- [x] **Shallow health probe.** Fixed: `/management/health` stays a
+      dependency-free liveness (logs at debug); new `/management/ready` PINGs
+      Redis (2s) → 200/503, wired as the chart's readinessProbe. Was: `/management/health` always answers 200 (no
+      Redis check) and is used for both liveness and readiness, so a pod with
+      Redis down stays in rotation answering 503. It also logs at `info` on
+      every probe.
+- [x] **Release pipeline.** `build.yaml` triggers on `deploy/build/**`,
+      `Cargo.lock`, `yarn.lock`; release images built natively per arch
+      (`ubuntu-24.04` / `ubuntu-24.04-arm`), pushed by digest and merged into a
+      multi-arch index (`linux/amd64` + `linux/arm64`) with provenance + SBOM
+      attestations, cosign keyless signature (`--recursive`) and the SBOMs
+      attached to the release; every action pinned by SHA; otel pinned;
+      `task lint:actions` (actionlint) added. Fixed on the way: the retired
+      `macos-13` runner (would have blocked every release) and the krew
+      placeholder check that could not fail under `set -e`. **To verify on the
+      first real tag.**
+- [x] **Chart defaults.** Fixed: back CPU limit `1000m`, back/front
+      `replicas: 2` with PDBs on, `NOTES.txt` warns about `oidc.source=env`,
+      a disabled NetworkPolicy and `< 2` replicas (NetworkPolicy stays off by
+      default: the chart can't guess where Redis / target apiservers are). Was: Back CPU limit `100m` (too low for a streaming
+      proxy), `replicas: 1`, PDB/HPA/NetworkPolicy off; with
+      `oidc.source=env` the client secret is plain text in the pod spec.
+
+### To fix next (security / ops)
+
+- [x] CORS: the chart now sets `CORS_ALLOWED_ORIGINS` to the ingress origin
+      (`back.corsAllowedOrigins` to override). The binary default stays
+      permissive for backward compatibility.
+- [x] Operator RBAC: secrets/configmaps/services reduced to `get` (the code
+      never lists/watches them; configmaps were missing, which broke
+      `CertSource::ConfigMap`); `rbac.referencedNamespaces` swaps the
+      cluster-wide grant for per-namespace Roles. Back Containerfile now runs
+      as `USER 1000:1000`.
+- [x] Logging: upstream URLs path-only at `info`; `LOG_FORMAT=json`
+      (chart `back.logFormat`); stdout level now follows `RUST_LOG`.
+- [ ] Startup: the controller returns `ControllerError::CrdUnavailable`
+      instead of panicking (server exits non-zero → CrashLoopBackOff);
+      `REDIS_URL`/`LEASE_NAMESPACE` defaults now log a warning — done.
+      **Still open:** boot still fails hard if OIDC discovery fails (decide:
+      retry with backoff vs. fail fast).
+- [x] Shutdown: `SERVER_SHUTDOWN_TIMEOUT` (default 30s); the chart sets it
+      from `back.shutdownTimeoutSeconds` and the pod grace period to +15s.
+- [ ] Known advisories: `rsa` (RUSTSEC-2023-0071, no fix) and `h2 0.3` via
+      actix-http (RUSTSEC-2026-0258, no 0.3 fix).
+- [ ] opentelemetry 0.33 blocked until tracing-actix-web ships
+      `opentelemetry_0_33` (actix/actix-extras#838); TypeScript 7 blocked by
+      typescript-eslint / vue-tsc; ESLint 10 in `.docs` blocked by
+      eslint-config-next (vercel/next.js#89764).
+- [x] Chart signing + `values.schema.json`: charts are pushed with native
+      `helm push` and signed with cosign keyless; the schema rejects unknown
+      keys / bad types. Per-cluster upstream client pool:
+      `common::upstream_cache` (key = ns/name + hash of uid/cert/client_cert,
+      TTL `PROXY_UPSTREAM_CLIENT_TTL` default 300s, evicted on proxy deletion)
+      — ~21× more req/s locally, 1 upstream connection instead of one per
+      request, no Kubernetes read per request. Also fixed the release notes
+      template (wrong chart OCI path/version, CLI section) and the krew
+      manifest usage. (Also done earlier: Prometheus metrics, multi-arch,
+      `POD_NAME`.)
+
+### Code-quality weaknesses
+
+- [x] `crd_runtime` tests: 20 unit + 13 wiremock/TCP + 3 envtest. Fixed:
+      certs stored as raw PEM in a Secret (cert-manager, `kubectl create
+      secret tls`) could not be read (always base64-decoded twice); a CA with
+      no PEM block is now rejected (`CaWithoutPem`) instead of silently
+      falling back to the default roots.
+- [x] Token validation has direct tests: `api/tests/oidc_token_validation.rs`
+      (21 tests: valid, expired, malformed userinfo, inactive introspection,
+      wrong/missing audience, azp opt-in, wrong issuer, HTTP 401 without
+      detail) + 5 more `token_audience` unit tests.
+- [x] `unwrap`/`expect`/`panic!` on startup paths: `trace` returns a
+      `TraceError` and falls back to stdout-only logging when the OTLP exporter
+      can't be built; controller and CLI context fixed.
+- [x] `load_discovery_enabled_proxy` now returns a small
+      `DiscoveryGateError`; `ReadMoreError` is a `thiserror` enum. Clippy is
+      warning-free.
+- [x] Very long functions: CLI ones split; `upgrade_redirect` 209 → 51
+      lines (`upgrade.rs` split into `upgrade/{connect,response,tunnel}.rs`,
+      refusals as an `UpgradeRefusal` enum), `virtual_redirect` 213 → 57
+      (`Forward` + `VirtualFailure`); no helper over 60 lines, 40 new unit tests.
+- [x] CLI keyring access folded into `keyring_entry` + read/write/delete
+      helpers (same service/user naming, stored tokens stay readable).
+- [x] Configuration centralised in `common::config::Config` (`from_env` →
+      pure `from_lookup`, installed once from `main`, lazily loaded in tests);
+      every server env read goes through it, except
+      `PROXYAUTH_ALLOW_CROSS_NS_CERT`, still read by `crd` (schema crate must
+      not depend on `common`; same parser shared). Unparsable values now log
+      a warning before falling back to the default.
+- [x] `common/src/lib.rs` split into `state.rs`, `state/redis.rs`,
+      `server_config.rs`, `error.rs`, `config.rs`; `lib.rs` only re-exports
+      (all public paths unchanged).
+- [x] Front: views split into components (`CliView` 1294 → 175 lines,
+      `ClusterCallbackView` 1247 → 236, `HomeLoggedout` 1109 → 22,
+      `ClusterNoSSOView` 744 → 255, `nav.vue` 781 → 237), shared `BrandLogo`,
+      `SectionCard`, cluster cards, `useCopyToClipboard`, kubeconfig/CLI
+      command builders in `utils/`; 50 vitest tests; `/about` is a real public
+      page. `vue-tsc` typecheck is now clean (tsconfig `module: ESNext` +
+      `moduleResolution: bundler`, static icons from `@maz-ui/icons/static`)
+      and enforced in CI (`front-lint.yaml` job `check`). Fixed on the way:
+      toasts used the non-existent `duration` option (now `timeout`), badges
+      the non-existent `danger` colour (now `destructive`). Only verified by
+      markup/computed-style snapshots: eyeball responsive (480/768 px), hover
+      and dark-mode nav once in a browser.
+
+- [ ] **Decide: `CertSource::Insecure(true)`** is documented as "do not use
+      TLS" but actually verifies the upstream with the system trust store.
+      Either fix the doc/CRD description, or make it really skip verification
+      (security-sensitive — prefer renaming to something like `SystemRoots`).
+- [ ] **Decide:** `is_reachable` returns `Err(Http)` (not `Ok(false)`) on a
+      closed port; tests pin the current behaviour.
+
+### Docs — missing or stale
+
+- [x] **Stale API reference:** regenerated (`swagger.json`, `api/` pages via
+      the new `task gen:docs:api`, which keeps the hand-written `index.mdx`,
+      `client_api`, `front-api`). Was: committed `swagger.json` / `.docs/swagger.json`
+      only has 5 paths; the OAuth AS endpoints (well-known, authorize,
+      callback, token, jwks) and their schemas are missing. Regenerate the
+      spec, the `api/` pages and `libs/cli/client_api`.
+- [x] **Undocumented server env vars:** new page
+      `.docs/content/docs/configuration.mdx`. Was: `SERVER_PORT`, `SERVER_HTTPS`,
+      `SERVER_CERT_PATH`, `SERVER_KEY_PATH` (HTTPS mode undocumented),
+      `API_CLUSTER_OIDC_BASE_REDIRECT_URL`, `API_CLUSTER_OIDC_FRONT_REDIRECT_URL`,
+      `OIDC_REDIRECT_URL`, `LEASE_NAMESPACE`, `HOSTNAME`, `REDIS_CLUSTER`,
+      `POD_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- [x] **Undocumented front env vars:** documented (dev `VITE_*` and image
+      `PROXYAUTHK8S_FRONT_*` runtime substitution). Was: `VITE_OIDC_ISSUER_URL`,
+      `VITE_OIDC_CLIENT_ID`, `VITE_OIDC_SCOPE`, `VITE_OIDC_SILENT_REFRESH`,
+      `VITE_API_BASE_URL`.
+- [x] CLI: `-p/--proxy-auth-config` added to the global options table.
+      `PROXYAUTH_DUMP_KUBECONFIG` is only read inside a unit test (not a user
+      option), nothing to document.
+- [x] `libs/server/api/readme.md` rewritten from the current routes. Was: lists non-existent `/auth/refresh` and
+      `/auth/logout`, uses `/api/cluster` instead of `/api/v1/clusters`.
+- [x] `work-localy.mdx` referenced `task k3d:up` (doesn't exist); now
+      `task k3d:create` / `task k3d:start`.
+- [ ] Root `README.md` "Left to do" duplicates `roadmap.mdx` (English vs
+      French, not word-for-word): maintainer to pick the single source of truth.
+- [x] Documented: Helm values (`helm-chart.mdx`), developer tasks
+      (`developper-guide/tasks.mdx`), `/about` (`ui.mdx`). Was: front `/about` page, Helm `values.yaml`
+      (Scalar `/api/docs`, `RUST_LOG`/OTel and the probes are now in
+      `configuration.mdx`), most developer tasks
+      (`test:*`, `envtest:*`, `gen:*`, `audit:*`, `template:*`, `tmux:dev`,
+      `talos:*`, `bump`, `cli:*`).

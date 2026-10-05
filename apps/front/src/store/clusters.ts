@@ -8,6 +8,7 @@ import {
 } from '@proxy-auth-k8s/front-api';
 import { useAuthStore } from './auth.ts';
 import { useToast } from 'maz-ui/composables/useToast';
+import { safeRedirectTarget } from '../utils/redirect.ts';
 
 export const useClustersStore = defineStore('clusters', {
   state: () => ({
@@ -41,12 +42,12 @@ export const useClustersStore = defineStore('clusters', {
           this.clusters = [];
           console.error('No cluster data received');
           toast.error('No cluster data received from server', {
-            duration: 5000,
+            timeout: 5000,
           });
         } else if (response.status === 401) {
           console.error('Unauthorized access when fetching clusters');
           toast.error('Unauthorized access. Please log in again.', {
-            duration: 2000,
+            timeout: 2000,
           });
           setTimeout(() => {
             //authSore.logIn();
@@ -54,7 +55,7 @@ export const useClustersStore = defineStore('clusters', {
           this.clusters = [];
         } else {
           toast.warning(`Unexpected response: ${response.status}`, {
-            duration: 5000,
+            timeout: 5000,
           });
           console.error(`Unexpected response status: ${response.status}`);
           this.clusters = [];
@@ -73,17 +74,11 @@ export const useClustersStore = defineStore('clusters', {
         },
       }).then((response) => {
         if (response.status === 200 && response.data) {
-          // Actually validate the redirect target before navigating: only allow
-          // http(s) URLs so a malformed/attacker-influenced response cannot turn
-          // this into an open redirect or a `javascript:` sink.
-          try {
-            const target = new URL(response.data);
-            if (target.protocol !== 'https:' && target.protocol !== 'http:') {
-              throw new Error(`unexpected protocol: ${target.protocol}`);
-            }
-            window.location.href = target.href;
-          } catch (e) {
-            console.error('Invalid URL received for cluster login redirect', e);
+          const target = safeRedirectTarget(response.data);
+          if (target) {
+            window.location.href = target;
+          } else {
+            console.error('Invalid URL received for cluster login redirect');
           }
         } else if (response.status === 401) {
           console.error(
@@ -99,7 +94,7 @@ export const useClustersStore = defineStore('clusters', {
       const code = this.router.currentRoute.value.query.code as string;
       const state = this.router.currentRoute.value.query.state as string;
       if (!ns || !cluster || !code || !state) {
-        toast.error('Missing parameters in callback URL', { duration: 5000 });
+        toast.error('Missing parameters in callback URL', { timeout: 5000 });
         console.error('Missing parameters in callback URL');
         setTimeout(() => {
           this.router.push({ name: 'home' });
@@ -126,11 +121,11 @@ export const useClustersStore = defineStore('clusters', {
           if (response.status === 200 && response.data) {
             this.callBack.retour = response.data;
             toast.success('Successfully authenticated with the cluster', {
-              duration: 3000,
+              timeout: 3000,
             });
           } else if (response.status === 401) {
             toast.error('Unauthorized access during callback login', {
-              duration: 5000,
+              timeout: 5000,
             });
             console.error('Unauthorized access during callback login');
             setTimeout(() => {
@@ -140,7 +135,7 @@ export const useClustersStore = defineStore('clusters', {
         })
         .catch((error) => {
           toast.error(`Error during callback login: ${error}`, {
-            duration: 5000,
+            timeout: 5000,
           });
           console.error('Error during callback login:', error);
           setTimeout(() => {

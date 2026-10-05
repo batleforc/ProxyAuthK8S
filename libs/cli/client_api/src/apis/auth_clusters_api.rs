@@ -13,6 +13,26 @@ use crate::{apis::ResponseContent, models};
 use reqwest;
 use serde::{Deserialize, Serialize, de::Error as _};
 
+/// struct for typed errors of method [`authorize`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AuthorizeError {
+    Status400(),
+    Status404(),
+    Status500(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`callback`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CallbackError {
+    Status400(),
+    Status404(),
+    Status500(),
+    UnknownValue(serde_json::Value),
+}
+
 /// struct for typed errors of method [`callback_login`]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -29,6 +49,147 @@ pub enum ClusterLoginError {
     Status404(),
     Status500(),
     UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`jwks`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum JwksError {
+    Status404(),
+    Status503(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`oauth_authorization_server`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OauthAuthorizationServerError {
+    Status404(),
+    Status503(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`token`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TokenError {
+    Status400(models::TokenErrorBody),
+    Status404(),
+    Status503(),
+    UnknownValue(serde_json::Value),
+}
+
+/// Redirects the caller's browser to the cluster's upstream OIDC provider. If the cluster is not found, disabled, or discovery is not enabled, return 404.
+pub async fn authorize(
+    configuration: &configuration::Configuration,
+    ns: &str,
+    cluster: &str,
+    response_type: &str,
+    client_id: &str,
+    redirect_uri: &str,
+    code_challenge: &str,
+    state: Option<&str>,
+    scope: Option<&str>,
+    code_challenge_method: Option<&str>,
+) -> Result<(), Error<AuthorizeError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_path_ns = ns;
+    let p_path_cluster = cluster;
+    let p_query_response_type = response_type;
+    let p_query_client_id = client_id;
+    let p_query_redirect_uri = redirect_uri;
+    let p_query_code_challenge = code_challenge;
+    let p_query_state = state;
+    let p_query_scope = scope;
+    let p_query_code_challenge_method = code_challenge_method;
+
+    let uri_str = format!(
+        "{}/clusters/{ns}/{cluster}/oauth/authorize",
+        configuration.base_path,
+        ns = crate::apis::urlencode(p_path_ns),
+        cluster = crate::apis::urlencode(p_path_cluster)
+    );
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    req_builder = req_builder.query(&[("response_type", &p_query_response_type.to_string())]);
+    req_builder = req_builder.query(&[("client_id", &p_query_client_id.to_string())]);
+    req_builder = req_builder.query(&[("redirect_uri", &p_query_redirect_uri.to_string())]);
+    if let Some(ref param_value) = p_query_state {
+        req_builder = req_builder.query(&[("state", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_scope {
+        req_builder = req_builder.query(&[("scope", &param_value.to_string())]);
+    }
+    req_builder = req_builder.query(&[("code_challenge", &p_query_code_challenge.to_string())]);
+    if let Some(ref param_value) = p_query_code_challenge_method {
+        req_builder = req_builder.query(&[("code_challenge_method", &param_value.to_string())]);
+    }
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if !status.is_client_error() && !status.is_server_error() {
+        Ok(())
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<AuthorizeError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+/// Not meant to be opened directly: the upstream provider redirects here after the caller authenticates. On success, redirects to the external client's own `redirect_uri` with a proxy-minted authorization code.
+pub async fn callback(
+    configuration: &configuration::Configuration,
+    ns: &str,
+    cluster: &str,
+    code: &str,
+    state: &str,
+) -> Result<(), Error<CallbackError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_path_ns = ns;
+    let p_path_cluster = cluster;
+    let p_query_code = code;
+    let p_query_state = state;
+
+    let uri_str = format!(
+        "{}/clusters/{ns}/{cluster}/oauth/callback",
+        configuration.base_path,
+        ns = crate::apis::urlencode(p_path_ns),
+        cluster = crate::apis::urlencode(p_path_cluster)
+    );
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    req_builder = req_builder.query(&[("code", &p_query_code.to_string())]);
+    req_builder = req_builder.query(&[("state", &p_query_state.to_string())]);
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if !status.is_client_error() && !status.is_server_error() {
+        Ok(())
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<CallbackError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
 }
 
 /// If the cluster is not found or disabled, return 404.
@@ -184,6 +345,176 @@ pub async fn cluster_login(
     } else {
         let content = resp.text().await?;
         let entity: Option<ClusterLoginError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+/// Stateless passthrough of the upstream provider's `jwks_uri`, so a caller verifying a token never needs to learn or contact the upstream provider's own hostname. If the cluster is not found, disabled, or does not have discovery enabled, return 404.
+pub async fn jwks(
+    configuration: &configuration::Configuration,
+    ns: &str,
+    cluster: &str,
+) -> Result<(), Error<JwksError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_path_ns = ns;
+    let p_path_cluster = cluster;
+
+    let uri_str = format!(
+        "{}/clusters/{ns}/{cluster}/oauth/jwks",
+        configuration.base_path,
+        ns = crate::apis::urlencode(p_path_ns),
+        cluster = crate::apis::urlencode(p_path_cluster)
+    );
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+
+    if !status.is_client_error() && !status.is_server_error() {
+        Ok(())
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<JwksError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+/// Unauthenticated by nature (RFC 8414 discovery). If the cluster is not found, disabled, or does not have discovery enabled, return 404.
+pub async fn oauth_authorization_server(
+    configuration: &configuration::Configuration,
+    ns: &str,
+    cluster: &str,
+) -> Result<models::OAuthAuthorizationServerMetadata, Error<OauthAuthorizationServerError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_path_ns = ns;
+    let p_path_cluster = cluster;
+
+    let uri_str = format!(
+        "{}/clusters/{ns}/{cluster}/.well-known/oauth-authorization-server",
+        configuration.base_path,
+        ns = crate::apis::urlencode(p_path_ns),
+        cluster = crate::apis::urlencode(p_path_cluster)
+    );
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::OAuthAuthorizationServerMetadata`",
+            ))),
+            ContentType::Unsupported(unknown_type) => {
+                Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::OAuthAuthorizationServerMetadata`"
+                ))))
+            }
+        }
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<OauthAuthorizationServerError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+/// RFC 6749 §4.1.3 token endpoint. If the cluster is not found, disabled, or discovery is not enabled, return 404.
+pub async fn token(
+    configuration: &configuration::Configuration,
+    ns: &str,
+    cluster: &str,
+    code: &str,
+    code_verifier: &str,
+    grant_type: &str,
+    redirect_uri: &str,
+) -> Result<models::TokenResponseBody, Error<TokenError>> {
+    // add a prefix to parameters to efficiently prevent name collisions
+    let p_path_ns = ns;
+    let p_path_cluster = cluster;
+    let p_form_code = code;
+    let p_form_code_verifier = code_verifier;
+    let p_form_grant_type = grant_type;
+    let p_form_redirect_uri = redirect_uri;
+
+    let uri_str = format!(
+        "{}/clusters/{ns}/{cluster}/oauth/token",
+        configuration.base_path,
+        ns = crate::apis::urlencode(p_path_ns),
+        cluster = crate::apis::urlencode(p_path_cluster)
+    );
+    let mut req_builder = configuration
+        .client
+        .request(reqwest::Method::POST, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+    let mut multipart_form_params = std::collections::HashMap::new();
+    multipart_form_params.insert("code", p_form_code.to_string());
+    multipart_form_params.insert("code_verifier", p_form_code_verifier.to_string());
+    multipart_form_params.insert("grant_type", p_form_grant_type.to_string());
+    multipart_form_params.insert("redirect_uri", p_form_redirect_uri.to_string());
+    req_builder = req_builder.form(&multipart_form_params);
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::TokenResponseBody`",
+            ))),
+            ContentType::Unsupported(unknown_type) => {
+                Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::TokenResponseBody`"
+                ))))
+            }
+        }
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<TokenError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

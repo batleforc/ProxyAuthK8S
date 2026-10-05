@@ -17,12 +17,16 @@ openidconnect = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 base64 = "0.23"
+sha2 = "0.11"
 reqwest = { workspace = true }
 thiserror = { workspace = true }
 k8s-openapi = { workspace = true }
 oauth2-reqwest = { workspace = true }
 
 crd = { path = "../crd", version = "0.1.9" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["time"] }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [package.metadata.cargo-machete]

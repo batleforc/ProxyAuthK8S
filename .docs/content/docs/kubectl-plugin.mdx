@@ -37,8 +37,11 @@ Le binaire doit s'appeler `kubectl-proxyauth` et être dans le `PATH` : c'est ce
 `kubectl` de l'exposer comme `kubectl proxyauth`.
 
 <Callout type="warn">
-Sur Linux, les identifiants sont stockés dans le trousseau via l'API Secret Service. Il faut
-donc un `gnome-keyring` ou un `KWallet` en cours d'exécution.
+Sur Linux, les identifiants sont stockés dans le trousseau via l'API Secret Service
+(`gnome-keyring`, `KWallet`...). Si aucun Secret Service n'est joignable (machine sans
+interface graphique, session SSH sans bus D-Bus), le plugin se replie sur le trousseau du
+noyau (keyutils) : les tokens y sont protégés mais ne survivent pas à un redémarrage, il
+faudra alors se reconnecter.
 </Callout>
 
 ## Usage
@@ -179,6 +182,7 @@ kubectl proxyauth config clear --all
 | `-n, --namespace <NS>`       | Namespace du cluster visé                                     |
 | `-k, --kubeconfig <FILE>`    | Kubeconfig (défaut : `$KUBECONFIG` puis `~/.kube/config`)    |
 | `-c, --context <CONTEXT>`    | Contexte du kubeconfig à utiliser                             |
+| `-p, --proxy-auth-config <FILE>` | Configuration du plugin (défaut : `~/.kube/proxyauth_config.yaml`) |
 | `-f, --format <FORMAT>`      | `table` (défaut), `json` ou `yaml`                            |
 | `-v` / `-vv` / `-vvv`        | Niveau de logs : debug, trace, tout                           |
 

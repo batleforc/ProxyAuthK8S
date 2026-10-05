@@ -38,10 +38,11 @@ task service
 ### Start the Kubernetes cluster
 
 ```bash
-task k3d:up
+task k3d:create   # first time: create the cluster, its certificates, CRDs and kubeconfigs
+task k3d:start    # afterwards: restart the existing cluster (task k3d:stop to stop it)
 ```
 
-This command will start a local Kubernetes cluster using K3D, which is a lightweight Kubernetes distribution. This cluster is will be used to test the ProxyAuthK8S project locally and is already configured to trust the oauth2 server and certificates.
+`task k3d:create` will start a local Kubernetes cluster using K3D, which is a lightweight Kubernetes distribution. This cluster is will be used to test the ProxyAuthK8S project locally and is already configured to trust the oauth2 server and certificates.
 
 ### Start the applicance
 
@@ -76,7 +77,7 @@ Point the backend at the sidecar with
 
 Limits of the CDE:
 
-- there is no container engine and no root access, so `task service` and `task k3d:up` (which
+- there is no container engine and no root access, so `task service` and `task k3d:create` (which
   need Podman) can't run inside the workspace: target a remote cluster through your kubeconfig
   instead;
 - any extra service has to be added as a sidecar in `devfile.yaml`, then the workspace restarted

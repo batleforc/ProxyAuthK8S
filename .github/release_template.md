@@ -1,4 +1,4 @@
-# ProxyAuthK8s Release v{{VERSION}} - {{RELEASE_NAME}}
+# ProxyAuthK8s {{VERSION}} - {{RELEASE_NAME}}
 
 **Release Date:** {{RELEASE_DATE}}
 
@@ -13,72 +13,84 @@ PLACE HOLDER FOR A BRIEF DESCRIPTION OF THE RELEASE, HIGHLIGHTING KEY FEATURES, 
 ### Prerequisites
 
 - Kubernetes 1.30+
-- Helm 3.0+
-- OIDC Provider (optional, if using OIDC authentication)
+- Helm 3.8+ (OCI registries)
+- An OIDC provider
+- Redis (single node or cluster)
+
+See the [Quick Started guide](https://batleforc.github.io/ProxyAuthK8S/docs/quick-started) and the
+[chart values reference](https://batleforc.github.io/ProxyAuthK8S/docs/helm-chart).
 
 ### Using Helm (Recommended)
 
 ```bash
-# Install ProxyAuthK8s
-helm install proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart:{{VERSION}} \
+# CRDs first
+helm upgrade --install proxyauthk8s-crd oci://ghcr.io/batleforc/proxyauthk8s/chart-crd \
+  --version {{CHART_VERSION}} \
+  --namespace proxyauthk8s --create-namespace
+
+# Then the application
+helm upgrade --install proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart \
+  --version {{CHART_VERSION}} \
   --namespace proxyauthk8s \
-  --create-namespace \
   --values values.yaml
 ```
 
-### Docker Images
+The chart ships a `values.schema.json`: Helm rejects unknown or mistyped values.
+
+### Container images
+
+Multi-arch (`linux/amd64`, `linux/arm64`), signed with cosign (keyless) and carrying
+provenance and SBOM attestations:
 
 ```bash
-# Backend/Controller
 docker pull ghcr.io/batleforc/proxyauthk8s/server:{{VERSION}}
-
-# Frontend
 docker pull ghcr.io/batleforc/proxyauthk8s/front:{{VERSION}}
 
+# Verify a signature (images and charts)
+cosign verify ghcr.io/batleforc/proxyauthk8s/server:{{VERSION}} \
+  --certificate-identity-regexp 'https://github.com/batleforc/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+cosign verify ghcr.io/batleforc/proxyauthk8s/chart:{{CHART_VERSION}} \
+  --certificate-identity-regexp 'https://github.com/batleforc/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-### CLI Tool Installation - Not available YET
+The CycloneDX SBOMs (`server-sbom.json`, `front-sbom.json`) are attached to this release.
+
+### kubectl plugin
+
+With [krew](https://krew.sigs.k8s.io/): use the `proxyauth.yaml` manifest attached to this release
+(`kubectl krew install --manifest=proxyauth.yaml`), or download the archive for your platform:
 
 ```bash
-# Download the binary
-wget https://github.com/batleforc/ProxyAuthK8S/releases/download/{{VERSION}}/proxyauthk8s-cli-{{OS}}-{{ARCH}}
-chmod +x proxyauthk8s-cli-{{OS}}-{{ARCH}}
-sudo mv proxyauthk8s-cli-{{OS}}-{{ARCH}} /usr/local/bin/proxyauthk8s
+# linux_amd64, darwin_amd64, darwin_arm64 or windows_amd64
+curl -LO https://github.com/batleforc/ProxyAuthK8S/releases/download/{{VERSION}}/kubectl-proxyauth_{{VERSION}}_linux_amd64.tar.gz
+tar -xzf kubectl-proxyauth_{{VERSION}}_linux_amd64.tar.gz
+sudo install kubectl-proxyauth /usr/local/bin/
 
-# Verify installation
-proxyauthk8s --version
+kubectl proxyauth --help
 ```
+
+Each archive has a `.sha256` next to it.
 
 ---
 
 ## 🔄 Update Instructions
 
-### Helm Update
-
 ```bash
-
-
-# Upgrade the release
-helm upgrade proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s:{{VERSION}} \
-  --namespace proxyauthk8s \
-  --values values.yaml
+helm upgrade proxyauthk8s-crd oci://ghcr.io/batleforc/proxyauthk8s/chart-crd \
+  --version {{CHART_VERSION}} --namespace proxyauthk8s
+helm upgrade proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart \
+  --version {{CHART_VERSION}} --namespace proxyauthk8s --values values.yaml
 ```
 
-#### CLI Tool Update - Not available YET
-
-```bash
-# Download and replace the binary
-wget https://github.com/batleforc/ProxyAuthK8S/releases/download/{{VERSION}}/proxyauthk8s-cli-{{OS}}-{{ARCH}}
-chmod +x proxyauthk8s-cli-{{OS}}-{{ARCH}}
-sudo mv proxyauthk8s-cli-{{OS}}-{{ARCH}} /usr/local/bin/proxyauthk8s
-```
+For the plugin: `kubectl krew upgrade proxyauth`, or replace the binary as above.
 
 ## 🔗 Related Resources
 
 - [Full Changelog](CHANGELOG.md)
 - [Security Policy](SECURITY.md)
-- [Installation Guide](https://batleforc.github.io/ProxyAuthK8S/) - WIP
-- [Documentation](https://batleforc.github.io/ProxyAuthK8S/docs) - WIP-
+- [Documentation](https://batleforc.github.io/ProxyAuthK8S/docs)
 
 ---
 

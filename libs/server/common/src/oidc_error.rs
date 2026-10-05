@@ -14,6 +14,9 @@ pub enum OidcError {
 
     #[error("failed to build the HTTP client: {0}")]
     HttpClient(#[from] reqwest::Error),
+
+    #[error("failed to build the shared HTTP client: {0}")]
+    HttpClientInit(String),
 }
 
 impl From<ParseError> for OidcError {

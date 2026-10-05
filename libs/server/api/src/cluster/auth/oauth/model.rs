@@ -14,6 +14,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 
 /// Redis key prefix for [`PendingAuthorization`] records.
 pub const PENDING_PREFIX: &str = "oauth_as_pending";
@@ -105,10 +106,15 @@ pub fn is_valid_pkce_value(value: &str) -> bool {
 
 /// Verify a PKCE `code_verifier` against a stored `S256` `code_challenge`
 /// (RFC 7636 §4.6): `code_challenge == BASE64URL-NOPAD(SHA256(code_verifier))`.
+/// The comparison is constant-time so it leaks nothing about the challenge.
 #[must_use]
 pub fn verify_pkce_s256(verifier: &str, challenge: &str) -> bool {
     let digest = Sha256::digest(verifier.as_bytes());
-    URL_SAFE_NO_PAD.encode(digest) == challenge
+    URL_SAFE_NO_PAD
+        .encode(digest)
+        .as_bytes()
+        .ct_eq(challenge.as_bytes())
+        .into()
 }
 
 #[cfg(test)]
@@ -164,5 +170,8 @@ mod tests {
             "wrong-verifier-wrong-verifier-wrong-verifi",
             challenge
         ));
+        // A truncated or empty challenge must not match.
+        assert!(!verify_pkce_s256(verifier, &challenge[..42]));
+        assert!(!verify_pkce_s256(verifier, ""));
     }
 }

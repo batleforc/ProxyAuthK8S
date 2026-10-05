@@ -28,9 +28,15 @@ All URIs are relative to *http://localhost*
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 *ApiClustersApi* | [**get_all_visible_cluster**](docs/ApiClustersApi.md#get_all_visible_cluster) | **GET** /api/v1/clusters | Get all cluster visible to the user.
+*AuthClustersApi* | [**authorize**](docs/AuthClustersApi.md#authorize) | **GET** /clusters/{ns}/{cluster}/oauth/authorize | Start the mediated OAuth Authorization Server flow for a cluster
+*AuthClustersApi* | [**callback**](docs/AuthClustersApi.md#callback) | **GET** /clusters/{ns}/{cluster}/oauth/callback | Callback from the cluster's upstream OIDC provider, for the mediated OAuth Authorization Server flow
 *AuthClustersApi* | [**callback_login**](docs/AuthClustersApi.md#callback_login) | **GET** /clusters/{ns}/{cluster}/auth/callback | Callback from the cluster's OIDC provider
 *AuthClustersApi* | [**cluster_login**](docs/AuthClustersApi.md#cluster_login) | **GET** /clusters/{ns}/{cluster}/auth/login | Redirect to the cluster's login page
-*HealthApi* | [**health**](docs/HealthApi.md#health) | **GET** /management/health | Base path just to answer if the server is up and running.
+*AuthClustersApi* | [**jwks**](docs/AuthClustersApi.md#jwks) | **GET** /clusters/{ns}/{cluster}/oauth/jwks | The upstream identity provider's JSON Web Key Set, mirrored under the cluster's own path
+*AuthClustersApi* | [**oauth_authorization_server**](docs/AuthClustersApi.md#oauth_authorization_server) | **GET** /clusters/{ns}/{cluster}/.well-known/oauth-authorization-server | OAuth 2.0 Authorization Server Metadata for the cluster's mediated OAuth Authorization Server
+*AuthClustersApi* | [**token**](docs/AuthClustersApi.md#token) | **POST** /clusters/{ns}/{cluster}/oauth/token | Exchange a proxy-minted authorization code for the upstream tokens
+*HealthApi* | [**health**](docs/HealthApi.md#health) | **GET** /management/health | Liveness: the process is up and serving HTTP.
+*HealthApi* | [**ready**](docs/HealthApi.md#ready) | **GET** /management/ready | Readiness: the pod can serve proxied traffic.
 *ProxyClustersApi* | [**delete_redirect**](docs/ProxyClustersApi.md#delete_redirect) | **DELETE** /clusters/{ns}/{cluster}/{path} | Cluster redirect
 *ProxyClustersApi* | [**get_redirect**](docs/ProxyClustersApi.md#get_redirect) | **GET** /clusters/{ns}/{cluster}/{path} | Cluster redirect
 *ProxyClustersApi* | [**patch_redirect**](docs/ProxyClustersApi.md#patch_redirect) | **PATCH** /clusters/{ns}/{cluster}/{path} | Cluster redirect
@@ -42,6 +48,10 @@ Class | Method | HTTP request | Description
 
  - [CallbackModel](docs/CallbackModel.md)
  - [GetAllVisibleClusterBody](docs/GetAllVisibleClusterBody.md)
+ - [OAuthAuthorizationServerMetadata](docs/OAuthAuthorizationServerMetadata.md)
+ - [ReadinessBody](docs/ReadinessBody.md)
+ - [TokenErrorBody](docs/TokenErrorBody.md)
+ - [TokenResponseBody](docs/TokenResponseBody.md)
  - [VisibleCluster](docs/VisibleCluster.md)
 
 

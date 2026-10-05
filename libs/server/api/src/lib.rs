@@ -6,8 +6,9 @@
 
 use crate::{
     api_doc::ApiDoc,
-    base::health,
+    base::{health, ready},
     cluster::{auth, redirect},
+    metrics::prometheus_metrics,
     visible_clusters::get_all_visible_cluster::get_all_visible_cluster,
 };
 use actix_web::App;
@@ -19,12 +20,15 @@ pub mod base;
 pub mod cluster;
 pub mod duration;
 pub mod helper;
+pub mod metrics;
 pub mod model;
 pub mod visible_clusters;
 
 pub fn init_base_api() -> impl FnOnce(&mut ServiceConfig) {
     |cfg: &mut ServiceConfig| {
         cfg.service(health);
+        cfg.service(ready);
+        cfg.service(prometheus_metrics);
     }
 }
 

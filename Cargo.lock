@@ -363,6 +363,7 @@ dependencies = [
  "actix-web",
  "base64 0.23.1",
  "common",
+ "controller",
  "crd",
  "crd_runtime",
  "deadpool-redis",
@@ -372,14 +373,19 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "openidconnect",
+ "opentelemetry",
+ "opentelemetry-prometheus",
+ "opentelemetry_sdk",
+ "prometheus",
  "reqwest",
  "rustls",
  "rustls-platform-verifier",
  "secrecy",
  "serde",
  "serde_json",
- "serde_yaml",
+ "serde_yaml_ng",
  "sha2 0.11.0",
+ "subtle",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
@@ -875,21 +881,25 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 name = "cli"
 version = "0.1.9"
 dependencies = [
+ "apple-native-keyring-store",
  "base64 0.23.1",
  "clap",
  "cli_trace",
  "client_api",
  "comfy-table",
  "k8s-openapi",
- "keyring",
+ "keyring-core",
  "kube",
+ "linux-keyutils-keyring-store",
  "reqwest",
  "serde",
  "serde_json",
- "serde_yaml",
+ "serde_yaml_ng",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "windows-native-keyring-store",
+ "zbus-secret-service-keyring-store",
 ]
 
 [[package]]
@@ -977,7 +987,9 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "thiserror 2.0.21",
+ "tokio",
  "tracing",
 ]
 
@@ -1015,6 +1027,7 @@ dependencies = [
  "kube",
  "kube-leader-election",
  "opentelemetry",
+ "rustls",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
@@ -1137,9 +1150,12 @@ dependencies = [
  "crd",
  "kube",
  "reqwest",
+ "rustls",
  "secrecy",
  "thiserror 2.0.21",
+ "tokio",
  "tracing",
+ "wiremock",
 ]
 
 [[package]]
@@ -1148,7 +1164,7 @@ version = "0.1.9"
 dependencies = [
  "crd",
  "kube",
- "serde_yaml",
+ "serde_yaml_ng",
 ]
 
 [[package]]
@@ -2628,18 +2644,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "keyring"
-version = "4.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2270074a3d26bcac93c1dc5d2845eb4c089e8d761ccf6e0ea266a16004640627"
-dependencies = [
- "apple-native-keyring-store",
- "keyring-core",
- "windows-native-keyring-store",
- "zbus-secret-service-keyring-store",
-]
-
-[[package]]
 name = "keyring-core"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2809,6 +2813,26 @@ name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
+name = "linux-keyutils"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83270a18e9f90d0707c41e9f35efada77b64c0e6f3f1810e71c8368a864d5590"
+dependencies = [
+ "bitflags 2.13.2",
+ "libc",
+]
+
+[[package]]
+name = "linux-keyutils-keyring-store"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39fbed79f71dc21eb21d3d07c0e908a3c58ff9a1fdbf5cf44230fb3deb6d994b"
+dependencies = [
+ "keyring-core",
+ "linux-keyutils",
+]
 
 [[package]]
 name = "linux-raw-sys"
@@ -3241,6 +3265,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry-prometheus"
+version = "0.32.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c0359983e7f79cf33c9abd89e5d7ddf67c46c419d0148598022d70e70c01aba"
+dependencies = [
+ "once_cell",
+ "opentelemetry",
+ "opentelemetry_sdk",
+ "prometheus",
+ "tracing",
+]
+
+[[package]]
 name = "opentelemetry-proto"
 version = "0.32.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3552,6 +3589,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "prometheus"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ca5326d8d0b950a9acd87e6a3f94745394f62e4dae1b1ee22b2bc0c394af43a"
+dependencies = [
+ "cfg-if",
+ "fnv",
+ "lazy_static",
+ "memchr",
+ "parking_lot",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4342,10 +4393,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_yaml"
-version = "0.9.34+deprecated"
+name = "serde_yaml_ng"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+checksum = "7b4db627b98b36d4203a7b458cf3573730f2bb591b28871d916dfa9efabfd41f"
 dependencies = [
  "indexmap 2.14.2",
  "itoa",
@@ -4364,9 +4415,11 @@ dependencies = [
  "api",
  "common",
  "controller",
+ "opentelemetry",
  "rustls",
  "tokio",
  "trace",
+ "tracing",
  "tracing-actix-web",
  "utoipa",
  "utoipa-actix-web",
@@ -4919,7 +4972,11 @@ version = "0.1.9"
 dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
+ "opentelemetry-prometheus",
  "opentelemetry_sdk",
+ "prometheus",
+ "serde_json",
+ "thiserror 2.0.21",
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
@@ -5001,6 +5058,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-serde"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
+dependencies = [
+ "serde",
+ "tracing-core",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5010,6 +5077,8 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex-automata",
+ "serde",
+ "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
@@ -5017,6 +5086,7 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+ "tracing-serde",
 ]
 
 [[package]]

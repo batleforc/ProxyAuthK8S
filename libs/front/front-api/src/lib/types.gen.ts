@@ -18,13 +18,66 @@ export type CallbackModel = {
 };
 
 /**
- * Body of the response for the get_all_visible_cluster endpoint.
+ * Body of the response for the `get_all_visible_cluster` endpoint.
  *
  * Contains a list of clusters visible to the user.
  * Will be empty if the user has no clusters visible to them.
  */
 export type GetAllVisibleClusterBody = {
     clusters: Array<VisibleCluster>;
+};
+
+/**
+ * OAuth 2.0 Authorization Server Metadata (RFC 8414) for a proxied cluster.
+ *
+ * `issuer` is this proxy's own cluster URL, and so are every other endpoint:
+ * this proxy is a full mediating Authorization Server (see
+ * [`crate::cluster::auth::oauth`]), not a pointer to the cluster's upstream
+ * OIDC provider. A caller never needs to be registered with — or even learn
+ * the hostname of — the upstream provider; the proxy is.
+ */
+export type OAuthAuthorizationServerMetadata = {
+    authorization_endpoint: string;
+    code_challenge_methods_supported: Array<string>;
+    grant_types_supported: Array<string>;
+    issuer: string;
+    jwks_uri: string;
+    response_types_supported: Array<string>;
+    scopes_supported: Array<string>;
+    token_endpoint: string;
+    token_endpoint_auth_methods_supported: Array<string>;
+};
+
+export type TokenErrorBody = {
+    error: string;
+};
+
+export type TokenRequest = {
+    /**
+     * The proxy-minted code returned by `/oauth/callback`.
+     */
+    code: string;
+    /**
+     * RFC 7636 PKCE verifier for the `code_challenge` presented at `/oauth/authorize`.
+     */
+    code_verifier: string;
+    /**
+     * Must be `authorization_code`; this server only implements that grant.
+     */
+    grant_type: string;
+    /**
+     * Must match the `redirect_uri` presented at `/oauth/authorize` (RFC 6749 §4.1.3).
+     */
+    redirect_uri: string;
+};
+
+export type TokenResponseBody = {
+    access_token: string;
+    expires_in?: number | null;
+    id_token: string;
+    refresh_token?: string | null;
+    scope: string;
+    token_type: string;
 };
 
 /**
@@ -64,6 +117,42 @@ export type GetAllVisibleClusterResponses = {
 };
 
 export type GetAllVisibleClusterResponse = GetAllVisibleClusterResponses[keyof GetAllVisibleClusterResponses];
+
+export type OauthAuthorizationServerData = {
+    body?: never;
+    path: {
+        /**
+         * Namespace containing the cluster.
+         */
+        ns: string;
+        /**
+         * Cluster name that should exist in the namespace.
+         */
+        cluster: string;
+    };
+    query?: never;
+    url: '/clusters/{ns}/{cluster}/.well-known/oauth-authorization-server';
+};
+
+export type OauthAuthorizationServerErrors = {
+    /**
+     * Cluster not found, disabled, or discovery not enabled.
+     */
+    404: unknown;
+    /**
+     * Cache unreachable.
+     */
+    503: unknown;
+};
+
+export type OauthAuthorizationServerResponses = {
+    /**
+     * OAuth 2.0 authorization server metadata (RFC 8414).
+     */
+    200: OAuthAuthorizationServerMetadata;
+};
+
+export type OauthAuthorizationServerResponse = OauthAuthorizationServerResponses[keyof OauthAuthorizationServerResponses];
 
 export type CallbackLoginData = {
     body?: never;
@@ -165,3 +254,177 @@ export type ClusterLoginResponses = {
 };
 
 export type ClusterLoginResponse = ClusterLoginResponses[keyof ClusterLoginResponses];
+
+export type AuthorizeData = {
+    body?: never;
+    path: {
+        /**
+         * Namespace containing the cluster.
+         */
+        ns: string;
+        /**
+         * Cluster name that should exist in the namespace.
+         */
+        cluster: string;
+    };
+    query: {
+        /**
+         * Must be `code`; this server only implements the authorization code grant.
+         */
+        response_type: string;
+        /**
+         * Unvalidated: the proxy mediates the whole flow, so external clients
+         * never need to register with the upstream provider.
+         */
+        client_id: string;
+        /**
+         * Must be a loopback URI (`http://localhost` or `http://127.0.0.1`), any port/path.
+         */
+        redirect_uri: string;
+        /**
+         * Opaque value echoed back verbatim on redirect.
+         */
+        state?: string | null;
+        scope?: string | null;
+        /**
+         * RFC 7636 PKCE code challenge (43-128 chars, unreserved charset).
+         */
+        code_challenge: string;
+        /**
+         * Must be `S256` when present; only S256 is supported.
+         */
+        code_challenge_method?: string | null;
+    };
+    url: '/clusters/{ns}/{cluster}/oauth/authorize';
+};
+
+export type AuthorizeErrors = {
+    /**
+     * Malformed authorization request (invalid or non-loopback redirect_uri).
+     */
+    400: unknown;
+    /**
+     * Cluster not found, disabled, or discovery not enabled.
+     */
+    404: unknown;
+    /**
+     * Internal server error.
+     */
+    500: unknown;
+};
+
+export type CallbackData = {
+    body?: never;
+    path: {
+        /**
+         * Namespace containing the cluster.
+         */
+        ns: string;
+        /**
+         * Cluster name that should exist in the namespace.
+         */
+        cluster: string;
+    };
+    query: {
+        /**
+         * Authorization code from the upstream OIDC provider.
+         */
+        code: string;
+        /**
+         * The correlation id this proxy generated at `/oauth/authorize`.
+         */
+        state: string;
+    };
+    url: '/clusters/{ns}/{cluster}/oauth/callback';
+};
+
+export type CallbackErrors = {
+    /**
+     * Unknown or expired state.
+     */
+    400: unknown;
+    /**
+     * Cluster not found, disabled, or discovery not enabled.
+     */
+    404: unknown;
+    /**
+     * Internal server error.
+     */
+    500: unknown;
+};
+
+export type JwksData = {
+    body?: never;
+    path: {
+        /**
+         * Namespace containing the cluster.
+         */
+        ns: string;
+        /**
+         * Cluster name that should exist in the namespace.
+         */
+        cluster: string;
+    };
+    query?: never;
+    url: '/clusters/{ns}/{cluster}/oauth/jwks';
+};
+
+export type JwksErrors = {
+    /**
+     * Cluster not found, disabled, or discovery not enabled.
+     */
+    404: unknown;
+    /**
+     * Upstream OIDC provider unreachable or its discovery document is invalid.
+     */
+    503: unknown;
+};
+
+export type JwksResponses = {
+    /**
+     * The upstream identity provider's JSON Web Key Set.
+     */
+    200: unknown;
+};
+
+export type TokenData = {
+    body: TokenRequest;
+    path: {
+        /**
+         * Namespace containing the cluster.
+         */
+        ns: string;
+        /**
+         * Cluster name that should exist in the namespace.
+         */
+        cluster: string;
+    };
+    query?: never;
+    url: '/clusters/{ns}/{cluster}/oauth/token';
+};
+
+export type TokenErrors = {
+    /**
+     * invalid_request / invalid_grant / unsupported_grant_type.
+     */
+    400: TokenErrorBody;
+    /**
+     * Cluster not found, disabled, or discovery not enabled.
+     */
+    404: unknown;
+    /**
+     * Cache unreachable.
+     */
+    503: unknown;
+};
+
+export type TokenError = TokenErrors[keyof TokenErrors];
+
+export type TokenResponses = {
+    /**
+     * Token response.
+     */
+    200: TokenResponseBody;
+};
+
+export type TokenResponse = TokenResponses[keyof TokenResponses];

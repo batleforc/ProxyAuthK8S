@@ -1,0 +1,20 @@
+ProxyAuthK8S {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
+
+Dashboard: {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}
+API reference: {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}/api/docs
+{{- if eq .Values.oidc.source "env" }}
+
+WARNING: oidc.source=env puts the OIDC client secret in clear text in the
+backend Deployment spec. Prefer oidc.source=secret with a Secret named
+"{{ .Values.oidc.objectName }}".
+{{- end }}
+{{- if not .Values.networkPolicy.enabled }}
+
+NOTE: networkPolicy.enabled=false — the backend can reach any address,
+including the cloud metadata endpoint. Enable it (and set ingressFrom / egress)
+in production.
+{{- end }}
+{{- if lt (int .Values.back.replicas) 2 }}
+
+NOTE: back.replicas < 2 — a rollout or node drain makes the proxy unavailable.
+{{- end }}

@@ -1,11 +1,16 @@
 import { generateFiles } from 'fumadocs-openapi';
 import { openapi } from '@/lib/openapi';
-import { rmSync, mkdirSync } from 'node:fs';
+import { readdirSync, rmSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 
-// Empty the output directory before generating new files.
+// Empty the output directory before generating new files, keeping the
+// hand-written landing page (`index.mdx`).
 const outputDir = './content/docs/api';
-rmSync(outputDir, { recursive: true, force: true });
 mkdirSync(outputDir, { recursive: true });
+for (const entry of readdirSync(outputDir)) {
+  if (entry === 'index.mdx') continue;
+  rmSync(join(outputDir, entry), { recursive: true, force: true });
+}
 
 void generateFiles({
   input: openapi,

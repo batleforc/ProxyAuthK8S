@@ -21,6 +21,14 @@ crd_runtime = { path = "../crd_runtime", version = "0.1.9" }
 common = { path = "../common", version = "0.1.9" }
 trace = { path = "../trace", version = "0.1.9" }
 
+[dev-dependencies]
+# `test-util` unlocks `State::from_parts` so tests can build a `State` without
+# a live cluster; dev-dependencies are not part of a normal build.
+common = { path = "../common", version = "0.1.9", features = ["test-util"] }
+# Building a `kube::Client` in tests needs a process-level rustls provider,
+# which the server binary installs in `main`.
+rustls = { workspace = true }
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [package.metadata.cargo-machete]
 ignored = ["k8s-openapi"]

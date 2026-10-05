@@ -277,7 +277,10 @@ pub async fn redirect(
     };
 
     if let Some(virtual_plan) = virtual_plan {
-        info!(from = %ctx.req.uri().to_string(), method = %ctx.method.as_str(), "Serving a virtual API request");
+        // Path only at info: query strings can carry user-controlled or
+        // sensitive values (label selectors, field selectors, exec commands).
+        info!(from = %ctx.req.path(), method = %ctx.method.as_str(), "Serving a virtual API request");
+        debug!(from = %ctx.req.uri(), "Virtual API request full URI");
         return serve_virtual_api(ctx, base_url, registry, upstream_path, virtual_plan).await;
     }
 
@@ -290,12 +293,12 @@ pub async fn redirect(
         }
     };
 
-    info!(from = %ctx.req.uri().to_string(), to = %url_to_call, method = %ctx.method.as_str(),
-        "Forwarding request from {} to {} with method {}",
-        ctx.req.uri().to_string(),
-        url_to_call,
-        ctx.method.as_str()
-    );
+    // Path only at info (no query string: it can carry user-controlled or
+    // sensitive values such as exec commands or selectors); the full URLs are
+    // kept at debug for troubleshooting.
+    info!(from = %ctx.req.path(), to = %format_args!("{base_url}{upstream_path}"),
+        method = %ctx.method.as_str(), "Forwarding request");
+    debug!(from = %ctx.req.uri(), to = %url_to_call, "Forwarding request (full URLs)");
 
     if is_upgrade {
         return upgrade_redirect(ctx, url_to_call, port_policy).await;

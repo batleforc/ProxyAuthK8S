@@ -44,4 +44,6 @@ tasks:
       - echo "Running the envtest suite"
       # Serialised: each test owns an apiserver, and running several at once
       # only multiplies the memory footprint for no wall-clock gain.
-      - cargo nextest run -p api --features envtest --test envtest -j 1
+      # envtest_kube_auth and envtest_reconcile also need the test Redis
+      # (TEST_REDIS_URL, default redis://127.0.0.1:6379).
+      - cargo nextest run -p api --features envtest --test envtest --test envtest_kube_auth --test envtest_reconcile --test envtest_crd_runtime -j 1

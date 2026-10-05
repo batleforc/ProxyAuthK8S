@@ -1,14 +1,18 @@
+use crate::keystore;
 use crate::{cli_config::cli_cluster_config::CliClusterConfig, error::ProxyAuthK8sError};
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use client_api::{
     apis::{api_clusters_api::get_all_visible_cluster, configuration::Configuration},
     models::GetAllVisibleClusterBody,
 };
-use keyring::Entry;
+use keyring_core::Entry;
 use reqwest::Certificate;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::Path};
 use tracing::{debug, error};
+
+/// Keyring service every server and cluster token is stored under.
+const KEYRING_SERVICE: &str = "proxyauthk8s";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CliServerConfig {
@@ -64,72 +68,15 @@ impl CliServerConfig {
     }
 
     pub fn server_token(&self) -> Result<String, ProxyAuthK8sError> {
-        let entry = match Entry::new("proxyauthk8s", &self.url) {
-            Ok(entry) => entry,
-            Err(err) => {
-                debug!("Keyring entry creation error: {}", err);
-                return Err(ProxyAuthK8sError::KeyringReadError(format!(
-                    "Failed to create keyring entry for server URL: {}",
-                    self.url
-                )));
-            }
-        };
-        match entry.get_password() {
-            Ok(token) => Ok(token),
-            Err(err) => {
-                debug!("Keyring read error: {}", err);
-                Err(ProxyAuthK8sError::KeyringReadError(format!(
-                    "Failed to read token from keyring for server URL: {}",
-                    self.url
-                )))
-            }
-        }
+        self.read_token(&self.url)
     }
 
     pub fn set_server_token(&self, token: String) -> Result<(), ProxyAuthK8sError> {
-        let entry = match Entry::new("proxyauthk8s", &self.url) {
-            Ok(entry) => entry,
-            Err(err) => {
-                debug!("Keyring entry creation error: {}", err);
-                return Err(ProxyAuthK8sError::KeyringWriteError(format!(
-                    "Failed to create keyring entry for server URL: {}",
-                    self.url
-                )));
-            }
-        };
-        match entry.set_password(&token) {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                debug!("Keyring write error: {}", err);
-                Err(ProxyAuthK8sError::KeyringWriteError(format!(
-                    "Failed to write token to keyring for server URL: {}",
-                    self.url
-                )))
-            }
-        }
+        self.write_token(&self.url, &token)
     }
 
     pub fn clear_server_token(&self) -> Result<(), ProxyAuthK8sError> {
-        let entry = match Entry::new("proxyauthk8s", &self.url) {
-            Ok(entry) => entry,
-            Err(err) => {
-                debug!("Keyring entry creation error: {}", err);
-                return Err(ProxyAuthK8sError::KeyringDeleteError(format!(
-                    "Failed to create keyring entry for server URL: {}",
-                    self.url
-                )));
-            }
-        };
-        match entry.delete_credential() {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                debug!("Keyring delete error: {}", err);
-                Err(ProxyAuthK8sError::KeyringDeleteError(format!(
-                    "Failed to delete token from keyring for server URL: {}",
-                    self.url
-                )))
-            }
-        }
+        self.delete_token(&self.url)
     }
 
     pub fn base_configuration(&self) -> Result<Configuration, ProxyAuthK8sError> {
@@ -164,26 +111,7 @@ impl CliServerConfig {
             .clusters
             .entry(key.clone())
             .or_insert(CliClusterConfig { token_exist: true });
-        let entry = match Entry::new("proxyauthk8s", &format!("{}::{}", self.url, key)) {
-            Ok(entry) => entry,
-            Err(err) => {
-                debug!("Keyring entry creation error: {}", err);
-                return Err(ProxyAuthK8sError::KeyringWriteError(format!(
-                    "Failed to create keyring entry for server URL: {}",
-                    self.url
-                )));
-            }
-        };
-        match entry.set_password(&token) {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                debug!("Keyring write error: {}", err);
-                Err(ProxyAuthK8sError::KeyringWriteError(format!(
-                    "Failed to write token to keyring for server URL: {}",
-                    self.url
-                )))
-            }
-        }
+        self.write_token(&self.cluster_keyring_user(&key), &token)
     }
 
     pub fn get_cluster_token(
@@ -191,27 +119,7 @@ impl CliServerConfig {
         ns: String,
         cluster: String,
     ) -> Result<String, ProxyAuthK8sError> {
-        let key = format!("{ns}/{cluster}");
-        let entry = match Entry::new("proxyauthk8s", &format!("{}::{}", self.url, key)) {
-            Ok(entry) => entry,
-            Err(err) => {
-                debug!("Keyring entry creation error: {}", err);
-                return Err(ProxyAuthK8sError::KeyringReadError(format!(
-                    "Failed to create keyring entry for server URL: {}",
-                    self.url
-                )));
-            }
-        };
-        match entry.get_password() {
-            Ok(token) => Ok(token),
-            Err(err) => {
-                debug!("Keyring read error: {}", err);
-                Err(ProxyAuthK8sError::KeyringReadError(format!(
-                    "Failed to read token from keyring for server URL: {}",
-                    self.url
-                )))
-            }
-        }
+        self.read_token(&self.cluster_keyring_user(&format!("{ns}/{cluster}")))
     }
 
     pub fn clear_cluster_token(
@@ -219,27 +127,62 @@ impl CliServerConfig {
         ns: String,
         cluster: String,
     ) -> Result<(), ProxyAuthK8sError> {
-        let key = format!("{ns}/{cluster}");
-        let entry = match Entry::new("proxyauthk8s", &format!("{}::{}", self.url, key)) {
-            Ok(entry) => entry,
-            Err(err) => {
-                debug!("Keyring entry creation error: {}", err);
-                return Err(ProxyAuthK8sError::KeyringDeleteError(format!(
-                    "Failed to create keyring entry for server URL: {}",
-                    self.url
-                )));
-            }
-        };
-        match entry.delete_credential() {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                debug!("Keyring delete error: {}", err);
-                Err(ProxyAuthK8sError::KeyringDeleteError(format!(
-                    "Failed to delete token from keyring for server URL: {}",
-                    self.url
-                )))
-            }
-        }
+        self.delete_token(&self.cluster_keyring_user(&format!("{ns}/{cluster}")))
+    }
+
+    /// Keyring user under which the token of cluster `key` (`"<ns>/<cluster>"`)
+    /// is stored. Changing this format would orphan every stored cluster token.
+    fn cluster_keyring_user(&self, key: &str) -> String {
+        format!("{}::{}", self.url, key)
+    }
+
+    /// Open the keyring entry for `user` under [`KEYRING_SERVICE`], mapping a
+    /// failure to the caller's error variant (`err`).
+    fn keyring_entry(
+        &self,
+        user: &str,
+        err: fn(String) -> ProxyAuthK8sError,
+    ) -> Result<Entry, ProxyAuthK8sError> {
+        keystore::entry(KEYRING_SERVICE, user).map_err(|e| {
+            debug!("Keyring entry creation error: {}", e);
+            err(format!(
+                "Failed to create keyring entry for server URL: {}",
+                self.url
+            ))
+        })
+    }
+
+    fn read_token(&self, user: &str) -> Result<String, ProxyAuthK8sError> {
+        let entry = self.keyring_entry(user, ProxyAuthK8sError::KeyringReadError)?;
+        entry.get_password().map_err(|e| {
+            debug!("Keyring read error: {}", e);
+            ProxyAuthK8sError::KeyringReadError(format!(
+                "Failed to read token from keyring for server URL: {}",
+                self.url
+            ))
+        })
+    }
+
+    fn write_token(&self, user: &str, token: &str) -> Result<(), ProxyAuthK8sError> {
+        let entry = self.keyring_entry(user, ProxyAuthK8sError::KeyringWriteError)?;
+        entry.set_password(token).map_err(|e| {
+            debug!("Keyring write error: {}", e);
+            ProxyAuthK8sError::KeyringWriteError(format!(
+                "Failed to write token to keyring for server URL: {}",
+                self.url
+            ))
+        })
+    }
+
+    fn delete_token(&self, user: &str) -> Result<(), ProxyAuthK8sError> {
+        let entry = self.keyring_entry(user, ProxyAuthK8sError::KeyringDeleteError)?;
+        entry.delete_credential().map_err(|e| {
+            debug!("Keyring delete error: {}", e);
+            ProxyAuthK8sError::KeyringDeleteError(format!(
+                "Failed to delete token from keyring for server URL: {}",
+                self.url
+            ))
+        })
     }
 
     pub fn clear_all_tokens(&self) {
@@ -348,10 +291,23 @@ mod tests {
     #[test]
     fn certificate_authority_data_is_optional_in_the_config_file() {
         let config: CliServerConfig =
-            serde_yaml::from_str("url: https://a.b\nnamespace: default\nclusters: {}\n").unwrap();
+            serde_yaml_ng::from_str("url: https://a.b\nnamespace: default\nclusters: {}\n")
+                .unwrap();
         assert_eq!(config.certificate_authority_data, None);
-        let yaml = serde_yaml::to_string(&config).unwrap();
+        let yaml = serde_yaml_ng::to_string(&config).unwrap();
         assert!(!yaml.contains("certificate_authority_data"));
+    }
+
+    #[test]
+    fn cluster_keyring_user_keeps_the_stored_token_naming() {
+        // Tokens already in users' keyrings are looked up under this exact
+        // service/user pair; a format change would make them unreadable.
+        assert_eq!(KEYRING_SERVICE, "proxyauthk8s");
+        let config = CliServerConfig::new("https://localhost:5437".to_string());
+        assert_eq!(
+            config.cluster_keyring_user("team-a/prod"),
+            "https://localhost:5437::team-a/prod"
+        );
     }
 
     #[test]

@@ -138,6 +138,7 @@ tasks:
     deps:
       - lint:rust
       - lint:helm
+      - lint:actions
     cmds:
       - task lint:all
 

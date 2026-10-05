@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::LazyLock};
 
 use oauth2_reqwest::ReqwestClient;
 use openidconnect::{
@@ -8,7 +8,18 @@ use openidconnect::{
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use crate::oidc_error::OidcError;
+use crate::{
+    oidc_cache::{DISCOVERY_TTL, OIDC_HTTP_CLIENT, TtlCache, caching_enabled},
+    oidc_error::OidcError,
+};
+
+/// Discovered provider metadata, per issuer URL (see [`crate::oidc_cache`]).
+static DISCOVERY_CACHE: LazyLock<TtlCache<String, CoreProviderMetadata>> =
+    LazyLock::new(TtlCache::default);
+
+/// The provider's `introspection_endpoint` (or its absence), per issuer URL.
+static INTROSPECTION_ENDPOINT_CACHE: LazyLock<TtlCache<String, Option<String>>> =
+    LazyLock::new(TtlCache::default);
 
 pub type CoreClientFront = CoreClient<
     EndpointSet,
@@ -56,39 +67,38 @@ impl Default for OidcConf {
 }
 
 impl OidcConf {
+    /// The service-wide OIDC client settings (`OIDC_*`), from the process-wide
+    /// [`crate::config::Config`].
     #[must_use]
     pub fn new() -> Self {
-        let client_id = std::env::var("OIDC_CLIENT_ID").unwrap_or("proxy-auth-k8s".to_string());
-        let client_secret = std::env::var("OIDC_CLIENT_SECRET").ok();
-        let issuer_url = std::env::var("OIDC_ISSUER_URL")
-            .unwrap_or("https://authelia.k8s.localhost".to_string());
-        let scopes = std::env::var("OIDC_SCOPES").unwrap_or("openid email profile".to_string());
-        let audience = std::env::var("OIDC_AUDIENCE").unwrap_or("proxy-auth-k8s".to_string());
-        let redirect_url = std::env::var("OIDC_REDIRECT_URL").ok();
+        let oidc = &crate::config::get().oidc;
         Self {
-            client_id,
-            client_secret,
-            issuer_url,
-            scopes,
-            audience,
+            client_id: oidc.client_id.clone(),
+            client_secret: oidc.client_secret.clone(),
+            issuer_url: oidc.issuer_url.clone(),
+            scopes: oidc.scopes.clone(),
+            audience: oidc.audience.clone(),
             // Secure default; per-cluster providers set this via the CRD field.
             accept_authorized_party: false,
-            redirect_url,
+            redirect_url: oidc.redirect_url.clone(),
         }
     }
 
-    /// Build a plain `reqwest` client that never follows redirects.
+    /// The shared `reqwest` client used for every IdP call.
     ///
-    /// Redirects are disabled deliberately: an OIDC/OAuth exchange must talk to
-    /// the exact endpoint it targeted, never a location the provider hands back.
+    /// It never follows redirects (an OIDC/OAuth exchange must talk to the exact
+    /// endpoint it targeted, never a location the provider hands back), bounds
+    /// connect (5s) and total (10s) time so a hung IdP cannot pin a worker, and
+    /// reuses one connection pool across requests.
     ///
     /// # Errors
     ///
-    /// Returns [`OidcError::HttpClient`] if the HTTP client cannot be built.
+    /// Returns [`OidcError::HttpClientInit`] if the HTTP client cannot be built.
     pub fn reqwest_client(&self) -> Result<reqwest::Client, OidcError> {
-        Ok(reqwest::ClientBuilder::new()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?)
+        OIDC_HTTP_CLIENT
+            .as_ref()
+            .cloned()
+            .map_err(|e| OidcError::HttpClientInit(e.clone()))
     }
 
     /// Build the `openidconnect`-flavoured HTTP client (see [`Self::reqwest_client`]).
@@ -108,11 +118,7 @@ impl OidcConf {
     /// fails, the redirect URL is invalid, or the HTTP client cannot be built.
     #[instrument(skip(self))]
     pub async fn oidc_core(&self) -> Result<CoreClientFront, OidcError> {
-        let provider_metadata = CoreProviderMetadata::discover_async(
-            IssuerUrl::new(self.issuer_url.clone())?,
-            &self.oidc_reqwest_client()?,
-        )
-        .await?;
+        let provider_metadata = self.provider_metadata().await?;
         let client_secret = self
             .client_secret
             .as_ref()
@@ -126,6 +132,23 @@ impl OidcConf {
             core_client = core_client.set_redirect_uri(RedirectUrl::new(redirect_url.clone())?);
         }
         Ok(core_client)
+    }
+
+    /// The provider's discovery document, served from [`DISCOVERY_CACHE`] when
+    /// fresh. Only successful discoveries are cached.
+    async fn provider_metadata(&self) -> Result<CoreProviderMetadata, OidcError> {
+        if let Some(metadata) = DISCOVERY_CACHE.get(&self.issuer_url) {
+            return Ok(metadata);
+        }
+        let metadata = CoreProviderMetadata::discover_async(
+            IssuerUrl::new(self.issuer_url.clone())?,
+            &self.oidc_reqwest_client()?,
+        )
+        .await?;
+        if caching_enabled() {
+            DISCOVERY_CACHE.insert(self.issuer_url.clone(), metadata.clone(), DISCOVERY_TTL);
+        }
+        Ok(metadata)
     }
 
     /// Enforce that `token` was actually minted for this service's audience.
@@ -221,17 +244,31 @@ impl OidcConf {
 
     /// Fetch the provider's `introspection_endpoint` from its discovery document,
     /// or `None` when the provider does not advertise one.
+    ///
+    /// The answer (including "none advertised") is cached per issuer for
+    /// [`DISCOVERY_TTL`]; a failed fetch is not cached.
     async fn discover_introspection_endpoint(&self) -> Option<String> {
+        if let Some(endpoint) = INTROSPECTION_ENDPOINT_CACHE.get(&self.issuer_url) {
+            return endpoint;
+        }
         let url = format!(
             "{}/.well-known/openid-configuration",
             self.issuer_url.trim_end_matches('/')
         );
         let response = self.reqwest_client().ok()?.get(url).send().await.ok()?;
         let metadata: serde_json::Value = response.json().await.ok()?;
-        metadata
-            .get("introspection_endpoint")?
-            .as_str()
-            .map(std::string::ToString::to_string)
+        let endpoint = metadata
+            .get("introspection_endpoint")
+            .and_then(serde_json::Value::as_str)
+            .map(std::string::ToString::to_string);
+        if caching_enabled() {
+            INTROSPECTION_ENDPOINT_CACHE.insert(
+                self.issuer_url.clone(),
+                endpoint.clone(),
+                DISCOVERY_TTL,
+            );
+        }
+        endpoint
     }
 
     /// RFC 7662 token introspection.

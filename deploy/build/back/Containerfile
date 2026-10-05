@@ -1,4 +1,4 @@
-FROM registry.hub.docker.com/library/rust:1.94-alpine AS build_base
+FROM registry.hub.docker.com/library/rust:1.99-alpine AS build_base
 
 WORKDIR /app
 RUN apk add --no-cache clang lld musl-dev git openssl-dev libcrypto3 perl dbus-dev pkgconf
@@ -70,7 +70,8 @@ RUN touch apps/server/src/main.rs && \
 # Final stage
 FROM registry.hub.docker.com/library/alpine:3
 
-RUN apk add --no-cache libgcc && apk upgrade --no-cache
+RUN apk add --no-cache libgcc && apk upgrade --no-cache && \
+  addgroup -S -g 1000 app && adduser -S -D -H -u 1000 -G app app
 
 WORKDIR /app
 
@@ -83,5 +84,8 @@ EXPOSE 5437
 
 ENV SERVER_PORT=5437
 ENV ENV=production
+
+# Same UID/GID as the chart's securityContext; never run as root.
+USER 1000:1000
 
 CMD ["/app/server"]

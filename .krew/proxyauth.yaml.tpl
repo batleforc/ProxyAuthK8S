@@ -19,12 +19,14 @@ spec:
     credential plugin so `kubectl` can talk to any exposed cluster.
 
     Usage:
-      kubectl proxyauth login --server https://proxyauthk8s.example.com
-      kubectl proxyauth get clusters
-      kubectl proxyauth login cluster <namespace>/<cluster>
+      kubectl proxyauth login --server-url https://proxyauthk8s.example.com
+      kubectl proxyauth get
+      kubectl proxyauth -n <namespace> login <cluster>
   caveats: |
-    The plugin stores credentials in the operating system keyring. On Linux this
-    requires a running Secret Service implementation (gnome-keyring, KWallet).
+    The plugin stores credentials in the operating system keyring (Keychain,
+    Windows Credential Manager, Secret Service). On Linux without a Secret
+    Service (headless, SSH) it falls back to the kernel keyring, which does not
+    survive a reboot: log in again afterwards.
   platforms:
     - selector:
         matchLabels:

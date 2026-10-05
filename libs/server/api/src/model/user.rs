@@ -3,7 +3,13 @@ use actix_web::{
     error::{ErrorInternalServerError, ErrorUnauthorized},
     web,
 };
-use common::{State, oidc_conf::OidcConf};
+use std::sync::LazyLock;
+
+use common::{
+    State,
+    oidc_cache::{TtlCache, caching_enabled, token_cache_key, token_ttl_for},
+    oidc_conf::OidcConf,
+};
 use crd::ProxyKubeApi;
 use crd_runtime::ProxyKubeApiRuntime;
 use k8s_openapi::api::authentication::v1::SelfSubjectReview;
@@ -13,6 +19,10 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
 use crate::{helper::extract_authorization_header, model::user_claim::GroupsUserInfoClaims};
+
+/// Users resolved from a validated OIDC token (see [`common::oidc_cache`]):
+/// keyed by a hash of the token + issuer/client/audience, short TTL, successes only.
+static VALIDATED_TOKEN_CACHE: LazyLock<TtlCache<String, User>> = LazyLock::new(TtlCache::default);
 
 /// Failure resolving a caller's identity for a proxied cluster.
 ///
@@ -228,6 +238,26 @@ impl User {
         token: String,
         oidc_conf: OidcConf,
     ) -> Result<Option<Self>, UserAuthError> {
+        let cache_key = token_cache_key(
+            &token,
+            &oidc_conf.issuer_url,
+            &oidc_conf.client_id,
+            &oidc_conf.audience,
+        );
+        if let Some(user) = VALIDATED_TOKEN_CACHE.get(&cache_key) {
+            tracing::debug!("OIDC token served from the validated-token cache");
+            return Ok(Some(user));
+        }
+        let user = Self::validate_oidc_token(&token, &oidc_conf).await?;
+        if caching_enabled() {
+            VALIDATED_TOKEN_CACHE.insert(cache_key, user.clone(), token_ttl_for(&token));
+        }
+        Ok(Some(user))
+    }
+
+    /// Validate `token` against the provider (`/userinfo`, then audience) and
+    /// resolve the user. Always hits the IdP; see [`Self::get_user_info_from_oidc_token`].
+    async fn validate_oidc_token(token: &str, oidc_conf: &OidcConf) -> Result<Self, UserAuthError> {
         let oidc_core = oidc_conf.oidc_core().await.map_err(|e| {
             tracing::error!("Error while getting OIDC core client: {}", e);
             UserAuthError::OidcCore(e.to_string())
@@ -241,7 +271,7 @@ impl User {
             "Creating user info request for OIDC provider with token of length: {}",
             token.len()
         );
-        let user_claim_req = match oidc_core.user_info(AccessToken::new(token.clone()), None) {
+        let user_claim_req = match oidc_core.user_info(AccessToken::new(token.to_string()), None) {
             Ok(req) => req,
             Err(e) => {
                 tracing::warn!("Error while creating user info request: {}", e);
@@ -264,7 +294,7 @@ impl User {
         // it was minted for THIS service. Enforce the audience now, before the
         // token's groups are trusted for authorization. (Must run after userinfo
         // so the JWT-claims fallback can trust the — now verified — signature.)
-        if let Err(e) = oidc_conf.ensure_token_audience(&token).await {
+        if let Err(e) = oidc_conf.ensure_token_audience(token).await {
             tracing::warn!("Token rejected by audience validation: {}", e);
             return Err(UserAuthError::AudienceValidation(e.to_string()));
         }
@@ -282,10 +312,10 @@ impl User {
         };
         let groups = user_info.additional_claims().groups.clone();
         tracing::debug!(group_count = groups.len(), "resolved user groups");
-        Ok(Some(User {
+        Ok(User {
             username,
             email,
             groups,
-        }))
+        })
     }
 }

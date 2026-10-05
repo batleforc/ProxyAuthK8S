@@ -8,8 +8,10 @@ edition = "2024"
 actix-web = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
+tracing = { workspace = true }
 utoipa = { workspace = true }
 rustls = { workspace = true }
+opentelemetry = { workspace = true }
 
 utoipa-actix-web = { workspace = true }
 

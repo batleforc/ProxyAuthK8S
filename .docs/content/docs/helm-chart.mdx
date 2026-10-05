@@ -1,0 +1,148 @@
+---
+title: Chart Helm
+description: Référence des values du chart ProxyAuthK8S
+icon: Ship
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Deux charts sont publiés en OCI : `oci://ghcr.io/batleforc/proxyauthk8s/chart-crd` (les CRD)
+et `oci://ghcr.io/batleforc/proxyauthk8s/chart` (l'application). Le [Quick Started](/docs/quick-started) montre une
+installation complète ; cette page décrit les values. Le fichier de référence est
+`deploy/chart/values.yaml`, et le chart embarque un `values.schema.json` : Helm refuse une
+clé inconnue (faute de frappe) ou une valeur mal typée avant de rendre quoi que ce soit.
+
+Les charts publiés sont signés avec cosign (keyless) :
+
+```bash
+cosign verify ghcr.io/batleforc/proxyauthk8s/chart:<version> \
+  --certificate-identity-regexp 'https://github.com/batleforc/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+## Images
+
+| Value                                   | Défaut                                  | Description                                        |
+| --------------------------------------- | --------------------------------------- | -------------------------------------------------- |
+| `registry.back.image.repository`        | `ghcr.io/batleforc/proxyauthk8s/server` | Image du serveur                                   |
+| `registry.front.image.repository`       | `ghcr.io/batleforc/proxyauthk8s/front`  | Image du dashboard                                 |
+| `registry.{back,front}.image.tag`       | *(vide)*                                | Vide = `appVersion` de la chart                    |
+| `registry.{back,front}.image.pullPolicy`| `IfNotPresent`                          |                                                    |
+
+Les images publiées sont multi-architectures (`linux/amd64` et `linux/arm64`), signées avec
+cosign (keyless, GitHub OIDC) et portent des attestations de provenance et de SBOM :
+
+```bash
+cosign verify ghcr.io/batleforc/proxyauthk8s/server:<version> \
+  --certificate-identity-regexp 'https://github.com/batleforc/.*' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+## Exposition
+
+| Value                     | Défaut               | Description                                              |
+| ------------------------- | -------------------- | -------------------------------------------------------- |
+| `ingress.enabled`         | `true`               | Crée l'Ingress (`/` → front, `/api/` et `/clusters/` → back) |
+| `ingress.className`       | `""`                 | IngressClass                                             |
+| `ingress.annotations`     | `{}`                 | Annotations (cert-manager, timeouts de l'ingress...)     |
+| `ingress.host`            | `proxyauthk8s.local` | Host public : base des redirect URIs et origine CORS par défaut |
+| `ingress.tls.enabled`     | `true`               | TLS sur l'Ingress                                        |
+| `ingress.tls.secretName`  | `proxyauthk8s-tls`   | Secret TLS                                               |
+
+<Callout type="warn">
+Les flux `watch`, `exec` et `logs -f` passent par l'Ingress : augmentez ses timeouts de
+lecture (ex. `nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"`), sinon l'ingress coupe
+les connexions longues.
+</Callout>
+
+## OIDC
+
+| Value                      | Défaut                   | Description                                                         |
+| -------------------------- | ------------------------ | ------------------------------------------------------------------- |
+| `oidc.source`              | `secret`                 | `secret` (recommandé) ou `env`                                      |
+| `oidc.objectName`          | `proxyauthk8s-back-oidc` | Secret lu en `envFrom` par le back (`OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_SCOPES`, `OIDC_AUDIENCE`) ; le front n'en lit que les clés publiques |
+| `oidc.value.*`             | —                        | Valeurs utilisées avec `source: env` (`issuer_url`, `client_id`, `client_secret`, `scopes`, `audience`, `silent_refresh`) |
+
+<Callout type="warn">
+Avec `oidc.source: env`, le secret client est écrit en clair dans la spec du Deployment :
+toute personne pouvant lire les Deployments le voit. Préférez `secret`.
+</Callout>
+
+## Backend
+
+| Value                              | Défaut   | Description                                                                 |
+| ---------------------------------- | -------- | --------------------------------------------------------------------------- |
+| `back.replicas`                    | `2`      | Tous les réplicas servent le trafic ; seul le détenteur du lease réconcilie |
+| `back.port`                        | `5437`   | Port du serveur                                                             |
+| `back.redis.source`                | `env`    | `env` (URL dans `back.redis.value.url`) ou `secret` (`REDIS_URL` dans `back.redis.secretName`) |
+| `back.redis.value.url`             | `""`     | Obligatoire avec `source: env` (aucune valeur par défaut, pour ne pas livrer de mot de passe) |
+| `back.corsAllowedOrigins`          | `""`     | Origines CORS séparées par des virgules ; vide = l'origine de l'Ingress uniquement |
+| `back.shutdownTimeoutSeconds`      | `30`     | Attente des requêtes en cours à l'arrêt ; le grace period du pod vaut cette valeur + 15 s |
+| `back.logFormat`                   | `text`   | Format des logs : `text` ou `json` |
+| `back.env`                         | `[]`     | Variables supplémentaires (`name`/`value`), voir [Configuration](/docs/configuration) |
+| `back.resources`                   | limits `1000m` / `512Mi`, requests `100m` / `128Mi` | Ressources du serveur                    |
+| `back.podDisruptionBudget.enabled` | `true`   | PDB (`minAvailable: 1`)                                                     |
+| `back.autoscaling.*`               | désactivé | HPA (`minReplicas`, `maxReplicas`, `targetCPUUtilizationPercentage`)        |
+
+Sondes : liveness sur `/management/health`, readiness sur `/management/ready` (vérifie Redis).
+
+## Front
+
+| Value                               | Défaut  | Description                                    |
+| ----------------------------------- | ------- | ---------------------------------------------- |
+| `front.replicas`                    | `2`     |                                                |
+| `front.port`                        | `4200`  |                                                |
+| `front.env`                         | `[]`    | Variables supplémentaires                      |
+| `front.resources`                   | limits `100m` / `512Mi` | Ressources du dashboard (nginx statique) |
+| `front.podDisruptionBudget.enabled` | `true`  |                                                |
+| `front.autoscaling.*`               | désactivé | HPA                                          |
+
+## RBAC
+
+| Value                        | Défaut | Description |
+| ---------------------------- | ------ | ----------- |
+| `rbac.referencedNamespaces`  | `[]`   | Namespaces dont les Secrets / ConfigMaps / Services peuvent être référencés par un `ProxyKubeApi`. Vide = `get` cluster-wide ; renseigné = un `Role` par namespace (moindre privilège) |
+
+Le compte de service reçoit toujours : lecture des CRD, lecture/mise à jour des
+`ProxyKubeApi` (statut, finalizers), et `get`/`create`/`patch` sur les `leases` de son propre
+namespace pour l'élection de leader.
+
+## Sécurité des pods
+
+`securityContext.pod` et `securityContext.container` s'appliquent au back, au front et au
+collecteur OTel : utilisateur non-root (`1000`), système de fichiers racine en lecture seule,
+toutes les capabilities retirées, profil seccomp `RuntimeDefault`.
+
+## NetworkPolicy
+
+| Value                                   | Défaut  | Description                                                        |
+| --------------------------------------- | ------- | ------------------------------------------------------------------ |
+| `networkPolicy.enabled`                 | `false` | Active les NetworkPolicies du front et du back                     |
+| `networkPolicy.ingressFrom`             | `[]`    | Sélecteurs autorisés à joindre les services (ex. le namespace de l'ingress controller) ; vide = tout le cluster |
+| `networkPolicy.egress.allowExternal`    | `true`  | Autorise la sortie vers l'extérieur du cluster (apiservers, IdP)   |
+| `networkPolicy.egress.externalExcept`   | plages privées, link-local, CGNAT | Exclues de la sortie externe : bloque notamment l'endpoint de métadonnées cloud |
+| `networkPolicy.egress.extra`            | `[]`    | Règles d'egress supplémentaires (Redis, apiservers internes...)    |
+
+<Callout type="info">
+Désactivée par défaut car le chart ne peut pas deviner où sont Redis et les clusters cibles.
+En production, activez-la et décrivez ces destinations dans `egress.extra`.
+</Callout>
+
+## Observabilité
+
+| Value                               | Défaut  | Description                                                              |
+| ----------------------------------- | ------- | ------------------------------------------------------------------------ |
+| `metrics.prometheus.enabled`        | `false` | Sert `/management/metrics` (jamais routé par l'Ingress)                   |
+| `metrics.serviceMonitor.enabled`    | `false` | Crée un `ServiceMonitor` prometheus-operator ; sinon, avec les métriques activées, les pods portent les annotations `prometheus.io/*` |
+| `metrics.serviceMonitor.interval` / `scrapeTimeout` | `30s` / `10s` |                                                 |
+| `metrics.serviceMonitor.labels`     | `{}`    | Labels pour la sélection par votre Prometheus (ex. `release: kube-prometheus-stack`) |
+| `metrics.scrapeFrom`                | `[]`    | Avec la NetworkPolicy : sélecteurs autorisés à scraper le port du back   |
+
+Collecteur OpenTelemetry optionnel :
+
+| Value                    | Défaut                               | Description                                  |
+| ------------------------ | ------------------------------------ | -------------------------------------------- |
+| `otel.enabled`           | `false`                              | Déploie un collecteur OpenTelemetry et y envoie traces et métriques |
+| `otel.image.repository`  | `otel/opentelemetry-collector-contrib` |                                            |
+| `otel.image.tag`         | `0.162.0`                            | Version épinglée du collecteur               |
+| `otel.config`            | OTLP → `jaeger:4317`, métriques → Prometheus `:9090` | Configuration du collecteur   |

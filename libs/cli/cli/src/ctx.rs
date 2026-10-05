@@ -48,67 +48,13 @@ impl TryFrom<super::Cli> for CliCtx {
         );
         let kubeconfig_path = CliCtx::kubeconfig_write_target(&kubeconfig_paths)
             .ok_or(ProxyAuthK8sError::KubeconfigPathCouldNotBeCalculated)?;
-
-        if !kubeconfig_path.exists() {
-            // If the kubeconfig file does not exist, create an empty one (0600).
-            crate::helper::secure_write(&kubeconfig_path, "").map_err(|e| {
-                ProxyAuthK8sError::KubeconfigWriteError(format!(
-                    "Failed to create kubeconfig file at {}: {}",
-                    kubeconfig_path.to_string_lossy(),
-                    e
-                ))
-            })?;
-        }
-        // Like kubectl: merge every listed file that exists, first file wins.
-        let kubeconfig = kubeconfig_paths
-            .iter()
-            .filter(|path| path.exists())
-            .try_fold(Kubeconfig::default(), |merged, path| {
-                merged
-                    .merge(CliCtx::read_kubeconfig_file(path)?)
-                    .map_err(|e| {
-                        ProxyAuthK8sError::KubeconfigReadError(format!(
-                            "Failed to merge kubeconfig file at {}: {}",
-                            path.to_string_lossy(),
-                            e
-                        ))
-                    })
-            })?;
-        let invoked_from_kubectl = env::args().next().is_some_and(|arg0| {
-            PathBuf::from(arg0)
-                .file_stem()
-                .is_some_and(|stem| stem == "kubectl")
-        });
+        CliCtx::ensure_kubeconfig_exists(&kubeconfig_path)?;
+        let kubeconfig = CliCtx::load_merged_kubeconfig(&kubeconfig_paths)?;
+        let invoked_from_kubectl = CliCtx::is_kubectl_invocation(env::args().next());
         // Load CLI configuration
-        let config_path = if let Some(path) = cli.proxy_auth_config {
-            path
-        } else {
-            let home_env = env::var("HOME").unwrap_or_default();
-            if home_env.is_empty() {
-                return Err(ProxyAuthK8sError::ConfigPathCouldNotBeCalculated);
-            }
-            PathBuf::from(format!("{home_env}/.kube/proxyauth_config.yaml"))
-        };
-        let config = if config_path.exists() {
-            CliConfig::read_from_file(config_path.clone()).map_err(|e| {
-                ProxyAuthK8sError::KubeconfigReadError(format!(
-                    "Failed to read config file at {}: {}",
-                    config_path.to_string_lossy(),
-                    e
-                ))
-            })?
-        } else {
-            CliConfig::default()
-                .write_to_file(config_path.clone())
-                .cloned()
-                .map_err(|e| {
-                    ProxyAuthK8sError::KubeconfigWriteError(format!(
-                        "Failed to create default config file at {}: {}",
-                        config_path.to_string_lossy(),
-                        e
-                    ))
-                })?
-        };
+        let config_path =
+            CliCtx::resolve_config_path(cli.proxy_auth_config, env::var("HOME").ok())?;
+        let config = CliCtx::load_or_create_config(&config_path)?;
 
         Ok(CliCtx {
             namespace: cli.namespace,
@@ -122,6 +68,91 @@ impl TryFrom<super::Cli> for CliCtx {
             config,
             config_path,
         })
+    }
+}
+
+impl CliCtx {
+    /// If the kubeconfig file does not exist, create an empty one (0600).
+    fn ensure_kubeconfig_exists(kubeconfig_path: &Path) -> Result<(), ProxyAuthK8sError> {
+        if kubeconfig_path.exists() {
+            return Ok(());
+        }
+        crate::helper::secure_write(kubeconfig_path, "").map_err(|e| {
+            ProxyAuthK8sError::KubeconfigWriteError(format!(
+                "Failed to create kubeconfig file at {}: {}",
+                kubeconfig_path.to_string_lossy(),
+                e
+            ))
+        })
+    }
+
+    /// Like kubectl: merge every listed file that exists, first file wins.
+    fn load_merged_kubeconfig(paths: &[PathBuf]) -> Result<Kubeconfig, ProxyAuthK8sError> {
+        paths
+            .iter()
+            .filter(|path| path.exists())
+            .try_fold(Kubeconfig::default(), |merged, path| {
+                merged
+                    .merge(CliCtx::read_kubeconfig_file(path)?)
+                    .map_err(|e| {
+                        ProxyAuthK8sError::KubeconfigReadError(format!(
+                            "Failed to merge kubeconfig file at {}: {}",
+                            path.to_string_lossy(),
+                            e
+                        ))
+                    })
+            })
+    }
+
+    /// Whether the binary was started as `kubectl` (judged from `argv[0]`).
+    fn is_kubectl_invocation(arg0: Option<String>) -> bool {
+        arg0.is_some_and(|arg0| {
+            PathBuf::from(arg0)
+                .file_stem()
+                .is_some_and(|stem| stem == "kubectl")
+        })
+    }
+
+    /// `--proxy-auth-config`, else `$HOME/.kube/proxyauth_config.yaml`.
+    fn resolve_config_path(
+        explicit: Option<PathBuf>,
+        home: Option<String>,
+    ) -> Result<PathBuf, ProxyAuthK8sError> {
+        if let Some(path) = explicit {
+            return Ok(path);
+        }
+        let home_env = home.unwrap_or_default();
+        if home_env.is_empty() {
+            return Err(ProxyAuthK8sError::ConfigPathCouldNotBeCalculated);
+        }
+        Ok(PathBuf::from(format!(
+            "{home_env}/.kube/proxyauth_config.yaml"
+        )))
+    }
+
+    /// Read the CLI config at `config_path`, writing a default one there
+    /// first if it does not exist.
+    fn load_or_create_config(config_path: &Path) -> Result<CliConfig, ProxyAuthK8sError> {
+        if config_path.exists() {
+            CliConfig::read_from_file(config_path.to_path_buf()).map_err(|e| {
+                ProxyAuthK8sError::KubeconfigReadError(format!(
+                    "Failed to read config file at {}: {}",
+                    config_path.to_string_lossy(),
+                    e
+                ))
+            })
+        } else {
+            CliConfig::default()
+                .write_to_file(config_path.to_path_buf())
+                .cloned()
+                .map_err(|e| {
+                    ProxyAuthK8sError::KubeconfigWriteError(format!(
+                        "Failed to create default config file at {}: {}",
+                        config_path.to_string_lossy(),
+                        e
+                    ))
+                })
+        }
     }
 }
 
@@ -193,7 +224,7 @@ impl CliCtx {
     ) -> Result<R, ProxyAuthK8sError> {
         let mut file = Self::read_kubeconfig_file(&self.kubeconfig_path)?;
         let result = edit(&mut file);
-        let yaml_content = serde_yaml::to_string(&file)
+        let yaml_content = serde_yaml_ng::to_string(&file)
             .map_err(|e| ProxyAuthK8sError::YamlSerializeError(e.to_string()))?;
         crate::helper::secure_write(&self.kubeconfig_path, &yaml_content)
             .map_err(|e| ProxyAuthK8sError::KubeconfigWriteError(e.to_string()))?;
@@ -208,6 +239,26 @@ impl CliCtx {
             1 => VerboseLevel::DEBUG,
             2 => VerboseLevel::TRACE,
             _ => VerboseLevel::TRACE,
+        }
+    }
+}
+
+/// A context with empty kubeconfig/config, for unit tests of `CliCtx`
+/// methods that never touch the filesystem paths it points at.
+#[cfg(test)]
+impl CliCtx {
+    pub(crate) fn for_test() -> Self {
+        CliCtx {
+            namespace: String::new(),
+            kubeconfig_path: PathBuf::from("/nonexistent/kubeconfig"),
+            kubeconfig: Kubeconfig::default(),
+            context: None,
+            verbose: None,
+            server_url: String::new(),
+            format: ContextFormat::Table,
+            invoked_from_kubectl: false,
+            config: CliConfig::default(),
+            config_path: PathBuf::from("/nonexistent/proxyauth_config.yaml"),
         }
     }
 }
@@ -308,5 +359,128 @@ mod tests {
         assert_eq!(fs::read_to_string(&second).unwrap(), second_content);
         // The merged view follows the edit.
         assert_eq!(ctx.kubeconfig.current_context.as_deref(), Some("two"));
+    }
+
+    #[test]
+    fn kubeconfig_env_with_only_empty_entries_falls_back_to_home() {
+        let paths = CliCtx::detect_kubeconfig_paths(
+            None,
+            Some(env::join_paths(["", ""]).unwrap()),
+            Some("/home/u".to_string()),
+        );
+        assert_eq!(paths, [PathBuf::from("/home/u/.kube/config")]);
+    }
+
+    #[test]
+    fn verbose_count_maps_to_tracing_levels() {
+        let mut ctx = CliCtx::for_test();
+        let cases = [
+            (None, VerboseLevel::INFO),
+            (Some(0), VerboseLevel::INFO),
+            (Some(1), VerboseLevel::DEBUG),
+            (Some(2), VerboseLevel::TRACE),
+            (Some(3), VerboseLevel::TRACE),
+            (Some(u8::MAX), VerboseLevel::TRACE),
+        ];
+        for (verbose, expected) in cases {
+            ctx.verbose = verbose;
+            assert_eq!(
+                ctx.to_tracing_verbose_level(),
+                expected,
+                "verbose={verbose:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn kubectl_invocation_is_detected_from_argv0_stem() {
+        assert!(CliCtx::is_kubectl_invocation(Some("kubectl".into())));
+        assert!(CliCtx::is_kubectl_invocation(Some(
+            "/usr/local/bin/kubectl".into()
+        )));
+        assert!(CliCtx::is_kubectl_invocation(Some("kubectl.exe".into())));
+        assert!(!CliCtx::is_kubectl_invocation(Some(
+            "/usr/bin/kubectl-proxyauth".into()
+        )));
+        assert!(!CliCtx::is_kubectl_invocation(Some(String::new())));
+        assert!(!CliCtx::is_kubectl_invocation(None));
+    }
+
+    #[test]
+    fn config_path_is_explicit_else_under_home() {
+        assert_eq!(
+            CliCtx::resolve_config_path(Some(PathBuf::from("/x/c.yaml")), None).unwrap(),
+            PathBuf::from("/x/c.yaml")
+        );
+        assert_eq!(
+            CliCtx::resolve_config_path(None, Some("/home/u".to_string())).unwrap(),
+            PathBuf::from("/home/u/.kube/proxyauth_config.yaml")
+        );
+        assert!(matches!(
+            CliCtx::resolve_config_path(None, None),
+            Err(ProxyAuthK8sError::ConfigPathCouldNotBeCalculated)
+        ));
+        assert!(matches!(
+            CliCtx::resolve_config_path(None, Some(String::new())),
+            Err(ProxyAuthK8sError::ConfigPathCouldNotBeCalculated)
+        ));
+    }
+
+    #[test]
+    fn missing_config_is_created_with_defaults_then_read_back() {
+        let dir = scratch_dir("config");
+        let path = dir.join("proxyauth_config.yaml");
+
+        let created = CliCtx::load_or_create_config(&path).unwrap();
+        assert!(path.exists());
+        assert!(created.servers.is_empty());
+        assert!(created.default_server_name.is_empty());
+
+        fs::write(&path, "default_server_name: a\nservers: {}\n").unwrap();
+        let read = CliCtx::load_or_create_config(&path).unwrap();
+        assert_eq!(read.default_server_name, "a");
+
+        fs::write(&path, "not: [valid").unwrap();
+        assert!(matches!(
+            CliCtx::load_or_create_config(&path),
+            Err(ProxyAuthK8sError::KubeconfigReadError(_))
+        ));
+    }
+
+    #[test]
+    fn missing_kubeconfig_is_created_empty_and_existing_one_is_kept() {
+        let dir = scratch_dir("ensure");
+        let path = dir.join("config");
+        CliCtx::ensure_kubeconfig_exists(&path).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "");
+
+        fs::write(&path, "kind: Config\n").unwrap();
+        CliCtx::ensure_kubeconfig_exists(&path).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "kind: Config\n");
+    }
+
+    #[test]
+    fn merged_kubeconfig_skips_missing_files_and_first_file_wins() {
+        let dir = scratch_dir("merge");
+        let (first, missing, second) = (dir.join("first"), dir.join("missing"), dir.join("second"));
+        fs::write(&first, "apiVersion: v1\nkind: Config\ncurrent-context: one\ncontexts:\n- name: one\n  context:\n    cluster: c1\n").unwrap();
+        fs::write(&second, "apiVersion: v1\nkind: Config\ncurrent-context: two\ncontexts:\n- name: two\n  context:\n    cluster: c2\n").unwrap();
+
+        let merged = CliCtx::load_merged_kubeconfig(&[first, missing, second.clone()]).unwrap();
+        assert_eq!(merged.current_context.as_deref(), Some("one"));
+        assert_eq!(merged.contexts.len(), 2);
+
+        assert!(
+            CliCtx::load_merged_kubeconfig(&[dir.join("nope")])
+                .unwrap()
+                .contexts
+                .is_empty()
+        );
+
+        fs::write(&second, "contexts: [unterminated").unwrap();
+        assert!(matches!(
+            CliCtx::load_merged_kubeconfig(&[second]),
+            Err(ProxyAuthK8sError::KubeconfigReadError(_))
+        ));
     }
 }

@@ -1,0 +1,139 @@
+---
+title: Configuration
+description: Toutes les variables d'environnement du serveur, du dashboard et du plugin kubectl
+icon: SlidersHorizontal
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Le serveur, le dashboard et le plugin kubectl se configurent par variables d'environnement.
+Le chart Helm positionne la plupart d'entre elles à partir de `values.yaml` ; les autres
+peuvent être ajoutées via `back.env`.
+
+## Serveur (back)
+
+### HTTP et TLS
+
+| Variable           | Défaut  | Description                                                                                  |
+| ------------------ | ------- | -------------------------------------------------------------------------------------------- |
+| `SERVER_PORT`      | `5437`  | Port d'écoute HTTP(S)                                                                        |
+| `SERVER_HTTPS`     | `false` | `true` : le serveur termine lui-même le TLS (sinon, TLS terminé par l'ingress)                |
+| `SERVER_CERT_PATH` | —       | Chemin du certificat PEM (chaîne complète), requis si `SERVER_HTTPS=true`                    |
+| `SERVER_KEY_PATH`  | —       | Chemin de la clé privée PEM, requis si `SERVER_HTTPS=true`                                   |
+| `SERVER_SHUTDOWN_TIMEOUT` | `30` | Secondes laissées aux requêtes en cours (flux `watch`/`exec`/`port-forward` compris) pour se terminer au `SIGTERM`. Le grace period du pod doit être plus long (le chart le fixe à cette valeur + 15 s) |
+| `CORS_ALLOWED_ORIGINS` | *(vide)* | Origines autorisées, séparées par des virgules ; vide = toutes (voir [Sécurité](/docs/security#variables-denvironnement-de-sécurité)) |
+
+### OIDC (dashboard et API)
+
+| Variable                              | Défaut                                  | Description                                                                 |
+| ------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------- |
+| `OIDC_ISSUER_URL`                     | `https://authelia.k8s.localhost`        | Issuer du fournisseur d'identité (découverte via `/.well-known/openid-configuration`) |
+| `OIDC_CLIENT_ID`                      | `proxy-auth-k8s`                        | Client OIDC                                                                 |
+| `OIDC_CLIENT_SECRET`                  | —                                       | Secret du client (absent = client public)                                  |
+| `OIDC_SCOPES`                         | `openid email profile`                  | Scopes demandés                                                             |
+| `OIDC_AUDIENCE`                       | `proxy-auth-k8s`                        | Audience (`aud`) exigée sur les access-tokens                              |
+| `OIDC_REDIRECT_URL`                   | —                                       | Redirect URI du client OIDC du dashboard                                    |
+| `OIDC_AUDIENCE_VALIDATION`            | `enforce`                               | `enforce` / `warn` / `off` (voir [Sécurité](/docs/security#validation-daudience-oidc)) |
+| `OIDC_TOKEN_CACHE_TTL`                | `30`                                    | Durée (s) pendant laquelle un token déjà validé est réutilisé sans rappeler l'IdP ; `0` désactive le cache |
+| `API_CLUSTER_OIDC_BASE_REDIRECT_URL`  | `https://localhost:5437`                | URL publique du serveur, base des redirect URIs de connexion aux clusters   |
+| `API_CLUSTER_OIDC_FRONT_REDIRECT_URL` | `https://localhost:4200/auth/callback/` | URL publique du dashboard, où l'utilisateur revient après la connexion à un cluster |
+
+<Callout type="info">
+Pour soulager le fournisseur d'identité, le serveur met en cache le document de découverte
+OIDC de chaque issuer (5 minutes) et, pendant `OIDC_TOKEN_CACHE_TTL` secondes, l'identité
+résolue pour un token déjà validé (jamais au-delà de son `exp`). Contrepartie : un token
+révoqué côté IdP reste accepté au plus pendant cette durée. Les appels à l'IdP ont un
+timeout de 5 s pour la connexion et de 10 s au total.
+</Callout>
+
+### Redis
+
+| Variable        | Défaut                   | Description                                                                                  |
+| --------------- | ------------------------ | -------------------------------------------------------------------------------------------- |
+| `REDIS_URL`     | `redis://127.0.0.1:6379` | URL Redis. Plusieurs URLs séparées par des virgules activent le mode cluster. Un avertissement est journalisé si elle est absente |
+| `REDIS_CLUSTER` | `false`                  | `true` / `1` force le mode Redis Cluster même avec une seule URL (point d'entrée unique)     |
+
+### Contrôleur et élection de leader
+
+| Variable          | Défaut      | Description                                                                                 |
+| ----------------- | ----------- | ------------------------------------------------------------------------------------------- |
+| `LEASE_NAMESPACE` | `default`   | Namespace du `Lease` d'élection de leader. Le chart le fixe au namespace du pod ; avertissement journalisé si absente |
+| `HOSTNAME`        | `NOT_A_POD` | Identité du réplica dans le `Lease` (positionné automatiquement par Kubernetes : nom du pod) |
+
+Seul le réplica leader réconcilie les `ProxyKubeApi` ; il lui faut les droits `get`, `create`
+et `patch` sur `coordination.k8s.io/leases` dans ce namespace (fournis par le chart).
+
+### Proxy, quotas et limites
+
+Documentées avec leur contexte dans [Sécurité](/docs/security) :
+`TRUSTED_PROXY_COUNT`, `THROTTLE_FAIL_CLOSED`, `PROXYAUTH_ALLOW_CROSS_NS_CERT`,
+`PROXY_DEBUG_BODY_MAX_BYTES`, `PROXY_STREAM_CHANNEL_CAPACITY`, `PROXY_VIRTUAL_MAX_BODY_BYTES`.
+
+| Variable                    | Défaut | Description |
+| --------------------------- | ------ | ----------- |
+| `PROXY_UPSTREAM_CLIENT_TTL` | `300`  | Durée (s) de réutilisation du client HTTP/TLS d'un cluster (connexions keep-alive, CA et certificat mTLS déjà résolus). C'est aussi le délai maximal avant prise en compte d'un certificat tourné dans un Secret/ConfigMap ; `0` désactive le cache. Une modification de `cert`/`client_cert` dans le `ProxyKubeApi` est prise en compte immédiatement |
+
+Ces variables sont lues une seule fois, au démarrage : les modifier demande un redémarrage du
+pod.
+
+Les connexions vers les apiservers cibles ont un timeout de connexion (et de handshake TLS)
+de 10 s. Une fois établies, elles ne sont pas limitées dans le temps, pour ne pas couper
+les flux `watch`, `exec`, `attach`, `port-forward` ou `logs -f`.
+
+### Observabilité
+
+| Variable                      | Défaut      | Description                                                                         |
+| ----------------------------- | ----------- | ----------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | —           | Collecteur OTLP (gRPC) recevant traces et métriques ; positionné par le chart quand `otel.enabled` |
+| `RUST_LOG`                    | `info`      | Niveau des logs (syntaxe `tracing` `EnvFilter`, ex. `info,api=debug`), pour la sortie console comme pour l'export OTLP. Les crates de transport (`hyper`, `h2`, `tonic`, `reqwest`) restent muettes |
+| `LOG_FORMAT`                  | `text`      | Format de la sortie console : `text` ou `json` (un objet par ligne : `timestamp`, `level`, `target`, `fields`, `span`, `spans`) |
+| `METRICS_PROMETHEUS_ENABLED`  | `false`     | Sert `GET /management/metrics` au format Prometheus, en plus de l'export OTLP |
+| `POD_NAME`                    | `not_a_pod` | Nom du pod, ajouté aux ressources OTel ; le chart le remplit via la downward API    |
+
+### Sondes
+
+| Endpoint             | Rôle      | Comportement                                                                          |
+| -------------------- | --------- | ------------------------------------------------------------------------------------- |
+| `/management/health` | liveness  | Toujours `200` tant que le processus répond ; ne vérifie aucune dépendance             |
+| `/management/metrics` | métriques | Format Prometheus (texte 0.0.4) si `METRICS_PROMETHEUS_ENABLED=true`, sinon `404`. Expose notamment `http_server_request_duration_seconds` (méthode, route, statut) |
+| `/management/ready`  | readiness | `200` si Redis répond à un `PING` en moins de 2 s, sinon `503` (`{"redis": "unavailable"}`) |
+
+Une panne Redis sort donc les pods du service sans les redémarrer.
+
+Si la CRD `ProxyKubeApi` est absente (ou illisible faute de droits) au démarrage, le serveur
+s'arrête avec une erreur explicite plutôt que de servir sans contrôleur : le pod passe en
+`CrashLoopBackOff` jusqu'à ce que la CRD soit installée. Si l'exporteur OTLP ne peut pas être
+construit, le serveur démarre quand même avec des logs sur la sortie standard uniquement.
+
+### Documentation de l'API
+
+La référence interactive de l'API (Scalar) est servie par le serveur sur `/api/docs`. Elle
+est aussi publiée dans la section [API](/docs/api) de cette documentation.
+
+## Dashboard (front)
+
+En développement (`vite`), le front lit des variables `VITE_*` au build. L'image publiée est
+construite avec des marqueurs `PROXYAUTHK8S_FRONT_*` à la place des valeurs ; au démarrage
+du conteneur, `env.sh` les remplace par les variables d'environnement du même nom.
+
+| Variable (image)                      | Variable (dev)             | Défaut  | Description                                        |
+| ------------------------------------- | -------------------------- | ------- | -------------------------------------------------- |
+| `PROXYAUTHK8S_FRONT_OIDC_ISSUER_URL`  | `VITE_OIDC_ISSUER_URL`     | —       | Issuer OIDC utilisé par le dashboard               |
+| `PROXYAUTHK8S_FRONT_OIDC_CLIENT_ID`   | `VITE_OIDC_CLIENT_ID`      | —       | Client OIDC (public) du dashboard                  |
+| `PROXYAUTHK8S_FRONT_OIDC_SCOPE`       | `VITE_OIDC_SCOPE`          | —       | Scopes demandés, ex. `openid profile email groups` |
+| `PROXYAUTHK8S_FRONT_OIDC_SILENT_REFRESH` | `VITE_OIDC_SILENT_REFRESH` | `false` | `true` active le renouvellement silencieux du token |
+| `PROXYAUTHK8S_FRONT_API_BASE_URL`     | `VITE_API_BASE_URL`        | `/api`  | URL de base de l'API du serveur                    |
+
+Le chart Helm les remplit depuis la configuration OIDC (`oidc.value` ou le secret
+`oidc.objectName`) et l'host de l'ingress ; le secret client n'est jamais transmis au front.
+
+## Plugin kubectl
+
+| Variable                  | Défaut  | Description                                                                 |
+| ------------------------- | ------- | --------------------------------------------------------------------------- |
+| `KUBECONFIG`              | `~/.kube/config` | Kubeconfig(s) lus ; le plugin écrit dans le premier fichier existant |
+| `PROXYAUTH_CALLBACK_PORT` | `18000` | Port local du callback SSO (enregistrez la redirect URI correspondante)     |
+
+Le fichier de configuration du plugin est `~/.kube/proxyauth_config.yaml` (modifiable avec
+`-p, --proxy-auth-config`). Les tokens sont stockés dans le trousseau du système, voir
+[Plugin kubectl](/docs/kubectl-plugin).

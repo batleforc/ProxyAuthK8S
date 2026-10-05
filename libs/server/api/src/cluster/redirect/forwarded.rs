@@ -1,24 +1,8 @@
 //! Header handling shared by the standard and upgrade proxy paths.
 
 use std::net::IpAddr;
-use std::sync::LazyLock;
 
 use crate::model::user::User;
-
-/// Number of trusted reverse proxies sitting in front of this service.
-///
-/// Throttle identity (bans, rate limits) is taken this many hops back in the
-/// `X-Forwarded-For` chain. The default of `0` trusts nothing and uses the
-/// direct socket peer, which preserves the previous behaviour for deployments
-/// with no known proxy in front. Set it to the number of trusted hops (e.g. `1`
-/// behind a single ingress/LB) so bans target the real client instead of the
-/// shared ingress address.
-static TRUSTED_PROXY_COUNT: LazyLock<usize> = LazyLock::new(|| {
-    std::env::var("TRUSTED_PROXY_COUNT")
-        .ok()
-        .and_then(|value| value.trim().parse::<usize>().ok())
-        .unwrap_or(0)
-});
 
 /// Headers managed by the transport itself; forwarding them corrupts the
 /// upstream request when the body is re-framed.
@@ -96,7 +80,15 @@ pub fn forwarded_for_value(existing: Option<&str>, peer_ip: Option<IpAddr>) -> O
 /// peer nor a usable forwarded address is available.
 #[must_use]
 pub fn throttle_client_ip(forwarded_for: Option<&str>, peer_ip: Option<IpAddr>) -> String {
-    select_client_ip(forwarded_for, peer_ip, *TRUSTED_PROXY_COUNT)
+    // `TRUSTED_PROXY_COUNT` (see `common::config`): number of trusted reverse
+    // proxies in front of this service. `0` (default) trusts nothing and uses
+    // the socket peer; set it to the number of trusted hops (e.g. `1` behind a
+    // single ingress) so bans target the real client, not the ingress.
+    select_client_ip(
+        forwarded_for,
+        peer_ip,
+        common::config::get().proxy.trusted_proxy_count,
+    )
 }
 
 /// Pure hop selection behind [`throttle_client_ip`], with the trusted-hop count

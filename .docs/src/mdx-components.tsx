@@ -8,6 +8,8 @@ export function getMDXComponents(components?: MDXComponents): MDXComponents {
   return {
     ...defaultMdxComponents,
     APIPage,
+    // fumadocs-openapi >= 12 generates `<OpenAPIPage document=... />`.
+    OpenAPIPage: APIPage,
     Mermaid,
     ProxyKubeApiGenerator,
     ...components,

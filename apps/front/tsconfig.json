@@ -7,8 +7,8 @@
     "strict": true,
     "jsx": "preserve",
     "jsxImportSource": "vue",
-    "moduleResolution": "nodenext",
-    "module": "nodenext",
+    "moduleResolution": "bundler",
+    "module": "ESNext",
     "resolveJsonModule": true,
     "noEmit": true
   },

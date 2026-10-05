@@ -3,6 +3,8 @@
   "pages": [
     "index.mdx",
     "quick-started.mdx",
+    "configuration.mdx",
+    "helm-chart.mdx",
     "roadmap.mdx",
     "architecture.mdx",
     "expose-cluster.mdx",

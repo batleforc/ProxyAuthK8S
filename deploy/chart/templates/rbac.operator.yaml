@@ -30,24 +30,20 @@ rules:
       - watch
       - update
       - patch
-  # Permissions to manage Secrets (Needed for OIDC / TLS certs)
+{{- if not .Values.rbac.referencedNamespaces }}
+  # CA / client certificates and OIDC material referenced by a ProxyKubeApi
+  # (CertSource::Secret / ConfigMap) and the Services it targets. The code only
+  # ever `get`s them by name, so no list/watch. Set rbac.referencedNamespaces to
+  # replace this cluster-wide grant with per-namespace Roles.
   - apiGroups:
       - ""
     resources:
       - secrets
-    verbs:
-      - get
-      - list
-      - watch
-  # Permissions to manage Service (Needed to get Service info for direct access)
-  - apiGroups:
-      - ""
-    resources:
+      - configmaps
       - services
     verbs:
       - get
-      - list
-      - watch
+{{- end }}
 ---
 # RoleBinding for Operator Service Account
 apiVersion: rbac.authorization.k8s.io/v1
@@ -64,5 +60,77 @@ subjects:
   - kind: ServiceAccount
     name: "{{ .Release.Name }}-proxyauthk8s-operator"
     namespace: "{{ .Release.Namespace }}"
-
-# TODO: Check if we can limit the permissions to one namespace only
+---
+# Leader election: the controller holds a coordination.k8s.io Lease in its own
+# namespace (LEASE_NAMESPACE, set from the pod namespace). Only the replica
+# holding the lease reconciles; without these verbs no replica ever becomes
+# leader and the proxy never learns about any ProxyKubeApi.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: "{{ .Release.Name }}-proxyauthk8s-leader-election"
+  namespace: "{{ .Release.Namespace }}"
+  labels:
+    app: "{{ .Release.Name }}-proxyauthk8s-operator"
+rules:
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - create
+      - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: "{{ .Release.Name }}-proxyauthk8s-leader-election"
+  namespace: "{{ .Release.Namespace }}"
+  labels:
+    app: "{{ .Release.Name }}-proxyauthk8s-operator"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: "{{ .Release.Name }}-proxyauthk8s-leader-election"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ .Release.Name }}-proxyauthk8s-operator"
+    namespace: "{{ .Release.Namespace }}"
+{{- range .Values.rbac.referencedNamespaces }}
+---
+# Read access to the Secrets / ConfigMaps / Services a ProxyKubeApi may
+# reference, limited to this namespace (rbac.referencedNamespaces).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: "{{ $.Release.Name }}-proxyauthk8s-referenced"
+  namespace: "{{ . }}"
+  labels:
+    app: "{{ $.Release.Name }}-proxyauthk8s-operator"
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+      - configmaps
+      - services
+    verbs:
+      - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: "{{ $.Release.Name }}-proxyauthk8s-referenced"
+  namespace: "{{ . }}"
+  labels:
+    app: "{{ $.Release.Name }}-proxyauthk8s-operator"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: "{{ $.Release.Name }}-proxyauthk8s-referenced"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ $.Release.Name }}-proxyauthk8s-operator"
+    namespace: "{{ $.Release.Namespace }}"
+{{- end }}

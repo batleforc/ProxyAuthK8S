@@ -4,11 +4,14 @@ kind: Service
 metadata:
   name: "{{ .Release.Name }}-proxyauthk8s-back"
   namespace: "{{ .Release.Namespace }}"
+  labels:
+    app: "{{ .Release.Name }}-proxyauthk8s-back"
 spec:
   selector:
     app: "{{ .Release.Name }}-proxyauthk8s-back"
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: {{ .Values.back.port }}
       targetPort: {{ .Values.back.port }}
   type: ClusterIP

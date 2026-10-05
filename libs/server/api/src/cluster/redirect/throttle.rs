@@ -72,15 +72,10 @@ fn security_config(proxy: &ProxyKubeApi) -> Option<&SecurityConfiguration> {
 /// full outage. Set `THROTTLE_FAIL_CLOSED=true` on deployments that would rather
 /// reject traffic than lose brute-force / rate-limit protection during a Redis
 /// degradation.
+///
+/// Read from the central configuration (`common::config`).
 fn fail_closed() -> bool {
-    matches!(
-        std::env::var("THROTTLE_FAIL_CLOSED")
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase()
-            .as_str(),
-        "true" | "1" | "yes" | "on" | "enabled"
-    )
+    common::config::get().proxy.throttle_fail_closed
 }
 
 /// Whether `subject` is currently banned on this cluster.
@@ -211,6 +206,7 @@ pub async fn check_rate_limit(
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crd::ProxyKubeApiSpec;
     use crd::certificate::CertSource;
     use crd::service::Service;

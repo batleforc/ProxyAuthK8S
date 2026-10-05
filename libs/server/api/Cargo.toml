@@ -16,7 +16,7 @@ actix-web = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 tokio-stream = { workspace = true }
 futures-util = { workspace = true }
 openidconnect = { workspace = true }
@@ -28,6 +28,9 @@ tokio-rustls = { workspace = true }
 flate2 = { workspace = true }
 base64 = "0.23"
 sha2 = "0.11"
+subtle = "2"
+opentelemetry = { workspace = true }
+prometheus = { version = "0.14", default-features = false }
 
 common = { path = "../common", version = "0.1.9" }
 crd = { path = "../crd", version = "0.1.9" }
@@ -35,6 +38,8 @@ crd_runtime = { path = "../crd_runtime", version = "0.1.9" }
 virtual_api = { path = "../virtual_api", version = "0.1.9" }
 
 [dev-dependencies]
+opentelemetry_sdk = { workspace = true }
+opentelemetry-prometheus = "0.32"
 # `test-util` unlocks `State::from_parts`; dev-dependencies are not part of a
 # normal build so the feature stays off outside `cargo test`.
 common = { path = "../common", version = "0.1.9", features = ["test-util"] }
@@ -42,10 +47,12 @@ actix-web = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 wiremock = "0.6"
 deadpool-redis = { workspace = true }
-serde_yaml = { workspace = true }
+serde_yaml_ng = { workspace = true }
 secrecy = "0.10.3"
 k8s-openapi = { workspace = true }
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
+# The envtest tier runs the real reconcile loop against the apiserver + Redis.
+controller = { path = "../controller", version = "0.1.9" }
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

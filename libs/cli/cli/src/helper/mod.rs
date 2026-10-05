@@ -30,3 +30,49 @@ pub fn secure_write<P: AsRef<Path>>(path: P, contents: &str) -> io::Result<()> {
         std::fs::write(path, contents)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch_path(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "proxyauth-cli-helper-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("file")
+    }
+
+    #[test]
+    fn secure_write_writes_and_truncates_the_contents() {
+        let path = scratch_path("contents");
+        secure_write(&path, "a longer first content").unwrap();
+        secure_write(&path, "short").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "short");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn secure_write_creates_the_file_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = scratch_path("create");
+        secure_write(&path, "secret").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn secure_write_tightens_an_existing_world_readable_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = scratch_path("tighten");
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        secure_write(&path, "new").unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+    }
+}

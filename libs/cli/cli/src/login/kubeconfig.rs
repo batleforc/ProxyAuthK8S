@@ -253,7 +253,7 @@ current-context: other
             None,
         );
 
-        let yaml = serde_yaml::to_string(&kubeconfig).unwrap();
+        let yaml = serde_yaml_ng::to_string(&kubeconfig).unwrap();
         if let Ok(path) = std::env::var("PROXYAUTH_DUMP_KUBECONFIG") {
             std::fs::write(path, &yaml).unwrap();
         }

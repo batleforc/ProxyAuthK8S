@@ -32,10 +32,24 @@ jobs:
   envtest:
     name: 🧪 Run the envtest suite
     runs-on: ubuntu-latest
+    # The reconcile and Kubernetes-auth suites also need Redis: the controller
+    # mirrors proxies there and the request path reads them back.
+    services:
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       ENVTEST_K8S_VERSION: "1.31.0"
       KUBEBUILDER_ASSETS: /home/runner/.local/share/kubebuilder-envtest
       REQUIRE_ENVTEST: "1"
+      TEST_REDIS_URL: redis://127.0.0.1:6379
+      REQUIRE_TEST_REDIS: "1"
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -68,4 +82,4 @@ jobs:
       - name: 🧪 Run the envtest suite
         # Serialised: each test owns an apiserver, and running several at once
         # only multiplies the memory footprint for no wall-clock gain.
-        run: cargo nextest run -p api --features envtest --test envtest -j 1
+        run: cargo nextest run -p api --features envtest --test envtest --test envtest_kube_auth --test envtest_reconcile --test envtest_crd_runtime -j 1
