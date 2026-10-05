@@ -1,3 +1,4 @@
+use super::RedirectContext;
 use std::sync::Arc;
 
 use actix_web::{HttpRequest, HttpResponse, dev::PeerAddr, http, web};
@@ -18,7 +19,6 @@ use tracing::{error, instrument, warn};
 
 use super::port_forward::{self, PortForwardFilter};
 use super::tls::build_tls_config;
-use crate::cluster::redirect::audit::AuditContext;
 use crate::cluster::redirect::forwarded::{
     forwarded_for_value, identity_headers, is_proxy_owned_header, is_upstream_auth_header,
 };
@@ -280,20 +280,22 @@ async fn read_upgrade_response_headers(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-#[instrument(skip(req, data, payload, user, audit))]
+#[instrument(skip(ctx), fields(http.method = %ctx.method))]
 pub(super) async fn upgrade_redirect(
-    req: HttpRequest,
-    data: web::Data<State>,
-    payload: web::Payload,
-    method: http::Method,
-    peer_addr: Option<PeerAddr>,
-    proxy: ProxyKubeApi,
+    ctx: RedirectContext,
     url_to_call: String,
-    user: Option<User>,
-    audit: AuditContext,
     port_policy: PortPolicy,
 ) -> HttpResponse {
+    let RedirectContext {
+        req,
+        data,
+        payload,
+        method,
+        peer_addr,
+        proxy,
+        user,
+        audit,
+    } = ctx;
     // Only websocket is tunnelled: actix-http hands the bytes that follow the
     // handshake to the handler for `Upgrade: websocket` alone, so a SPDY
     // session would die right after its `101`. Refusing it up front gives the

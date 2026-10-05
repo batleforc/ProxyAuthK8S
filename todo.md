@@ -122,17 +122,19 @@ than a rushed change. Roughly ordered by score impact / value.
 
 ## Craft / structure
 
-- [ ] **Bundle the redirect workers' argument block.** `standard_redirect`,
-      `virtual_redirect`, and `upgrade` each take the same ~9 positional args and
-      suppress `clippy::too_many_arguments`. Introduce a `RedirectContext` struct.
-      Touches the security-sensitive forwarding hot path — cover with tests.
+- [x] **Bundle the redirect workers' argument block.** Done: `RedirectContext` (request,
+      state, payload, method, peer address, proxy, user, audit) in `kube_redirect.rs`;
+      `standard_redirect(ctx, url)`, `upgrade_redirect(ctx, url, ports)`,
+      `virtual_redirect(ctx, base_url, registry, path, plan)`. The
+      `too_many_arguments` allows are gone, and the tracing spans no longer record the
+      whole `ProxyKubeApi` (which carried the OIDC client secret).
+- [x] ~~Rename `parametised` → `parametrised`.~~ Dropped: `parametised` is the intended
+      spelling of the field and of `ParametisedRule`; keep it.
 
-- [ ] **Rename the misspelled public CRD field `parametised` → `parametrised`.**
-      This is a schema migration: add a `#[serde(alias = "parametised")]`, update
-      the `x-kubernetes-validations` CEL rule strings that reference the field by
-      name, the doc comments, the tests, and regenerate `crds.yaml`/`crds.mdx`
-      (see the CRD-doc-regeneration notes). Also rename the internal helper
-      `expand_parametised_patterns`.
+- [x] **Redact the OIDC `client_secret` from `Debug`.** Done: `OidcProvider` has a
+      hand-written `Debug` (destructured, so a new field forces a decision) printing
+      `client_secret: Some("<redacted>")`. A test formats a whole `ProxyKubeApi` with an
+      OIDC secret and an inline client cert/key and checks nothing secret comes out.
 
 ## Testing
 

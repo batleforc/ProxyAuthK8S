@@ -23,6 +23,19 @@ use upgrade::{is_upgrade_request, upgrade_redirect};
 use virtual_api::MapperRegistry;
 use virtual_redirect::virtual_redirect as serve_virtual_api;
 
+/// What every redirect worker needs about the request being proxied, once it
+/// has been authenticated and authorized by [`redirect`].
+struct RedirectContext {
+    req: HttpRequest,
+    data: web::Data<State>,
+    payload: web::Payload,
+    method: http::Method,
+    peer_addr: Option<PeerAddr>,
+    proxy: ProxyKubeApi,
+    user: Option<User>,
+    audit: AuditContext,
+}
+
 /// Answer with `response`, recording the audit event for it first.
 macro_rules! audited {
     ($audit:expr_2021, $response:expr_2021) => {{
@@ -252,27 +265,24 @@ pub async fn redirect(
         }
     };
 
+    let ctx = RedirectContext {
+        req,
+        data,
+        payload,
+        method,
+        peer_addr,
+        proxy,
+        user,
+        audit,
+    };
+
     if let Some(virtual_plan) = virtual_plan {
-        info!(from = %req.uri().to_string(), method = %method.as_str(), "Serving a virtual API request");
-        return serve_virtual_api(
-            req,
-            data,
-            payload,
-            method,
-            peer_addr,
-            proxy,
-            base_url,
-            user,
-            audit,
-            registry,
-            upstream_path,
-            virtual_plan,
-        )
-        .await;
+        info!(from = %ctx.req.uri().to_string(), method = %ctx.method.as_str(), "Serving a virtual API request");
+        return serve_virtual_api(ctx, base_url, registry, upstream_path, virtual_plan).await;
     }
 
     let url_to_call = {
-        let query_string = req.query_string();
+        let query_string = ctx.req.query_string();
         if query_string.is_empty() {
             format!("{base_url}{upstream_path}")
         } else {
@@ -280,39 +290,16 @@ pub async fn redirect(
         }
     };
 
-    info!(from = %req.uri().to_string(), to = %url_to_call, method = %method.as_str(),
+    info!(from = %ctx.req.uri().to_string(), to = %url_to_call, method = %ctx.method.as_str(),
         "Forwarding request from {} to {} with method {}",
-        req.uri().to_string(),
+        ctx.req.uri().to_string(),
         url_to_call,
-        method.as_str()
+        ctx.method.as_str()
     );
 
     if is_upgrade {
-        return upgrade_redirect(
-            req,
-            data,
-            payload,
-            method,
-            peer_addr,
-            proxy,
-            url_to_call,
-            user,
-            audit,
-            port_policy,
-        )
-        .await;
+        return upgrade_redirect(ctx, url_to_call, port_policy).await;
     }
 
-    standard_redirect(
-        req,
-        data,
-        payload,
-        method,
-        peer_addr,
-        proxy,
-        url_to_call,
-        user,
-        audit,
-    )
-    .await
+    standard_redirect(ctx, url_to_call).await
 }

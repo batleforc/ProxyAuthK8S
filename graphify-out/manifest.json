@@ -174,8 +174,8 @@
     "semantic_hash": ""
   },
   ".docs/src/components/proxykubeapi-generator.client.tsx": {
-    "mtime": 1791203835.223042,
-    "seen": 1791209019.4355915,
+    "mtime": 1791219885.7168021,
+    "seen": 1791219918.5618346,
     "ast_hash": "02d84daedf2a7fc06cf9037b224e92c3",
     "semantic_hash": ""
   },
@@ -978,15 +978,15 @@
     "semantic_hash": ""
   },
   "libs/server/api/src/cluster/redirect/kube_redirect.rs": {
-    "mtime": 1791210356.3112319,
-    "seen": 1791210708.3033276,
-    "ast_hash": "5d454c89cb59f9a391e1bfe6aeb6ea04",
+    "mtime": 1791219366.1232727,
+    "seen": 1791219769.5424395,
+    "ast_hash": "8d9e7dc46d5c832fd5d50fe1649871e1",
     "semantic_hash": ""
   },
   "libs/server/api/src/cluster/redirect/kube_redirect/standard.rs": {
-    "mtime": 1791203835.2362676,
-    "seen": 1791209019.435752,
-    "ast_hash": "3835bc5f0f97855bd929642a7faad3c1",
+    "mtime": 1791219379.2966182,
+    "seen": 1791219769.542531,
+    "ast_hash": "5eacb528df60971ad0e4aab9660c4d37",
     "semantic_hash": ""
   },
   "libs/server/api/src/cluster/redirect/kube_redirect/tls.rs": {
@@ -996,9 +996,9 @@
     "semantic_hash": ""
   },
   "libs/server/api/src/cluster/redirect/kube_redirect/upgrade.rs": {
-    "mtime": 1791210501.195027,
-    "seen": 1791210708.3034258,
-    "ast_hash": "08080ba53ad4780fcfa2658928bd5041",
+    "mtime": 1791219379.2966182,
+    "seen": 1791219769.542576,
+    "ast_hash": "b5564cff41d8e383c6b8c827601a9dd1",
     "semantic_hash": ""
   },
   "libs/server/api/src/cluster/redirect/kube_redirect/upstream.rs": {
@@ -1008,9 +1008,9 @@
     "semantic_hash": ""
   },
   "libs/server/api/src/cluster/redirect/kube_redirect/virtual_redirect.rs": {
-    "mtime": 1791205383.8122096,
-    "seen": 1791209019.4357562,
-    "ast_hash": "023719e58b8326b699718f2c5e1f5a0c",
+    "mtime": 1791219379.2966182,
+    "seen": 1791219769.5426211,
+    "ast_hash": "2ce8248148cbaea0f4b95a3447f95015",
     "semantic_hash": ""
   },
   "libs/server/api/src/cluster/redirect/mod.rs": {
@@ -1086,8 +1086,8 @@
     "semantic_hash": ""
   },
   "libs/server/api/tests/envtest.rs": {
-    "mtime": 1791211257.0309844,
-    "seen": 1791211373.9584677,
+    "mtime": 1791219885.7173445,
+    "seen": 1791219918.5675852,
     "ast_hash": "53d67c8ac268b2022ff7177a70fd2d4a",
     "semantic_hash": ""
   },
@@ -1098,8 +1098,8 @@
     "semantic_hash": ""
   },
   "libs/server/api/tests/harness/mod.rs": {
-    "mtime": 1791210138.049323,
-    "seen": 1791210708.3040154,
+    "mtime": 1791219885.717482,
+    "seen": 1791219918.5676267,
     "ast_hash": "f674200e565305ffd97eb1e914d975a0",
     "semantic_hash": ""
   },
@@ -1170,8 +1170,8 @@
     "semantic_hash": ""
   },
   "libs/server/api/tests/proxy_upgrade.rs": {
-    "mtime": 1791210472.5240288,
-    "seen": 1791210708.3044114,
+    "mtime": 1791219885.717482,
+    "seen": 1791219918.568015,
     "ast_hash": "e94964f9a413b6e923b506b6b975fb79",
     "semantic_hash": ""
   },
@@ -1314,9 +1314,9 @@
     "semantic_hash": ""
   },
   "libs/server/crd/src/authentication_configuration/oidc_provider.rs": {
-    "mtime": 1791203835.2388878,
-    "seen": 1791209019.4358146,
-    "ast_hash": "2eaefac3b578a567b619b29eea2c7e02",
+    "mtime": 1791220115.5452642,
+    "seen": 1791220147.6374607,
+    "ast_hash": "760ab0a193f467933546d8cb6822a083",
     "semantic_hash": ""
   },
   "libs/server/crd/src/authentication_configuration/user_validation_rule.rs": {
@@ -1356,20 +1356,20 @@
     "semantic_hash": ""
   },
   "libs/server/crd/src/lib.rs": {
-    "mtime": 1791210138.048795,
-    "seen": 1791210708.305521,
-    "ast_hash": "e21d62bcbf0ddf76b70377a48923e3e7",
+    "mtime": 1791220105.3366756,
+    "seen": 1791220147.637694,
+    "ast_hash": "5ff45481e7a28c1a69693b728e58f8e9",
     "semantic_hash": ""
   },
   "libs/server/crd/src/security/allowed_crd_configuration.rs": {
-    "mtime": 1791205294.164813,
-    "seen": 1791209019.4358242,
+    "mtime": 1791219885.7178397,
+    "seen": 1791219918.569113,
     "ast_hash": "cb293aaadf8a0ee1c85fc30cc4bd6fdc",
     "semantic_hash": ""
   },
   "libs/server/crd/src/security/allowed_path_configuration.rs": {
-    "mtime": 1791210156.647968,
-    "seen": 1791210708.3055615,
+    "mtime": 1791219885.7179322,
+    "seen": 1791219918.569115,
     "ast_hash": "3215e2953ad37e2f051137b0e7bbaef7",
     "semantic_hash": ""
   },
@@ -1386,26 +1386,26 @@
     "semantic_hash": ""
   },
   "libs/server/crd/src/security/mod.rs": {
-    "mtime": 1791211247.729985,
-    "seen": 1791211373.9602988,
+    "mtime": 1791219885.7180266,
+    "seen": 1791219918.5691948,
     "ast_hash": "b3e783b774292ad29a97d818cf908fb3",
     "semantic_hash": ""
   },
   "libs/server/crd/src/security/namespaced_access_configuration.rs": {
-    "mtime": 1791203835.2394176,
-    "seen": 1791209019.4358294,
+    "mtime": 1791219885.7180266,
+    "seen": 1791219918.5691965,
     "ast_hash": "93450dd62aa1db1628d2e016d9cc7e5e",
     "semantic_hash": ""
   },
   "libs/server/crd/src/security/namespaced_access_rule_kind.rs": {
-    "mtime": 1791203835.2394176,
-    "seen": 1791209019.4358308,
+    "mtime": 1791219885.7180266,
+    "seen": 1791219918.5691981,
     "ast_hash": "df3df4588e6051d719ae3aea3792af7f",
     "semantic_hash": ""
   },
   "libs/server/crd/src/security/path_matcher.rs": {
-    "mtime": 1791205294.164585,
-    "seen": 1791209019.4358318,
+    "mtime": 1791219885.7183213,
+    "seen": 1791219918.5692,
     "ast_hash": "d1cffef94e9adc7d23543fbc4c7d2bb5",
     "semantic_hash": ""
   },
@@ -1776,8 +1776,8 @@
     "semantic_hash": ""
   },
   ".docs/content/docs/crds.mdx": {
-    "mtime": 1791211383.7699773,
-    "seen": 1791212621.5206766,
+    "mtime": 1791219885.715432,
+    "seen": 1791219918.5713127,
     "ast_hash": "f39b7b8684cf13b553a0c275da4bed94",
     "semantic_hash": ""
   },
@@ -1830,8 +1830,8 @@
     "semantic_hash": ""
   },
   ".docs/content/docs/security.mdx": {
-    "mtime": 1791211361.1189785,
-    "seen": 1791211373.9628363,
+    "mtime": 1791219885.7165554,
+    "seen": 1791219918.5716197,
     "ast_hash": "10b3065bc3d4b16c9519bb582cb7627d",
     "semantic_hash": ""
   },
@@ -2178,8 +2178,8 @@
     "semantic_hash": ""
   },
   "deploy/chart-crd/templates/crds.yaml": {
-    "mtime": 1791211239.441564,
-    "seen": 1791211373.964537,
+    "mtime": 1791219885.716942,
+    "seen": 1791219918.57334,
     "ast_hash": "a8b59af81a7ec984f79448f8a3322cfe",
     "semantic_hash": ""
   },
@@ -2280,8 +2280,8 @@
     "semantic_hash": ""
   },
   "deploy/crds.yaml": {
-    "mtime": 1791211239.4239855,
-    "seen": 1791211373.965063,
+    "mtime": 1791219885.7171872,
+    "seen": 1791219918.5738633,
     "ast_hash": "c1d579aa63bfe6a870ee0171ffd3131e",
     "semantic_hash": ""
   },
@@ -2454,9 +2454,9 @@
     "semantic_hash": ""
   },
   "todo.md": {
-    "mtime": 1791216429.8562572,
-    "seen": 1791216435.1258657,
-    "ast_hash": "6c0854b30fccc95f60567dbf5b0f88aa",
+    "mtime": 1791220142.1918242,
+    "seen": 1791220147.6436403,
+    "ast_hash": "e9ece4ce702ab3733c21f3b247667480",
     "semantic_hash": ""
   },
   ".docs/public/art.png": {

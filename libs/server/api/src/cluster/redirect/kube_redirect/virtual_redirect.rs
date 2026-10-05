@@ -11,9 +11,8 @@
 //! Response rewriting means buffering, which is why watches get their own
 //! newline-delimited path: a watch never ends, so it can never be buffered.
 
-use actix_web::{HttpRequest, HttpResponse, dev::PeerAddr, http, web};
-use common::State;
-use crd::ProxyKubeApi;
+use super::RedirectContext;
+use actix_web::{HttpResponse, http, web};
 use futures_util::StreamExt;
 use serde_json::Value;
 use tracing::{debug, error, warn};
@@ -24,8 +23,6 @@ use virtual_api::discovery::{
 };
 
 use super::upstream::{apply_forward_headers, upstream_client};
-use crate::cluster::redirect::audit::AuditContext;
-use crate::model::user::User;
 
 /// Upper bound on a buffered virtual response.
 ///
@@ -166,21 +163,23 @@ async fn read_response_capped(
     Ok(body.freeze())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn virtual_redirect(
-    req: HttpRequest,
-    data: web::Data<State>,
-    mut payload: web::Payload,
-    method: http::Method,
-    peer_addr: Option<PeerAddr>,
-    proxy: ProxyKubeApi,
+    ctx: RedirectContext,
     base_url: String,
-    user: Option<User>,
-    audit: AuditContext,
     registry: MapperRegistry,
     upstream_path: String,
     plan: VirtualPlan,
 ) -> HttpResponse {
+    let RedirectContext {
+        req,
+        data,
+        mut payload,
+        method,
+        peer_addr,
+        proxy,
+        user,
+        audit,
+    } = ctx;
     // Discovery the proxy owns outright: no cluster round-trip.
     if let VirtualPlan::Direct(body) = &plan {
         debug!(path = %upstream_path, "answering virtual discovery locally");

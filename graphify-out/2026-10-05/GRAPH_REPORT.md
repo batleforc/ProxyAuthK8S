@@ -1,17 +1,17 @@
 # Graph Report - ProxyAuthK8S  (2026-10-05)
 
 ## Corpus Check
-- 342 files · ~451,570 words
+- 342 files · ~453,029 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 29 file(s) not represented in the graph (top: (none) 17, .tpl 5, .toml 4)
 
 ## Summary
-- 3403 nodes · 6101 edges · 221 communities (191 shown, 30 thin omitted)
-- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 474 edges (avg confidence: 0.85)
+- 3423 nodes · 6151 edges · 217 communities (186 shown, 31 thin omitted)
+- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 476 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `a5688d57`
+- Built from commit: `52481b00`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -24,7 +24,7 @@
 - ProxyKubeApi
 - Changelog
 - project.rs
-- CliView.vue
+- envtest_support/mod.rs
 - bug_fix.md
 - security/mod.rs
 - virtual_redirect.rs
@@ -40,15 +40,15 @@
 - swaggergen/project.json
 - source.ts
 - client/utils.gen.ts
-- ProxyKubeApi
-- seed_proxy
+- ProxyAuthK8sError
+- unique_cluster
 - nav.vue
 - upgrade.rs
 - OidcConf
 - CliConfig
 - crd/src/lib.rs
 - 3. Reference
-- authentication_configuration/mod.rs
+- serde
 - tracing
 - main.ts
 - oauth_as_callback.rs
@@ -65,23 +65,23 @@
 - trace/project.json
 - CertError
 - v0.1.0 — Fondations {"\u2705"}
-- State
+- Arc
 - auth/callback.rs
 - throttle.rs
-- CliServerConfig
+- seed_proxy
 - client/index.ts
 - lib/index.ts
 - harness/mod.rs
 - RedisPoolError
 - path_matcher.rs
-- super
+- VirtualRoute
 - HomeLoggedin.vue
 - compilerOptions
-- Error<T>
+- Error
 - proxy_kube_api/mod.rs
 - bodySerializer.gen.ts
 - actix_web
-- user.rs
+- crd_runtime/src/lib.rs
 - check-workspace-deps.py
 - port_forward.rs
 - discovery.rs
@@ -89,19 +89,18 @@
 - compilerOptions
 - oidc_auth_config_with_well_known
 - dependencies
-- proxykubeapi-crd.ts
+- KubeList
 - User
 - allowed_crd_configuration.rs
-- page-actions.tsx
-- CliCtx
+- collapsible.tsx
+- ctx.rs
 - controller/src/lib.rs
-- upgrade_redirect
+- route.tsx
 - security.mdx
 - [[...slug]]/page.tsx
-- proxy_clusters_api.rs
-- authorize
+- GroupsAdditionalClaims
+- throttle_oauth_as
 - model.rs
-- unique_cluster
 - service/mod.rs
 - ClusterCallbackView.vue
 - .handle_config
@@ -109,34 +108,35 @@
 - front-api/project.json
 - compilerOptions
 - api/src/helper/mod.rs
-- SecurityConfiguration
+- VerboseLevel
 - token
 - ProxyAuthK8s Release v{{VERSION}} - {{RELEASE_NAME}}
 - default/mod.rs
 - nx.json
 - Basic Workflow
-- ProxyKubeApiSpec
+- virtual_api/mod.rs
 - remark-variables.mjs
 - params.gen.ts
-- level.rs
+- LoginToCallBackModel
+- super
 - proxy_upgrade.rs
-- AllowedPathConfigurationEnum
+- server/src/main.rs
 - dependencies
 - ClusterNoSSOView.vue
-- api_clusters_api.rs
 - Usage
 - devDependencies
 - \ProxyClustersApi
 - aliases
 - AuditContext
 - port_range.rs
+- State
 - Installation
 - virtual-apis.mdx
 - app/layout.tsx
 - .handle_get_token
-- VerboseLevel
 - client_api/README.md
 - front-api/package.json
+- authorize
 - ProxyKubeApiStatus
 - api
 - graphify reference: extra exports and benchmark
@@ -145,20 +145,18 @@
 - ObjectRedis
 - Left to do
 - tsconfig.app.json
-- upstream.rs
+- Cli
 - Setup the development environment
 - bug_report.md
 - security_vulnerability_report.md
-- Cli
-- Configuration
 - tsconfig.lib.json
-- ProxyAuthK8sError
-- redirect
+- .handle_login
+- RedirectContext
 - TODO — deferred code-health follow-ups
 - kubectl_proxyauth/src/main.rs
 - scripts
 - api-page.tsx
-- Error
+- T
 - queryKeySerializer.gen.ts
 - get_all_visible_cluster
 - scripts
@@ -167,6 +165,7 @@
 - graphify reference: query, path, explain
 - feature_request.md
 - ISSUE_TEMPLATE/improvement.md
+- client.tsx
 - health
 - Rust API client for openapi
 - [proxyauthk8s-front-v0.1.0](https://github.com/batleforc/proxyauthK8s/compare/59055e784f09bb2b2f2dddad64dbca5f545414d4..proxyauthk8s-front-v0.1.0) - 2026-03-06
@@ -175,7 +174,7 @@
 - AllowedPathConfiguration
 - proxyauthk8s-docs
 - schema.ts
-- duration.rs
+- api/src/lib.rs
 - [proxyauthk8s-cli-client-api-v0.1.0](https://github.com/batleforc/proxyauthK8s/compare/239d73c70ca0f9181b82fb2b8dbd9e6fbfbe87af..proxyauthk8s-cli-client-api-v0.1.0) - 2026-03-06
 - get_all_visible_cluster
 - post_redirect
@@ -196,12 +195,11 @@
 - Changelog
 - expose-cluster.mdx
 - Changelog
+- cli_trace/src/lib.rs
 - Changelog
 - cli
-- Security Policy
 - graphify reference: GitHub clone and cross-repo merge
 - graphify reference: transcribe video and audio
-- auth_clusters_api.rs
 - front-api
 - .claude/CLAUDE.md
 - extraction-spec.md
@@ -212,55 +210,53 @@
 - whitespace-fixer.sh
 - controller/readme.md
 - status_response.rs
-- ClaimMappings
-- AllowedCrdConfiguration
-- with_rate_limiting
+- SECURITY.md
+- swaggergen/src/main.rs
 - ui.mdx
-- cleanup.rs
+- auditcontext
 - architecture.mdx
-- serde
 - spdy_dictionary.rs
 
 ## God Nodes (most connected - your core abstractions)
-1. `State` - 91 edges
+1. `State` - 87 edges
 2. `unique_cluster()` - 76 edges
 3. `delete_proxy()` - 72 edges
 4. `seed_proxy()` - 65 edges
 5. `proxy_fixture()` - 63 edges
 6. `ProxyKubeApi` - 42 edges
-7. `ProxyAuthK8sError` - 32 edges
+7. `ProxyAuthK8sError` - 36 edges
 8. `oidc_auth_config_with_well_known()` - 27 edges
-9. `User` - 26 edges
-10. `OidcConf` - 25 edges
+9. `OidcConf` - 25 edges
+10. `CliServerConfig` - 24 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `How to Contribute` --references--> `main()`  [INFERRED]
   .docs/content/docs/developper-guide/index.mdx → .github/scripts/check-workspace-deps.py
 - `main()` --calls--> `gen_openapi()`  [INFERRED]
   apps/swaggergen/src/main.rs → libs/server/api/src/lib.rs
+- `main()` --calls--> `shutdown_tracing()`  [INFERRED]
+  apps/server/src/main.rs → libs/server/trace/src/lib.rs
+- `main()` --calls--> `start_tracing()`  [INFERRED]
+  apps/server/src/main.rs → libs/server/trace/src/lib.rs
 - `crdgen` --depends_on--> `crd`  [EXTRACTED]
   apps/crdgen/Cargo.toml → libs/server/crd/Cargo.toml
-- `main()` --calls--> `init_tracing()`  [INFERRED]
-  apps/kubectl_proxyauth/src/main.rs → libs/cli/cli_trace/src/lib.rs
-- `main()` --calls--> `init_api()`  [INFERRED]
-  apps/server/src/main.rs → libs/server/api/src/lib.rs
 
 ## Import Cycles
-- None detected.
+- 2-file cycle: `libs/server/api/src/cluster/redirect/kube_redirect.rs -> libs/server/api/src/cluster/redirect/kube_redirect/upgrade.rs -> libs/server/api/src/cluster/redirect/kube_redirect.rs`
 
-## Communities (221 total, 30 thin omitted)
+## Communities (217 total, 31 thin omitted)
 
 ### Community 0 - "allowed_path_configuration.rs"
 Cohesion: 0.14
 Nodes (18): default_disabled, MUSTACHE_REGEX, non_parametised_rule_is_an_exact_match(), parametised_rule_combines_username_and_group(), parametised_rule_expands_every_group(), parametised_rule_expands_username(), parametised_rule_expands_wildcards(), PLACEHOLDER_PATTERN (+10 more)
 
 ### Community 1 - "trace/src/lib.rs"
-Cohesion: 0.06
-Nodes (45): api, main(), Result, main(), cors, FnOnce, gen_openapi, ipv4addr (+37 more)
+Cohesion: 0.13
+Nodes (24): Context, get_metadata(), get_resource(), init_metrics(), init_traces(), Result, shutdown_tracing(), start_tracing() (+16 more)
 
 ### Community 2 - "proxykubeapi-generator.client.tsx"
-Cohesion: 0.11
-Nodes (36): ArrayField(), asObject(), buildPresetDefinitions(), createInitialValue(), defaultScalarValue(), FieldProps, FieldRenderer(), FormObject (+28 more)
+Cohesion: 0.09
+Nodes (43): ArrayField(), asObject(), buildPresetDefinitions(), createInitialValue(), defaultScalarValue(), FieldProps, FieldRenderer(), FormObject (+35 more)
 
 ### Community 3 - "envtest.rs"
 Cohesion: 0.17
@@ -279,28 +275,28 @@ Cohesion: 0.05
 Nodes (42): Bug Fixes, Bug Fixes, Bug Fixes, Bug Fixes, Build system, Build system, Changelog, Features (+34 more)
 
 ### Community 7 - "project.rs"
-Cohesion: 0.09
-Nodes (33): a_malformed_project_request_body_does_not_panic(), a_namespace_list_with_non_object_items_does_not_panic(), a_project_request_without_optional_fields_maps_cleanly(), advertises_its_resources_in_discovery(), CORE_API_VERSION, DESCRIPTION_ANNOTATION, DISPLAY_NAME_ANNOTATION, GROUP (+25 more)
+Cohesion: 0.08
+Nodes (35): a_malformed_project_request_body_does_not_panic(), a_namespace_list_with_non_object_items_does_not_panic(), a_project_request_without_optional_fields_maps_cleanly(), advertises_its_resources_in_discovery(), CORE_API_VERSION, DESCRIPTION_ANNOTATION, DISPLAY_NAME_ANNOTATION, GROUP (+27 more)
 
-### Community 8 - "CliView.vue"
-Cohesion: 0.14
-Nodes (10): authStore, backendUrl, backendUrlName, installationCommands, toast, usageExamples, *.vue, highlight.js (+2 more)
+### Community 8 - "envtest_support/mod.rs"
+Cohesion: 0.12
+Nodes (20): Child, Drop, assets_dir(), EnvTest, free_port(), generate_service_account_keys(), install_crypto_provider(), next_id() (+12 more)
 
 ### Community 9 - "bug_fix.md"
 Cohesion: 0.05
 Nodes (34): Contributing, Checklist, Fix Description, Linked Issue, Reproduction, Risk / Impact, Root Cause Analysis, Screenshots / Logs (if applicable) (+26 more)
 
 ### Community 10 - "security/mod.rs"
-Cohesion: 0.13
-Nodes (23): a_crd_rule_enforces_group_version_kind_and_namespace(), a_matching_rule_without_ports_lifts_the_restriction(), a_zero_duration_is_a_permanent_ban(), an_encoded_slash_cannot_hide_a_port_forward(), any_matching_rule_allows_the_path(), both_spellings_are_merged(), crd_and_path_rules_coexist_in_the_allow_list(), disabled_configuration_allows_everything() (+15 more)
+Cohesion: 0.07
+Nodes (41): AllowedPathConfigurationEnum, Result, a_crd_rule_enforces_group_version_kind_and_namespace(), a_disabled_security_config_never_rate_limits(), a_group_limit_overrides_the_global_one(), a_matching_rule_without_ports_lifts_the_restriction(), a_zero_duration_is_a_permanent_ban(), a_zero_group_limit_means_unlimited() (+33 more)
 
 ### Community 11 - "virtual_redirect.rs"
-Cohesion: 0.11
-Nodes (33): Bytes, a_project_request_maps_onto_a_namespace_creation(), a_resource_request_is_mapped_onto_the_real_api(), an_unsupported_verb_plans_a_405(), DEFAULT_MAX_BUFFERED_BYTES, discovery_of_a_served_group_is_answered_locally(), is_watch(), json_response() (+25 more)
+Cohesion: 0.12
+Nodes (28): Bytes, a_project_request_maps_onto_a_namespace_creation(), a_resource_request_is_mapped_onto_the_real_api(), an_unsupported_verb_plans_a_405(), DEFAULT_MAX_BUFFERED_BYTES, discovery_of_a_served_group_is_answered_locally(), is_watch(), json_response() (+20 more)
 
 ### Community 12 - "sso.rs"
-Cohesion: 0.05
-Nodes (50): apis, Child, Drop, io, Result, secure_write(), accept_any(), bind_loopback_listeners() (+42 more)
+Cohesion: 0.09
+Nodes (29): io, Result, secure_write(), accept_any(), bind_loopback_listeners(), callback_port(), CALLBACK_TIMEOUT, CallbackResult (+21 more)
 
 ### Community 13 - "VirtualApiMapper"
 Cohesion: 0.10
@@ -316,11 +312,11 @@ Nodes (33): Analysis & Debug (70-90% savings), Backend, Build & Compile (80-90% 
 
 ### Community 16 - "forwarded.rs"
 Cohesion: 0.08
-Nodes (22): IpAddr, forwarded_for_value(), HOP_BY_HOP, identity_headers(), identity_headers_cannot_inject_extra_headers(), is_hop_by_hop(), is_proxy_owned_header(), is_upstream_auth_header() (+14 more)
+Nodes (26): IpAddr, forwarded_for_value(), HOP_BY_HOP, identity_headers(), identity_headers_cannot_inject_extra_headers(), is_hop_by_hop(), is_proxy_owned_header(), is_upstream_auth_header() (+18 more)
 
 ### Community 17 - "String"
 Cohesion: 0.11
-Nodes (18): GetOutput, Vec, CliCtx, GetClusterOutput, Option, Result, Vec, KubeList (+10 more)
+Nodes (13): GetOutput, Vec, CliCtx, GetClusterOutput, Option, Result, Vec, Option (+5 more)
 
 ### Community 18 - "crdgen/project.json"
 Cohesion: 0.07
@@ -339,52 +335,56 @@ Cohesion: 0.07
 Nodes (31): cache, configurations, executor, options, outputs, production, cache, executor (+23 more)
 
 ### Community 22 - "source.ts"
-Cohesion: 0.12
-Nodes (16): revalidate, staticGET, generateMetadata(), GET(), revalidate, GET(), revalidate, revalidate (+8 more)
+Cohesion: 0.18
+Nodes (11): revalidate, staticGET, GET(), revalidate, GET(), revalidate, revalidate, getLLMText() (+3 more)
 
 ### Community 23 - "client/utils.gen.ts"
 Cohesion: 0.15
 Nodes (28): createClient(), axiosHeadersKeywords, buildUrl(), checkForExistence(), createConfig(), createQuerySerializer(), mergeConfigs(), mergeHeaders() (+20 more)
 
-### Community 25 - "seed_proxy"
-Cohesion: 0.22
-Nodes (21): fail2login_config(), mount_oidc_provider(), oidc_auth_config(), seed_proxy(), location(), redirects_to_the_upstream_provider_and_stores_pending_state(), redirects_with_an_error_for_a_malformed_code_challenge(), redirects_with_an_error_for_an_unsupported_code_challenge_method() (+13 more)
+### Community 24 - "ProxyAuthK8sError"
+Cohesion: 0.09
+Nodes (29): Certificate, client_api, entry, CliServerConfig, cluster_url_uses_the_given_namespace_then_falls_back_to_the_default(), clusters_are_looked_up_by_ns_and_name(), http_client(), http_client_rejects_corrupted_stored_data() (+21 more)
+
+### Community 25 - "unique_cluster"
+Cohesion: 0.15
+Nodes (44): delete_proxy(), proxy_fixture(), rate_limited_config(), ProxyKubeApi, Vec, security_config(), unique_cluster(), with_virtual_api() (+36 more)
 
 ### Community 26 - "nav.vue"
 Cohesion: 0.11
-Nodes (20): authStore, isInitializing, authStore, closeMobileMenu(), handleLogin(), handleLogout(), isMobileMenuOpen, navItems (+12 more)
+Nodes (21): authStore, isInitializing, authStore, closeMobileMenu(), handleLogin(), handleLogout(), isMobileMenuOpen, navItems (+13 more)
 
 ### Community 27 - "upgrade.rs"
-Cohesion: 0.13
-Nodes (28): arc, AsyncRead, AsyncWrite, HttpResponseBuilder, AsyncIo, copy_upstream_headers(), is_upgrade_request(), is_upgrade_target() (+20 more)
+Cohesion: 0.09
+Nodes (39): arc, AsyncRead, AsyncWrite, BoxedAsyncIo, HttpResponseBuilder, AsyncIo, connect_upgrade_stream(), copy_upstream_headers() (+31 more)
 
 ### Community 28 - "OidcConf"
 Cohesion: 0.06
 Nodes (44): CoreClientFront, DiscoveryError, engine, HttpClientError, instrument, fails_when_discovery_is_unavailable(), mount_discovery(), mount_userinfo() (+36 more)
 
 ### Community 29 - "CliConfig"
-Cohesion: 0.13
-Nodes (14): CliClusterConfig, Default, Self, CliConfig, proxy_url_to_tuple_extracts_server_ns_and_cluster(), proxy_url_to_tuple_server_name_keeps_the_port_and_matches_url_to_name(), Default, HashMap (+6 more)
+Cohesion: 0.12
+Nodes (15): CliClusterConfig, Default, Self, CliConfigError, CliConfig, proxy_url_to_tuple_extracts_server_ns_and_cluster(), proxy_url_to_tuple_server_name_keeps_the_port_and_matches_url_to_name(), Default (+7 more)
 
 ### Community 30 - "crd/src/lib.rs"
-Cohesion: 0.14
-Nodes (24): authentication_configuration, certificate, a_dashboard_exposed_cluster_reuses_its_dashboard_group(), a_plain_cluster_is_not_group_restricted(), auth_config(), dashboard_group_uses_the_configured_value(), need_token_validation_follows_the_auth_config(), oidc_provider() (+16 more)
+Cohesion: 0.12
+Nodes (29): authentication_configuration, AuthenticationConfiguration, Result, Vec, OidcProvider, Option, a_dashboard_exposed_cluster_reuses_its_dashboard_group(), a_plain_cluster_is_not_group_restricted() (+21 more)
 
 ### Community 31 - "3. Reference"
 Cohesion: 0.07
 Nodes (27): 1. Your Job, 2. The Workflow, 3. Reference, 4. Fix Tool Issues Upstream, Agent directives, Claude Code Overlay, Commit tracking, Desloppify (+19 more)
 
-### Community 32 - "authentication_configuration/mod.rs"
-Cohesion: 0.16
-Nodes (15): default, ClaimValidationRule, AudienceMatchPolicyType, EgressSelectorType, Issuer, Option, Vec, JWTAuthenticator (+7 more)
+### Community 32 - "serde"
+Cohesion: 0.11
+Nodes (21): default, jsonschema, CallbackModel, ClaimMappings, ClaimOrExpression, ExtraMapping, PrefixedClaimOrExpression, Option (+13 more)
 
 ### Community 33 - "tracing"
-Cohesion: 0.10
-Nodes (15): auditcontext, crate, customresourceext, health(), Responder, cluster_login(), Data, HttpRequest (+7 more)
+Cohesion: 0.13
+Nodes (9): apis, crate, customresourceext, health(), Responder, proxykubeapi, std, subcommand (+1 more)
 
 ### Community 34 - "main.ts"
-Cohesion: 0.19
-Nodes (9): app, pinia, PiniaCustomProperties, toastOptions, router, apps_front_src_styles, client, @maz-ui/themes (+1 more)
+Cohesion: 0.09
+Nodes (18): app, pinia, PiniaCustomProperties, toastOptions, router, apps_front_src_styles, authStore, backendUrl (+10 more)
 
 ### Community 35 - "oauth_as_callback.rs"
 Cohesion: 0.12
@@ -395,12 +395,12 @@ Cohesion: 0.08
 Nodes (24): For /graphify add and --watch, For /graphify query, For the commit hook and native CLAUDE.md integration, For --update and --cluster-only, /graphify, Honesty Rules, Interpreter guard for subcommands, Part A - Structural extraction for code files (+16 more)
 
 ### Community 37 - ".docs/package.json"
-Cohesion: 0.07
-Nodes (27): eslintConfig, eslint, @types/node, typescript, name, packageManager, private, resolutions (+19 more)
+Cohesion: 0.08
+Nodes (23): eslintConfig, eslint, @types/node, typescript, name, packageManager, private, resolutions (+15 more)
 
 ### Community 38 - "standard.rs"
 Cohesion: 0.10
-Nodes (24): extract_timeout_from_query, HeaderMap, is_hop_by_hop, announced_content_length(), body_for_debug_log(), DEBUG_BODY_LOG_LIMIT, debug_body_max_bytes(), DEFAULT_DEBUG_BODY_MAX_BYTES (+16 more)
+Nodes (23): build_tls_config, extract_timeout_from_query, HeaderMap, is_hop_by_hop, announced_content_length(), body_for_debug_log(), DEBUG_BODY_LOG_LIMIT, debug_body_max_bytes() (+15 more)
 
 ### Community 39 - "cli/project.json"
 Cohesion: 0.09
@@ -435,28 +435,28 @@ Cohesion: 0.09
 Nodes (24): executor, options, outputs, production, cache, executor, options, outputs (+16 more)
 
 ### Community 47 - "CertError"
-Cohesion: 0.12
-Nodes (17): base64, certerror, DecodeError, FromUtf8Error, ClientCertificate, Client, Result, CertError (+9 more)
+Cohesion: 0.13
+Nodes (16): certerror, DecodeError, FromUtf8Error, ClientCertificate, Client, Result, CertError, Box (+8 more)
 
 ### Community 48 - "v0.1.0 — Fondations {"\u2705"}"
 Cohesion: 0.08
 Nodes (23): Authentification OIDC, Backend & Proxy, CI/CD, CI/CD, CI/CD, Controller Kubernetes, CRD & Validation, Documentation (+15 more)
 
-### Community 49 - "State"
-Cohesion: 0.23
-Nodes (11): AtomicBool, Arc, State, ProxyKubeApi, ProxyKubeApiRuntime, ProxyRuntimeError, Arc, Client (+3 more)
+### Community 49 - "Arc"
+Cohesion: 0.25
+Nodes (8): ProxyKubeApi, ProxyKubeApiRuntime, ProxyRuntimeError, Arc, Client, Kubeconfig, Option, Result
 
 ### Community 50 - "auth/callback.rs"
-Cohesion: 0.12
-Nodes (18): deserialize, extract_ns_cluster, ApiDoc, callback_login(), CallbackQuery, Data, HttpRequest, Query (+10 more)
+Cohesion: 0.10
+Nodes (21): deserialize, extract_ns_cluster, ApiDoc, callback_login(), CallbackQuery, Data, HttpRequest, Query (+13 more)
 
 ### Community 51 - "throttle.rs"
 Cohesion: 0.19
 Nodes (19): certsource, ban_key(), ban_retry_after(), check_rate_limit(), clear_auth_failures(), fail_closed(), failure_key(), FAILURE_WINDOW_SECONDS (+11 more)
 
-### Community 52 - "CliServerConfig"
-Cohesion: 0.14
-Nodes (11): client_api, entry, CliServerConfig, cluster_url_uses_the_given_namespace_then_falls_back_to_the_default(), clusters_are_looked_up_by_ns_and_name(), GetAllVisibleClusterBody, HashMap, Option (+3 more)
+### Community 52 - "seed_proxy"
+Cohesion: 0.22
+Nodes (21): fail2login_config(), mount_oidc_provider(), oidc_auth_config(), seed_proxy(), location(), redirects_to_the_upstream_provider_and_stores_pending_state(), redirects_with_an_error_for_a_malformed_code_challenge(), redirects_with_an_error_for_an_unsupported_code_challenge_method() (+13 more)
 
 ### Community 53 - "client/index.ts"
 Cohesion: 0.15
@@ -471,16 +471,16 @@ Cohesion: 0.14
 Nodes (20): atomic, AtomicUsize, CLUSTER_COUNTER, install_crypto_provider(), redis_pool(), REDIS_PREFIX, redis_url(), report_unavailable_redis() (+12 more)
 
 ### Community 56 - "RedisPoolError"
-Cohesion: 0.06
-Nodes (41): Cmd, ConnectionLike, deadpool_redis, Fn, a_second_login_replaces_entries_instead_of_duplicating_them(), exec_args(), ProxyContextNames, Kubeconfig (+33 more)
+Cohesion: 0.21
+Nodes (7): index_key(), Option, Result, Vec, RedisPoolError, Self, RedisError
 
 ### Community 57 - "path_matcher.rs"
 Cohesion: 0.16
 Nodes (9): is_traversal_segment(), match_segments(), path_equals(), path_has_no_traversal(), path_matches_pattern(), percent_decode_once(), request_path_is_safe(), segment_matches() (+1 more)
 
-### Community 58 - "super"
-Cohesion: 0.15
-Nodes (11): Into, Option, route_builders_uppercase_the_method(), Option, Self, Vec, segments(), upstream_request_defaults_to_forwarding_the_client_body() (+3 more)
+### Community 58 - "VirtualRoute"
+Cohesion: 0.16
+Nodes (12): Into, classify(), DiscoveryRequest, Option, route_builders_uppercase_the_method(), Option, Self, Vec (+4 more)
 
 ### Community 59 - "HomeLoggedin.vue"
 Cohesion: 0.11
@@ -490,13 +490,13 @@ Nodes (15): useClustersStore, authStore, clusters, clustersStore, copyUrlToClipb
 Cohesion: 0.10
 Nodes (20): compilerOptions, allowJs, esModuleInterop, forceConsistentCasingInFileNames, incremental, isolatedModules, jsx, lib (+12 more)
 
-### Community 61 - "Error<T>"
-Cohesion: 0.22
-Nodes (7): ContentType, Error<T>, Display, Formatter, From, Result, Self
+### Community 61 - "Error"
+Cohesion: 0.08
+Nodes (22): error, Self, GetAllVisibleClusterError, Value, ContentType, Error, Error<T>, parse_deep_object() (+14 more)
 
 ### Community 62 - "proxy_kube_api/mod.rs"
-Cohesion: 0.24
-Nodes (12): finalizer, get_trace_id, error_policy_proxy_kube_api(), main_reconcile_proxy_kube_api(), REDIS_PREFIX, Action, Arc, ProxyKubeApi (+4 more)
+Cohesion: 0.12
+Nodes (16): finalizer, get_trace_id, extract_timeout_from_query(), parse_kube_duration(), Duration, Option, error_policy_proxy_kube_api(), main_reconcile_proxy_kube_api() (+8 more)
 
 ### Community 63 - "bodySerializer.gen.ts"
 Cohesion: 0.14
@@ -506,9 +506,9 @@ Nodes (16): Auth, AuthToken, BodySerializer, formDataBodySerializer, jsonBodySer
 Cohesion: 0.14
 Nodes (16): actix_web, asynctypedcommands, harness, returns_404_for_an_unknown_cluster(), returns_404_when_the_proxy_is_disabled(), assert_kubernetes_status(), rejects_a_path_outside_the_allow_list(), rejects_a_user_outside_the_proxy_group() (+8 more)
 
-### Community 65 - "user.rs"
-Cohesion: 0.19
-Nodes (10): common, crd, kube, reconcile_proxy_kube_api(), Action, Arc, ProxyKubeApi, Result (+2 more)
+### Community 65 - "crd_runtime/src/lib.rs"
+Cohesion: 0.16
+Nodes (14): common, crd, kube, clean_proxy_kube_api(), Action, Arc, ProxyKubeApi, Result (+6 more)
 
 ### Community 66 - "check-workspace-deps.py"
 Cohesion: 0.13
@@ -519,8 +519,8 @@ Cohesion: 0.07
 Nodes (46): Decompress, flate2, FnMut, allowed_ports_pass_and_others_close_the_session(), binary(), check_port(), check_query_ports(), control_frame() (+38 more)
 
 ### Community 68 - "discovery.rs"
-Cohesion: 0.17
-Nodes (18): api_group(), api_group_response(), api_group_response_is_a_well_formed_api_group(), api_resource_list_response(), api_resource_list_response_is_a_well_formed_resource_list(), classifies_the_three_discovery_shapes(), classify(), DiscoveryRequest (+10 more)
+Cohesion: 0.23
+Nodes (14): api_group(), api_group_response(), api_group_response_is_a_well_formed_api_group(), api_resource_list_response(), api_resource_list_response_is_a_well_formed_resource_list(), classifies_the_three_discovery_shapes(), ignores_discovery_for_groups_it_does_not_serve(), merge_api_group_list() (+6 more)
 
 ### Community 69 - "compilerOptions"
 Cohesion: 0.11
@@ -538,57 +538,53 @@ Nodes (13): IssuedCode, oidc_auth_config_with_well_known(), a_code_can_only_be_r
 Cohesion: 0.11
 Nodes (18): dependencies, fumadocs-core, fumadocs-mdx, fumadocs-openapi, fumadocs-ui, @icons-pack/react-simple-icons, lucide-react, mermaid (+10 more)
 
-### Community 73 - "proxykubeapi-crd.ts"
-Cohesion: 0.28
-Nodes (7): ProxyKubeApiGenerator(), CrdDocument, CrdVersionSchema, extractProxyKubeApiSpecSchema(), JsonPrimitive, ref_node_path, yaml
+### Community 73 - "KubeList"
+Cohesion: 0.18
+Nodes (9): ContextFormat, KubeList, KubeList<T>, Option, Self, Value, Vec, TableRow (+1 more)
 
 ### Community 74 - "User"
-Cohesion: 0.26
-Nodes (11): FromRequest, Future, HttpRequest, Option, Payload, ProxyKubeApi, Result, Self (+3 more)
+Cohesion: 0.23
+Nodes (12): FromRequest, Future, HttpRequest, Option, Payload, ProxyKubeApi, Result, Self (+4 more)
 
 ### Community 75 - "allowed_crd_configuration.rs"
-Cohesion: 0.21
-Nodes (18): allowed_namespaces_are_default_deny(), cluster_scoped_resource_rejects_a_namespaced_path(), core_group_and_plural_default_are_handled(), denied_namespaces_block_only_the_listed_ones(), groups(), matches_a_namespaced_custom_resource_and_its_subresources(), ns_rule(), open_ns() (+10 more)
+Cohesion: 0.14
+Nodes (21): allowed_namespaces_are_default_deny(), AllowedCrdConfiguration, cluster_scoped_resource_rejects_a_namespaced_path(), core_group_and_plural_default_are_handled(), denied_namespaces_block_only_the_listed_ones(), groups(), matches_a_namespaced_custom_resource_and_its_subresources(), ns_rule() (+13 more)
 
-### Community 76 - "page-actions.tsx"
-Cohesion: 0.11
-Nodes (17): cache, ViewOptions(), Feedback(), ButtonProps, buttonVariants, variants, CollapsibleContent, CollapsibleContentProps (+9 more)
+### Community 76 - "collapsible.tsx"
+Cohesion: 0.18
+Nodes (10): CollapsibleContent, CollapsibleContentProps, CollapsibleProps, CollapsibleTriggerProps, PopoverContent, docs_src_lib_cn_cn, ref_radix_ui_react_collapsible, ref_radix_ui_react_popover (+2 more)
 
-### Community 77 - "CliCtx"
-Cohesion: 0.13
-Nodes (14): CliCtx, Option, Result, CliCtx, ContextFormat, Kubeconfig, Option, PathBuf (+6 more)
+### Community 77 - "ctx.rs"
+Cohesion: 0.12
+Nodes (21): CliCtx, Option, Result, CliCtx, edit_kubeconfig_only_rewrites_the_target_file(), explicit_kubeconfig_wins_over_env_and_home(), kubeconfig_env_is_split_like_path_and_skips_empty_entries(), Fn (+13 more)
 
 ### Community 78 - "controller/src/lib.rs"
 Cohesion: 0.25
 Nodes (7): interval, kube_leader_election, LeaseLock, run(), run_leader_election(), proxy_kube_api, streamext
 
-### Community 79 - "upgrade_redirect"
-Cohesion: 0.20
-Nodes (15): BoxedAsyncIo, connect_upgrade_stream(), Data, HttpRequest, HttpResponse, Method, Option, Payload (+7 more)
+### Community 79 - "route.tsx"
+Cohesion: 0.33
+Nodes (5): generateMetadata(), generateStaticParams(), revalidate, getPageImage(), @takumi-rs/image-response
 
 ### Community 80 - "security.mdx"
 Cohesion: 0.11
 Nodes (17): 1. Bannissement (fail2login), 2. Authentification, 3. Autorisation par cluster, 4. Liste des ressources autorisées, 5. Quotas, Cible upstream (SSRF), Connexions upgrade (exec, attach, port-forward), En-têtes transmis (+9 more)
 
 ### Community 81 - "[[...slug]]/page.tsx"
-Cohesion: 0.23
-Nodes (10): Layout(), Page(), Layout(), APIPage(), Mermaid(), baseOptions(), gitConfig, getMDXComponents() (+2 more)
+Cohesion: 0.18
+Nodes (12): Layout(), Page(), Layout(), cache, ViewOptions(), APIPage(), Mermaid(), baseOptions() (+4 more)
 
-### Community 82 - "proxy_clusters_api.rs"
-Cohesion: 0.32
-Nodes (12): delete_redirect(), DeleteRedirectError, get_redirect(), GetRedirectError, patch_redirect(), PatchRedirectError, post_redirect(), PostRedirectError (+4 more)
+### Community 82 - "GroupsAdditionalClaims"
+Cohesion: 0.50
+Nodes (3): AdditionalClaims, GroupsAdditionalClaims, Vec
 
-### Community 83 - "authorize"
-Cohesion: 0.08
-Nodes (32): load_discovery_enabled_proxy(), HttpRequest, HttpResponse, Option, ProxyKubeApi, Result, throttle_oauth_as(), authorize() (+24 more)
+### Community 83 - "throttle_oauth_as"
+Cohesion: 0.17
+Nodes (15): load_discovery_enabled_proxy(), HttpRequest, HttpResponse, Option, ProxyKubeApi, Result, throttle_oauth_as(), jwks() (+7 more)
 
 ### Community 84 - "model.rs"
-Cohesion: 0.16
-Nodes (11): CODE_PREFIX, CODE_TTL_SECONDS, parse_loopback_redirect_uri(), PENDING_PREFIX, PENDING_TTL_SECONDS, PendingAuthorization, redirect_uri_is_compared_in_its_normalised_form(), redirect_uri_matches() (+3 more)
-
-### Community 85 - "unique_cluster"
 Cohesion: 0.15
-Nodes (44): delete_proxy(), proxy_fixture(), rate_limited_config(), ProxyKubeApi, Vec, security_config(), unique_cluster(), with_virtual_api() (+36 more)
+Nodes (12): base64, CODE_PREFIX, CODE_TTL_SECONDS, parse_loopback_redirect_uri(), PENDING_PREFIX, PENDING_TTL_SECONDS, PendingAuthorization, redirect_uri_is_compared_in_its_normalised_form() (+4 more)
 
 ### Community 86 - "service/mod.rs"
 Cohesion: 0.14
@@ -615,24 +611,24 @@ Cohesion: 0.13
 Nodes (14): compilerOptions, forceConsistentCasingInFileNames, importHelpers, module, noFallthroughCasesInSwitch, noImplicitOverride, noImplicitReturns, noPropertyAccessFromIndexSignature (+6 more)
 
 ### Community 92 - "api/src/helper/mod.rs"
-Cohesion: 0.15
-Nodes (7): AuthError, extract_authorization_header(), HttpRequest, HttpResponse, Result, with_auth(), testrequest
+Cohesion: 0.11
+Nodes (13): cluster_login(), Data, HttpRequest, Responder, AuthError, extract_authorization_header(), extract_ns_cluster(), HttpRequest (+5 more)
 
-### Community 93 - "SecurityConfiguration"
-Cohesion: 0.18
-Nodes (8): port_forward_rule(), Default, Item, Iterator, Option, Result, SecurityConfiguration, PerUserGroupRateLimitingConfiguration
+### Community 93 - "VerboseLevel"
+Cohesion: 0.21
+Nodes (9): Level, Debug, Display, Formatter, From, Result, Self, tracing_subscriber::filter::LevelFilter (+1 more)
 
 ### Community 94 - "token"
-Cohesion: 0.16
-Nodes (13): Form, verify_pkce_s256(), Data, HttpRequest, HttpResponse, Option, Responder, StatusCode (+5 more)
+Cohesion: 0.12
+Nodes (16): fmt, Form, CallbackModel, verify_pkce_s256(), Data, HttpRequest, HttpResponse, Option (+8 more)
 
 ### Community 95 - "ProxyAuthK8s Release v{{VERSION}} - {{RELEASE_NAME}}"
 Cohesion: 0.14
 Nodes (13): CLI Tool Installation - Not available YET, CLI Tool Update - Not available YET, 🙏 Contributors, Docker Images, Helm Update, 📦 Installation, Overview, Prerequisites (+5 more)
 
 ### Community 96 - "default/mod.rs"
-Cohesion: 0.21
-Nodes (10): ValidateAgainst, default_ban_duration(), default_disabled(), default_empty_string(), default_enabled(), default_max_failed_logins(), default_max_requests_per_minute(), default_validate_against() (+2 more)
+Cohesion: 0.12
+Nodes (16): ValidateAgainst, default_ban_duration(), default_disabled(), default_empty_array(), default_empty_string(), default_enabled(), default_max_failed_logins(), default_max_requests_per_minute() (+8 more)
 
 ### Community 97 - "nx.json"
 Cohesion: 0.14
@@ -642,9 +638,9 @@ Nodes (13): analytics, namedInputs, default, production, sharedGlobals, cache, d
 Cohesion: 0.15
 Nodes (12): Basic Workflow, Example config file (~/.kube/proxyauth_config.yaml), Example Kubeconfig Exec Section, Features, Get Available Clusters, Get resources from a Cluster, Kubectl ProxyAuth, Login to a Cluster with SSO (+4 more)
 
-### Community 99 - "ProxyKubeApiSpec"
-Cohesion: 0.22
-Nodes (8): default_enabled, ProxyKubeApiSpec, Vec, enabled_kinds(), Self, Vec, VirtualApiConfiguration, VirtualApiKind
+### Community 99 - "virtual_api/mod.rs"
+Cohesion: 0.23
+Nodes (7): default_enabled, Vec, enabled_kinds(), Self, Vec, VirtualApiConfiguration, VirtualApiKind
 
 ### Community 100 - "remark-variables.mjs"
 Cohesion: 0.17
@@ -654,17 +650,21 @@ Nodes (9): remarkVariables(), rootPkg, variables, config, withMDX, docs, fumadoc
 Cohesion: 0.18
 Nodes (11): buildClientParams(), buildKeyMap(), extraPrefixes, extraPrefixesMap, Field, Fields, FieldsConfig, KeyMap (+3 more)
 
-### Community 102 - "level.rs"
-Cohesion: 0.07
-Nodes (19): fmt, LoginToCallBackModel, Display, Formatter, Option, Result, Self, CallbackModel (+11 more)
+### Community 102 - "LoginToCallBackModel"
+Cohesion: 0.11
+Nodes (15): LoginToCallBackModel, Display, Formatter, Option, Result, Self, GetAllVisibleClusterBody, From (+7 more)
+
+### Community 103 - "super"
+Cohesion: 0.05
+Nodes (50): BasicAuth, a_second_login_replaces_entries_instead_of_duplicating_them(), exec_args(), ProxyContextNames, Fn, Kubeconfig, Option, Self (+42 more)
 
 ### Community 104 - "proxy_upgrade.rs"
 Cohesion: 0.16
 Nodes (24): JoinHandle, a_port_forward_query_outside_the_allowed_ports_is_refused(), a_refused_upgrade_never_forwards_the_client_bytes(), a_spdy_upgrade_is_refused_before_reaching_the_cluster(), a_tunnelled_spdy_port_forward_is_filtered_per_stream(), an_accepted_upgrade_tunnels_both_ways(), an_upgrade_header_on_a_plain_path_does_not_open_a_raw_socket(), exchange() (+16 more)
 
-### Community 105 - "AllowedPathConfigurationEnum"
-Cohesion: 0.29
-Nodes (4): AllowedPathConfigurationEnum, Result, crd_rule(), path_rule()
+### Community 105 - "server/src/main.rs"
+Cohesion: 0.17
+Nodes (10): api, cors, ipv4addr, SecurityAddons, Modify, OpenApi, trace, tracing_actix_web (+2 more)
 
 ### Community 106 - "dependencies"
 Cohesion: 0.15
@@ -674,13 +674,9 @@ Nodes (13): dependencies, @eslint/eslintrc, @eslint/js, highlight.js, maz-ui, @m
 Cohesion: 0.18
 Nodes (10): authStore, clusterData, clustersStore, clusterUrl, downloadKubeconfig(), generateKubeconfig(), isLoading, route (+2 more)
 
-### Community 108 - "api_clusters_api.rs"
-Cohesion: 0.22
-Nodes (8): get_all_visible_cluster(), GetAllVisibleClusterBody, Result, health(), HealthError, Result, Value, reqwest
-
 ### Community 109 - "Usage"
-Cohesion: 0.14
-Nodes (13): Configuration du plugin, Depuis une release, Gérer les contextes kubectl, Installation, Le kubeconfig plugin, Lister les clusters visibles, Options globales, Résolution de problèmes (+5 more)
+Cohesion: 0.13
+Nodes (14): Certificat non reconnu par le système, Configuration du plugin, Depuis une release, Gérer les contextes kubectl, Installation, Le kubeconfig plugin, Lister les clusters visibles, Options globales (+6 more)
 
 ### Community 110 - "devDependencies"
 Cohesion: 0.17
@@ -702,6 +698,10 @@ Nodes (6): Instant, AuditContext, Option, Self, Vec, sanitize_audit_field()
 Cohesion: 0.22
 Nodes (5): PORT_SPEC_RULE, PortSpec, Result, spec(), RangeInclusive
 
+### Community 115 - "State"
+Cohesion: 0.18
+Nodes (11): AtomicBool, Arc, Client, Default, Self, ServerConfig, State, StateInitError (+3 more)
+
 ### Community 116 - "Installation"
 Cohesion: 0.22
 Nodes (8): 0. Cloner le repository et définir les constantes, 1. Installer Redis/Dragonfly, 2. Préparer les secrets, 3. Installer ProxyAuthK8S, 4. Exposer le cluster hôte, 5. Enjoy ProxyAuthK8S! 🎉, Installation, Prérequis
@@ -718,10 +718,6 @@ Nodes (7): docs_src_app_global, inter, Provider(), DefaultSearchDialog(), initDB
 Cohesion: 0.29
 Nodes (5): clictx, CliCtx, GetTokenFailed, Option, Result
 
-### Community 120 - "VerboseLevel"
-Cohesion: 0.21
-Nodes (9): Level, Debug, Display, Formatter, From, Result, Self, tracing_subscriber::filter::LevelFilter (+1 more)
-
 ### Community 121 - "client_api/README.md"
 Cohesion: 0.24
 Nodes (5): \ApiClustersApi, GetAllVisibleClusterBody, Properties, Properties, VisibleCluster
@@ -730,8 +726,12 @@ Nodes (5): \ApiClustersApi, GetAllVisibleClusterBody, Properties, Properties, Vi
 Cohesion: 0.20
 Nodes (9): dependencies, tslib, tslib, main, name, private, type, types (+1 more)
 
+### Community 123 - "authorize"
+Cohesion: 0.17
+Nodes (12): authorize(), AuthorizeQuery, Data, HttpRequest, Option, Query, Responder, redirect_with_error() (+4 more)
+
 ### Community 124 - "ProxyKubeApiStatus"
-Cohesion: 0.29
+Cohesion: 0.28
 Nodes (5): ProxyKubeApiStatus, Option, Self, Value, Patch
 
 ### Community 125 - "api"
@@ -762,9 +762,9 @@ Nodes (8): Architecture, Left to do, Local dev with Keycloak (alternative IdP), 
 Cohesion: 0.25
 Nodes (7): compilerOptions, outDir, types, exclude, extends, include, ./tsconfig.json
 
-### Community 132 - "upstream.rs"
-Cohesion: 0.29
-Nodes (7): build_tls_config, info, Client, Data, ProxyKubeApi, Result, upstream_client()
+### Community 132 - "Cli"
+Cohesion: 0.24
+Nodes (10): clap, ConfigCommands, Option, CacheCommands, Cli, Commands, CliCtx, ExitCode (+2 more)
 
 ### Community 133 - "Setup the development environment"
 Cohesion: 0.25
@@ -778,33 +778,25 @@ Nodes (7): Actual Behavior, Additional Context, Environment, Expected Behavior, 
 Cohesion: 0.25
 Nodes (7): Additional Context, Environment, Expected vs Actual, Impact, Logs / Evidence, Steps to Reproduce, Summary
 
-### Community 136 - "Cli"
-Cohesion: 0.19
-Nodes (11): clap, ConfigCommands, Option, CacheCommands, Cli, Commands, CliCtx, ExitCode (+3 more)
-
-### Community 137 - "Configuration"
-Cohesion: 0.27
-Nodes (7): BasicAuth, ApiKey, Configuration, Client, Default, Option, Self
-
 ### Community 138 - "tsconfig.lib.json"
 Cohesion: 0.25
 Nodes (7): compilerOptions, declaration, outDir, types, extends, include, ./tsconfig.json
 
-### Community 139 - "ProxyAuthK8sError"
-Cohesion: 0.19
-Nodes (12): CliConfigError, ProxyAuthK8sError, From, Self, CliCtx, Option, Result, CliCtx (+4 more)
+### Community 139 - ".handle_login"
+Cohesion: 0.57
+Nodes (4): CliCtx, Option, Path, Result
 
-### Community 140 - "redirect"
-Cohesion: 0.25
-Nodes (8): redirect(), Data, HttpRequest, Method, Option, Payload, PeerAddr, Responder
+### Community 140 - "RedirectContext"
+Cohesion: 0.20
+Nodes (14): redirect(), RedirectContext, Data, HttpRequest, Method, Option, Payload, PeerAddr (+6 more)
 
 ### Community 141 - "TODO — deferred code-health follow-ups"
 Cohesion: 0.22
 Nodes (8): Architecture, Bugs found while writing the docs (2026-10-05), Craft / structure, Dependencies (maintainer decisions), Error handling & types, Features, Testing, TODO — deferred code-health follow-ups
 
 ### Community 142 - "kubectl_proxyauth/src/main.rs"
-Cohesion: 0.15
-Nodes (8): main(), ExitCode, format_description, init_tracing, init_tracing(), eslint-plugin-vue, @nx/eslint-plugin, tracing_subscriber
+Cohesion: 0.29
+Nodes (3): init_tracing, eslint-plugin-vue, @nx/eslint-plugin
 
 ### Community 143 - "scripts"
 Cohesion: 0.29
@@ -814,9 +806,9 @@ Nodes (7): scripts, build, dev, lint, postinstall, start, types:check
 Cohesion: 0.52
 Nodes (3): OpenAPIPageClient, openapi, fumadocs-openapi
 
-### Community 146 - "Error"
-Cohesion: 0.12
-Nodes (13): error, Error, parse_deep_object(), ResponseContent, Option, StatusCode, Value, Vec (+5 more)
+### Community 146 - "T"
+Cohesion: 0.17
+Nodes (14): Cmd, ConnectionLike, deadpool_redis, info, T, a_comma_separated_list_selects_cluster_mode(), a_single_url_stays_single_node(), RedisPool (+6 more)
 
 ### Community 147 - "queryKeySerializer.gen.ts"
 Cohesion: 0.48
@@ -850,6 +842,10 @@ Nodes (5): Additional Context, Alternatives Considered, Problem / Motivation, Pr
 Cohesion: 0.33
 Nodes (5): Additional Context, Current Behavior, Desired Behavior, Rationale, Summary
 
+### Community 156 - "client.tsx"
+Cohesion: 0.18
+Nodes (9): featureCards, startSteps, Feedback(), ButtonProps, buttonVariants, variants, ref_class_variance_authority, @icons-pack/react-simple-icons (+1 more)
+
 ### Community 157 - "health"
 Cohesion: 0.33
 Nodes (6): Authorization, health, \HealthApi, HTTP request headers, Parameters, Return type
@@ -882,9 +878,9 @@ Nodes (4): Explore, Fumadocs MDX, Learn More, proxyauthk8s-docs
 Cohesion: 0.40
 Nodes (4): ActionResponse, BlockFeedback, PageFeedback, ref_zod
 
-### Community 166 - "duration.rs"
-Cohesion: 0.24
-Nodes (4): extract_timeout_from_query(), parse_kube_duration(), Duration, Option
+### Community 166 - "api/src/lib.rs"
+Cohesion: 0.40
+Nodes (9): main(), Result, FnOnce, gen_openapi(), init_api(), init_base_api(), init_cluster_api(), OpenApiType (+1 more)
 
 ### Community 168 - "[proxyauthk8s-cli-client-api-v0.1.0](https://github.com/batleforc/proxyauthK8s/compare/239d73c70ca0f9181b82fb2b8dbd9e6fbfbe87af..proxyauthk8s-cli-client-api-v0.1.0) - 2026-03-06"
 Cohesion: 0.40
@@ -966,6 +962,10 @@ Nodes (9): 1. Où est l'apiserver ? (`service`), 2. Comment faire confiance à s
 Cohesion: 0.50
 Nodes (3): Changelog, Features, [proxyauthk8s-cli-trace-v0.1.0](https://github.com/batleforc/proxyauthK8s/compare/239d73c70ca0f9181b82fb2b8dbd9e6fbfbe87af..proxyauthk8s-cli-trace-v0.1.0) - 2026-03-06
 
+### Community 188 - "cli_trace/src/lib.rs"
+Cohesion: 0.33
+Nodes (5): main(), ExitCode, format_description, init_tracing(), tracing_subscriber
+
 ### Community 189 - "Changelog"
 Cohesion: 0.50
 Nodes (3): Changelog, Features, [proxyauthk8s-back-trace-v0.1.0](https://github.com/batleforc/proxyauthK8s/compare/239d73c70ca0f9181b82fb2b8dbd9e6fbfbe87af..proxyauthk8s-back-trace-v0.1.0) - 2026-03-06
@@ -974,60 +974,36 @@ Nodes (3): Changelog, Features, [proxyauthk8s-back-trace-v0.1.0](https://github.
 Cohesion: 0.67
 Nodes (4): cli, cli_trace, client_api, kubectl_proxyauth
 
-### Community 191 - "Security Policy"
-Cohesion: 0.50
-Nodes (3): Reporting a Vulnerability, Security Policy, Supported Versions
-
-### Community 194 - "auth_clusters_api.rs"
-Cohesion: 0.43
-Nodes (7): callback_login(), CallbackLoginError, cluster_login(), ClusterLoginError, Option, Result, Value
-
 ### Community 222 - "status_response.rs"
 Cohesion: 0.27
 Nodes (11): json, a_known_retry_delay_is_advertised(), bad_request(), forbidden(), forbidden_body_is_a_kubernetes_status(), HttpResponse, Option, Value (+3 more)
 
-### Community 225 - "ClaimMappings"
-Cohesion: 0.52
-Nodes (6): ClaimMappings, ClaimOrExpression, ExtraMapping, PrefixedClaimOrExpression, Option, Vec
-
-### Community 226 - "AllowedCrdConfiguration"
-Cohesion: 0.40
-Nodes (3): AllowedCrdConfiguration, Option, Result
-
-### Community 227 - "with_rate_limiting"
-Cohesion: 0.29
-Nodes (7): a_disabled_security_config_never_rate_limits(), a_group_limit_overrides_the_global_one(), a_zero_group_limit_means_unlimited(), Vec, the_global_limit_applies_without_a_group_entry(), the_most_permissive_group_wins(), with_rate_limiting()
+### Community 223 - "SECURITY.md"
+Cohesion: 0.50
+Nodes (3): Reporting a Vulnerability, Security Policy, Supported Versions
 
 ### Community 228 - "ui.mdx"
 Cohesion: 0.33
 Nodes (5): Accéder à un cluster sans SSO, Accéder à un cluster SSO, La liste des clusters, La page CLI, Se connecter
 
-### Community 229 - "cleanup.rs"
-Cohesion: 0.60
-Nodes (5): clean_proxy_kube_api(), Action, Arc, ProxyKubeApi, Result
-
 ### Community 230 - "architecture.mdx"
 Cohesion: 0.40
 Nodes (4): Authentification, HA du backend et du controller, Reconciliation des CRD, Redirection des requêtes
 
-### Community 231 - "serde"
-Cohesion: 0.11
-Nodes (11): AdditionalClaims, jsonschema, CallbackModel, GroupsAdditionalClaims, Vec, Fail2LoginEqualBanConfiguration, Default, RateLimitingConfiguration (+3 more)
-
 ## Knowledge Gaps
-- **1030 isolated node(s):** `$schema`, `uiDir`, `componentsDir`, `blockDir`, `cssDir` (+1025 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1563 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **30 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **1031 isolated node(s):** `$schema`, `uiDir`, `componentsDir`, `blockDir`, `cssDir` (+1026 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1566 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **31 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `String` connect `String` to `GetContextOutput`, `ObjectRedis`, `allowed_path_configuration.rs`, `envtest.rs`, `upstream.rs`, `trace/src/lib.rs`, `Cli`, `Configuration`, `ProxyAuthK8sError`, `sso.rs`, `virtual_redirect.rs`, `kubectl_proxyauth/src/main.rs`, `VirtualApiMapper`, `forwarded.rs`, `Error`, `ProxyKubeApi`, `upgrade.rs`, `OidcConf`, `CliConfig`, `crd/src/lib.rs`, `authentication_configuration/mod.rs`, `oauth_as_callback.rs`, `AllowedPathConfiguration`, `standard.rs`, `CertError`, `State`, `auth/callback.rs`, `throttle.rs`, `CliServerConfig`, `harness/mod.rs`, `RedisPoolError`, `path_matcher.rs`, `super`, `Error<T>`, `auth_clusters_api.rs`, `port_forward.rs`, `discovery.rs`, `oidc_auth_config_with_well_known`, `User`, `allowed_crd_configuration.rs`, `CliCtx`, `upgrade_redirect`, `authorize`, `model.rs`, `unique_cluster`, `service/mod.rs`, `.handle_config`, `api/src/helper/mod.rs`, `SecurityConfiguration`, `token`, `default/mod.rs`, `ClaimMappings`, `AllowedCrdConfiguration`, `ProxyKubeApiSpec`, `level.rs`, `serde`, `proxy_upgrade.rs`, `AllowedPathConfigurationEnum`, `AuditContext`, `port_range.rs`, `.handle_get_token`, `ProxyKubeApiStatus`?**
-  _High betweenness centrality (0.182) - this node is a cross-community bridge._
-- **Why does `State` connect `State` to `envtest.rs`, `upstream.rs`, `virtual_redirect.rs`, `redirect`, `String`, `get_all_visible_cluster`, `upgrade.rs`, `OidcConf`, `tracing`, `standard.rs`, `auth/callback.rs`, `throttle.rs`, `harness/mod.rs`, `RedisPoolError`, `proxy_kube_api/mod.rs`, `user.rs`, `User`, `controller/src/lib.rs`, `upgrade_redirect`, `authorize`, `token`, `cleanup.rs`?**
-  _High betweenness centrality (0.050) - this node is a cross-community bridge._
-- **Why does `maz-ui` connect `nav.vue` to `main.ts`, `package.json`, `CliView.vue`, `ClusterNoSSOView.vue`, `ClusterCallbackView.vue`, `HomeLoggedin.vue`?**
-  _High betweenness centrality (0.038) - this node is a cross-community bridge._
+- **Why does `String` connect `String` to `GetContextOutput`, `ObjectRedis`, `allowed_path_configuration.rs`, `envtest.rs`, `Cli`, `trace/src/lib.rs`, `project.rs`, `envtest_support/mod.rs`, `security/mod.rs`, `.handle_login`, `sso.rs`, `virtual_redirect.rs`, `VirtualApiMapper`, `forwarded.rs`, `ProxyAuthK8sError`, `unique_cluster`, `upgrade.rs`, `OidcConf`, `CliConfig`, `crd/src/lib.rs`, `serde`, `oauth_as_callback.rs`, `AllowedPathConfiguration`, `standard.rs`, `CertError`, `Arc`, `auth/callback.rs`, `throttle.rs`, `harness/mod.rs`, `RedisPoolError`, `path_matcher.rs`, `VirtualRoute`, `cli_trace/src/lib.rs`, `Error`, `port_forward.rs`, `oidc_auth_config_with_well_known`, `KubeList`, `User`, `allowed_crd_configuration.rs`, `ctx.rs`, `GroupsAdditionalClaims`, `model.rs`, `service/mod.rs`, `.handle_config`, `api/src/helper/mod.rs`, `token`, `default/mod.rs`, `LoginToCallBackModel`, `super`, `proxy_upgrade.rs`, `AuditContext`, `port_range.rs`, `State`, `.handle_get_token`, `authorize`, `ProxyKubeApiStatus`?**
+  _High betweenness centrality (0.167) - this node is a cross-community bridge._
+- **Why does `State` connect `State` to `envtest.rs`, `RedirectContext`, `String`, `T`, `get_all_visible_cluster`, `upgrade.rs`, `OidcConf`, `tracing`, `standard.rs`, `Arc`, `auth/callback.rs`, `throttle.rs`, `harness/mod.rs`, `RedisPoolError`, `proxy_kube_api/mod.rs`, `crd_runtime/src/lib.rs`, `User`, `controller/src/lib.rs`, `throttle_oauth_as`, `api/src/helper/mod.rs`, `token`, `authorize`?**
+  _High betweenness centrality (0.048) - this node is a cross-community bridge._
+- **Why does `maz-ui` connect `nav.vue` to `main.ts`, `package.json`, `ClusterNoSSOView.vue`, `ClusterCallbackView.vue`, `HomeLoggedin.vue`?**
+  _High betweenness centrality (0.039) - this node is a cross-community bridge._
 - **Are the 74 inferred relationships involving `unique_cluster()` (e.g. with `redirects_to_the_upstream_provider_and_stores_pending_state()` and `redirects_with_an_error_for_a_malformed_code_challenge()`) actually correct?**
   _`unique_cluster()` has 74 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 70 inferred relationships involving `delete_proxy()` (e.g. with `redirects_to_the_upstream_provider_and_stores_pending_state()` and `redirects_with_an_error_for_a_malformed_code_challenge()`) actually correct?**
@@ -1035,4 +1011,4 @@ _Questions this graph is uniquely positioned to answer:_
 - **Are the 62 inferred relationships involving `seed_proxy()` (e.g. with `redirects_to_the_upstream_provider_and_stores_pending_state()` and `redirects_with_an_error_for_a_malformed_code_challenge()`) actually correct?**
   _`seed_proxy()` has 62 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `$schema`, `uiDir`, `componentsDir` to the rest of the system?**
-  _1030 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _1031 weakly-connected nodes found - possible documentation gaps or missing edges._

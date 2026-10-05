@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// An enabled provider that cannot be contacted is a cluster that never
 /// authenticates anyone, so the apiserver refuses the CR outright.
-#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[derive(Serialize, Deserialize, Clone, JsonSchema)]
 #[schemars(extend("x-kubernetes-validations" = [
     serde_json::json!({
         "rule": "!self.enabled || (self.issuer_url != '' && self.client_id != '')",
@@ -62,4 +62,77 @@ pub struct OidcProvider {
     /// open redirect. Requires `enabled: true`.
     #[serde(default = "default_disabled")]
     pub expose_oauth_authorization_server: bool,
+}
+
+/// Hand-written so `client_secret` is never written to logs when a
+/// `ProxyKubeApi` is `Debug`-formatted (e.g. `debug!(proxy = ?proxy)` on every
+/// proxied request). Whether a secret is set stays visible, its value does not.
+/// The struct is destructured so a new field cannot be added without deciding
+/// here whether it is safe to print.
+impl std::fmt::Debug for OidcProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            enabled,
+            issuer_url,
+            client_id,
+            client_secret,
+            extra_scope,
+            audience,
+            accept_authorized_party,
+            expose_oauth_authorization_server,
+        } = self;
+        f.debug_struct("OidcProvider")
+            .field("enabled", enabled)
+            .field("issuer_url", issuer_url)
+            .field("client_id", client_id)
+            .field(
+                "client_secret",
+                &client_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .field("extra_scope", extra_scope)
+            .field("audience", audience)
+            .field("accept_authorized_party", accept_authorized_party)
+            .field(
+                "expose_oauth_authorization_server",
+                expose_oauth_authorization_server,
+            )
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn provider(client_secret: Option<&str>) -> OidcProvider {
+        OidcProvider {
+            enabled: true,
+            issuer_url: "https://auth.example.com".to_string(),
+            client_id: "my-cluster".to_string(),
+            client_secret: client_secret.map(str::to_string),
+            extra_scope: String::new(),
+            audience: String::new(),
+            accept_authorized_party: false,
+            expose_oauth_authorization_server: false,
+        }
+    }
+
+    #[test]
+    fn debug_never_prints_the_client_secret() {
+        let printed = format!("{:?}", provider(Some("s3cr3t-value")));
+        assert!(
+            !printed.contains("s3cr3t-value"),
+            "secret leaked: {printed}"
+        );
+        assert!(printed.contains("client_secret: Some(\"<redacted>\")"));
+        // The rest stays useful for debugging.
+        assert!(printed.contains("my-cluster"));
+        assert!(printed.contains("https://auth.example.com"));
+    }
+
+    #[test]
+    fn debug_shows_when_no_secret_is_set() {
+        let printed = format!("{:?}", provider(None));
+        assert!(printed.contains("client_secret: None"));
+    }
 }
