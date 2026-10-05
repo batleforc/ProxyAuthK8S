@@ -108,6 +108,11 @@ pub enum Commands {
         /// Optional token for authentication
         #[arg(short, long, value_name = "TOKEN")]
         token: Option<String>,
+        /// PEM file of the CA that signed the `ProxyAuthK8S` server's TLS
+        /// certificate, when the system does not trust it (self-signed or
+        /// internal CA). Saved for the server and written to the kubeconfig.
+        #[arg(long, value_name = "FILE")]
+        certificate_authority: Option<PathBuf>,
     },
     /// Logout either from `ProxyAuthK8S` server or from a specific cluster
     Logout {
@@ -125,6 +130,7 @@ pub enum Commands {
         cluster_name: Option<String>,
     },
     /// Handle Kubectl contexts
+    #[command(alias = "ctx")]
     Context {
         /// Get the context for a specific cluster
         context_name: Option<String>,
@@ -164,6 +170,7 @@ impl Cli {
             Some(Commands::Login {
                 cluster_name,
                 token,
+                certificate_authority,
             }) => {
                 // Never log the token value; only whether one was supplied.
                 debug!(
@@ -171,7 +178,12 @@ impl Cli {
                     cluster_name,
                     token.is_some()
                 );
-                ctx.handle_login(cluster_name.clone(), token.clone()).await
+                ctx.handle_login(
+                    cluster_name.clone(),
+                    token.clone(),
+                    certificate_authority.as_deref(),
+                )
+                .await
             }
             Some(Commands::Logout { cluster_name }) => {
                 debug!("Logging out from cluster: {:?}", cluster_name);

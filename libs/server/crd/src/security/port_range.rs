@@ -3,12 +3,27 @@ use std::ops::RangeInclusive;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+/// CEL rule mirroring [`PortSpec::range`]: the pattern only bounds the digits,
+/// so the 1-65535 bounds and the range order are checked here. A value that is
+/// not digits makes `int()` fail, which is a rejection too.
+const PORT_SPEC_RULE: &str = concat!(
+    "self.split('-').all(p, int(p) >= 1 && int(p) <= 65535)",
+    " && (!self.contains('-') || int(self.split('-')[0]) <= int(self.split('-')[1]))"
+);
+
 /// A port (`"8080"`) or an inclusive port range (`"9000-9100"`).
 ///
-/// Ports must be within 1-65535 and a range must not be reversed; an entry
-/// breaking that is reported at reconcile time and allows no port.
+/// Ports must be within 1-65535 and a range must not be reversed. Admission
+/// refuses an entry breaking that; one stored before the rule existed is
+/// reported at reconcile time and allows no port.
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug, PartialEq, Eq)]
 #[serde(transparent)]
+#[schemars(extend("x-kubernetes-validations" = [
+    serde_json::json!({
+        "rule": PORT_SPEC_RULE,
+        "message": "ports must be within 1-65535 and a range must not be reversed",
+    }),
+]))]
 pub struct PortSpec(
     #[schemars(length(max = 11), regex(pattern = r"^[0-9]{1,5}(-[0-9]{1,5})?$"))] pub String,
 );

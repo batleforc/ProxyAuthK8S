@@ -1643,7 +1643,7 @@ does not restrict ports. When several rules match a port-forward, their
 ports are combined, and one rule without `allowed_ports` lifts the
 restriction. An empty list allows no port at all.<br/>
           <br/>
-            <i>Validations</i>:<li>each item matches `^[0-9]{1,5}(-[0-9]{1,5})?$` (at most 11 characters); ports must be within 1-65535 and a range must not be reversed (checked at reconcile time)</li>
+            <i>Validations</i>:<li>each item matches `^[0-9]{1,5}(-[0-9]{1,5})?$` (at most 11 characters); self.split('-').all(p, int(p) >= 1 && int(p) <= 65535) && (!self.contains('-') || int(self.split('-')[0]) <= int(self.split('-')[1])): ports must be within 1-65535 and a range must not be reversed</li>
         </td>
         <td>false</td>
       </tr></tbody>
@@ -1919,7 +1919,7 @@ does not restrict ports. When several rules match a port-forward, their
 ports are combined, and one rule without `allowed_ports` lifts the
 restriction. An empty list allows no port at all.<br/>
           <br/>
-            <i>Validations</i>:<li>each item matches `^[0-9]{1,5}(-[0-9]{1,5})?$` (at most 11 characters); ports must be within 1-65535 and a range must not be reversed (checked at reconcile time)</li>
+            <i>Validations</i>:<li>each item matches `^[0-9]{1,5}(-[0-9]{1,5})?$` (at most 11 characters); self.split('-').all(p, int(p) >= 1 && int(p) <= 65535) && (!self.contains('-') || int(self.split('-')[0]) <= int(self.split('-')[1])): ports must be within 1-65535 and a range must not be reversed</li>
         </td>
         <td>false</td>
       </tr></tbody>

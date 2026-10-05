@@ -30,8 +30,9 @@ impl CliCtx {
                 // Set the current context
                 info!("Setting current context to: {}", context_name);
                 // Here you would implement the logic to actually set the context
-                self.kubeconfig.current_context = Some(context_name);
-                if let Err(e) = self.write_kubeconfig() {
+                if let Err(e) = self.edit_kubeconfig(|kubeconfig| {
+                    kubeconfig.current_context = Some(context_name.clone());
+                }) {
                     error!("Failed to write kubeconfig: {}", e);
                     return Err(e);
                 }

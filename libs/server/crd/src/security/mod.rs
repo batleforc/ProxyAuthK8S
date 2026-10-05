@@ -282,6 +282,27 @@ mod tests {
         assert!(config.validate().is_err());
     }
 
+    /// `pods/web%2Fportforward` reaches the apiserver as a port-forward but is
+    /// not recognised as one by the proxy, so it would get no port policy: the
+    /// path itself must be refused instead, even by a rule its raw form fits.
+    #[test]
+    fn an_encoded_slash_cannot_hide_a_port_forward() {
+        let config = SecurityConfiguration {
+            enabled: true,
+            allowed_resources: vec![
+                port_forward_rule("/api/v1/namespaces/dev/pods/*/portforward", Some(&["8080"])),
+                path_rule("/api/v1/namespaces/dev/pods/*", true),
+            ],
+            ..SecurityConfiguration::default()
+        };
+        for path in [
+            "/api/v1/namespaces/dev/pods/web%2Fportforward",
+            "/api/v1/namespaces/dev/pods/web%2fportforward",
+        ] {
+            assert!(!config.is_path_allowed(path, "alice", &[]), "{path}");
+        }
+    }
+
     #[test]
     fn empty_allow_list_allows_everything() {
         let config = SecurityConfiguration::default();

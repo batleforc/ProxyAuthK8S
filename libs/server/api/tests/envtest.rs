@@ -258,6 +258,75 @@ async fn admission_accepts_the_supported_path_placeholders() {
         .await;
 }
 
+fn port_forward_spec(ports: &[&str]) -> serde_json::Value {
+    let mut spec = minimal_spec();
+    spec["security_config"] = json!({
+        "enabled": true,
+        "allowed_resources": [
+            { "Path": {
+                "path": "/api/v1/namespaces/dev/pods/*/portforward",
+                "parametised": true,
+                "allowed_ports": ports,
+            } }
+        ],
+    });
+    spec
+}
+
+/// The schema pattern only bounds the digits; the CEL rule must refuse what
+/// `PortSpec::range` refuses, or a typo silently allows no port at runtime.
+#[tokio::test]
+async fn admission_rejects_out_of_bounds_and_reversed_ports() {
+    let env_test = envtest_or_skip!();
+    let client = env_test.client().expect("client should build");
+    install_crd(client.clone()).await.expect("CRD install");
+    wait_for_crd(client.clone()).await;
+
+    let api = proxies(client);
+    for (name, port) in [
+        ("port-zero", "0"),
+        ("port-too-high", "70000"),
+        ("port-range-too-high", "8000-65536"),
+        ("port-range-reversed", "200-100"),
+    ] {
+        let error = api
+            .create(
+                &PostParams::default(),
+                &serde_json::from_value(proxy_kube_api(name, port_forward_spec(&[port])))
+                    .expect("resource should deserialize"),
+            )
+            .await
+            .expect_err("admission should reject this port");
+        let message = error.to_string();
+        assert!(
+            message.contains("1-65535"),
+            "{port}: unexpected error: {message}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn admission_accepts_valid_ports_and_ranges() {
+    let env_test = envtest_or_skip!();
+    let client = env_test.client().expect("client should build");
+    install_crd(client.clone()).await.expect("CRD install");
+    wait_for_crd(client.clone()).await;
+
+    let api = proxies(client);
+    api.create(
+        &PostParams::default(),
+        &serde_json::from_value(proxy_kube_api(
+            "good-ports",
+            port_forward_spec(&["1", "8080", "9000-9100", "65535", "443-443"]),
+        ))
+        .expect("resource should deserialize"),
+    )
+    .await
+    .expect("valid ports should be accepted");
+
+    let _ = api.delete("good-ports", &DeleteParams::default()).await;
+}
+
 #[tokio::test]
 async fn admission_rejects_a_relative_allowed_path() {
     let env_test = envtest_or_skip!();

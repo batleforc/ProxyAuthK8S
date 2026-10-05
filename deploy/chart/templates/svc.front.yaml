@@ -9,6 +9,6 @@ spec:
     app: "{{ .Release.Name }}-proxyauthk8s-front"
   ports:
     - protocol: TCP
-      port: 4200
-      targetPort: 4200
+      port: {{ .Values.front.port }}
+      targetPort: {{ .Values.front.port }}
   type: ClusterIP

@@ -1,13 +1,15 @@
 registry:
   front:
     image:
-      repository: ghcr.io/batleforc/proxyauthk8s-front
-      tag: v0.0.1
+      repository: ghcr.io/batleforc/proxyauthk8s/front
+      # Empty: the chart's appVersion, i.e. the release this chart was built for.
+      tag: ""
       pullPolicy: IfNotPresent
   back:
     image:
-      repository: ghcr.io/batleforc/proxyauthk8s-back
-      tag: v0.0.1
+      repository: ghcr.io/batleforc/proxyauthk8s/server
+      # Empty: the chart's appVersion, i.e. the release this chart was built for.
+      tag: ""
       pullPolicy: IfNotPresent
 
 otel:

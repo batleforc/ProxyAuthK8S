@@ -54,4 +54,30 @@ Each command will start in different terminal and exposed tls services for the b
 
 ## Setup CDE
 
-SOON TM
+The repository ships a `devfile.yaml` so it can be opened as a workspace in
+[Eclipse Che](https://eclipse.dev/che/) (or any devfile-compatible CDE). It extends the
+`che-min-mise` image from [WeeboDevImage](https://github.com/batleforc/WeeboDevImage), so the
+toolchain comes from `mise` exactly like on a laptop:
+
+```bash
+mise install
+task init
+```
+
+The devfile adds these sidecars:
+
+| Component | Purpose                                       | Port   |
+| --------- | --------------------------------------------- | ------ |
+| `redis`   | State store for the backend (password: devfile variable `REDIS_PASSWORD`) | `6379` |
+| `dbgate`  | Web UI to browse the Redis content            | `3000` |
+
+Point the backend at the sidecar with
+`REDIS_URL=redis://:<REDIS_PASSWORD>@localhost:6379` (URL-encode the password: `#` becomes `%23`).
+
+Limits of the CDE:
+
+- there is no container engine and no root access, so `task service` and `task k3d:up` (which
+  need Podman) can't run inside the workspace: target a remote cluster through your kubeconfig
+  instead;
+- any extra service has to be added as a sidecar in `devfile.yaml`, then the workspace restarted
+  from the local devfile.

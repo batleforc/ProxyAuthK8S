@@ -301,6 +301,9 @@ security_config:
 
 - `allowed_ports` accepte des ports seuls (`"8080"`) ou des plages inclusives (`"9000-9100"`),
   entre 1 et 65535. Il n'est lu que pour les chemins `.../pods/{nom}/portforward`.
+  L'admission refuse un port hors bornes (`"0"`, `"70000"`) ou une plage inversée
+  (`"200-100"`) ; une telle entrée déjà stockée est signalée dans le statut et n'autorise
+  aucun port.
 - Sans `allowed_ports`, la règle ne restreint pas les ports. Quand plusieurs règles
   correspondent, leurs ports s'additionnent, et **une seule règle sans `allowed_ports` lève la
   restriction** (y compris une règle `Crd` ou un `**` plus large) : gardez les règles larges

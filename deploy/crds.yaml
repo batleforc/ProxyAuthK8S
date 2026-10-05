@@ -540,11 +540,15 @@ spec:
                                 description: |-
                                   A port (`"8080"`) or an inclusive port range (`"9000-9100"`).
 
-                                  Ports must be within 1-65535 and a range must not be reversed; an entry
-                                  breaking that is reported at reconcile time and allows no port.
+                                  Ports must be within 1-65535 and a range must not be reversed. Admission
+                                  refuses an entry breaking that; one stored before the rule existed is
+                                  reported at reconcile time and allows no port.
                                 maxLength: 11
                                 pattern: ^[0-9]{1,5}(-[0-9]{1,5})?$
                                 type: string
+                                x-kubernetes-validations:
+                                - message: ports must be within 1-65535 and a range must not be reversed
+                                  rule: self.split('-').all(p, int(p) >= 1 && int(p) <= 65535) && (!self.contains('-') || int(self.split('-')[0]) <= int(self.split('-')[1]))
                               maxItems: 64
                               nullable: true
                               type: array
@@ -706,11 +710,15 @@ spec:
                                 description: |-
                                   A port (`"8080"`) or an inclusive port range (`"9000-9100"`).
 
-                                  Ports must be within 1-65535 and a range must not be reversed; an entry
-                                  breaking that is reported at reconcile time and allows no port.
+                                  Ports must be within 1-65535 and a range must not be reversed. Admission
+                                  refuses an entry breaking that; one stored before the rule existed is
+                                  reported at reconcile time and allows no port.
                                 maxLength: 11
                                 pattern: ^[0-9]{1,5}(-[0-9]{1,5})?$
                                 type: string
+                                x-kubernetes-validations:
+                                - message: ports must be within 1-65535 and a range must not be reversed
+                                  rule: self.split('-').all(p, int(p) >= 1 && int(p) <= 65535) && (!self.contains('-') || int(self.split('-')[0]) <= int(self.split('-')[1]))
                               maxItems: 64
                               nullable: true
                               type: array

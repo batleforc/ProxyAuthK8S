@@ -52,10 +52,45 @@ kubectl proxyauth login --server-url https://proxyauthk8s.example.com --token <j
 Le login serveur valide le jeton auprès du serveur puis le stocke dans le trousseau. Sans
 `--token`, le jeton est demandé de façon interactive.
 
+#### Certificat non reconnu par le système
+
+Si le certificat TLS de ProxyAuthK8S est auto-signé ou émis par une CA interne, le login
+échoue avec `certificate verify failed`. Donnez au plugin le certificat de la CA (PEM) :
+
+```bash
+kubectl proxyauth login --server-url https://proxyauthk8s.example.com \
+  --certificate-authority ./proxyauth-ca.pem
+```
+
+La CA est enregistrée pour ce serveur dans `~/.kube/proxyauth_config.yaml` : les commandes
+suivantes (et les logins de cluster) lui font confiance sans repréciser l'option. Elle est aussi
+écrite en `certificate-authority-data` dans les clusters du kubeconfig, pour que `kubectl`
+lui fasse confiance. Repasser `--certificate-authority` la remplace.
+
+Pour récupérer la CA :
+
+- **cert-manager avec une CA interne** : `kubectl get secret <secret-du-certificat> -n <ns> -o jsonpath='{.data.ca\.crt}' | base64 -d`
+- **mkcert** (dev local) : `$(mkcert -CAROOT)/rootCA.pem`
+- **certificat auto-signé** : le certificat lui-même, tel que servi par le serveur :
+
+  ```bash
+  openssl s_client -connect proxyauthk8s.example.com:443 -servername proxyauthk8s.example.com </dev/null \
+    | openssl x509 > proxyauth-ca.pem
+  ```
+
+<Callout type="warn">
+Récupérer le certificat depuis le serveur lui-même revient à lui faire confiance sur parole
+(*trust on first use*) : vérifiez son empreinte
+(`openssl x509 -in proxyauth-ca.pem -noout -fingerprint -sha256`) auprès de l'administrateur.
+Pour une CA interne, le serveur n'envoie en général pas la racine : prenez-la à la source.
+</Callout>
+
 ### Lister les clusters visibles
 
 ```bash
-kubectl proxyauth get clusters
+kubectl proxyauth get              # tous les clusters visibles
+kubectl proxyauth get mon-cluster  # un seul cluster
+kubectl proxyauth get -f json      # sortie json/yaml au lieu du tableau
 ```
 
 Seuls les clusters dont `expose_via_dashboard` est activé **et** dont le groupe dashboard
@@ -85,8 +120,34 @@ Pour un cluster non-SSO (ou pour fournir un jeton directement) :
 kubectl proxyauth -n default login mon-cluster --token <jeton>
 ```
 
-Cela écrit un contexte kubeconfig dont l'`exec` pointe sur le plugin : à chaque appel,
-`kubectl` lui demande un jeton frais.
+Dans les deux cas, le jeton est stocké dans le trousseau, puis `login` écrit dans le
+kubeconfig (`--kubeconfig`, sinon `$KUBECONFIG`, sinon `~/.kube/config`) un cluster
+`<ns>-<cluster>`, un utilisateur `<ns>-<cluster>-proxyauth` et un contexte
+`<ns>-<cluster>-context`, qui devient le contexte courant. Les autres entrées ne sont pas
+modifiées, et un nouveau login met ces trois entrées à jour au lieu de les dupliquer.
+
+Comme `kubectl`, le plugin accepte un `$KUBECONFIG` listant plusieurs fichiers (séparés par
+`:`, `;` sous Windows) : il lit leur fusion et écrit uniquement dans le **premier fichier
+existant** (créé s'il n'en existe aucun). Ce fichier étant prioritaire lors de la fusion, ce
+qui y est écrit l'emporte sur une entrée de même nom dans un fichier suivant, sans modifier ce
+dernier.
+
+L'`exec` de l'utilisateur appelle `kubectl proxyauth get-token`, qui relit le jeton dans le
+trousseau à chaque commande `kubectl` :
+
+```bash
+kubectl proxyauth -n default login mon-cluster
+kubectl get pods   # passe par le proxy avec le jeton du trousseau
+```
+
+### Gérer les contextes kubectl
+
+```bash
+kubectl proxyauth context              # contexte courant
+kubectl proxyauth context --list       # tous les contextes du kubeconfig
+kubectl proxyauth ctx                  # alias de `context`
+kubectl proxyauth context --set default-mon-cluster-context   # change le contexte courant
+```
 
 ### Se déconnecter / purger le cache
 
@@ -96,33 +157,61 @@ kubectl proxyauth logout               # déconnecte du serveur (tous ses jetons
 kubectl proxyauth cache clear          # purge tous les jetons en cache
 ```
 
-### Vérifier la configuration
+### Configuration du plugin
+
+Le plugin garde sa configuration (serveurs connus, namespace par défaut) dans
+`~/.kube/proxyauth_config.yaml` (surchargeable avec `-p/--proxy-auth-config`).
 
 ```bash
-kubectl proxyauth config get
+kubectl proxyauth config get                     # configuration courante
+kubectl proxyauth config get --list              # toutes les configurations
+kubectl proxyauth config set-def --default-server <nom>   # serveur par défaut
+kubectl proxyauth config set-def --server-url <url> --namespace <ns>   # namespace par défaut d'un serveur
+kubectl proxyauth config clear --server-url <url>    # oublie un serveur
+kubectl proxyauth config clear --all
 ```
 
-## Le kubeconfig généré
+### Options globales
+
+| Option                       | Effet                                                         |
+| ---------------------------- | ------------------------------------------------------------- |
+| `-s, --server-url <URL>`     | Serveur ProxyAuthK8S à utiliser (sinon le serveur par défaut) |
+| `-n, --namespace <NS>`       | Namespace du cluster visé                                     |
+| `-k, --kubeconfig <FILE>`    | Kubeconfig (défaut : `$KUBECONFIG` puis `~/.kube/config`)    |
+| `-c, --context <CONTEXT>`    | Contexte du kubeconfig à utiliser                             |
+| `-f, --format <FORMAT>`      | `table` (défaut), `json` ou `yaml`                            |
+| `-v` / `-vv` / `-vvv`        | Niveau de logs : debug, trace, tout                           |
+
+## Le kubeconfig plugin
+
+C'est ce que `login` écrit, et la forme téléchargeable depuis le dashboard (*kubeconfig plugin*) :
 
 ```yaml
 apiVersion: v1
 kind: Config
 clusters:
-  - name: mon-cluster
+  - name: default-mon-cluster
     cluster:
       server: https://proxyauthk8s.example.com/clusters/default/mon-cluster
 users:
-  - name: mon-cluster
+  - name: default-mon-cluster-proxyauth
     user:
       exec:
-        apiVersion: client.authentication.k8s.io/v1beta1
-        command: kubectl-proxyauth
-        args: ["get-token"]
+        apiVersion: client.authentication.k8s.io/v1
+        command: kubectl
+        args:
+          - proxyauth
+          - get-token
+          - --namespace=default
+          - --server-url=https://proxyauthk8s.example.com
+          - mon-cluster
+        interactiveMode: Never
 contexts:
-  - name: mon-cluster
+  - name: default-mon-cluster-context
     context:
-      cluster: mon-cluster
-      user: mon-cluster
+      cluster: default-mon-cluster
+      user: default-mon-cluster-proxyauth
+current-context: default-mon-cluster-context
 ```
 
 L'URL du serveur est celle du proxy, pas celle du cluster : c'est ProxyAuthK8S qui authentifie
@@ -136,4 +225,5 @@ l'appel, applique les règles de sécurité, puis relaie vers l'apiserver.
 | `403` avec un message sur un groupe             | L'utilisateur n'est pas dans le `proxy_group` du cluster                        |
 | `403` avec un message sur un chemin             | Le chemin n'est pas dans `security_config.allowed_resources`                   |
 | `429` avec un en-tête `Retry-After`             | Rate limiting, ou bannissement après des échecs d'authentification répétés      |
-| Le cluster n'apparaît pas dans `get clusters`   | `expose_via_dashboard` est à `false` (défaut) ou le groupe dashboard ne correspond pas |
+| `certificate verify failed`                     | Certificat du serveur non reconnu : voir `--certificate-authority` ci-dessus     |
+| Le cluster n'apparaît pas dans `get`            | `expose_via_dashboard` est à `false` (défaut) ou le groupe dashboard ne correspond pas |

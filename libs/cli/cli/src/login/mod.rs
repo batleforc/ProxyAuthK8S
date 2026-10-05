@@ -1,12 +1,18 @@
 use client_api::apis::{api_clusters_api::get_all_visible_cluster, configuration::Configuration};
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    path::Path,
+};
 use tracing::{debug, error, info, warn};
 
 pub mod get_token;
+mod kubeconfig;
 mod sso;
 
 use crate::{
-    cli_config::cli_server_config::CliServerConfig, ctx::CliCtx, error::ProxyAuthK8sError,
+    cli_config::cli_server_config::{CliServerConfig, http_client, load_certificate_authority},
+    ctx::CliCtx,
+    error::ProxyAuthK8sError,
 };
 
 impl CliCtx {
@@ -27,7 +33,18 @@ impl CliCtx {
         &mut self,
         cluster_name: Option<String>,
         token: Option<String>,
+        certificate_authority: Option<&Path>,
     ) -> Result<(), ProxyAuthK8sError> {
+        let certificate_authority_data = match certificate_authority {
+            Some(path) => match load_certificate_authority(path) {
+                Ok(data) => Some(data),
+                Err(e) => {
+                    error!("{}", e);
+                    return Err(e);
+                }
+            },
+            None => None,
+        };
         if token.is_some() {
             // A token on the command line lands in `ps`/`/proc/<pid>/cmdline` and
             // the shell history. Prefer the interactive prompt (omit `--token`).
@@ -46,9 +63,11 @@ impl CliCtx {
             ));
         }
         if let Some(cluster) = cluster_name {
-            self.handle_login_clusters(cluster, token).await
+            self.handle_login_clusters(cluster, token, certificate_authority_data)
+                .await
         } else {
-            self.handle_login_servers(token).await
+            self.handle_login_servers(token, certificate_authority_data)
+                .await
         }
     }
 
@@ -56,8 +75,27 @@ impl CliCtx {
         &mut self,
         cluster: String,
         token: Option<String>,
+        certificate_authority_data: Option<String>,
     ) -> Result<(), ProxyAuthK8sError> {
         debug!("Logging in to cluster: {}", cluster);
+        if let Some(data) = certificate_authority_data {
+            // Saved on the server before any call, so the calls below trust it.
+            let server_name = if self.server_url.is_empty() {
+                self.config.default_server_name.clone()
+            } else {
+                CliServerConfig::url_to_name_from_string(self.server_url.clone())
+            };
+            match self.config.servers.get_mut(&server_name) {
+                Some(server) => server.certificate_authority_data = Some(data),
+                None => {
+                    error!(
+                        "Server '{}' not found in configuration, please login to server before login to cluster.",
+                        server_name
+                    );
+                    return Err(ProxyAuthK8sError::ServerNotFound(server_name));
+                }
+            }
+        }
         // if server url is provided but not in config, return error
         let server_config = match self.config.get_server_config_by_url(
             if self.server_url.is_empty() {
@@ -176,7 +214,11 @@ impl CliCtx {
             };
             // Persist the token to the keyring first; if that fails there is no
             // usable credential, so abort instead of reporting a false success.
-            if let Err(e) = server.set_cluster_token(namespace, cluster.clone(), tok.clone()) {
+            let server_url = server.url.clone();
+            let certificate_authority_data = server.certificate_authority_data.clone();
+            if let Err(e) =
+                server.set_cluster_token(namespace.clone(), cluster.clone(), tok.clone())
+            {
                 error!("Failed to store cluster token: {}", e);
                 return Err(e);
             }
@@ -187,7 +229,33 @@ impl CliCtx {
                     return Err(e);
                 }
             }
+            // Point kubectl at the cluster: the token alone is useless without a
+            // context whose exec plugin hands it to kubectl.
+            let names = match self.edit_kubeconfig(|kubeconfig| {
+                kubeconfig::upsert_proxy_context(
+                    kubeconfig,
+                    &server_url,
+                    &namespace,
+                    &cluster,
+                    certificate_authority_data.as_deref(),
+                )
+            }) {
+                Ok(names) => names,
+                Err(e) => {
+                    error!(
+                        "Token stored, but failed to write the kubeconfig at {}: {}",
+                        self.kubeconfig_path.to_string_lossy(),
+                        e
+                    );
+                    return Err(e);
+                }
+            };
             info!("Login to cluster {} successful.", cluster);
+            info!(
+                "Kubeconfig context '{}' written to {} and set as current context.",
+                names.context,
+                self.kubeconfig_path.to_string_lossy()
+            );
             Ok(())
         } else {
             error!("No token provided. Cluster login requires a token.");
@@ -200,6 +268,7 @@ impl CliCtx {
     pub async fn handle_login_servers(
         &mut self,
         token: Option<String>,
+        certificate_authority_data: Option<String>,
     ) -> Result<(), ProxyAuthK8sError> {
         debug!("Logging in to ProxyAuthK8S server.");
         let token = token
@@ -235,9 +304,25 @@ impl CliCtx {
                 CliServerConfig::url_to_name_from_string(self.server_url.clone()),
             )
         };
+        // A CA given now wins; otherwise keep trusting the one saved by a
+        // previous login to this server.
+        let certificate_authority_data = certificate_authority_data.or_else(|| {
+            self.config
+                .servers
+                .get(&server_name)
+                .and_then(|server| server.certificate_authority_data.clone())
+        });
+        let client = match http_client(certificate_authority_data.as_deref()) {
+            Ok(client) => client,
+            Err(e) => {
+                error!("{}", e);
+                return Err(e);
+            }
+        };
         let output = get_all_visible_cluster(&Configuration {
             bearer_access_token: Some(tok.clone()),
             base_path: server_url.clone(),
+            client,
             ..Default::default()
         })
         .await;
@@ -260,6 +345,7 @@ impl CliCtx {
         let server_config = self
             .config
             .get_or_insert_server_config(server_name, server_url);
+        server_config.certificate_authority_data = certificate_authority_data;
         let server_config_clone = server_config.clone();
 
         if self.config.default_server_name.is_empty() {

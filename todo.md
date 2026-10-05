@@ -87,6 +87,39 @@ than a rushed change. Roughly ordered by score impact / value.
         CA, expired certificate, spoofed headers, identity mapping), and a
         section in `.docs/content/docs/security.mdx`.
 
+- [x] **`kubectl proxyauth login <cluster>` writes the kubeconfig context.** Done
+      (`libs/cli/cli/src/login/kubeconfig.rs`): upserts cluster `<ns>-<cluster>`, user
+      `<ns>-<cluster>-proxyauth` (exec → `get-token`, `interactiveMode: Never`, which
+      kubectl requires for the v1 exec API — the dashboard's kubeconfig was missing it too)
+      and context `<ns>-<cluster>-context`, then sets it current. Unit-tested and
+      checked against real `kubectl`.
+
+- [x] **`--certificate-authority` on `login`.** Done: the PEM is validated, saved per server
+      (`certificate_authority_data` in `proxyauth_config.yaml`), trusted on top of the system
+      roots by every CLI call to that server, and written as `certificate-authority-data`
+      in the kubeconfig. Possible follow-up: an `oc login`-style trust-on-first-use prompt
+      showing the fingerprint of the certificate the server presents.
+- [x] **Multi-file `$KUBECONFIG`.** Done: the CLI reads the merged view (first file wins,
+      missing files skipped) and writes only to the first existing file, re-read from its
+      own content so other files' entries are never copied into it.
+
+## Bugs found while writing the docs (2026-10-05)
+
+- [x] **Helm chart: Ingress targeted non-existent services.** Fixed: uses the
+      `proxyauthk8s.front.name`/`back.name` helpers and `.Values.front.port` (also in
+      `svc.front.yaml`). Quick-start workaround removed.
+- [x] **Helm chart: wrong default images.** Fixed: `ghcr.io/batleforc/proxyauthk8s/server|front`,
+      tag defaults to `.Chart.AppVersion` (now `v0.1.9`), and `cog.toml` bumps
+      `appVersion` on release.
+- [x] **Helm chart: no front OIDC config with `oidc.source: secret`.** Fixed: the front
+      reads issuer/client id/scopes from the same secret (`secretKeyRef`, never the
+      client secret).
+- [x] **`kubectl proxyauth ctx` didn't exist.** Fixed: `ctx` alias on `context`; the
+      callback page now sets the real context name (`<ns>-<cluster>-context`) and passes
+      `-n <ns>` to `login`.
+- [x] **Plugin kubeconfig passed `-n <ns>` / `-s <url>` as one argv.** Confirmed (clap
+      read `' x-example'`); fixed with `--namespace=` / `--server-url=`.
+
 ## Craft / structure
 
 - [ ] **Bundle the redirect workers' argument block.** `standard_redirect`,

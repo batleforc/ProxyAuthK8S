@@ -120,11 +120,12 @@ users:
       args:
         - proxyauth
         - get-token
-        - -n ${data.ns}
-        - -s ${clusterUrl}
+        - --namespace=${data.ns}
+        - --server-url=${clusterUrl}
         - ${data.cluster}
       command: kubectl
       env: null
+      interactiveMode: Never
       provideClusterInfo: false
 contexts:
 - name: ${contextName}
@@ -146,16 +147,16 @@ const generatePluginCommands = () => {
 kubectl proxyauth login --server-url "${clusterUrl}" --token "${data.retour.access_token}"
 
 # 2. Se connecter au cluster spécifique
-kubectl proxyauth login "${data.cluster}"
+kubectl proxyauth -n "${data.ns}" login "${data.cluster}"
 # Ou via votre token
-kubectl proxyauth login "${data.cluster}" --token "${callbackData.value.retour.id_token}"
+kubectl proxyauth -n "${data.ns}" login "${data.cluster}" --token "${callbackData.value.retour.id_token}"
 
 # 3. Utiliser kubectl normalement
 kubectl get pods
 kubectl get services
 
 # 4. Optionnel: Changer le contexte kubectl vers ce cluster
-kubectl proxyauth ctx --set "${data.cluster}"`;
+kubectl proxyauth ctx --set "${data.ns}-${data.cluster}-context"`;
 };
 
 // Actions

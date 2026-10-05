@@ -19,7 +19,7 @@ spec:
       {{- include "proxyauthk8s.podSecurityContext" . | nindent 6 }}
       containers:
         - name: proxyauthk8s-front
-          image: '{{ .Values.registry.front.image.repository }}:{{ .Values.registry.front.image.tag }}'
+          image: '{{ .Values.registry.front.image.repository }}:{{ .Values.registry.front.image.tag | default .Chart.AppVersion }}'
           imagePullPolicy: '{{ .Values.registry.front.image.pullPolicy }}'
           {{- include "proxyauthk8s.containerSecurityContext" . | nindent 10 }}
           ports:
@@ -36,6 +36,26 @@ spec:
               value: '{{ .Values.oidc.value.client_id }}'
             - name: PROXYAUTHK8S_FRONT_OIDC_SCOPE
               value: '{{ .Values.oidc.value.scopes }}'
+            - name: "PROXYAUTHK8S_FRONT_OIDC_SILENT_REFRESH"
+              value: "{{ .Values.oidc.value.silent_refresh }}"
+            {{- else if eq .Values.oidc.source "secret" }}
+            # Same secret as the backend, renamed to the front's variables. Only
+            # the public parts are read: the client secret never reaches the front.
+            - name: PROXYAUTHK8S_FRONT_OIDC_ISSUER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: '{{ .Values.oidc.objectName }}'
+                  key: OIDC_ISSUER_URL
+            - name: PROXYAUTHK8S_FRONT_OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: '{{ .Values.oidc.objectName }}'
+                  key: OIDC_CLIENT_ID
+            - name: PROXYAUTHK8S_FRONT_OIDC_SCOPE
+              valueFrom:
+                secretKeyRef:
+                  name: '{{ .Values.oidc.objectName }}'
+                  key: OIDC_SCOPES
             - name: "PROXYAUTHK8S_FRONT_OIDC_SILENT_REFRESH"
               value: "{{ .Values.oidc.value.silent_refresh }}"
             {{- end }}

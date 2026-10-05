@@ -21,7 +21,7 @@ spec:
       {{- include "proxyauthk8s.podSecurityContext" . | nindent 6 }}
       containers:
         - name: proxyauthk8s-back
-          image: '{{ .Values.registry.back.image.repository }}:{{ .Values.registry.back.image.tag }}'
+          image: '{{ .Values.registry.back.image.repository }}:{{ .Values.registry.back.image.tag | default .Chart.AppVersion }}'
           imagePullPolicy: '{{ .Values.registry.back.image.pullPolicy }}'
           {{- include "proxyauthk8s.containerSecurityContext" . | nindent 10 }}
           ports:

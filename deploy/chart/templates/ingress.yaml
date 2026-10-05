@@ -26,20 +26,20 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ .Release.Name }}-front
+                name: {{ include "proxyauthk8s.front.name" . }}
                 port:
-                  number: 4200
+                  number: {{ .Values.front.port }}
           - path: /api/
             pathType: Prefix
             backend:
               service:
-                name: {{ .Release.Name }}-back
+                name: {{ include "proxyauthk8s.back.name" . }}
                 port:
                   number: {{ .Values.back.port }}
           - path: /clusters/
             pathType: Prefix
             backend:
               service:
-                name: {{ .Release.Name }}-back
+                name: {{ include "proxyauthk8s.back.name" . }}
                 port:
                   number: {{ .Values.back.port }}
