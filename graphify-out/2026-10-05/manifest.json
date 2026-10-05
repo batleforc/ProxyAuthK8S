@@ -1314,9 +1314,9 @@
     "semantic_hash": ""
   },
   "libs/server/crd/src/authentication_configuration/oidc_provider.rs": {
-    "mtime": 1791203835.2388878,
-    "seen": 1791209019.4358146,
-    "ast_hash": "2eaefac3b578a567b619b29eea2c7e02",
+    "mtime": 1791220115.5452642,
+    "seen": 1791220147.6374607,
+    "ast_hash": "760ab0a193f467933546d8cb6822a083",
     "semantic_hash": ""
   },
   "libs/server/crd/src/authentication_configuration/user_validation_rule.rs": {
@@ -1356,9 +1356,9 @@
     "semantic_hash": ""
   },
   "libs/server/crd/src/lib.rs": {
-    "mtime": 1791219885.7177405,
-    "seen": 1791219918.569111,
-    "ast_hash": "e21d62bcbf0ddf76b70377a48923e3e7",
+    "mtime": 1791220105.3366756,
+    "seen": 1791220147.637694,
+    "ast_hash": "5ff45481e7a28c1a69693b728e58f8e9",
     "semantic_hash": ""
   },
   "libs/server/crd/src/security/allowed_crd_configuration.rs": {
@@ -2454,9 +2454,9 @@
     "semantic_hash": ""
   },
   "todo.md": {
-    "mtime": 1791219885.7348213,
-    "seen": 1791219918.5749388,
-    "ast_hash": "9723a8fda3383146dd9523ab5100d959",
+    "mtime": 1791220142.1918242,
+    "seen": 1791220147.6436403,
+    "ast_hash": "e9ece4ce702ab3733c21f3b247667480",
     "semantic_hash": ""
   },
   ".docs/public/art.png": {

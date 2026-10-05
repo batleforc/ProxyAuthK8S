@@ -57,7 +57,7 @@ where
     #[must_use]
     pub fn to_table(&self) -> String {
         let mut table = Table::new();
-        table.load_preset(comfy_table::presets::NOTHING);
+        table.load_style(comfy_table::presets::NOTHING);
         table.set_header(T::headers());
         for item in &self.items {
             table.add_row(item.row());

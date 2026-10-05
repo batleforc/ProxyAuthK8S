@@ -13,6 +13,6 @@ schemars = { workspace = true }
 regex = { workspace = true }
 thiserror = { workspace = true }
 
-base64 = "0.22"
+base64 = "0.23"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

@@ -42,9 +42,9 @@
     "semantic_hash": ""
   },
   ".docs/package.json": {
-    "mtime": 1791203835.2020917,
-    "seen": 1791209019.4355621,
-    "ast_hash": "ded463e3ebfe01495ab7294f9c37126e",
+    "mtime": 1791222935.5326242,
+    "seen": 1791223184.0798705,
+    "ast_hash": "a6dbf29d79515327fef0940e310e03fa",
     "semantic_hash": ""
   },
   ".docs/postcss.config.mjs": {
@@ -120,9 +120,9 @@
     "semantic_hash": ""
   },
   ".docs/src/app/llms.txt/route.ts": {
-    "mtime": 1791203835.2226095,
-    "seen": 1791209019.4355793,
-    "ast_hash": "da0b1982576d30e6b848ce7e52685e7a",
+    "mtime": 1791222906.9737513,
+    "seen": 1791223184.0805721,
+    "ast_hash": "412010d9df7b59474dada46858bd20ec",
     "semantic_hash": ""
   },
   ".docs/src/app/og/docs/[...slug]/route.tsx": {
@@ -456,9 +456,9 @@
     "semantic_hash": ""
   },
   "apps/server/Cargo.toml": {
-    "mtime": 1791203835.2303717,
-    "seen": 1791209019.4356475,
-    "ast_hash": "e4d6567b1e8ebb3efffe425d0a2e53b0",
+    "mtime": 1791222800.979442,
+    "seen": 1791223184.0835373,
+    "ast_hash": "748918016cddcc57e15564213b4560a8",
     "semantic_hash": ""
   },
   "apps/server/project.json": {
@@ -492,15 +492,15 @@
     "semantic_hash": ""
   },
   "eslint.config.mjs": {
-    "mtime": 1791203835.2317202,
-    "seen": 1791209019.4356546,
-    "ast_hash": "696ec75c808632369dbbaa08c7b61b4e",
+    "mtime": 1791223565.3378823,
+    "seen": 1791223589.0740168,
+    "ast_hash": "829b0d811d8760fd6d0d7858934a0ee1",
     "semantic_hash": ""
   },
   "libs/cli/cli/Cargo.toml": {
-    "mtime": 1791216291.690997,
-    "seen": 1791216435.114459,
-    "ast_hash": "6cb10797379b808709c6fd7732dfa0bf",
+    "mtime": 1791222800.979442,
+    "seen": 1791223184.083841,
+    "ast_hash": "02290eba7d7d60f27e88c33ffec664cc",
     "semantic_hash": ""
   },
   "libs/cli/cli/project.json": {
@@ -630,14 +630,14 @@
     "semantic_hash": ""
   },
   "libs/cli/cli/src/output.rs": {
-    "mtime": 1791203835.2331862,
-    "seen": 1791209019.435682,
-    "ast_hash": "0a90ea162db637afde0de1c16a0c645f",
+    "mtime": 1791222800.9801772,
+    "seen": 1791223184.0858474,
+    "ast_hash": "dafc423024ff451195fe4f0fe301606a",
     "semantic_hash": ""
   },
   "libs/cli/cli_trace/Cargo.toml": {
-    "mtime": 1791203835.233431,
-    "seen": 1791209019.4356833,
+    "mtime": 1791222607.4573689,
+    "seen": 1791223184.0858514,
     "ast_hash": "5109dd7836666b52c48487c0a31f7fcc",
     "semantic_hash": ""
   },
@@ -660,8 +660,8 @@
     "semantic_hash": ""
   },
   "libs/cli/client_api/Cargo.toml": {
-    "mtime": 1791203835.233614,
-    "seen": 1791209019.4356883,
+    "mtime": 1791222607.457245,
+    "seen": 1791223184.0860188,
     "ast_hash": "c04502643f0cc7f85709525965c3a9a3",
     "semantic_hash": ""
   },
@@ -864,9 +864,9 @@
     "semantic_hash": ""
   },
   "libs/server/api/Cargo.toml": {
-    "mtime": 1791210683.2200167,
-    "seen": 1791210708.3025687,
-    "ast_hash": "52058907f230dc03290a3a9bbe1e5e27",
+    "mtime": 1791222800.980257,
+    "seen": 1791223184.0882154,
+    "ast_hash": "f48ca90d3f28e7f94ed843771f3ea762",
     "semantic_hash": ""
   },
   "libs/server/api/project.json": {
@@ -1182,9 +1182,9 @@
     "semantic_hash": ""
   },
   "libs/server/common/Cargo.toml": {
-    "mtime": 1791203835.2380476,
-    "seen": 1791209019.4357893,
-    "ast_hash": "1a802c9ae81f5d9f6766ab1260058728",
+    "mtime": 1791222800.980257,
+    "seen": 1791223184.0916817,
+    "ast_hash": "d9a7cdb8d6c91611056eca276c1be385",
     "semantic_hash": ""
   },
   "libs/server/common/project.json": {
@@ -1230,8 +1230,8 @@
     "semantic_hash": ""
   },
   "libs/server/controller/Cargo.toml": {
-    "mtime": 1791203835.238481,
-    "seen": 1791209019.435799,
+    "mtime": 1791222607.4577234,
+    "seen": 1791223184.092049,
     "ast_hash": "b763b1093c486051ae522a66ddd2b268",
     "semantic_hash": ""
   },
@@ -1272,9 +1272,9 @@
     "semantic_hash": ""
   },
   "libs/server/crd/Cargo.toml": {
-    "mtime": 1791203835.238786,
-    "seen": 1791209019.435807,
-    "ast_hash": "ea74c31e6a4a1a279978708f57208eb9",
+    "mtime": 1791222800.980257,
+    "seen": 1791223184.092389,
+    "ast_hash": "8bb19f3afa6248b719aaf55fdba9dd30",
     "semantic_hash": ""
   },
   "libs/server/crd/project.json": {
@@ -1446,9 +1446,9 @@
     "semantic_hash": ""
   },
   "libs/server/crd_runtime/Cargo.toml": {
-    "mtime": 1791203835.2398705,
-    "seen": 1791209019.4358397,
-    "ast_hash": "ddef367d5a1ddbd8ab167c11cb7aeab4",
+    "mtime": 1791222800.980257,
+    "seen": 1791223184.0944855,
+    "ast_hash": "2083da149b7dbb988eb894b6b479d392",
     "semantic_hash": ""
   },
   "libs/server/crd_runtime/src/lib.rs": {
@@ -1458,8 +1458,8 @@
     "semantic_hash": ""
   },
   "libs/server/trace/Cargo.toml": {
-    "mtime": 1791203835.2402165,
-    "seen": 1791209019.4358423,
+    "mtime": 1791222607.45799,
+    "seen": 1791223184.0945716,
     "ast_hash": "2a26d84c1621554f1b5ce804c1f1f627",
     "semantic_hash": ""
   },
@@ -1482,8 +1482,8 @@
     "semantic_hash": ""
   },
   "libs/server/virtual_api/Cargo.toml": {
-    "mtime": 1791203835.2402909,
-    "seen": 1791209019.4358468,
+    "mtime": 1791222607.4580784,
+    "seen": 1791223184.0948088,
     "ast_hash": "fe71513120603ca70294462d21367a91",
     "semantic_hash": ""
   },
@@ -1536,9 +1536,9 @@
     "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1791203835.240497,
-    "seen": 1791209019.4358568,
-    "ast_hash": "2ad742c3f260d09d69fc96915a461bf9",
+    "mtime": 1791222828.7646692,
+    "seen": 1791223184.0953076,
+    "ast_hash": "07442dd3c36615a18c453fecce05178b",
     "semantic_hash": ""
   },
   "swagger.json": {
@@ -1776,9 +1776,9 @@
     "semantic_hash": ""
   },
   ".docs/content/docs/crds.mdx": {
-    "mtime": 1791219885.715432,
-    "seen": 1791219918.5713127,
-    "ast_hash": "f39b7b8684cf13b553a0c275da4bed94",
+    "mtime": 1791223532.037503,
+    "seen": 1791223589.0838618,
+    "ast_hash": "fb8d2cc3c2deca50fb11e6c37cbd3120",
     "semantic_hash": ""
   },
   ".docs/content/docs/developper-guide/index.mdx": {
@@ -2022,9 +2022,9 @@
     "semantic_hash": ""
   },
   ".tasks/gen.yaml": {
-    "mtime": 1791203835.2273772,
-    "seen": 1791209019.435949,
-    "ast_hash": "f89391dbfc25aa78e7f99a75e94ce5b4",
+    "mtime": 1791223530.2113934,
+    "seen": 1791223589.0857792,
+    "ast_hash": "593a50beb980b8372338c7c48d0d56fc",
     "semantic_hash": ""
   },
   ".tasks/kube3d.yaml": {

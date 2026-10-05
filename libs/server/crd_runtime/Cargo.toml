@@ -8,7 +8,7 @@ kube = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
-base64 = "0.22"
+base64 = "0.23"
 secrecy = "0.10.3"
 
 crd = { path = "../crd", version = "0.1.9" }

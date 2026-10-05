@@ -14,18 +14,13 @@ serde = { workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
-base64 = "0.22"
+base64 = "0.23"
 tokio = { version = "1", features = ["rt", "net", "time", "io-util", "macros"] }
-keyring = { version = "3", features = [
-  "linux-native",
-  "apple-native",
-  "windows-native",
-  "sync-secret-service",
-] }
+keyring = "4"
 
 cli_trace = { path = "../cli_trace", version = "0.1.9" }
 client_api = { path = "../client_api", version = "0.1.9" }
-comfy-table = "7.2"
+comfy-table = "8"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [package.metadata.cargo-machete]
