@@ -38,7 +38,7 @@ for line in `git diff --check --cached | sed '/^[+-]/d'` ; do
     # in windows, `sed -i` adds ready-only attribute to $file(I don't kown why), so we use temp file instead
     sed 's/[[:space:]]*$//' "$file" > "${file}.bak"
     mv -f "${file}.bak" "$file"
-  elif [ "$platform" == "mac" ]; then
+  elif [ "$platform" = "mac" ]; then
     sed -i "" 's/[[:space:]]*$//' "$file"
   else
     sed -i 's/[[:space:]]*$//' "$file"
@@ -49,7 +49,7 @@ for line in `git diff --check --cached | sed '/^[+-]/d'` ; do
   rm "${file}.save"
 done
 
-if [ "x`git status -s | grep '^[A|D|M|R]'`" = "x" ]; then
+if [ "x`git status -s | grep '^[ADMR]'`" = "x" ]; then
   # empty commit
   echo
   echo -e "\033[31mNO CHANGES ADDED, ABORT COMMIT!\033[0m"

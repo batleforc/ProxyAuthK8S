@@ -26,7 +26,7 @@ pre_bump_hooks = [
 [git_hooks.commit-msg]
 script = """#!/bin/sh
 set -e
-cog verify --file $1
+cog verify --file "$1"
 cog check
 """
 
@@ -34,12 +34,12 @@ cog check
 script = """#!/bin/sh
 set -e
 task recu
-git add . # in case recu needed to regenerate files, add need to be done before linting
+git add -u # in case recu needed to regenerate files, add need to be done before linting (-u: tracked files only)
 task lint
-git add . # in case linting fixed anything
-gitleaks git --pre-commit --redact --staged --verbose
+git add -u # in case linting fixed anything
 .hooks/end-of-line.sh
 .hooks/whitespace-fixer.sh
+gitleaks git --pre-commit --redact --staged --verbose
 """
 
 [commit_types]

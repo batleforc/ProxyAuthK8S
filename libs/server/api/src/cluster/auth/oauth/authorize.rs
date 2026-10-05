@@ -78,7 +78,7 @@ pub async fn authorize(
 
     let Some(redirect_uri) = parse_loopback_redirect_uri(&query.redirect_uri) else {
         return HttpResponse::BadRequest()
-            .body("invalid_request: redirect_uri must be a loopback URI (http://localhost or http://127.0.0.1)");
+            .body("invalid_request: redirect_uri must be a loopback URI (http://localhost, http://127.0.0.1 or http://[::1])");
     };
 
     if query.response_type != "code" {

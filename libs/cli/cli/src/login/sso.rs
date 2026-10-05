@@ -268,7 +268,11 @@ fn open_in_browser(url: &str) {
     let (program, args): (&str, Vec<&str>) = if cfg!(target_os = "macos") {
         ("open", vec![url])
     } else if cfg!(target_os = "windows") {
-        ("cmd", vec!["/C", "start", "", url])
+        // Not `cmd /C start`: `cmd` reads the `&` separating the query
+        // parameters of every authorization URL as a command separator, so the
+        // browser got a truncated URL and the rest ran as shell commands.
+        // `rundll32` hands the URL to the default handler without a shell.
+        ("rundll32", vec!["url.dll,FileProtocolHandler", url])
     } else {
         ("xdg-open", vec![url])
     };

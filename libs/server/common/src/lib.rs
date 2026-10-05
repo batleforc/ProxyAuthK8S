@@ -114,6 +114,20 @@ impl State {
         self.redis.query(redis::cmd("GET").arg(key)).await
     }
 
+    /// Read a string value and delete it in the same atomic step (`GETDEL`).
+    ///
+    /// Use it for single-use values (authorization codes, CSRF states): with a
+    /// separate `GET` then `DEL`, two concurrent requests can both read the
+    /// value before either deletes it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
+    #[instrument(skip(self))]
+    pub async fn redis_take(&self, key: &str) -> Result<Option<String>, RedisPoolError> {
+        self.redis.query(redis::cmd("GETDEL").arg(key)).await
+    }
+
     /// Write a string value, with an optional TTL in seconds.
     ///
     /// # Errors

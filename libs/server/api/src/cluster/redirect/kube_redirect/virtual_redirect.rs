@@ -217,15 +217,15 @@ pub(super) async fn virtual_redirect(
             let body = match read_client_body(&mut payload, limit).await {
                 Ok(body) if body.is_empty() => None,
                 Ok(body) => match serde_json::from_slice::<Value>(&body) {
-                    Ok(json) => Some(
+                    Ok(json) => Some(VirtualRequestBody::Rewritten(
                         mapper
                             .map_request_body(&route, json)
                             .to_string()
                             .into_bytes(),
-                    ),
+                    )),
                     // Not JSON: forward verbatim rather than reject, the cluster
                     // will say what it thinks of it.
-                    Err(_) => Some(body.to_vec()),
+                    Err(_) => Some(VirtualRequestBody::Verbatim(body.to_vec())),
                 },
                 Err(ReadCapError::TooLarge) => {
                     warn!(limit, "virtual request body exceeds the size cap");
@@ -276,17 +276,47 @@ pub(super) async fn virtual_redirect(
         }
     };
 
-    let mut forwarded_req = client.request(upstream_method, &url);
-    forwarded_req = apply_forward_headers(forwarded_req, &req, peer_addr, user.as_ref());
-    if let Some(body) = request_body {
-        forwarded_req = forwarded_req
-            .header(http::header::CONTENT_TYPE.as_str(), "application/json")
-            .body(body);
+    let forwarded_req = apply_forward_headers(
+        client.request(upstream_method, &url),
+        &req,
+        peer_addr,
+        user.as_ref(),
+    );
+    let mut forwarded_req = match forwarded_req.build() {
+        Ok(forwarded_req) => forwarded_req,
+        Err(err) => {
+            error!(error = %err, "couldn't build the virtual API request");
+            audit.emit(500);
+            return HttpResponse::InternalServerError().finish();
+        }
+    };
+    // The response is parsed and rewritten here, and reqwest is built without
+    // decompression: a compressed upstream answer could neither be translated
+    // nor be forwarded as-is (its `Content-Encoding` is not passed back), so
+    // ask for an uncompressed one whatever the client accepts.
+    forwarded_req.headers_mut().insert(
+        reqwest::header::ACCEPT_ENCODING,
+        reqwest::header::HeaderValue::from_static("identity"),
+    );
+    match request_body {
+        Some(VirtualRequestBody::Rewritten(body)) => {
+            // `insert` replaces the client's own `Content-Type`; the mapper
+            // always produces JSON.
+            forwarded_req.headers_mut().insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            *forwarded_req.body_mut() = Some(body.into());
+        }
+        Some(VirtualRequestBody::Verbatim(body)) => {
+            *forwarded_req.body_mut() = Some(body.into());
+        }
+        None => {}
     }
 
     debug!(from = %req.path(), to = %url, "forwarding a virtual API request");
 
-    let res = match forwarded_req.send().await {
+    let res = match client.execute(forwarded_req).await {
         Ok(res) => res,
         Err(err) => {
             error!(error = %err, "error forwarding a virtual API request");
@@ -297,10 +327,12 @@ pub(super) async fn virtual_redirect(
 
     let status =
         http::StatusCode::from_u16(res.status().as_u16()).unwrap_or(http::StatusCode::BAD_GATEWAY);
-    audit.emit(status.as_u16());
 
+    // Each branch below emits the audit event for the status it really answers
+    // with, exactly once.
     // A watch never ends, so it is translated event by event as it flows.
     if matches!(plan, VirtualPlan::Mapped { .. }) && is_watch(query_string) {
+        audit.emit(status.as_u16());
         return stream_watch(res, status, registry, upstream_path);
     }
 
@@ -313,6 +345,7 @@ pub(super) async fn virtual_redirect(
         }
         Err(ReadCapError::Upstream(err)) => {
             error!(error = %err, "error reading the upstream response");
+            audit.emit(503);
             return HttpResponse::ServiceUnavailable().body("upstream unavailable");
         }
     };
@@ -322,6 +355,7 @@ pub(super) async fn virtual_redirect(
         Err(err) => {
             // Nothing to translate; hand the bytes back as they came.
             warn!(error = %err, "upstream response is not JSON, forwarding it untouched");
+            audit.emit(status.as_u16());
             return HttpResponse::build(status).body(body);
         }
     };
@@ -340,7 +374,16 @@ pub(super) async fn virtual_redirect(
         }
     };
 
+    audit.emit(status.as_u16());
     json_response(status, &translated)
+}
+
+/// The body forwarded with a virtual API request.
+enum VirtualRequestBody {
+    /// Rewritten by the mapper; always JSON.
+    Rewritten(Vec<u8>),
+    /// Not JSON, so passed through untouched with the client's `Content-Type`.
+    Verbatim(Vec<u8>),
 }
 
 /// Translate a newline-delimited watch stream event by event.

@@ -223,10 +223,13 @@ pub async fn redirect(
         }
     }
 
+    // A `KubernetesService` without an explicit namespace lives next to the
+    // proxy resource, exactly as the reachability check and the kubeconfig
+    // export resolve it. `ns` is the namespace the proxy was looked up in.
     let base_url = match proxy
         .spec
         .service
-        .url_to_call(data.client.clone(), "default".to_string())
+        .url_to_call(data.client.clone(), ns.to_string())
         .await
     {
         Ok(url) => url.trim_end_matches('/').to_string(),

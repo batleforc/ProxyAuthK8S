@@ -1,0 +1,3 @@
+# Paths from weebo-base that task template:sync / template:diff must leave alone.
+# ProxyAuthK8S is GPL-3.0 (LICENSE), not Apache-2.0 like the template.
+LICENSE.md

@@ -1,7 +1,7 @@
 .nx
 /.compose
 /.talos
-/.taskfile
+/.tasks
 /.tls
 dist
 node_modules

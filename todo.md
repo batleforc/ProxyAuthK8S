@@ -30,6 +30,63 @@ than a rushed change. Roughly ordered by score impact / value.
       Also fixed a pre-existing clap panic: `context`'s `--set` declared `-s`,
       colliding with the global `--server-url` `-s` (now long-only `--set`).
 
+## Features
+
+- [ ] **Let an admin use their kubeadm admin kubeconfig through the proxy
+      (client-certificate auth).** Use case: an admin takes the `admin.conf`
+      kubeadm generated (user authenticated by `client-certificate-data` /
+      `client-key-data`, e.g. `CN=kubernetes-admin`, `O=kubeadm:cluster-admins`
+      or `system:masters`), points `server:` at
+      `/clusters/{ns}/{cluster}` and expects it to work. Today it can't:
+      - the proxy never asks for a client certificate (the server is built
+        with `with_no_client_auth()`, `libs/server/common/src/lib.rs`), so
+        the request arrives with no credential and gets a 401 when validation
+        is required;
+      - even if it did, TLS ends at the proxy: the certificate can't be
+        replayed upstream (the proxy doesn't have the private key), unlike a
+        bearer token, which is forwarded as-is in `validate_against:
+        Kubernetes` mode.
+
+      Not to be confused with the existing `client_cert` on `ProxyKubeApi`,
+      which is the proxy's own certificate towards the cluster.
+
+      To do:
+      - **TLS handshake:** request a client certificate as *optional* (OIDC
+        and token clients must keep working). The handshake happens before
+        routing, so it can't know the target cluster yet: accept the chain at
+        the TLS level and do the real verification per request.
+      - **Per-cluster verification:** a new CRD field (e.g. `client_ca`, often
+        the cluster's own `ca.crt` with kubeadm) against which the presented
+        chain is validated (signature, validity dates, `clientAuth` EKU), plus
+        a switch to enable this auth mode per `ProxyKubeApi` (off by default).
+        Note that Kubernetes has no revocation for client certificates; same
+        limit here.
+      - **Identity:** map the certificate like the apiserver does (`CN` →
+        username, each `O` → group) into a `User`, so `allowed_resources`,
+        the namespace rules and the `{{username}}`/`{{group}}` placeholders
+        apply unchanged, and the audit log names the admin.
+      - **Forward the identity upstream:** the proxy has to authenticate as
+        itself and say who it acts for. Either impersonation (`Impersonate-User`
+        / `Impersonate-Group` with a proxy credential that has the
+        `impersonate` RBAC verb) or front-proxy / requestheader auth
+        (`X-Remote-User` / `X-Remote-Group` with the front-proxy client cert).
+        Both are currently stripped from client requests on purpose
+        (`forwarded.rs`); they must only ever be set by the proxy from the
+        verified certificate. Impersonating `system:masters` makes the proxy's
+        credential cluster-admin-equivalent: document it and consider an
+        allow-list of groups that may be impersonated.
+      - **Ingress in front:** with TLS terminated by an ingress, the proxy never
+        sees the certificate. Support either TLS passthrough, or a
+        forwarded-certificate header (`ssl-client-cert` and similar) trusted
+        only from a trusted proxy (same model as `TRUSTED_PROXY_COUNT`) and
+        stripped from any other client.
+      - **Kubeconfig:** document how to adapt `admin.conf` (proxy URL, proxy CA
+        in `certificate-authority-data`, keep the user's certificate), or let
+        the CLI rewrite it.
+      - Helm chart values, tests (handshake with/without a certificate, wrong
+        CA, expired certificate, spoofed headers, identity mapping), and a
+        section in `.docs/content/docs/security.mdx`.
+
 ## Craft / structure
 
 - [ ] **Bundle the redirect workers' argument block.** `standard_redirect`,

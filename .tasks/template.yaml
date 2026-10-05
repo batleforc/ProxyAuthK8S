@@ -1,0 +1,107 @@
+version: "3"
+
+vars:
+  TEMPLATE_REPO: '{{.TEMPLATE_REPO | default "https://github.com/batleforc/weebo-base"}}'
+  TEMPLATE_REF: '{{.TEMPLATE_REF | default "main"}}'
+  CACHE: "{{.ROOT_DIR}}/.task/template"
+  # Paths listed there (one per line, '#' for comments) are never touched by the template tasks.
+  IGNORE_FILE: "{{.ROOT_DIR}}/.template-ignore"
+  # Files the template fully owns: task template:sync overwrites them without asking.
+  # A folder entry covers every file the template has under it (local extra files are kept).
+  OWNED: >-
+    .hooks/end-of-line.sh
+    .hooks/whitespace-fixer.sh
+    .rtk/filters.toml
+    .tasks/mise.yaml
+    .tasks/claude.yaml
+    .tasks/template.yaml
+    .claude/skills
+    .claude/CLAUDE.md
+    .github/CODEOWNERS
+    .forgejo/CODEOWNERS
+    LICENSE.md
+  # Files every project customises: they are only ever diffed, never overwritten.
+  REVIEW: >-
+    Taskfile.yaml
+    CLAUDE.md
+    .claude/settings.json
+    .gitignore
+    cog.toml
+    mise.toml
+    devfile.yaml
+  # Shell helpers shared by the tasks below: expand folder entries and drop ignored paths.
+  LIST_FN: |
+    list() {
+      for p in "$@"; do
+        if [ -d "{{.CACHE}}/$p" ]; then (cd "{{.CACHE}}" && find "$p" -type f | sort); else echo "$p"; fi
+      done | while read -r f; do
+        if [ -f "{{.IGNORE_FILE}}" ] && grep -v '^#' "{{.IGNORE_FILE}}" | grep -qxF "$f"; then continue; fi
+        echo "$f"
+      done
+    }
+
+tasks:
+  fetch:
+    desc: "Clone the template at TEMPLATE_REF into .task/template (usage: task template:fetch [TEMPLATE_REF=main])"
+    cmds:
+      - rm -rf "{{.CACHE}}"
+      - git clone --quiet --depth 1 --branch "{{.TEMPLATE_REF}}" "{{.TEMPLATE_REPO}}" "{{.CACHE}}"
+      - echo "Template {{.TEMPLATE_REPO}}@{{.TEMPLATE_REF}} is at $(git -C '{{.CACHE}}' rev-parse --short HEAD)"
+
+  diff:
+    desc: "Show what the template changed compared to this project, without touching anything"
+    deps: [fetch]
+    cmds:
+      - |
+        set -eu
+        {{.LIST_FN}}
+        for f in $(list {{.OWNED}} {{.REVIEW}}); do
+          if [ ! -f "{{.CACHE}}/$f" ]; then continue; fi
+          if [ ! -f "{{.ROOT_DIR}}/$f" ]; then
+            echo "== $f: missing here, the template would add it"
+            continue
+          fi
+          if ! cmp -s "{{.ROOT_DIR}}/$f" "{{.CACHE}}/$f"; then
+            echo "== $f"
+            git --no-pager diff --no-index -- "{{.ROOT_DIR}}/$f" "{{.CACHE}}/$f" || true
+          fi
+        done
+
+  sync:
+    desc: "Copy the template-owned files over this project, then diff the ones you have to merge by hand"
+    deps: [fetch]
+    preconditions:
+      - sh: "git diff --quiet && git diff --cached --quiet"
+        msg: "commit or stash your changes first, sync overwrites files in place"
+    cmds:
+      - |
+        set -eu
+        {{.LIST_FN}}
+        for f in $(list {{.OWNED}}); do
+          if [ ! -f "{{.CACHE}}/$f" ]; then
+            echo "-- $f: gone from the template, left untouched"
+            continue
+          fi
+          if cmp -s "{{.ROOT_DIR}}/$f" "{{.CACHE}}/$f" 2>/dev/null; then continue; fi
+          mkdir -p "$(dirname "{{.ROOT_DIR}}/$f")"
+          cp "{{.CACHE}}/$f" "{{.ROOT_DIR}}/$f"
+          echo ">> $f updated"
+        done
+        for f in {{.ROOT_DIR}}/.hooks/*.sh; do [ -f "$f" ] && chmod +x "$f"; done
+      - |
+        set -eu
+        {{.LIST_FN}}
+        echo
+        echo "Files below are yours to merge by hand, showing local vs template:"
+        for f in $(list {{.REVIEW}}); do
+          [ -f "{{.CACHE}}/$f" ] || continue
+          if [ ! -f "{{.ROOT_DIR}}/$f" ]; then
+            echo "== $f: missing here, copy it from {{.CACHE}}/$f"
+            continue
+          fi
+          cmp -s "{{.ROOT_DIR}}/$f" "{{.CACHE}}/$f" || {
+            echo "== $f"
+            git --no-pager diff --no-index -- "{{.ROOT_DIR}}/$f" "{{.CACHE}}/$f" || true
+          }
+        done
+      - echo "Review 'git diff', then run 'task init' to pick the new tooling up"

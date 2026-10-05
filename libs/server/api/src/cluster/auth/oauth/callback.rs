@@ -68,7 +68,9 @@ pub async fn callback(
     }
 
     let pending_key = format!("{PENDING_PREFIX}:{ns}/{cluster}/{}", callback.state);
-    let pending = match data.redis_get(&pending_key).await {
+    // Single-use: read and delete atomically so the same upstream `code`+`state`
+    // cannot be replayed, even by concurrent requests.
+    let pending = match data.redis_take(&pending_key).await {
         Ok(Some(raw)) => match serde_json::from_str::<PendingAuthorization>(&raw) {
             Ok(pending) => pending,
             Err(e) => {
@@ -85,10 +87,6 @@ pub async fn callback(
             return HttpResponse::ServiceUnavailable().finish();
         }
     };
-    // Single-use: drop it now so the same upstream `code`+`state` cannot be replayed.
-    if let Err(e) = data.delete_key(&pending_key).await {
-        error!(error = %e, "couldn't delete used pending authorization");
-    }
     // Already validated (loopback-only) when stored; re-parsing here just
     // recovers the `Url` needed to build the redirect / error responses.
     let Ok(client_redirect_uri) = Url::parse(&pending.client_redirect_uri) else {

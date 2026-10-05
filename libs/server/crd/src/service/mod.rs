@@ -41,10 +41,14 @@ fn service_host(cluster_ip: Option<&str>, name: &str, namespace: &str) -> String
     }
 }
 
-/// Prefer the nodePort when set (the service is reached from off-cluster via the
-/// node), otherwise the service port.
+/// The port to dial alongside `service_host`.
+///
+/// The host is the ClusterIP (or the in-cluster DNS name), and those only
+/// answer on the service port. A `nodePort` belongs with a node address, so
+/// pairing it with the ClusterIP would never route for NodePort/LoadBalancer
+/// services.
 fn dial_port(svc_port: &k8s_openapi::api::core::v1::ServicePort) -> i32 {
-    svc_port.node_port.unwrap_or(svc_port.port)
+    svc_port.port
 }
 
 impl Service {
@@ -128,6 +132,16 @@ mod tests {
     fn missing_or_empty_cluster_ip_falls_back_to_dns_name() {
         assert_eq!(service_host(None, "svc", "ns"), "svc.ns.svc");
         assert_eq!(service_host(Some(""), "svc", "ns"), "svc.ns.svc");
+    }
+
+    #[test]
+    fn service_port_is_dialled_even_when_a_node_port_is_set() {
+        let svc_port = k8s_openapi::api::core::v1::ServicePort {
+            port: 443,
+            node_port: Some(30443),
+            ..Default::default()
+        };
+        assert_eq!(dial_port(&svc_port), 443);
     }
 
     #[test]

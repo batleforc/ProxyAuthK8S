@@ -1,0 +1,64 @@
+version: "3"
+
+vars:
+  SETTINGS: '{{.SETTINGS | default ".claude/settings.json"}}'
+  SCOPE: '{{.SCOPE | default "project"}}'
+
+tasks:
+  install:
+    desc: "Install every marketplace and enabled plugin declared in a Claude settings file (usage: task claude:install [SETTINGS=.claude/settings.json] [SCOPE=project|user|local])"
+    preconditions:
+      - sh: "command -v claude >/dev/null"
+        msg: "the 'claude' cli is required"
+      - sh: "command -v jq >/dev/null"
+        msg: "jq is required, install it with 'mise use jq'"
+      - sh: "test -f {{.SETTINGS}}"
+        msg: "{{.SETTINGS}} not found, pass SETTINGS=<path> to point at another settings file"
+    cmds:
+      - task: marketplaces
+        vars: { SETTINGS: "{{.SETTINGS}}", SCOPE: "{{.SCOPE}}" }
+      - task: plugins
+        vars: { SETTINGS: "{{.SETTINGS}}", SCOPE: "{{.SCOPE}}" }
+      - echo "Restart Claude Code to load the freshly installed plugins"
+
+  marketplaces:
+    desc: "Register only the marketplaces listed in extraKnownMarketplaces"
+    cmds:
+      - |
+        set -eu
+        jq -r '.extraKnownMarketplaces // {}
+               | to_entries[]
+               | [.key, (.value.source | if type == "string" then . else (.repo // .url // .path) end)]
+               | @tsv' "{{.SETTINGS}}" |
+        while IFS="$(printf '\t')" read -r name source; do
+          if [ -z "$source" ]; then
+            echo "!! marketplace '$name': unsupported source, skipped" >&2
+            continue
+          fi
+          echo ">> marketplace '$name' <- $source"
+          claude plugin marketplace add "$source" --scope "{{.SCOPE}}"
+        done
+
+  plugins:
+    desc: "Install only the plugins flagged true in enabledPlugins"
+    cmds:
+      - |
+        set -eu
+        jq -r '.enabledPlugins // {} | to_entries[] | select(.value == true) | .key' "{{.SETTINGS}}" |
+        while read -r plugin; do
+          echo ">> plugin '$plugin'"
+          claude plugin install "$plugin" --scope "{{.SCOPE}}" --yes
+        done
+
+  update:
+    desc: "Refresh every configured marketplace, then reinstall the plugins from the settings file"
+    cmds:
+      - claude plugin marketplace update
+      - task: plugins
+        vars: { SETTINGS: "{{.SETTINGS}}", SCOPE: "{{.SCOPE}}" }
+
+  list:
+    desc: "List the configured marketplaces and the installed plugins"
+    cmds:
+      - claude plugin marketplace list
+      - claude plugin list

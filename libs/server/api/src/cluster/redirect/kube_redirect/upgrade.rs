@@ -92,6 +92,12 @@ async fn connect_upgrade_stream(
     let host = upstream_url
         .host_str()
         .ok_or_else(|| "missing upstream host".to_string())?;
+    // `host_str` keeps the brackets of an IPv6 literal (`[::1]`), which neither
+    // `TcpStream::connect` nor `ServerName` accept.
+    let host = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
     let port = upstream_url
         .port_or_known_default()
         .ok_or_else(|| "missing upstream port".to_string())?;
