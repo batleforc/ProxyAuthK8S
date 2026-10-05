@@ -7,8 +7,10 @@ pub enum ServiceError {
     #[error("failed to read service {name}: {source}")]
     Read {
         name: String,
+        // Boxed: `kube::Error` is large, and every `Result` carrying this
+        // error would otherwise pay for it (clippy::result_large_err).
         #[source]
-        source: kube::Error,
+        source: Box<kube::Error>,
     },
     /// The Service has no `spec`.
     #[error("no spec found for service {name}")]

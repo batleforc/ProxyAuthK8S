@@ -10,6 +10,7 @@ mod namespaced_access_configuration;
 mod namespaced_access_rule_kind;
 pub mod path_matcher;
 mod per_user_group_rate_limiting_configuration;
+mod port_range;
 mod rate_limiting_configuration;
 
 pub use allowed_crd_configuration::AllowedCrdConfiguration;
@@ -19,6 +20,7 @@ pub use fail2login_equal_ban_configuration::Fail2LoginEqualBanConfiguration;
 pub use namespaced_access_configuration::NamespacedAccessConfiguration;
 pub use namespaced_access_rule_kind::NamespacedAccessRuleKind;
 pub use per_user_group_rate_limiting_configuration::PerUserGroupRateLimitingConfiguration;
+pub use port_range::{PortPolicy, PortSpec};
 pub use rate_limiting_configuration::RateLimitingConfiguration;
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
@@ -161,6 +163,30 @@ impl SecurityConfiguration {
         }
         rules.any(|allowed_resource| allowed_resource.matches(path, username, groups))
     }
+
+    /// Ports a port-forward to `path` may open.
+    ///
+    /// The ports of every matching rule are combined; a matching rule without
+    /// `allowed_ports` (and any `Crd` rule) lifts the restriction. With no rule
+    /// at all, or a disabled configuration, nothing is restricted, as for
+    /// [`Self::is_path_allowed`]. With rules but none matching, no port is
+    /// allowed (the path itself is refused anyway).
+    #[must_use]
+    pub fn port_forward_policy(&self, path: &str, username: &str, groups: &[String]) -> PortPolicy {
+        let mut rules = self.all_allowed_resources().peekable();
+        if !self.enabled || rules.peek().is_none() {
+            return PortPolicy::Any;
+        }
+
+        let mut allowed = Vec::new();
+        for rule in rules.filter(|rule| rule.matches(path, username, groups)) {
+            match rule.port_policy() {
+                PortPolicy::Any => return PortPolicy::Any,
+                PortPolicy::Only(ranges) => allowed.extend(ranges),
+            }
+        }
+        PortPolicy::Only(allowed)
+    }
 }
 
 #[cfg(test)]
@@ -171,7 +197,89 @@ mod tests {
         AllowedPathConfigurationEnum::Path(AllowedPathConfiguration {
             path: path.to_string(),
             parametised,
+            allowed_ports: None,
         })
+    }
+
+    fn port_forward_rule(path: &str, ports: Option<&[&str]>) -> AllowedPathConfigurationEnum {
+        AllowedPathConfigurationEnum::Path(AllowedPathConfiguration {
+            path: path.to_string(),
+            parametised: true,
+            allowed_ports: ports.map(|ports| {
+                ports
+                    .iter()
+                    .map(|port| PortSpec((*port).to_string()))
+                    .collect()
+            }),
+        })
+    }
+
+    const PORT_FORWARD: &str = "/api/v1/namespaces/dev/pods/web/portforward";
+
+    #[test]
+    fn port_forward_is_unrestricted_without_rules() {
+        let config = SecurityConfiguration::default();
+        assert_eq!(
+            config.port_forward_policy(PORT_FORWARD, "alice", &[]),
+            PortPolicy::Any
+        );
+    }
+
+    #[test]
+    fn port_forward_ports_of_matching_rules_are_combined() {
+        let config = SecurityConfiguration {
+            enabled: true,
+            allowed_resources: vec![
+                port_forward_rule("/api/v1/namespaces/dev/pods/*/portforward", Some(&["8080"])),
+                port_forward_rule(
+                    "/api/v1/namespaces/*/pods/web/portforward",
+                    Some(&["9000-9001"]),
+                ),
+                port_forward_rule("/api/v1/namespaces/prod/pods/*/portforward", Some(&["22"])),
+            ],
+            ..SecurityConfiguration::default()
+        };
+
+        let policy = config.port_forward_policy(PORT_FORWARD, "alice", &[]);
+        assert!(policy.allows(8080));
+        assert!(policy.allows(9001));
+        assert!(!policy.allows(22));
+    }
+
+    #[test]
+    fn a_matching_rule_without_ports_lifts_the_restriction() {
+        let config = SecurityConfiguration {
+            enabled: true,
+            allowed_resources: vec![
+                port_forward_rule("/api/v1/namespaces/dev/pods/*/portforward", Some(&["8080"])),
+                port_forward_rule("/api/v1/namespaces/dev/**", None),
+            ],
+            ..SecurityConfiguration::default()
+        };
+        assert_eq!(
+            config.port_forward_policy(PORT_FORWARD, "alice", &[]),
+            PortPolicy::Any
+        );
+    }
+
+    #[test]
+    fn invalid_and_empty_port_lists_allow_nothing() {
+        let config = SecurityConfiguration {
+            enabled: true,
+            allowed_resources: vec![
+                port_forward_rule(
+                    "/api/v1/namespaces/dev/pods/*/portforward",
+                    Some(&["0", "70000"]),
+                ),
+                port_forward_rule("/api/v1/namespaces/dev/pods/web/portforward", Some(&[])),
+            ],
+            ..SecurityConfiguration::default()
+        };
+        assert_eq!(
+            config.port_forward_policy(PORT_FORWARD, "alice", &[]),
+            PortPolicy::Only(Vec::new())
+        );
+        assert!(config.validate().is_err());
     }
 
     #[test]

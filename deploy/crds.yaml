@@ -527,6 +527,27 @@ spec:
                             literals reject `\{` outright, and the CRD is also shipped as a Helm
                             template where two consecutive `{` would be read as a Go template action.
                           properties:
+                            allowed_ports:
+                              description: |-
+                                Ports a port-forward session matched by this rule may open, as single
+                                ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
+
+                                Only used for `.../pods/{name}/portforward` paths. When omitted, the rule
+                                does not restrict ports. When several rules match a port-forward, their
+                                ports are combined, and one rule without `allowed_ports` lifts the
+                                restriction. An empty list allows no port at all.
+                              items:
+                                description: |-
+                                  A port (`"8080"`) or an inclusive port range (`"9000-9100"`).
+
+                                  Ports must be within 1-65535 and a range must not be reversed; an entry
+                                  breaking that is reported at reconcile time and allows no port.
+                                maxLength: 11
+                                pattern: ^[0-9]{1,5}(-[0-9]{1,5})?$
+                                type: string
+                              maxItems: 64
+                              nullable: true
+                              type: array
                             parametised:
                               default: false
                               description: |-
@@ -672,6 +693,27 @@ spec:
                             literals reject `\{` outright, and the CRD is also shipped as a Helm
                             template where two consecutive `{` would be read as a Go template action.
                           properties:
+                            allowed_ports:
+                              description: |-
+                                Ports a port-forward session matched by this rule may open, as single
+                                ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
+
+                                Only used for `.../pods/{name}/portforward` paths. When omitted, the rule
+                                does not restrict ports. When several rules match a port-forward, their
+                                ports are combined, and one rule without `allowed_ports` lifts the
+                                restriction. An empty list allows no port at all.
+                              items:
+                                description: |-
+                                  A port (`"8080"`) or an inclusive port range (`"9000-9100"`).
+
+                                  Ports must be within 1-65535 and a range must not be reversed; an entry
+                                  breaking that is reported at reconcile time and allows no port.
+                                maxLength: 11
+                                pattern: ^[0-9]{1,5}(-[0-9]{1,5})?$
+                                type: string
+                              maxItems: 64
+                              nullable: true
+                              type: array
                             parametised:
                               default: false
                               description: |-

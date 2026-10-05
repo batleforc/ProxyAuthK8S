@@ -7,6 +7,7 @@ use crate::default::default_disabled;
 use crate::security::path_matcher::{
     expand_parametised_patterns, path_equals, path_matches_pattern,
 };
+use crate::security::port_range::{PortPolicy, PortSpec};
 
 /// Mustache-like parameters (`{{username}}`, `{{group}}`) inside a configured path.
 /// Compiled once: the pattern is a literal, so it cannot fail to compile.
@@ -79,10 +80,24 @@ pub struct AllowedPathConfiguration {
     /// default: false
     #[serde(default = "default_disabled")]
     pub parametised: bool,
+
+    /// Ports a port-forward session matched by this rule may open, as single
+    /// ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
+    ///
+    /// Only used for `.../pods/{name}/portforward` paths. When omitted, the rule
+    /// does not restrict ports. When several rules match a port-forward, their
+    /// ports are combined, and one rule without `allowed_ports` lifts the
+    /// restriction. An empty list allows no port at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(max = 64))]
+    pub allowed_ports: Option<Vec<PortSpec>>,
 }
 
 impl AllowedPathConfiguration {
     pub fn validate(&self) -> Result<(), String> {
+        for port in self.allowed_ports.iter().flatten() {
+            port.range()?;
+        }
         if self.parametised {
             // detect any mustache-like parameters
             for cap in MUSTACHE_REGEX.captures_iter(&self.path) {
@@ -125,6 +140,19 @@ impl AllowedPathConfiguration {
         self.path.contains('*')
     }
 
+    /// The ports a port-forward matched by this rule may open.
+    ///
+    /// Invalid entries (refused by [`Self::validate`]) allow nothing.
+    #[must_use]
+    pub fn port_policy(&self) -> PortPolicy {
+        match &self.allowed_ports {
+            None => PortPolicy::Any,
+            Some(ports) => {
+                PortPolicy::Only(ports.iter().filter_map(|port| port.range().ok()).collect())
+            }
+        }
+    }
+
     /// Check whether an upstream request path is allowed by this rule.
     ///
     /// `path` must be the path forwarded to the Kubernetes API (the
@@ -152,6 +180,7 @@ mod tests {
         AllowedPathConfiguration {
             path: path.to_string(),
             parametised,
+            allowed_ports: None,
         }
     }
 

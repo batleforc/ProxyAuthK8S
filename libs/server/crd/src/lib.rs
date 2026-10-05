@@ -289,6 +289,7 @@ mod tests {
                 AllowedPathConfiguration {
                     path: "/api/v1/namespaces/{{tenant}}/pods".to_string(),
                     parametised: true,
+                    allowed_ports: None,
                 },
             )],
             ..SecurityConfiguration::default()

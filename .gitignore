@@ -78,3 +78,6 @@ release.md
 
 # Claude Code per-user local settings
 .claude/settings.local.json
+
+# graphify incremental cache (the graph itself stays tracked)
+graphify-out/cache/

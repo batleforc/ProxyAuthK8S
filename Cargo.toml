@@ -58,6 +58,7 @@ tracing-opentelemetry = { version = '0.32' }
 rustls = { version = '0.23', features = ['ring'], default-features = false }
 rustls-platform-verifier = '0.7'
 tokio-rustls = '0.26'
+flate2 = { version = '1.1', default-features = false, features = ['zlib-rs'] }
 openidconnect = { version = '4.0.1', default-features = false }
 oauth2-reqwest = "0.1.0-alpha.3"
 thiserror = { version = '2' }

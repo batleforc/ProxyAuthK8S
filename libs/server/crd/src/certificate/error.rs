@@ -12,8 +12,10 @@ pub enum CertError {
     Read {
         kind: &'static str,
         name: String,
+        // Boxed: `kube::Error` is large, and every `Result` carrying this
+        // error would otherwise pay for it (clippy::result_large_err).
         #[source]
-        source: kube::Error,
+        source: Box<kube::Error>,
     },
     /// The named key is absent from the Secret/ConfigMap data.
     #[error("key {key} not found in {kind} {name}")]
