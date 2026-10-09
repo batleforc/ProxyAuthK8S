@@ -245,6 +245,7 @@ pub fn security_config(paths: Vec<(&str, bool)>) -> SecurityConfiguration {
                 AllowedPathConfigurationEnum::Path(AllowedPathConfiguration {
                     path: path.to_string(),
                     parametised,
+                    allowed_ports: None,
                 })
             })
             .collect(),

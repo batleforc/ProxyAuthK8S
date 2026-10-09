@@ -13,13 +13,13 @@ impl CliCtx {
         list: bool,
         set: bool,
     ) -> Result<(), ProxyAuthK8sError> {
-        if set && context_name.is_none() {
-            error!("Context name must be provided when using the --set flag.");
-            return Err(ProxyAuthK8sError::InvalidUsage(
-                "context name must be provided when using --set".to_string(),
-            ));
-        } else if set {
-            let context_name = context_name.clone().unwrap();
+        if set {
+            let Some(context_name) = context_name.clone() else {
+                error!("Context name must be provided when using the --set flag.");
+                return Err(ProxyAuthK8sError::InvalidUsage(
+                    "context name must be provided when using --set".to_string(),
+                ));
+            };
             // Find the context in the kubeconfig
             let context = self
                 .kubeconfig
@@ -30,8 +30,9 @@ impl CliCtx {
                 // Set the current context
                 info!("Setting current context to: {}", context_name);
                 // Here you would implement the logic to actually set the context
-                self.kubeconfig.current_context = Some(context_name);
-                if let Err(e) = self.write_kubeconfig() {
+                if let Err(e) = self.edit_kubeconfig(|kubeconfig| {
+                    kubeconfig.current_context = Some(context_name.clone());
+                }) {
                     error!("Failed to write kubeconfig: {}", e);
                     return Err(e);
                 }

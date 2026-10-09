@@ -39,6 +39,15 @@ export default defineConfig(() => ({
   // worker: {
   //  plugins: [ nxViteTsPaths() ],
   // },
+  test: {
+    name: 'front',
+    environment: 'jsdom',
+    include: ['src/**/*.{spec,test}.ts'],
+    reporters: ['default'],
+    // maz-ui ships components that import their own .css files: let Vite
+    // transform them instead of Node, so component tests can mount them.
+    server: { deps: { inline: [/maz-ui/] } },
+  },
   build: {
     outDir: '../../dist/apps/front',
     emptyOutDir: true,

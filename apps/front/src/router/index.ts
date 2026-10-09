@@ -16,7 +16,8 @@ const router = createRouter({
       path: '/about',
       name: 'about',
       component: () => import('../views/AboutView.vue'),
-      meta: { requiresAuth: true, name: 'About' },
+      // Public: the logged-out landing page links here ("En savoir plus").
+      meta: { name: 'About' },
     },
     {
       path: '/cli',

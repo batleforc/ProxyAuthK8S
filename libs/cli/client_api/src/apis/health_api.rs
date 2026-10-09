@@ -17,11 +17,26 @@ use serde::{Deserialize, Serialize, de::Error as _};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum HealthError {
-    Status500(),
     UnknownValue(serde_json::Value),
 }
 
-/// This is also used for health checks.
+/// struct for typed errors of method [`prometheus_metrics`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PrometheusMetricsError {
+    Status404(),
+    UnknownValue(serde_json::Value),
+}
+
+/// struct for typed errors of method [`ready`]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ReadyError {
+    Status503(models::ReadinessBody),
+    UnknownValue(serde_json::Value),
+}
+
+/// Deliberately checks no dependency, so a Redis or IdP outage never makes Kubernetes restart otherwise-healthy pods. Use `/management/ready` to decide whether a pod should receive traffic.
 pub async fn health(
     configuration: &configuration::Configuration,
 ) -> Result<(), Error<HealthError>> {
@@ -42,6 +57,96 @@ pub async fn health(
     } else {
         let content = resp.text().await?;
         let entity: Option<HealthError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+/// Only served when `METRICS_PROMETHEUS_ENABLED` is set; `404` otherwise. The same metrics are exported over OTLP when a collector is configured.
+pub async fn prometheus_metrics(
+    configuration: &configuration::Configuration,
+) -> Result<String, Error<PrometheusMetricsError>> {
+    let uri_str = format!("{}/management/metrics", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => Ok(content),
+            ContentType::Unsupported(unknown_type) => {
+                Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `String`"
+                ))))
+            }
+        }
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<PrometheusMetricsError> = serde_json::from_str(&content).ok();
+        Err(Error::ResponseError(ResponseContent {
+            status,
+            content,
+            entity,
+        }))
+    }
+}
+
+/// Every proxied request needs Redis (cluster registry, sessions, throttling), so the pod is only ready when Redis answers a `PING` within 2 seconds.
+pub async fn ready(
+    configuration: &configuration::Configuration,
+) -> Result<models::ReadinessBody, Error<ReadyError>> {
+    let uri_str = format!("{}/management/ready", configuration.base_path);
+    let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
+
+    if let Some(ref user_agent) = configuration.user_agent {
+        req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
+    }
+
+    let req = req_builder.build()?;
+    let resp = configuration.client.execute(req).await?;
+
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("application/octet-stream");
+    let content_type = super::ContentType::from(content_type);
+
+    if !status.is_client_error() && !status.is_server_error() {
+        let content = resp.text().await?;
+        match content_type {
+            ContentType::Json => serde_json::from_str(&content).map_err(Error::from),
+            ContentType::Text => Err(Error::from(serde_json::Error::custom(
+                "Received `text/plain` content type response that cannot be converted to `models::ReadinessBody`",
+            ))),
+            ContentType::Unsupported(unknown_type) => {
+                Err(Error::from(serde_json::Error::custom(format!(
+                    "Received `{unknown_type}` content type response that cannot be converted to `models::ReadinessBody`"
+                ))))
+            }
+        }
+    } else {
+        let content = resp.text().await?;
+        let entity: Option<ReadyError> = serde_json::from_str(&content).ok();
         Err(Error::ResponseError(ResponseContent {
             status,
             content,

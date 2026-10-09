@@ -21,8 +21,8 @@ use actix_web::{App, http::StatusCode, test, web};
 use api::cluster::auth::{callback::callback_login, login::cluster_login};
 use api::cluster::redirect;
 use harness::{
-    delete_proxy, mount_full_oidc_provider, mount_token_endpoint, oidc_auth_config,
-    proxy_fixture, seed_proxy, sign_id_token, test_state, try_redis_pool, unique_cluster,
+    delete_proxy, mount_full_oidc_provider, mount_token_endpoint, oidc_auth_config, proxy_fixture,
+    seed_proxy, sign_id_token, test_state, try_redis_pool, unique_cluster,
 };
 use reqwest::Url;
 use wiremock::matchers::{method, path};

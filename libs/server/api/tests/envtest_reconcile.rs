@@ -56,7 +56,7 @@ macro_rules! redis_or_skip {
 
 fn shipped_crd() -> CustomResourceDefinition {
     let yaml = include_str!("../../../../deploy/crds.yaml");
-    serde_yaml::from_str(yaml).expect("the generated CRD should deserialize")
+    serde_yaml_ng::from_str(yaml).expect("the generated CRD should deserialize")
 }
 
 /// Install the shipped CRD and wait for the apiserver to serve it.

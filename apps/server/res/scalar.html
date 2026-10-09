@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+    <title>$title</title>
+    <meta charset="utf-8"/>
+    <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1"/>
+</head>
+<body>
+
+<script
+        id="api-reference"
+        type="application/json">
+    $spec
+</script>
+<!--
+  Pinned version + Subresource Integrity so a compromised or changed CDN
+  bundle is refused by the browser. When bumping the version, recompute the
+  hash: curl -sL <url> | openssl dgst -sha384 -binary | base64 -w0
+-->
+<script
+        src="https://cdn.jsdelivr.net/npm/@scalar/api-reference@1.73.0/dist/browser/standalone.js"
+        integrity="sha384-OKyMdsDX84ypSZEhVun8YElXk5c2GQaH3EXPOc6ItmVcLDUAvKHYwvDLvAgsqVtB"
+        crossorigin="anonymous"></script>
+</body>
+</html>

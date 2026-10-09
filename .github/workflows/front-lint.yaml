@@ -64,3 +64,28 @@ jobs:
           sarif_file: apps/front/eslint-results.sarif
           wait-for-processing: true
         # 🔒 Upload linting results to GitHub Security tab for visibility
+
+  check:
+    name: ✅ Typecheck and test the frontend
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: 🧶 Enable Corepack
+        run: corepack enable
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          cache: "yarn"
+          node-version: "24"
+
+      - name: 📦 Install dependencies
+        run: yarn install --immutable
+
+      - name: ✅ Typecheck, test and build
+        # Unlike the ESLint job above (report-only), this one fails the run.
+        run: npx nx run-many -t typecheck test build -p front front-api

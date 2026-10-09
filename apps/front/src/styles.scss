@@ -258,3 +258,10 @@ textarea {
     font-size: var(--font-size-xl);
   }
 }
+
+// Navbar: content only shown on desktop (nav.vue, nav/UserMenu.vue)
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+}

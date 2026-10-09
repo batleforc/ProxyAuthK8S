@@ -72,3 +72,12 @@ release.md
 
 # desloppify local state
 .desloppify/
+
+# Task internal cache (checksums/fingerprints, template:sync clone)
+.task/
+
+# Claude Code per-user local settings
+.claude/settings.local.json
+
+# graphify incremental cache (the graph itself stays tracked)
+graphify-out/cache/

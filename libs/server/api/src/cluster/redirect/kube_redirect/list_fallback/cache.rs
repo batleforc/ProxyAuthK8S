@@ -33,7 +33,11 @@ pub(super) fn identity_fingerprint(user: Option<&User>) -> String {
         }
         None => hasher.update(b"anonymous"),
     }
-    format!("{:x}", hasher.finalize())
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// A cache/lock key scoped to `(proxy, caller identity, probe)` — including

@@ -1,6 +1,7 @@
 use actix_web::{HttpRequest, HttpResponse, Responder, dev::PeerAddr, http, web};
 use common::State;
 use crd::ProxyKubeApi;
+use crd::security::PortPolicy;
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::cluster::redirect::audit::AuditContext;
@@ -11,6 +12,8 @@ use crate::model::user::User;
 
 mod context;
 mod list_fallback;
+mod port_forward;
+mod spdy_dictionary;
 mod standard;
 mod tls;
 mod upgrade;
@@ -75,7 +78,7 @@ pub async fn redirect(
 
     let mut audit = AuditContext::new(&ns, &cluster, method.as_str(), &upstream_path);
 
-    let is_upgrade = is_upgrade_request(&req);
+    let is_upgrade = is_upgrade_request(&req, &upstream_path);
 
     debug!(proxy = ?proxy, "Proxy found for cluster");
     debug!(is_upgrade, "Is upgrade request");
@@ -235,10 +238,23 @@ pub async fn redirect(
         }
     }
 
+    // Ports a port-forward may open, from the rules that allowed the path.
+    let port_policy = match &proxy.spec.security_config {
+        Some(security_config) if port_forward::is_port_forward_path(&upstream_path) => {
+            let username = user.as_ref().map_or("", |u| u.username.as_str());
+            let groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
+            security_config.port_forward_policy(&upstream_path, username, groups)
+        }
+        _ => PortPolicy::Any,
+    };
+
+    // A `KubernetesService` without an explicit namespace lives next to the
+    // proxy resource, exactly as the reachability check and the kubeconfig
+    // export resolve it. `ns` is the namespace the proxy was looked up in.
     let base_url = match proxy
         .spec
         .service
-        .url_to_call(data.client.clone(), "default".to_string())
+        .url_to_call(data.client.clone(), ns.to_string())
         .await
     {
         Ok(url) => url.trim_end_matches('/').to_string(),
@@ -248,7 +264,6 @@ pub async fn redirect(
         }
     };
 
-    let from = req.uri().to_string();
     let ctx = RedirectContext {
         req,
         data,
@@ -261,22 +276,23 @@ pub async fn redirect(
         base_url,
         upstream_path,
     };
-
     if let Some(virtual_plan) = virtual_plan {
-        info!(%from, method = %ctx.method.as_str(), "Serving a virtual API request");
+        // Path only at info: query strings can carry user-controlled or
+        // sensitive values (label selectors, field selectors, exec commands).
+        info!(from = %ctx.req.path(), method = %ctx.method.as_str(), "Serving a virtual API request");
+        debug!(from = %ctx.req.uri(), "Virtual API request full URI");
         return serve_virtual_api(ctx, registry, virtual_plan).await;
     }
 
-    let url_to_call = ctx.url_to_call();
-    info!(%from, to = %url_to_call, method = %ctx.method.as_str(),
-        "Forwarding request from {} to {} with method {}",
-        from,
-        url_to_call,
-        ctx.method.as_str()
-    );
+    // Path only at info (no query string: it can carry user-controlled or
+    // sensitive values such as exec commands or selectors); the full URLs are
+    // kept at debug for troubleshooting.
+    info!(from = %ctx.req.path(), to = %ctx.url_without_query(),
+        method = %ctx.method.as_str(), "Forwarding request");
+    debug!(from = %ctx.req.uri(), to = %ctx.url_to_call(), "Forwarding request (full URLs)");
 
     if is_upgrade {
-        return upgrade_redirect(ctx).await;
+        return upgrade_redirect(ctx, port_policy).await;
     }
 
     standard_redirect(ctx).await

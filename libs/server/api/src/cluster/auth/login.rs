@@ -98,7 +98,6 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Res
     let user = match User::get_user_info_from_oidc_token(
         token.to_string(),
         data.oidc_client.clone(),
-        &data.discovery_cache,
     )
     .await
     {
@@ -162,7 +161,7 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Res
         "User {:?} is logging in to cluster {:?}",
         user.username, oidc_conf.redirect_url
     );
-    let client = match oidc_conf.oidc_core(&data.discovery_cache).await {
+    let client = match oidc_conf.oidc_core().await {
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't get oidc client");

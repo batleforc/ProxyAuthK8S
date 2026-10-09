@@ -63,6 +63,8 @@ pub struct EnvTest {
     /// caller that (unlike `client()`) cannot skip TLS verification can pin
     /// it as a trust anchor instead.
     serving_cert_pem: String,
+    /// Where the apiserver writes its self-signed serving certificate.
+    cert_dir: PathBuf,
 }
 
 impl EnvTest {
@@ -166,12 +168,14 @@ impl EnvTest {
             .spawn()
             .map_err(|err| format!("could not start kube-apiserver: {err}"))?;
 
+        let cert_dir = workdir.path().join("certs");
         let env_test = Self {
             etcd,
             apiserver,
             _workdir: workdir,
             apiserver_url,
             serving_cert_pem,
+            cert_dir,
         };
         env_test.wait_until_ready().await?;
         Ok(env_test)
@@ -241,6 +245,15 @@ impl EnvTest {
         &self.serving_cert_pem
     }
 
+    /// The PEM bundle (serving certificate and its self-signed CA) the
+    /// apiserver generated in `--cert-dir`, for clients that must verify TLS
+    /// instead of skipping it — e.g. a `ProxyKubeApi` with `CertSource::Cert`.
+    pub fn ca_pem(&self) -> Result<String, String> {
+        let path = self.cert_dir.join("apiserver.crt");
+        std::fs::read_to_string(&path)
+            .map_err(|err| format!("could not read {}: {err}", path.display()))
+    }
+
     /// A client trusting the apiserver's self-signed certificate.
     pub fn client(&self) -> Result<kube::Client, String> {
         let mut config = kube::Config::new(
@@ -251,6 +264,68 @@ impl EnvTest {
         config.accept_invalid_certs = true;
         config.auth_info.token = Some(secrecy::SecretBox::new(TEST_TOKEN.to_string().into()));
         kube::Client::try_from(config).map_err(|err| err.to_string())
+    }
+}
+
+/// Install the CRD exactly as shipped in `deploy/crds.yaml` and wait until the
+/// apiserver serves it.
+pub async fn install_shipped_crd(client: kube::Client) {
+    use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
+    use kube::ResourceExt;
+    use kube::api::{Api, Patch, PatchParams};
+
+    let crd: CustomResourceDefinition =
+        serde_yaml_ng::from_str(include_str!("../../../../../deploy/crds.yaml"))
+            .expect("the generated CRD should deserialize");
+    let crds: Api<CustomResourceDefinition> = Api::all(client);
+    let name = crd.name_any();
+    crds.patch(
+        &name,
+        &PatchParams::apply("envtest").force(),
+        &Patch::Apply(&crd),
+    )
+    .await
+    .expect("the generated CRD should be accepted");
+
+    wait_until(
+        Duration::from_secs(15),
+        "the CRD to become established",
+        || {
+            let crds = crds.clone();
+            let name = name.clone();
+            async move {
+                crds.get(&name)
+                    .await
+                    .ok()
+                    .and_then(|crd| crd.status)
+                    .and_then(|status| status.conditions)
+                    .is_some_and(|conditions| {
+                        conditions
+                            .iter()
+                            .any(|c| c.type_ == "Established" && c.status == "True")
+                    })
+            }
+        },
+    )
+    .await;
+}
+
+/// Poll `check` every 100 ms until it holds, or panic after `timeout`.
+pub async fn wait_until<F, Fut>(timeout: Duration, what: &str, mut check: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let deadline = Instant::now() + timeout;
+    loop {
+        if check().await {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out after {timeout:?} waiting for {what}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 

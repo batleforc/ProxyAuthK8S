@@ -8,15 +8,17 @@ edition = "2024"
 actix-web = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
+tracing = { workspace = true }
 utoipa = { workspace = true }
 rustls = { workspace = true }
+opentelemetry = { workspace = true }
 
 utoipa-actix-web = { workspace = true }
 
 
-utoipa-scalar = { version = "0.3", features = ["actix-web"] }
+utoipa-scalar = { version = "0.4", features = ["actix-web"] }
 actix-cors = { version = "0.7" }
-tracing-actix-web = { version = "0.7", features = ["opentelemetry_0_31"] }
+tracing-actix-web = { version = "0.7", features = ["opentelemetry_0_32"] }
 
 api = { path = "../../libs/server/api", version = "0.1.9" }
 trace = { path = "../../libs/server/trace", version = "0.1.9" }

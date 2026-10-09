@@ -1,6 +1,7 @@
 use crate::ctx::CliCtx;
 use crate::error::ProxyAuthK8sError;
 use tracing::{debug, error};
+
 //https://kubernetes.io/docs/reference/access-authn-authz/authentication/#input-and-output-formats
 impl CliCtx {
     /// Returns `Err` on any failure so the caller can propagate a non-zero

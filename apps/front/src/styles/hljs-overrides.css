@@ -1,0 +1,43 @@
+/*
+ * Override highlight.js theme colors for better integration.
+ * Pulled in with `<style scoped src="...">` by the components rendering CLI code
+ * blocks, so it only applies to their own `<code class="hljs">` elements.
+ */
+.hljs {
+  background: transparent !important;
+  color: #abb2bf !important;
+}
+
+.hljs-comment {
+  color: #5c6370 !important;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in {
+  color: #c678dd !important;
+}
+
+.hljs-string,
+.hljs-attr {
+  color: #98c379 !important;
+}
+
+.hljs-number,
+.hljs-literal {
+  color: #d19a66 !important;
+}
+
+.hljs-variable,
+.hljs-template-variable {
+  color: #e06c75 !important;
+}
+
+.hljs-function .hljs-title {
+  color: #61afef !important;
+}
+
+.hljs-meta {
+  color: #528bff !important;
+}

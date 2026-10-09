@@ -14,11 +14,18 @@ use crate::cli_config::cli_cluster_config::CliClusterConfig;
 mod keyring_store;
 mod remote;
 
+pub use remote::{http_client, load_certificate_authority};
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CliServerConfig {
     pub url: String,
     pub namespace: String,
     pub clusters: HashMap<String, CliClusterConfig>,
+    /// Base64 PEM bundle of the CA that signed the server's TLS certificate,
+    /// for servers whose certificate the system does not trust (self-signed,
+    /// internal CA). Same encoding as a kubeconfig `certificate-authority-data`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certificate_authority_data: Option<String>,
 }
 
 impl CliServerConfig {
@@ -28,6 +35,7 @@ impl CliServerConfig {
             url: server_url,
             namespace: "default".to_string(),
             clusters: vec![].into_iter().collect(),
+            certificate_authority_data: None,
         }
     }
     #[must_use]
@@ -65,6 +73,16 @@ impl CliServerConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn certificate_authority_data_is_optional_in_the_config_file() {
+        let config: CliServerConfig =
+            serde_yaml_ng::from_str("url: https://a.b\nnamespace: default\nclusters: {}\n")
+                .unwrap();
+        assert_eq!(config.certificate_authority_data, None);
+        let yaml = serde_yaml_ng::to_string(&config).unwrap();
+        assert!(!yaml.contains("certificate_authority_data"));
+    }
 
     #[test]
     fn url_to_name_strips_scheme_and_encodes_separators() {

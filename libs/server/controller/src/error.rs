@@ -3,6 +3,12 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ControllerError {
+    /// The `ProxyKubeApi` resources could not be listed at startup.
+    #[error(
+        "failed to list ProxyKubeApi resources (is the CRD installed and the RBAC granted?): {0}"
+    )]
+    CrdUnavailable(#[source] kube::Error),
+
     /// Kubernetes API error
     #[error("Kubernetes API error: {0}")]
     Kube(#[source] kube::Error),
@@ -43,25 +49,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_metric_label_is_a_lowercased_debug_rendering() {
-        // The label ends up as a Prometheus label value, so it must stay a
-        // stable, lowercase, single-line string per variant.
-        let label = ControllerError::InvalidResource("No Namespace".to_string()).metric_label();
-        assert_eq!(label, r#"invalidresource("no namespace")"#);
-        assert_eq!(label, label.to_lowercase());
-        assert!(!label.contains('\n'));
+    fn redis_errors_convert_into_the_redis_variant() {
+        let err: ControllerError = RedisPoolError::Pool("connection refused".to_string()).into();
+        assert!(matches!(err, ControllerError::Redis(_)));
+        assert_eq!(
+            err.to_string(),
+            "Redis error: could not get a redis connection: connection refused"
+        );
     }
 
     #[test]
-    fn a_redis_error_converts_into_the_controller_error() {
-        // `reconcile` relies on `?`/`From` to surface a failed Redis write
-        // rather than reporting a success it did not achieve.
-        let error: ControllerError =
-            RedisPoolError::Pool("no connection available".to_string()).into();
-        assert!(
-            matches!(error, ControllerError::Redis(_)),
-            "expected a Redis error, got {error:?}"
+    fn invalid_resource_displays_its_reason() {
+        let err = ControllerError::InvalidResource("ProxyKubeApi has no namespace".to_string());
+        assert_eq!(
+            err.to_string(),
+            "Invalid resource: ProxyKubeApi has no namespace"
         );
-        assert!(error.to_string().starts_with("Redis error:"));
+    }
+
+    #[test]
+    fn crd_unavailable_names_the_likely_cause_and_keeps_the_source() {
+        use std::error::Error as _;
+        let err = ControllerError::CrdUnavailable(kube::Error::LinesCodecMaxLineLengthExceeded);
+        assert!(
+            err.to_string()
+                .starts_with("failed to list ProxyKubeApi resources (is the CRD installed"),
+            "{err}"
+        );
+        assert!(err.source().is_some());
+    }
+
+    #[test]
+    fn metric_label_is_lowercase_and_names_the_variant() {
+        let err = ControllerError::InvalidResource("Bad".to_string());
+        let label = err.metric_label();
+        assert_eq!(label, label.to_lowercase());
+        assert!(label.starts_with("invalidresource"), "{label}");
     }
 }

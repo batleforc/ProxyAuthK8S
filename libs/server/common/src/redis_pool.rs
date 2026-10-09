@@ -33,22 +33,30 @@ impl RedisPool {
     ///
     /// A comma-separated list of URLs, or `REDIS_CLUSTER=true`, selects cluster
     /// mode. Cluster mode with a single seed node is valid: the client
-    /// discovers the rest of the topology itself.
+    /// discovers the rest of the topology itself. `REDIS_CLUSTER` is read from
+    /// the process-wide [`crate::config::Config`].
     ///
     /// # Errors
     ///
     /// Returns [`RedisPoolError::Build`] when the pool cannot be created from the
     /// given URL(s).
     pub fn from_url(url: &str) -> Result<Self, RedisPoolError> {
+        Self::from_url_with_mode(url, crate::config::get().redis.cluster)
+    }
+
+    /// [`Self::from_url`] with the `REDIS_CLUSTER` override passed explicitly.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError::Build`] when the pool cannot be created from the
+    /// given URL(s).
+    pub fn from_url_with_mode(url: &str, forced_cluster: bool) -> Result<Self, RedisPoolError> {
         let urls: Vec<String> = url
             .split(',')
             .map(str::trim)
             .filter(|part| !part.is_empty())
             .map(str::to_string)
             .collect();
-
-        let forced_cluster = std::env::var("REDIS_CLUSTER")
-            .is_ok_and(|value| value.eq_ignore_ascii_case("true") || value == "1");
 
         if urls.len() > 1 || forced_cluster {
             info!(nodes = urls.len(), "Connecting to Redis in cluster mode");
@@ -128,6 +136,13 @@ mod tests {
     fn surrounding_whitespace_is_ignored() {
         let pool = RedisPool::from_url(" redis://node-a:6379 , redis://node-b:6379 ")
             .expect("pool should build");
+        assert!(pool.is_cluster());
+    }
+
+    #[test]
+    fn the_cluster_override_forces_cluster_mode_on_a_single_url() {
+        let pool =
+            RedisPool::from_url_with_mode("redis://node-a:6379", true).expect("pool should build");
         assert!(pool.is_cluster());
     }
 }

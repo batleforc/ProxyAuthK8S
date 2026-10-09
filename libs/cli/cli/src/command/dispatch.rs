@@ -19,6 +19,7 @@ impl Cli {
             Some(Commands::Login {
                 cluster_name,
                 token,
+                certificate_authority,
             }) => {
                 // Never log the token value; only whether one was supplied.
                 debug!(
@@ -26,7 +27,12 @@ impl Cli {
                     cluster_name,
                     token.is_some()
                 );
-                ctx.handle_login(cluster_name.clone(), token.clone()).await
+                ctx.handle_login(
+                    cluster_name.clone(),
+                    token.clone(),
+                    certificate_authority.as_deref(),
+                )
+                .await
             }
             Some(Commands::Logout { cluster_name }) => {
                 debug!("Logging out from cluster: {:?}", cluster_name);

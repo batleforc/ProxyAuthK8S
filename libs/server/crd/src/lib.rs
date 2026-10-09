@@ -243,6 +243,25 @@ mod tests {
         proxy
     }
 
+    /// The redirect handler logs `debug!(proxy = ?proxy)` on every request:
+    /// nothing secret may come out of a formatted `ProxyKubeApi`.
+    #[test]
+    fn debug_output_of_a_proxy_holds_no_secret() {
+        let mut spec = spec();
+        let mut auth_config = auth_config(ValidateAgainst::OidcProvider, true);
+        auth_config.oidc_provider.client_secret = Some("oidc-s3cr3t".to_string());
+        spec.auth_config = Some(auth_config);
+        spec.client_cert = Some(certificate::ClientCertificate {
+            cert: CertSource::Cert("cert-s3cr3t".to_string()),
+            key: CertSource::Cert("key-s3cr3t".to_string()),
+        });
+
+        let printed = format!("{:?}", proxy(spec));
+        for secret in ["oidc-s3cr3t", "cert-s3cr3t", "key-s3cr3t"] {
+            assert!(!printed.contains(secret), "{secret} leaked: {printed}");
+        }
+    }
+
     #[test]
     fn validate_accepts_a_minimal_spec() {
         assert!(proxy(spec()).validate().is_ok());
@@ -294,6 +313,7 @@ mod tests {
                 AllowedPathConfiguration {
                     path: "/api/v1/namespaces/{{tenant}}/pods".to_string(),
                     parametised: true,
+                    allowed_ports: None,
                 },
             )],
             ..SecurityConfiguration::default()

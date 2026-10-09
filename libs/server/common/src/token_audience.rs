@@ -38,12 +38,14 @@ pub enum AudienceValidationMode {
 }
 
 impl AudienceValidationMode {
+    /// The configured mode (`OIDC_AUDIENCE_VALIDATION`), as loaded once into
+    /// the process-wide [`crate::config::Config`].
     #[must_use]
     pub fn from_env() -> Self {
-        Self::from_str_value(&std::env::var("OIDC_AUDIENCE_VALIDATION").unwrap_or_default())
+        crate::config::get().oidc.audience_validation
     }
 
-    fn from_str_value(value: &str) -> Self {
+    pub(crate) fn from_str_value(value: &str) -> Self {
         match value.trim().to_ascii_lowercase().as_str() {
             "off" | "false" | "disabled" | "none" => Self::Off,
             "warn" | "warning" | "log" => Self::Warn,
@@ -224,5 +226,80 @@ mod tests {
         // JWT with no audience-like claim.
         let token = jwt_with_payload(r#"{"sub":"alice"}"#);
         assert!(extract_jwt_audiences(&token).is_none());
+    }
+
+    #[test]
+    fn mode_parsing_accepts_every_documented_alias() {
+        for value in ["off", "false", "disabled", "none", "  OFF  "] {
+            assert_eq!(
+                AudienceValidationMode::from_str_value(value),
+                AudienceValidationMode::Off,
+                "{value:?}"
+            );
+        }
+        for value in ["warn", "warning", "log", " Warning "] {
+            assert_eq!(
+                AudienceValidationMode::from_str_value(value),
+                AudienceValidationMode::Warn,
+                "{value:?}"
+            );
+        }
+        // Anything that only looks like a disable switch still enforces.
+        for value in ["0", "no", "of", "enforce", "true"] {
+            assert_eq!(
+                AudienceValidationMode::from_str_value(value),
+                AudienceValidationMode::Enforce,
+                "{value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn audience_match_is_exact() {
+        let token = jwt_with_payload(r#"{"aud":"proxy-auth-k8s-staging"}"#);
+        let auds = extract_jwt_audiences(&token).unwrap();
+        // No prefix / substring / case-insensitive matching.
+        assert!(!auds.matches("proxy-auth-k8s", true));
+        assert!(!auds.matches("PROXY-AUTH-K8S-STAGING", true));
+        assert!(!auds.matches("", true));
+        assert!(auds.matches("proxy-auth-k8s-staging", false));
+    }
+
+    #[test]
+    fn azp_and_client_id_are_both_authorized_parties() {
+        let token = jwt_with_payload(r#"{"aud":"x","azp":"front","client_id":"cli"}"#);
+        let auds = extract_jwt_audiences(&token).unwrap();
+        assert_eq!(auds.values, vec!["x"]);
+        assert_eq!(auds.authorized_party, vec!["front", "cli"]);
+        assert!(auds.matches("cli", true));
+        assert!(!auds.matches("cli", false));
+    }
+
+    #[test]
+    fn empty_aud_array_without_azp_returns_none() {
+        let token = jwt_with_payload(r#"{"aud":[],"sub":"alice"}"#);
+        assert!(extract_jwt_audiences(&token).is_none());
+    }
+
+    #[test]
+    fn malformed_payloads_return_none() {
+        let b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        // Payload is not valid base64url.
+        assert!(extract_jwt_audiences("header.!!!not-base64!!!.sig").is_none());
+        // Payload is base64 but not JSON.
+        let not_json = format!("h.{}.s", b64.encode(b"not json"));
+        assert!(extract_jwt_audiences(&not_json).is_none());
+        // `aud` has an unexpected type: fail closed rather than guess.
+        let numeric = jwt_with_payload(r#"{"aud":42}"#);
+        assert!(extract_jwt_audiences(&numeric).is_none());
+        let mixed = jwt_with_payload(r#"{"aud":["proxy-auth-k8s",42]}"#);
+        assert!(extract_jwt_audiences(&mixed).is_none());
+    }
+
+    #[test]
+    fn default_audiences_are_empty_and_match_nothing() {
+        let auds = TokenAudiences::default();
+        assert!(auds.is_empty());
+        assert!(!auds.matches("proxy-auth-k8s", true));
     }
 }

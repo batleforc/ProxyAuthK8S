@@ -19,6 +19,14 @@ fn status_body(code: u16, reason: &str, message: &str) -> serde_json::Value {
     })
 }
 
+/// 400 with a Kubernetes `Status` body.
+#[must_use]
+pub fn bad_request(message: &str) -> HttpResponse {
+    HttpResponse::BadRequest()
+        .content_type(ContentType::json())
+        .json(status_body(400, "BadRequest", message))
+}
+
 /// 403 with a Kubernetes `Status` body.
 #[must_use]
 pub fn forbidden(message: &str) -> HttpResponse {

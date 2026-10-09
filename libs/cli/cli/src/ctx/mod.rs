@@ -3,7 +3,12 @@
 //! [`CliCtx`] is built from the parsed [`Cli`] arguments (see `build.rs`) and
 //! then threaded through every command handler.
 
-use std::{env, path::PathBuf};
+use std::{
+    env,
+    ffi::OsString,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use cli_trace::level::VerboseLevel;
 use kube::config::Kubeconfig;
@@ -31,27 +36,79 @@ pub struct CliCtx {
 }
 
 impl CliCtx {
+    /// The kubeconfig files to read, in kubectl's order of precedence:
+    /// `--kubeconfig` (a single file), else every entry of `$KUBECONFIG`
+    /// (split like `$PATH`, empty entries ignored), else `$HOME/.kube/config`.
     #[must_use]
-    pub fn detect_kubeconfig_path(kubeconfig: Option<String>) -> Option<String> {
-        if let Some(path) = kubeconfig {
-            Some(path)
-        } else if let Ok(env_path) = env::var("KUBECONFIG") {
-            Some(env_path)
-        } else {
-            let home_env = env::var("HOME").unwrap_or_default();
-            if home_env.is_empty() {
-                None
-            } else {
-                Some(format!("{home_env}/.kube/config"))
+    pub fn detect_kubeconfig_paths(
+        explicit: Option<PathBuf>,
+        kubeconfig_env: Option<OsString>,
+        home: Option<String>,
+    ) -> Vec<PathBuf> {
+        if let Some(path) = explicit {
+            return vec![path];
+        }
+        if let Some(value) = kubeconfig_env {
+            let paths: Vec<PathBuf> = env::split_paths(&value)
+                .filter(|p| !p.as_os_str().is_empty())
+                .collect();
+            if !paths.is_empty() {
+                return paths;
             }
+        }
+        match home {
+            Some(home) if !home.is_empty() => vec![PathBuf::from(format!("{home}/.kube/config"))],
+            _ => vec![],
         }
     }
 
-    pub fn write_kubeconfig(&self) -> Result<(), ProxyAuthK8sError> {
-        let yaml_content = serde_yaml::to_string(&self.kubeconfig)
+    /// The file the CLI writes to: the first one that exists, else the first one
+    /// (it will be created). Being first in the merge order, whatever is written
+    /// there takes precedence over the same entry in a later file.
+    #[must_use]
+    pub fn kubeconfig_write_target(paths: &[PathBuf]) -> Option<PathBuf> {
+        paths
+            .iter()
+            .find(|p| p.exists())
+            .or_else(|| paths.first())
+            .cloned()
+    }
+
+    fn read_kubeconfig_file(path: &Path) -> Result<Kubeconfig, ProxyAuthK8sError> {
+        let content = fs::read_to_string(path).map_err(|e| {
+            ProxyAuthK8sError::KubeconfigReadError(format!(
+                "Failed to read kubeconfig file at {}: {}",
+                path.to_string_lossy(),
+                e
+            ))
+        })?;
+        Kubeconfig::from_yaml(&content).map_err(|e| {
+            ProxyAuthK8sError::KubeconfigReadError(format!(
+                "Failed to parse kubeconfig file at {}: {}",
+                path.to_string_lossy(),
+                e
+            ))
+        })
+    }
+
+    /// Apply `edit` to the kubeconfig file the CLI writes to, then save it.
+    ///
+    /// Only that file is rewritten, from its own content: the merged view in
+    /// `self.kubeconfig` spans every `$KUBECONFIG` file, and writing it back
+    /// would copy the other files' entries into this one. The same edit is
+    /// applied to the merged view so it stays current for the rest of the run.
+    pub fn edit_kubeconfig<R>(
+        &mut self,
+        edit: impl Fn(&mut Kubeconfig) -> R,
+    ) -> Result<R, ProxyAuthK8sError> {
+        let mut file = Self::read_kubeconfig_file(&self.kubeconfig_path)?;
+        let result = edit(&mut file);
+        let yaml_content = serde_yaml_ng::to_string(&file)
             .map_err(|e| ProxyAuthK8sError::YamlSerializeError(e.to_string()))?;
         crate::helper::secure_write(&self.kubeconfig_path, &yaml_content)
-            .map_err(|e| ProxyAuthK8sError::KubeconfigWriteError(e.to_string()))
+            .map_err(|e| ProxyAuthK8sError::KubeconfigWriteError(e.to_string()))?;
+        edit(&mut self.kubeconfig);
+        Ok(result)
     }
 
     #[must_use]
@@ -87,108 +144,110 @@ impl CliCtx {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, MutexGuard};
-
     use super::*;
 
-    /// Serializes the tests that mutate the process environment. Under
-    /// cargo-nextest each test is its own process, but a plain `cargo test`
-    /// runs them as threads of one process, where concurrent `set_var`/`var`
-    /// on the same variable would race.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    /// Takes the environment lock, ignoring poisoning: a panicking test has
-    /// already failed, and the guards below still restored what they changed.
-    fn lock_env() -> MutexGuard<'static, ()> {
-        ENV_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// Restores an environment variable to whatever it held before the test.
-    struct EnvGuard {
-        key: &'static str,
-        previous: Option<String>,
-    }
-
-    impl EnvGuard {
-        fn set(key: &'static str, value: &str) -> Self {
-            let guard = EnvGuard {
-                key,
-                previous: env::var(key).ok(),
-            };
-            // SAFETY: the caller holds the environment lock (see `lock_env`).
-            unsafe { env::set_var(key, value) };
-            guard
-        }
-
-        fn unset(key: &'static str) -> Self {
-            let guard = EnvGuard {
-                key,
-                previous: env::var(key).ok(),
-            };
-            // SAFETY: the caller holds the environment lock (see `lock_env`).
-            unsafe { env::remove_var(key) };
-            guard
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            // SAFETY: the caller holds the environment lock (see `lock_env`).
-            unsafe {
-                match &self.previous {
-                    Some(value) => env::set_var(self.key, value),
-                    None => env::remove_var(self.key),
-                }
-            }
-        }
+    fn scratch_dir(test: &str) -> PathBuf {
+        let dir = env::temp_dir().join(format!("proxyauth-cli-{test}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
     }
 
     #[test]
-    fn detect_kubeconfig_path_prefers_the_explicit_flag() {
-        // Declared first so it outlives the guards that restore the variables.
-        let _env = lock_env();
-        // The flag wins even when KUBECONFIG and HOME would both answer.
-        let _kubeconfig = EnvGuard::set("KUBECONFIG", "/from/env/config");
-        let _home = EnvGuard::set("HOME", "/home/tester");
-        assert_eq!(
-            CliCtx::detect_kubeconfig_path(Some("/from/flag/config".to_string())),
-            Some("/from/flag/config".to_string())
+    fn explicit_kubeconfig_wins_over_env_and_home() {
+        let paths = CliCtx::detect_kubeconfig_paths(
+            Some(PathBuf::from("/explicit")),
+            Some(OsString::from("/a:/b")),
+            Some("/home/u".to_string()),
         );
+        assert_eq!(paths, [PathBuf::from("/explicit")]);
     }
 
     #[test]
-    fn detect_kubeconfig_path_falls_back_to_the_kubeconfig_env_var() {
-        // Declared first so it outlives the guards that restore the variables.
-        let _env = lock_env();
-        let _kubeconfig = EnvGuard::set("KUBECONFIG", "/from/env/config");
-        assert_eq!(
-            CliCtx::detect_kubeconfig_path(None),
-            Some("/from/env/config".to_string())
+    fn kubeconfig_env_is_split_like_path_and_skips_empty_entries() {
+        let paths = CliCtx::detect_kubeconfig_paths(
+            None,
+            Some(env::join_paths(["/a", "", "/b"]).unwrap()),
+            Some("/home/u".to_string()),
         );
+        assert_eq!(paths, [PathBuf::from("/a"), PathBuf::from("/b")]);
     }
 
     #[test]
-    fn detect_kubeconfig_path_falls_back_to_home() {
-        // Declared first so it outlives the guards that restore the variables.
-        let _env = lock_env();
-        let _kubeconfig = EnvGuard::unset("KUBECONFIG");
-        let _home = EnvGuard::set("HOME", "/home/tester");
+    fn falls_back_to_home_then_to_nothing() {
         assert_eq!(
-            CliCtx::detect_kubeconfig_path(None),
-            Some("/home/tester/.kube/config".to_string())
+            CliCtx::detect_kubeconfig_paths(None, Some(OsString::new()), Some("/home/u".into())),
+            [PathBuf::from("/home/u/.kube/config")]
         );
+        assert!(CliCtx::detect_kubeconfig_paths(None, None, None).is_empty());
+        assert!(CliCtx::detect_kubeconfig_paths(None, None, Some(String::new())).is_empty());
     }
 
     #[test]
-    fn detect_kubeconfig_path_gives_up_without_a_flag_env_or_home() {
-        // Declared first so it outlives the guards that restore the variables.
-        let _env = lock_env();
-        let _kubeconfig = EnvGuard::unset("KUBECONFIG");
-        // An empty HOME is treated the same as an unset one.
-        let _home = EnvGuard::set("HOME", "");
-        assert_eq!(CliCtx::detect_kubeconfig_path(None), None);
+    fn write_target_is_the_first_existing_file_else_the_first_one() {
+        let dir = scratch_dir("target");
+        let (missing, existing, other) = (dir.join("missing"), dir.join("a"), dir.join("b"));
+        fs::write(&existing, "").unwrap();
+        fs::write(&other, "").unwrap();
+
+        assert_eq!(
+            CliCtx::kubeconfig_write_target(&[missing.clone(), existing.clone(), other]),
+            Some(existing)
+        );
+        assert_eq!(
+            CliCtx::kubeconfig_write_target(std::slice::from_ref(&missing)),
+            Some(missing)
+        );
+        assert_eq!(CliCtx::kubeconfig_write_target(&[]), None);
+    }
+
+    #[test]
+    fn edit_kubeconfig_only_rewrites_the_target_file() {
+        let dir = scratch_dir("edit");
+        let (first, second) = (dir.join("first"), dir.join("second"));
+        fs::write(&first, "apiVersion: v1\nkind: Config\ncurrent-context: one\ncontexts:\n- name: one\n  context:\n    cluster: c1\n").unwrap();
+        let second_content =
+            "apiVersion: v1\nkind: Config\ncontexts:\n- name: two\n  context:\n    cluster: c2\n";
+        fs::write(&second, second_content).unwrap();
+
+        let mut ctx = CliCtx {
+            namespace: String::new(),
+            kubeconfig_path: first.clone(),
+            kubeconfig: CliCtx::read_kubeconfig_file(&first)
+                .unwrap()
+                .merge(CliCtx::read_kubeconfig_file(&second).unwrap())
+                .unwrap(),
+            context: None,
+            verbose: None,
+            server_url: String::new(),
+            format: ContextFormat::Table,
+            invoked_from_kubectl: false,
+            config: CliConfig::default(),
+            config_path: dir.join("proxyauth_config.yaml"),
+        };
+        assert_eq!(ctx.kubeconfig.contexts.len(), 2);
+
+        ctx.edit_kubeconfig(|kubeconfig| kubeconfig.current_context = Some("two".to_string()))
+            .unwrap();
+
+        let written = CliCtx::read_kubeconfig_file(&first).unwrap();
+        assert_eq!(written.current_context.as_deref(), Some("two"));
+        // The other file's context was not copied into the target file...
+        assert_eq!(written.contexts.len(), 1);
+        // ...and that file is untouched.
+        assert_eq!(fs::read_to_string(&second).unwrap(), second_content);
+        // The merged view follows the edit.
+        assert_eq!(ctx.kubeconfig.current_context.as_deref(), Some("two"));
+    }
+
+    #[test]
+    fn kubeconfig_env_with_only_empty_entries_falls_back_to_home() {
+        let paths = CliCtx::detect_kubeconfig_paths(
+            None,
+            Some(env::join_paths(["", ""]).unwrap()),
+            Some("/home/u".to_string()),
+        );
+        assert_eq!(paths, [PathBuf::from("/home/u/.kube/config")]);
     }
 
     #[test]

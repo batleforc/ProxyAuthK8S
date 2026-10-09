@@ -1,0 +1,21 @@
+{{- if and .Values.metrics.prometheus.enabled .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: "{{ .Release.Name }}-proxyauthk8s-back"
+  namespace: "{{ .Release.Namespace }}"
+  labels:
+    app: "{{ .Release.Name }}-proxyauthk8s-back"
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app: "{{ .Release.Name }}-proxyauthk8s-back"
+  endpoints:
+    - port: http
+      path: /management/metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+{{- end }}

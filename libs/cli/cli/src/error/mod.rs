@@ -52,4 +52,6 @@ pub enum ProxyAuthK8sError {
     InvalidUsage(String),
     #[error("ERR000018: kubectl exec credential protocol error: {0}")]
     ExecCredential(String),
+    #[error("ERR000019: Invalid certificate authority: {0}")]
+    InvalidCertificateAuthority(String),
 }

@@ -1815,6 +1815,21 @@ default: false<br/>
             <i>Default</i>: false<br/>
         </td>
         <td>false</td>
+      </tr><tr>
+        <td><b>allowed_ports</b></td>
+        <td>[]string</td>
+        <td>
+          Ports a port-forward session matched by this rule may open, as single
+ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
+
+Only used for `.../pods/{name}/portforward` paths. When omitted, the rule
+does not restrict ports. When several rules match a port-forward, their
+ports are combined, and one rule without `allowed_ports` lifts the
+restriction. An empty list allows no port at all.<br/>
+          <br/>
+            <i>Validations</i>:<li>each item matches `^[0-9]{1,5}(-[0-9]{1,5})?$` (at most 11 characters); self.split('-').all(p, int(p) >= 1 && int(p) \<= 65535) && (!self.contains('-') || int(self.split('-')[0]) \<= int(self.split('-')[1])): ports must be within 1-65535 and a range must not be reversed</li>
+        </td>
+        <td>false</td>
       </tr></tbody>
 </table>
 
@@ -2074,6 +2089,21 @@ match any number of remaining segments (needed for subresources such as
 default: false<br/>
           <br/>
             <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>allowed_ports</b></td>
+        <td>[]string</td>
+        <td>
+          Ports a port-forward session matched by this rule may open, as single
+ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
+
+Only used for `.../pods/{name}/portforward` paths. When omitted, the rule
+does not restrict ports. When several rules match a port-forward, their
+ports are combined, and one rule without `allowed_ports` lifts the
+restriction. An empty list allows no port at all.<br/>
+          <br/>
+            <i>Validations</i>:<li>each item matches `^[0-9]{1,5}(-[0-9]{1,5})?$` (at most 11 characters); self.split('-').all(p, int(p) >= 1 && int(p) \<= 65535) && (!self.contains('-') || int(self.split('-')[0]) \<= int(self.split('-')[1])): ports must be within 1-65535 and a range must not be reversed</li>
         </td>
         <td>false</td>
       </tr></tbody>

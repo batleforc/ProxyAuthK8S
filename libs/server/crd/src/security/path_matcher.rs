@@ -22,7 +22,8 @@ fn split_segments(value: &str) -> Vec<&str> {
 /// and so on; invalid or truncated escapes are left untouched. A single pass is
 /// deliberate: the apiserver decodes once, so `%252e` reaches it as `%2e` (not a
 /// dot) and must not be treated as traversal here.
-fn percent_decode_once(segment: &str) -> String {
+#[must_use]
+pub fn percent_decode_once(segment: &str) -> String {
     let bytes = segment.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;

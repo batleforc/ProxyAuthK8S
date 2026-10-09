@@ -34,7 +34,7 @@ const clusters = computed(() => clustersStore.getClusters);
 const isLoading = computed(() => !clustersStore.isInited);
 
 const getClusterStatusColor = (cluster: VisibleCluster) => {
-  if (!cluster.enabled) return 'danger';
+  if (!cluster.enabled) return 'destructive';
   if (cluster.is_reachable === false) return 'warning';
   if (cluster.is_reachable === true) return 'success';
   return 'info';

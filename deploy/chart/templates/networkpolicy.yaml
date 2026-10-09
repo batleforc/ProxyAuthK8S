@@ -24,6 +24,14 @@ spec:
       ports:
         - port: {{ .Values.back.port }}
           protocol: TCP
+    {{- if and .Values.metrics.prometheus.enabled .Values.metrics.scrapeFrom }}
+    # Prometheus scraping /management/metrics.
+    - from:
+        {{- toYaml .Values.metrics.scrapeFrom | nindent 8 }}
+      ports:
+        - port: {{ .Values.back.port }}
+          protocol: TCP
+    {{- end }}
   egress:
     # DNS, without which nothing else resolves.
     - to:

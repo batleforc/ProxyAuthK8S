@@ -20,6 +20,8 @@ pub trait TableRow {
 /// A Kubernetes-style `List` envelope over any renderable item type.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct KubeList<T> {
+    /// Serialized as `apiVersion`, like every Kubernetes object.
+    #[serde(rename = "apiVersion")]
     pub api_version: String,
     pub kind: String,
     pub metadata: Option<serde_json::Value>,
@@ -50,14 +52,14 @@ where
     /// Render as YAML (empty string on serialization failure).
     #[must_use]
     pub fn to_yaml(&self) -> String {
-        serde_yaml::to_string(self).unwrap_or_default()
+        serde_yaml_ng::to_string(self).unwrap_or_default()
     }
 
     /// Render as a borderless text table.
     #[must_use]
     pub fn to_table(&self) -> String {
         let mut table = Table::new();
-        table.load_preset(comfy_table::presets::NOTHING);
+        table.load_style(comfy_table::presets::NOTHING);
         table.set_header(T::headers());
         for item in &self.items {
             table.add_row(item.row());
@@ -124,7 +126,8 @@ mod tests {
         // Pretty-printed, so the envelope spans several lines.
         assert!(json.contains('\n'));
         let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
-        assert_eq!(parsed["api_version"], "v1");
+        assert_eq!(parsed["apiVersion"], "v1");
+        assert!(parsed.get("api_version").is_none());
         assert_eq!(parsed["kind"], "List");
         assert_eq!(parsed["metadata"], serde_json::Value::Null);
         assert_eq!(parsed["items"][0]["name"], "alpha");
@@ -134,7 +137,7 @@ mod tests {
     #[test]
     fn to_yaml_round_trips_through_the_same_envelope() {
         let yaml = KubeList::new(rows()).to_yaml();
-        let parsed: KubeList<Row> = serde_yaml::from_str(&yaml).expect("valid YAML");
+        let parsed: KubeList<Row> = serde_yaml_ng::from_str(&yaml).expect("valid YAML");
         assert_eq!(parsed.api_version, "v1");
         assert_eq!(parsed.kind, "List");
         assert_eq!(parsed.items.len(), 2);

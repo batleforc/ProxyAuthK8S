@@ -39,6 +39,13 @@ impl RedirectContext {
     pub(super) fn url_to_call(&self) -> String {
         join_upstream_url(&self.base_url, &self.upstream_path, self.req.query_string())
     }
+
+    /// The upstream URL without the client's query string, for spans and
+    /// `info` logs: a query can carry user-controlled or sensitive values
+    /// (label/field selectors, exec commands), which stay at `debug`.
+    pub(super) fn url_without_query(&self) -> String {
+        join_upstream_url(&self.base_url, &self.upstream_path, "")
+    }
 }
 
 /// Assemble the upstream URL from the cluster origin, the routed path, and the

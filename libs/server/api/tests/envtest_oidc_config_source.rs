@@ -36,7 +36,7 @@ macro_rules! envtest_or_skip {
 
 fn shipped_crd() -> CustomResourceDefinition {
     let yaml = include_str!("../../../../deploy/crds.yaml");
-    serde_yaml::from_str(yaml).expect("the generated CRD should deserialize")
+    serde_yaml_ng::from_str(yaml).expect("the generated CRD should deserialize")
 }
 
 async fn install_crd(client: kube::Client) {

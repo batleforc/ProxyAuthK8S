@@ -1,13 +1,15 @@
 registry:
   front:
     image:
-      repository: ghcr.io/batleforc/proxyauthk8s-front
-      tag: v0.0.1
+      repository: ghcr.io/batleforc/proxyauthk8s/front
+      # Empty: the chart's appVersion, i.e. the release this chart was built for.
+      tag: ""
       pullPolicy: IfNotPresent
   back:
     image:
-      repository: ghcr.io/batleforc/proxyauthk8s-back
-      tag: v0.0.1
+      repository: ghcr.io/batleforc/proxyauthk8s/server
+      # Empty: the chart's appVersion, i.e. the release this chart was built for.
+      tag: ""
       pullPolicy: IfNotPresent
 
 otel:
@@ -15,7 +17,7 @@ otel:
   replicas: 1
   image:
     repository: otel/opentelemetry-collector-contrib
-    tag: latest
+    tag: "0.162.0"
     pullPolicy: IfNotPresent
   resources:
     limits:
@@ -59,6 +61,9 @@ ingress:
     secretName: proxyauthk8s-tls
 
 oidc:
+  # "secret" (recommended): the backend reads OIDC_* from the Secret named by
+  # objectName. "env" writes value.* — including client_secret — in clear text
+  # into the Deployment spec (visible to anyone who can read Deployments).
   source: secret # options: secret, env
   objectName: proxyauthk8s-back-oidc
   value:
@@ -70,8 +75,21 @@ oidc:
     silent_refresh: "false"
 
 back:
-  replicas: 1
+  # Two replicas by default: only the lease holder reconciles, every replica
+  # serves traffic, so a rollout or a node drain never takes the proxy down.
+  replicas: 2
   port: 5437
+  # Browser origins allowed by CORS (comma separated). Empty = the ingress
+  # origin only (the dashboard), which is all the bundled front needs; "*" is
+  # not supported, list origins explicitly.
+  corsAllowedOrigins: ""
+  # Seconds the server waits for in-flight requests (watch/exec streams) to
+  # finish on shutdown (SERVER_SHUTDOWN_TIMEOUT). The pod's grace period is set
+  # a bit higher so Kubernetes does not SIGKILL it first.
+  shutdownTimeoutSeconds: 30
+  # Stdout log format: "text" or "json" (one object per line, for log
+  # pipelines). RUST_LOG (via back.env) sets the level, default info.
+  logFormat: text
   redis:
     source: env # options: secret, env
     secretName: proxyauthk8s-back-redis
@@ -82,13 +100,15 @@ back:
   env: []
   resources:
     limits:
-      cpu: 100m
+      # A streaming reverse proxy (watch, exec, logs -f, TLS both ways): 100m
+      # was throttled under normal load.
+      cpu: 1000m
       memory: 512Mi
     requests:
       cpu: 100m
       memory: 128Mi
   podDisruptionBudget:
-    enabled: false
+    enabled: true
     minAvailable: 1
     # maxUnavailable: 1   # mutually exclusive with minAvailable
   autoscaling:
@@ -99,7 +119,7 @@ back:
     # targetMemoryUtilizationPercentage: 80
 
 front:
-  replicas: 1
+  replicas: 2
   port: 4200
   resources:
     limits:
@@ -110,7 +130,7 @@ front:
       memory: 128Mi
   env: []
   podDisruptionBudget:
-    enabled: false
+    enabled: true
     minAvailable: 1
   autoscaling:
     enabled: false
@@ -136,6 +156,33 @@ securityContext:
     capabilities:
       drop:
         - ALL
+
+metrics:
+  prometheus:
+    # Serve GET /management/metrics (Prometheus text format) on the back port,
+    # next to the OTLP export. /management is never routed by the Ingress.
+    enabled: false
+  serviceMonitor:
+    # Create a prometheus-operator ServiceMonitor (needs its CRDs). Without
+    # it, prometheus.io/* scrape annotations are added to the back pods.
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+  # With networkPolicy.enabled: selectors allowed to scrape the back port
+  # (e.g. the monitoring namespace).
+  scrapeFrom: []
+  #  - namespaceSelector:
+  #      matchLabels:
+  #        kubernetes.io/metadata.name: monitoring
+
+rbac:
+  # Namespaces whose Secrets / ConfigMaps / Services a ProxyKubeApi may
+  # reference (certificates, OIDC material, in-cluster targets). Empty (default)
+  # grants a cluster-wide `get` on them; listing namespaces replaces it with one
+  # Role per namespace (least privilege, but every namespace holding a
+  # ProxyKubeApi — or referenced by one — must then be listed).
+  referencedNamespaces: []
 
 networkPolicy:
   # Ingress is restricted to the exposure layer, egress to what the backend

@@ -1,5 +1,10 @@
+use std::sync::Arc;
+
 use actix_web::web;
-use common::State;
+use common::{
+    State,
+    upstream_cache::{UPSTREAM_TLS_CONFIGS, UpstreamCacheKey, upstream_client_ttl},
+};
 use crd::ProxyKubeApi;
 use kube::ResourceExt;
 use rustls::{
@@ -7,6 +12,22 @@ use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject as _},
 };
 use rustls_platform_verifier::BuilderVerifierExt;
+
+/// [`build_tls_config`], cached per cluster (see [`common::upstream_cache`]):
+/// the upgrade path opens a raw connection per stream and would otherwise
+/// re-read the cluster's certificates from Kubernetes every time.
+pub(super) async fn cached_tls_config(
+    proxy: &ProxyKubeApi,
+    state: &web::Data<State>,
+) -> Result<Arc<ClientConfig>, String> {
+    UPSTREAM_TLS_CONFIGS
+        .get_or_try_insert_with(
+            &UpstreamCacheKey::for_proxy(proxy),
+            upstream_client_ttl(),
+            || async { build_tls_config(proxy, state, true).await.map(Arc::new) },
+        )
+        .await
+}
 
 /// TLS configuration used to reach the target cluster.
 ///

@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::allowed_crd_configuration::AllowedCrdConfiguration;
 use super::allowed_path_configuration::AllowedPathConfiguration;
+use super::port_range::PortPolicy;
 
 /// How an allowed resource is described.
 ///
@@ -22,6 +23,16 @@ impl AllowedPathConfigurationEnum {
         match self {
             AllowedPathConfigurationEnum::Path(config) => config.matches(path, username, groups),
             AllowedPathConfigurationEnum::Crd(config) => config.matches(path, username, groups),
+        }
+    }
+
+    /// Ports a port-forward matched by this rule may open. `Crd` rules do not
+    /// restrict ports.
+    #[must_use]
+    pub fn port_policy(&self) -> PortPolicy {
+        match self {
+            AllowedPathConfigurationEnum::Path(config) => config.port_policy(),
+            AllowedPathConfigurationEnum::Crd(_) => PortPolicy::Any,
         }
     }
 

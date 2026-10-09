@@ -886,15 +886,69 @@
         "tags": [
           "health"
         ],
-        "summary": "Base path just to answer if the server is up and running.",
-        "description": "This is also used for health checks.",
+        "summary": "Liveness: the process is up and serving HTTP.",
+        "description": "Deliberately checks no dependency, so a Redis or IdP outage never makes\nKubernetes restart otherwise-healthy pods. Use `/management/ready` to decide\nwhether a pod should receive traffic.",
         "operationId": "health",
         "responses": {
           "200": {
-            "description": "If the server is healthy."
+            "description": "The server process is up."
+          }
+        }
+      }
+    },
+    "/management/metrics": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Prometheus metrics in the text exposition format 0.0.4.",
+        "description": "Only served when `METRICS_PROMETHEUS_ENABLED` is set; `404` otherwise. The\nsame metrics are exported over OTLP when a collector is configured.",
+        "operationId": "prometheus_metrics",
+        "responses": {
+          "200": {
+            "description": "Metrics in the Prometheus text exposition format 0.0.4.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
-          "500": {
-            "description": "Internal server error."
+          "404": {
+            "description": "The Prometheus endpoint is disabled (`METRICS_PROMETHEUS_ENABLED` is not set)."
+          }
+        }
+      }
+    },
+    "/management/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness: the pod can serve proxied traffic.",
+        "description": "Every proxied request needs Redis (cluster registry, sessions, throttling),\nso the pod is only ready when Redis answers a `PING` within 2 seconds.",
+        "operationId": "ready",
+        "responses": {
+          "200": {
+            "description": "Ready to serve traffic.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A required dependency (Redis) is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessBody"
+                }
+              }
+            }
           }
         }
       }
@@ -1001,6 +1055,19 @@
             "items": {
               "type": "string"
             }
+          }
+        }
+      },
+      "ReadinessBody": {
+        "type": "object",
+        "description": "Body of the readiness probe.",
+        "required": [
+          "redis"
+        ],
+        "properties": {
+          "redis": {
+            "type": "string",
+            "description": "`ok` when Redis answered a `PING`, `unavailable` otherwise."
           }
         }
       },

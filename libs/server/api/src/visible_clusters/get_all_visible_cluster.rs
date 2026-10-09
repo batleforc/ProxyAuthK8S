@@ -70,31 +70,28 @@ pub async fn get_all_visible_cluster(
             return HttpResponse::Unauthorized().finish();
         }
     };
-    let user = match User::get_user_info_from_oidc_token(
-        token.to_string(),
-        state.oidc_client.clone(),
-        &state.discovery_cache,
-    )
-    .await
-    {
-        Ok(Some(user)) => {
-            throttle::unscoped::clear_auth_failures(&state, &peer_id).await;
-            user
-        }
-        Ok(None) => {
-            error!("User info not found in OIDC response");
-            throttle::unscoped::record_auth_failure(&state, &peer_id).await;
-            return HttpResponse::Unauthorized().finish();
-        }
-        Err(e) => {
-            error!(error = %e, "couldn't resolve the caller's token");
-            // A provider outage must not ban whoever happened to be calling.
-            if e.is_caller_fault() {
-                throttle::unscoped::record_auth_failure(&state, &peer_id).await;
+    let user =
+        match User::get_user_info_from_oidc_token(token.to_string(), state.oidc_client.clone())
+            .await
+        {
+            Ok(Some(user)) => {
+                throttle::unscoped::clear_auth_failures(&state, &peer_id).await;
+                user
             }
-            return HttpResponse::Unauthorized().finish();
-        }
-    };
+            Ok(None) => {
+                error!("User info not found in OIDC response");
+                throttle::unscoped::record_auth_failure(&state, &peer_id).await;
+                return HttpResponse::Unauthorized().finish();
+            }
+            Err(e) => {
+                error!(error = %e, "couldn't resolve the caller's token");
+                // A provider outage must not ban whoever happened to be calling.
+                if e.is_caller_fault() {
+                    throttle::unscoped::record_auth_failure(&state, &peer_id).await;
+                }
+                return HttpResponse::Unauthorized().finish();
+            }
+        };
 
     // Read through the index the controller maintains rather than scanning with
     // `KEYS`: the scan is O(N) and blocking, and a Redis cluster only answers it

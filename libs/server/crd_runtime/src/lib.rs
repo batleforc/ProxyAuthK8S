@@ -41,6 +41,9 @@ pub enum ProxyRuntimeError {
     /// Resolving the OIDC provider block from its `config_from` Secret failed.
     #[error(transparent)]
     OidcConfig(#[from] crd::authentication_configuration::OidcConfigError),
+    /// The resolved CA contains no PEM `CERTIFICATE` block.
+    #[error("the cluster CA contains no PEM CERTIFICATE block")]
+    CaWithoutPem,
 }
 
 /// Runtime (network / live-cluster) operations on a [`ProxyKubeApi`].
@@ -237,6 +240,12 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
             .get_cert(ctx.client.clone(), &self.namespace().unwrap_or_default())
             .await?
         {
+            // Without this check, text with no PEM block yields zero certificates
+            // under rustls and the client silently falls back to the default
+            // roots: fail here, where the misconfiguration is obvious.
+            if !cert.contains("-----BEGIN CERTIFICATE-----") {
+                return Err(ProxyRuntimeError::CaWithoutPem);
+            }
             reqwest_client = reqwest_client
                 .add_root_certificate(reqwest::Certificate::from_pem(cert.as_bytes())?);
         }
@@ -396,5 +405,446 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
             .await?;
 
         Ok(Client::try_from(kubeconfig)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crd::{
+        ProxyKubeApiSpec,
+        authentication_configuration::{
+            AuthenticationConfiguration, OidcProvider, ValidateAgainst,
+        },
+        certificate::CertSource,
+        service::Service,
+    };
+
+    const NS: &str = "team-a";
+    const NAME: &str = "prod";
+    const UPSTREAM: &str = "https://upstream.example.com:6443";
+    const PEM: &str = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
+
+    /// A `State` whose kube client and Redis point at closed ports. None of the
+    /// functions under test here touch either; a call that did would fail fast.
+    fn state() -> Arc<State> {
+        // Both rustls providers are linked in the workspace; the server picks
+        // ring in `main`, so tests must too or the kube client build panics.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let kube_config = kube::Config::new("http://127.0.0.1:1".parse().expect("static uri"));
+        Arc::new(State::from_parts(
+            Client::try_from(kube_config).expect("kube client should build"),
+            common::redis_pool::RedisPool::from_url_with_mode("redis://127.0.0.1:1", false)
+                .expect("pool should build"),
+            OidcConf {
+                client_id: "proxyauthk8s".to_string(),
+                client_secret: None,
+                issuer_url: "https://idp.example.com".to_string(),
+                scopes: "openid".to_string(),
+                audience: "proxyauthk8s".to_string(),
+                accept_authorized_party: false,
+                redirect_url: None,
+            },
+            "https://proxy.example.com".to_string(),
+            "https://front.example.com".to_string(),
+        ))
+    }
+
+    fn proxy(auth_config: Option<AuthenticationConfiguration>) -> ProxyKubeApi {
+        let mut proxy = ProxyKubeApi::new(
+            NAME,
+            ProxyKubeApiSpec {
+                enabled: true,
+                cert: CertSource::Insecure(true),
+                client_cert: None,
+                service: Service::ExternalService {
+                    url: UPSTREAM.to_string(),
+                },
+                auth_config,
+                security_config: None,
+                expose_via_dashboard: false,
+                dashboard_group: None,
+                proxy_group: None,
+                virtual_apis: Vec::new(),
+            },
+        );
+        proxy.metadata.namespace = Some(NS.to_string());
+        proxy
+    }
+
+    fn oidc(enabled: bool, audience: &str) -> AuthenticationConfiguration {
+        AuthenticationConfiguration {
+            jwt: Vec::new(),
+            oidc_provider: OidcProvider {
+                enabled,
+                issuer_url: "https://cluster-idp.example.com".to_string(),
+                client_id: "cluster-client".to_string(),
+                client_secret: Some("cluster-secret".to_string()),
+                extra_scope: "groups".to_string(),
+                audience: audience.to_string(),
+                accept_authorized_party: true,
+                expose_oauth_authorization_server: false,
+                config_from: None,
+            },
+            disable_validation: false,
+            validate_against: ValidateAgainst::OidcProvider,
+        }
+    }
+
+    fn with_oidc() -> ProxyKubeApi {
+        proxy(Some(oidc(true, "")))
+    }
+
+    #[tokio::test]
+    async fn full_path_is_the_cluster_route_on_the_proxy_base_url() {
+        assert_eq!(
+            proxy(None).to_full_path(state()),
+            "https://proxy.example.com/clusters/team-a/prod"
+        );
+    }
+
+    #[tokio::test]
+    async fn redirect_url_defaults_to_the_proxy_cluster_callback() {
+        assert_eq!(
+            proxy(None).get_redirect_oidc_url(state(), false, None),
+            "https://proxy.example.com/clusters/team-a/prod/auth/callback"
+        );
+    }
+
+    #[tokio::test]
+    async fn redirect_url_for_the_front_uses_the_front_base_url() {
+        assert_eq!(
+            proxy(None).get_redirect_oidc_url(state(), true, None),
+            "https://front.example.com/auth/callback/team-a/prod"
+        );
+    }
+
+    #[tokio::test]
+    async fn redirect_url_front_wins_over_kubectl() {
+        assert_eq!(
+            proxy(None).get_redirect_oidc_url(
+                state(),
+                true,
+                Some("http://localhost:8000/".to_string())
+            ),
+            "https://front.example.com/auth/callback/team-a/prod"
+        );
+    }
+
+    #[tokio::test]
+    async fn redirect_url_for_kubectl_trims_trailing_slashes() {
+        let proxy = proxy(None);
+        for uri in [
+            "http://localhost:8000",
+            "http://localhost:8000/",
+            "http://localhost:8000//",
+        ] {
+            assert_eq!(
+                proxy.get_redirect_oidc_url(state(), false, Some(uri.to_string())),
+                "http://localhost:8000/auth/callback/team-a/prod",
+                "kubectl callback {uri}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn oidc_conf_is_none_without_an_auth_config() {
+        let proxy = proxy(None);
+        assert!(
+            proxy
+                .get_oidc_conf(state(), false, None)
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
+        assert!(
+            proxy
+                .get_oidc_conf(state(), true, None)
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
+        assert!(
+            proxy
+                .get_oidc_conf(state(), false, Some("http://localhost:8000/".to_string()))
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
+        assert!(
+            proxy
+                .get_oauth_as_oidc_conf(state())
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn oidc_conf_is_none_when_the_provider_is_disabled() {
+        let proxy = proxy(Some(oidc(false, "aud")));
+        assert!(
+            proxy
+                .get_oidc_conf(state(), false, None)
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
+        assert!(
+            proxy
+                .get_oidc_conf(state(), true, None)
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
+        assert!(
+            proxy
+                .get_oauth_as_oidc_conf(state())
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn oidc_conf_default_mode_copies_the_provider_without_a_redirect() {
+        let conf = with_oidc()
+            .get_oidc_conf(state(), false, None)
+            .await
+            .expect("no config_from to resolve")
+            .expect("enabled provider yields a conf");
+        assert_eq!(conf.client_id, "cluster-client");
+        assert_eq!(conf.client_secret.as_deref(), Some("cluster-secret"));
+        assert_eq!(conf.issuer_url, "https://cluster-idp.example.com");
+        assert_eq!(conf.scopes, "groups");
+        assert!(conf.accept_authorized_party);
+        assert_eq!(conf.redirect_url, None);
+    }
+
+    #[tokio::test]
+    async fn oidc_conf_audience_falls_back_to_the_client_id() {
+        let conf = with_oidc()
+            .get_oidc_conf(state(), false, None)
+            .await
+            .expect("no config_from to resolve")
+            .unwrap();
+        assert_eq!(conf.audience, "cluster-client");
+
+        let conf = proxy(Some(oidc(true, "kubernetes")))
+            .get_oidc_conf(state(), false, None)
+            .await
+            .expect("no config_from to resolve")
+            .unwrap();
+        assert_eq!(conf.audience, "kubernetes");
+    }
+
+    #[tokio::test]
+    async fn oidc_conf_front_mode_redirects_to_the_front() {
+        let conf = with_oidc()
+            .get_oidc_conf(state(), true, None)
+            .await
+            .expect("no config_from to resolve")
+            .unwrap();
+        assert_eq!(
+            conf.redirect_url.as_deref(),
+            Some("https://front.example.com/auth/callback/team-a/prod")
+        );
+    }
+
+    #[tokio::test]
+    async fn oidc_conf_kubectl_mode_redirects_to_the_local_callback() {
+        let conf = with_oidc()
+            .get_oidc_conf(state(), false, Some("http://localhost:8000/".to_string()))
+            .await
+            .expect("no config_from to resolve")
+            .unwrap();
+        assert_eq!(
+            conf.redirect_url.as_deref(),
+            Some("http://localhost:8000/auth/callback/team-a/prod")
+        );
+    }
+
+    #[tokio::test]
+    async fn oidc_conf_rejects_a_kubectl_uri_that_is_not_a_bare_localhost_origin() {
+        let proxy = with_oidc();
+        for uri in [
+            "not a url",
+            "http://127.0.0.1:8000/",
+            "http://evil.example.com/",
+            "http://localhost.evil.example.com/",
+            "http://localhost:8000/callback",
+            "http://localhost:8000/?next=1",
+            "http://localhost:8000/#frag",
+        ] {
+            assert!(
+                proxy
+                    .get_oidc_conf(state(), false, Some(uri.to_string()))
+                    .await
+                    .expect("no config_from to resolve")
+                    .is_none(),
+                "{uri} must be rejected"
+            );
+            // The front flag does not bypass the kubectl URI validation.
+            assert!(
+                proxy
+                    .get_oidc_conf(state(), true, Some(uri.to_string()))
+                    .await
+                    .expect("no config_from to resolve")
+                    .is_none(),
+                "{uri} must be rejected even in front mode"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn oauth_as_conf_redirects_to_the_proxy_oauth_callback() {
+        let conf = with_oidc()
+            .get_oauth_as_oidc_conf(state())
+            .await
+            .expect("no config_from to resolve")
+            .unwrap();
+        assert_eq!(
+            conf.redirect_url.as_deref(),
+            Some("https://proxy.example.com/clusters/team-a/prod/oauth/callback")
+        );
+        assert_eq!(conf.client_id, "cluster-client");
+    }
+
+    #[tokio::test]
+    async fn kubeconfig_names_cluster_user_and_context_after_the_proxy() {
+        let kubeconfig = proxy(None)
+            .to_kubeconfig(state(), Some("apps".to_string()), Some("tok".to_string()))
+            .await
+            .expect("external service + insecure cert needs no cluster access");
+
+        assert_eq!(kubeconfig.current_context.as_deref(), Some(NAME));
+
+        assert_eq!(kubeconfig.clusters.len(), 1);
+        assert_eq!(kubeconfig.clusters[0].name, NAME);
+        let cluster = kubeconfig.clusters[0].cluster.as_ref().unwrap();
+        assert_eq!(cluster.server.as_deref(), Some(UPSTREAM));
+        assert_eq!(cluster.certificate_authority_data, None);
+
+        assert_eq!(kubeconfig.auth_infos.len(), 1);
+        assert_eq!(kubeconfig.auth_infos[0].name, NAME);
+        let token = kubeconfig.auth_infos[0]
+            .auth_info
+            .as_ref()
+            .unwrap()
+            .token
+            .as_ref()
+            .expect("token is set");
+        assert_eq!(secrecy::ExposeSecret::expose_secret(token), "tok");
+
+        assert_eq!(kubeconfig.contexts.len(), 1);
+        assert_eq!(kubeconfig.contexts[0].name, NAME);
+        let context = kubeconfig.contexts[0].context.as_ref().unwrap();
+        assert_eq!(context.cluster, NAME);
+        assert_eq!(context.user.as_deref(), Some(NAME));
+        assert_eq!(context.namespace.as_deref(), Some("apps"));
+    }
+
+    #[tokio::test]
+    async fn kubeconfig_without_token_or_namespace_leaves_them_unset() {
+        let kubeconfig = proxy(None)
+            .to_kubeconfig(state(), None, None)
+            .await
+            .unwrap();
+        assert!(
+            kubeconfig.auth_infos[0]
+                .auth_info
+                .as_ref()
+                .unwrap()
+                .token
+                .is_none()
+        );
+        assert_eq!(
+            kubeconfig.contexts[0].context.as_ref().unwrap().namespace,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn kubeconfig_embeds_the_inline_ca_as_base64_pem() {
+        let mut proxy = proxy(None);
+        proxy.spec.cert = CertSource::Cert(BASE64_STANDARD.encode(PEM));
+        let kubeconfig = proxy.to_kubeconfig(state(), None, None).await.unwrap();
+        let ca = kubeconfig.clusters[0]
+            .cluster
+            .as_ref()
+            .unwrap()
+            .certificate_authority_data
+            .as_deref()
+            .expect("inline CA is embedded");
+        // kubeconfig's `certificate-authority-data` is the base64 of the PEM.
+        assert_eq!(BASE64_STANDARD.decode(ca).unwrap(), PEM.as_bytes());
+    }
+
+    #[tokio::test]
+    async fn kubeconfig_surfaces_an_undecodable_inline_ca() {
+        let mut proxy = proxy(None);
+        proxy.spec.cert = CertSource::Cert("%%% not base64 %%%".to_string());
+        let err = proxy.to_kubeconfig(state(), None, None).await.unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ProxyRuntimeError::Cert(crd::certificate::CertError::Base64(_))
+            ),
+            "{err:?}"
+        );
+        // `Cert` is transparent: the leaf message is shown as-is.
+        assert!(
+            err.to_string()
+                .starts_with("failed to base64-decode certificate: "),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn transparent_errors_show_the_leaf_message() {
+        let err = ProxyRuntimeError::from(crd::certificate::CertError::NoData {
+            kind: "secret",
+            name: "ca".to_string(),
+        });
+        assert_eq!(err.to_string(), "no data found in secret ca");
+
+        let err = ProxyRuntimeError::from(crd::service::ServiceError::NoSpec {
+            name: "api".to_string(),
+        });
+        assert_eq!(
+            err.to_string(),
+            crd::service::ServiceError::NoSpec {
+                name: "api".to_string()
+            }
+            .to_string()
+        );
+    }
+
+    #[tokio::test]
+    async fn kube_client_errors_are_prefixed() {
+        let mut proxy = proxy(None);
+        proxy.spec.service = Service::ExternalService {
+            url: "not a url".to_string(),
+        };
+        let Err(err) = proxy.to_kube_client(state(), None, None).await else {
+            panic!("an unparsable server URL cannot build a client");
+        };
+        assert!(matches!(err, ProxyRuntimeError::KubeClient(_)), "{err:?}");
+        assert!(
+            err.to_string().starts_with("failed to build kube client: "),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn kube_client_builds_from_a_valid_kubeconfig() {
+        let built = proxy(None)
+            .to_kube_client(state(), Some("apps".to_string()), Some("tok".to_string()))
+            .await;
+        assert!(
+            built.is_ok(),
+            "building the client does not dial the cluster: {:?}",
+            built.err()
+        );
     }
 }

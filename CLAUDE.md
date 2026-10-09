@@ -2,7 +2,7 @@
 <!-- Eclipse Che Dedicated instruction --->
 # Eclipse che - Cloud Development Environment
 
-## Condition
+## Condition
 
 All the rules in the Eclipse Che block apply only if an env var named WORKSPACE_NAME exists with a non-empty value. The block spans from the `Eclipse Che Dedicated instruction` comment down to the closing `/Eclipse Che Dedicated instruction` comment (i.e. everything up to the "Weebo Dev Env" section).
 
@@ -57,6 +57,8 @@ Mise is the de-facto package manager. You never have root rights, so use mise wh
 ## Git / Commits
 
 Commits follow the Conventional Commits format, enforced by [Cocogitto](https://github.com/cocogitto/cocogitto) (`cog.toml`): the commit-msg hook runs `cog verify`, and the pre-commit hook runs `task recu`, `task lint`, gitleaks and the whitespace/end-of-line scripts. Write commit messages accordingly (e.g. `feat: ...`, `fix: ...`).
+
+You don't have the right to commit directly has all commit should be signed and signed-off by the user, if you want to provide a commit message, do so by creating a file and providing the command to validate if the commit message is okay for the user. if you do so, always add that you are a co-owner.
 
 ## Skills
 
@@ -228,3 +230,13 @@ rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
 
 Overall average: **60-90% token reduction** on common development operations.
 <!-- /rtk-instructions -->
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

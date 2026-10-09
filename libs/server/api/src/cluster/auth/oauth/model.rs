@@ -14,6 +14,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 
 /// Redis key prefix for [`PendingAuthorization`] records.
 pub const PENDING_PREFIX: &str = "oauth_as_pending";
@@ -71,13 +72,26 @@ pub fn parse_loopback_redirect_uri(raw: &str) -> Option<Url> {
     if url.scheme() != "http" {
         return None;
     }
-    if !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1")) {
+    // `host_str` keeps the brackets of an IPv6 literal, so `::1` reads `[::1]`.
+    if !matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]")) {
         return None;
     }
     if url.fragment().is_some() {
         return None;
     }
     Some(url)
+}
+
+/// Whether the `redirect_uri` sent to `/oauth/token` is the one the code was
+/// issued for (RFC 6749 §4.1.3).
+///
+/// The issued URI was stored in its normalised form (`Url::to_string`), so the
+/// presented one is normalised the same way before comparing: otherwise
+/// `http://localhost:8000` (stored as `http://localhost:8000/`), an explicit
+/// `:80` or different escaping would be refused although it is the same URI.
+#[must_use]
+pub fn redirect_uri_matches(presented: &str, issued: &str) -> bool {
+    parse_loopback_redirect_uri(presented).is_some_and(|url| url.as_str() == issued)
 }
 
 /// A PKCE `code_challenge`/`code_verifier` value's charset, per RFC 7636 §4.1
@@ -92,10 +106,15 @@ pub fn is_valid_pkce_value(value: &str) -> bool {
 
 /// Verify a PKCE `code_verifier` against a stored `S256` `code_challenge`
 /// (RFC 7636 §4.6): `code_challenge == BASE64URL-NOPAD(SHA256(code_verifier))`.
+/// The comparison is constant-time so it leaks nothing about the challenge.
 #[must_use]
 pub fn verify_pkce_s256(verifier: &str, challenge: &str) -> bool {
     let digest = Sha256::digest(verifier.as_bytes());
-    URL_SAFE_NO_PAD.encode(digest) == challenge
+    URL_SAFE_NO_PAD
+        .encode(digest)
+        .as_bytes()
+        .ct_eq(challenge.as_bytes())
+        .into()
 }
 
 #[cfg(test)]
@@ -106,6 +125,22 @@ mod tests {
     fn accepts_a_loopback_redirect_uri() {
         assert!(parse_loopback_redirect_uri("http://localhost:8000/callback").is_some());
         assert!(parse_loopback_redirect_uri("http://127.0.0.1:9999/").is_some());
+        assert!(parse_loopback_redirect_uri("http://[::1]:9999/").is_some());
+    }
+
+    #[test]
+    fn redirect_uri_is_compared_in_its_normalised_form() {
+        let stored = parse_loopback_redirect_uri("http://localhost:8000")
+            .unwrap()
+            .to_string();
+        assert!(redirect_uri_matches("http://localhost:8000", &stored));
+        assert!(redirect_uri_matches("http://localhost:8000/", &stored));
+        let stored = parse_loopback_redirect_uri("http://localhost/cb")
+            .unwrap()
+            .to_string();
+        assert!(redirect_uri_matches("http://localhost:80/cb", &stored));
+        assert!(!redirect_uri_matches("http://localhost:8001/cb", &stored));
+        assert!(!redirect_uri_matches("not a url", &stored));
     }
 
     #[test]
@@ -135,5 +170,8 @@ mod tests {
             "wrong-verifier-wrong-verifier-wrong-verifi",
             challenge
         ));
+        // A truncated or empty challenge must not match.
+        assert!(!verify_pkce_s256(verifier, &challenge[..42]));
+        assert!(!verify_pkce_s256(verifier, ""));
     }
 }

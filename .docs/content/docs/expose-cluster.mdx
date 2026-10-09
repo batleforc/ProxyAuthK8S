@@ -1,0 +1,181 @@
+---
+title: Exposer un cluster
+description: Ajouter un cluster Kubernetes derrière ProxyAuthK8S avec une ressource ProxyKubeApi
+icon: ServerCog
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Chaque cluster exposé par ProxyAuthK8S est décrit par une ressource `ProxyKubeApi`
+(`weebo.si.rs/v1`) créée dans le cluster hôte. Le controller la valide, vérifie que l'apiserver
+cible répond, puis publie le cluster sous `/clusters/<namespace>/<nom>`.
+
+<Callout type="info">
+Le [générateur ProxyKubeApi](/docs/proxykubeapi-generator) construit le manifeste depuis le
+schéma de la CRD, et la [référence CRD](/docs/crds) décrit chaque champ.
+</Callout>
+
+## 1. Où est l'apiserver ? (`service`)
+
+Exactement une des deux variantes :
+
+```yaml
+# Un apiserver joignable par URL (autre cluster, load balancer, VIP…)
+service:
+  ExternalService:
+    url: https://api.my-cluster.example.com:6443
+```
+
+```yaml
+# Une Service Kubernetes du cluster hôte (ex. le cluster hôte lui-même)
+service:
+  KubernetesService:
+    name: kubernetes
+    namespace: default   # défaut : namespace du ProxyKubeApi
+    port: 443            # ou port_name
+```
+
+Préférez toujours `https` : selon le mode d'authentification, le jeton de l'utilisateur est
+transmis à cette URL. Voir [Cible upstream (SSRF)](/docs/security#cible-upstream-ssrf).
+
+## 2. Comment faire confiance à son certificat ? (`cert`)
+
+Le CA qui a signé le certificat de l'apiserver. Exactement une variante :
+
+```yaml
+cert:
+  ConfigMap: { name: kube-root-ca.crt, key: ca.crt }   # ConfigMap du namespace du CR
+# cert:
+#   Secret: { name: my-cluster-ca, key: ca.crt }
+# cert:
+#   Cert: LS0tLS1CRUdJTi...                             # PEM encodé en base64
+# cert:
+#   Insecure: true                                      # aucune vérification : tests uniquement
+```
+
+Le Secret/ConfigMap est lu dans le **namespace du `ProxyKubeApi`**. Un champ `namespace`
+différent est refusé, sauf si `PROXYAUTH_ALLOW_CROSS_NS_CERT=true` (voir [mTLS vers le cluster
+cible](/docs/security#mtls-vers-le-cluster-cible)). Ce CA est aussi celui qu'on retrouve dans les
+kubeconfigs générés par le dashboard.
+
+Si l'apiserver exige un certificat client du proxy, ajoutez `client_cert` (même forme que
+`cert`, avec `cert` et `key`).
+
+## 3. Comment authentifier les utilisateurs ? (`auth_config`)
+
+Le proxy **relaie le jeton `Bearer` du client tel quel** à l'apiserver. Il le valide d'abord
+lui-même (pour appliquer bannissement, groupes, liste de ressources et audit), mais c'est bien
+l'apiserver cible qui décide in fine des droits (RBAC).
+
+### SSO via un provider OIDC
+
+```yaml
+auth_config:
+  validate_against: OidcProvider
+  oidc_provider:
+    enabled: true
+    issuer_url: https://auth.example.com
+    client_id: my-cluster
+    client_secret: "…"
+    audience: my-cluster           # défaut : client_id
+    extra_scope: "openid groups profile email"
+```
+
+- Le dashboard et le plugin kubectl déroulent alors un login OIDC propre à ce cluster ; le
+  client OIDC doit autoriser les redirect URIs
+  `<dashboard>/auth/callback/<ns>/<nom>` et `http://localhost:18000/auth/callback/<ns>/<nom>`.
+- **Côté cluster cible**, l'apiserver doit accepter ces jetons : configurez son authentification
+  OIDC (`--oidc-issuer-url`/`--oidc-client-id` ou une `AuthenticationConfiguration`) avec le
+  même issuer et le même client, et créez les `RoleBinding`/`ClusterRoleBinding` pour les
+  utilisateurs ou groupes.
+- `expose_oauth_authorization_server: true` publie en plus un serveur OAuth médié
+  (compatible `oc login`) : voir la section *OAuth Authorization Server médiée* de
+  [Sécurité du proxy](/docs/security).
+
+### Jetons Kubernetes (ServiceAccount, kubeadm, cloud…)
+
+```yaml
+auth_config:
+  validate_against: Kubernetes   # défaut
+```
+
+Le proxy valide le jeton par un `SelfSubjectReview` sur le cluster cible. C'est le mode adapté
+aux clusters sans SSO : le dashboard affiche alors un kubeconfig à compléter avec son propre
+jeton.
+
+<Callout type="warn">
+`disable_validation: true` désactive toute validation : le proxy relaie sans savoir qui appelle.
+Combiné à un groupe requis, le cluster renvoie systématiquement `403`.
+</Callout>
+
+## 4. Qui peut le voir et l'utiliser ?
+
+```yaml
+expose_via_dashboard: true        # visible dans le dashboard et `kubectl proxyauth get`
+dashboard_group: team-a-viewers   # défaut : dashboard-<namespace>-<nom>
+proxy_group: team-a-operators     # défaut : dashboard_group si exposé, sinon aucun
+enabled: true                     # false : le cluster est désactivé sans être supprimé
+```
+
+Les groupes viennent du claim `groups` (userinfo) en mode `OidcProvider`, et des groupes
+renvoyés par le `SelfSubjectReview` en mode `Kubernetes`. Détails :
+[Autorisation par cluster](/docs/security#3-autorisation-par-cluster).
+
+## 5. Durcir l'accès (optionnel)
+
+`security_config` ajoute bannissement après échecs de login, liste blanche de chemins ou de
+ressources (y compris par namespace et ports de port-forward) et quotas. Tout est décrit dans
+[Sécurité du proxy](/docs/security). `virtual_apis` permet d'émuler des API absentes du
+cluster (ex. les `Projects` OpenShift) : voir [API virtuelles](/docs/virtual-apis).
+
+## 6. Appliquer et vérifier
+
+```bash
+kubectl apply -f my-cluster.yaml
+kubectl get proxykubeapi -n team-a my-cluster -o jsonpath='{.status}'
+```
+
+| `status`                                                       | Signification                                                        |
+| -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `exposed: true`, `path: /clusters/team-a/my-cluster`           | Le cluster est joignable et servi par le proxy                       |
+| `error: Failed to validate proxy configuration: …`             | `auth_config` ou `security_config` incohérent                        |
+| `error: Failed to check if target service is reachable: …`     | Échec avant même l'appel (ex. `cert` introuvable, namespace refusé)  |
+| `error: Target service is not reachable`                       | L'apiserver ne répond pas (URL, réseau, NetworkPolicy, CA)            |
+
+Le controller réessaie régulièrement : corrigez la ressource ou le réseau, le statut se met à
+jour seul. Avec la NetworkPolicy de la chart activée, pensez à autoriser l'egress vers
+l'apiserver cible (`networkPolicy.egress`).
+
+## Exemple complet
+
+```yaml
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+metadata:
+  name: my-cluster
+  namespace: team-a
+spec:
+  expose_via_dashboard: true
+  dashboard_group: team-a
+  service:
+    ExternalService:
+      url: https://api.my-cluster.example.com:6443
+  cert:
+    Secret: { name: my-cluster-ca, key: ca.crt }
+  auth_config:
+    validate_against: OidcProvider
+    oidc_provider:
+      enabled: true
+      issuer_url: https://auth.example.com
+      client_id: my-cluster
+      client_secret: "…"
+      extra_scope: "openid groups profile email"
+  security_config:
+    enabled: true
+    fail2login_equal_ban:
+      enabled: true
+      max_failed_logins: 5
+      ban_duration: 300
+```
+
+D'autres exemples sont disponibles dans `deploy/example/`.

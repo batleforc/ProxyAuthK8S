@@ -1,0 +1,87 @@
+---
+title: Dashboard
+description: Utiliser l'interface web de ProxyAuthK8S
+icon: LayoutDashboard
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Le dashboard sert à **découvrir** les clusters auxquels vous avez accès et à **récupérer** de
+quoi vous y connecter (jetons, kubeconfig, commandes du plugin kubectl). Il ne remplace pas
+`kubectl` : les appels à l'API Kubernetes passent ensuite directement par le proxy.
+
+## Se connecter
+
+Sur la page d'accueil, **Commencer maintenant** redirige vers le provider OIDC configuré pour le
+dashboard. Au retour (`/auth/callback`), la session est conservée dans le `sessionStorage` du
+navigateur : elle est propre à l'onglet et disparaît à sa fermeture.
+
+## La liste des clusters
+
+Une fois connecté, la page d'accueil liste les clusters visibles. Un cluster apparaît si :
+
+- son `ProxyKubeApi` a `expose_via_dashboard: true` ;
+- vous appartenez à son `dashboard_group` (par défaut `dashboard-<namespace>-<nom>`).
+
+Si la liste est vide alors que vous attendiez un cluster, c'est l'une de ces deux conditions qui
+manque : voyez avec l'administrateur.
+
+Chaque carte affiche le nom, le namespace, l'URL du cluster via le proxy
+(`https://<dashboard>/clusters/<namespace>/<nom>`, copiable) et un statut :
+
+| Statut           | Signification                                                     |
+| ---------------- | ----------------------------------------------------------------- |
+| **Disponible**   | Le controller a joint l'apiserver                                 |
+| **Injoignable**  | Le controller n'arrive pas à joindre l'apiserver                  |
+| **Désactivé**    | `enabled: false` sur le `ProxyKubeApi`                            |
+| **État inconnu** | Le controller n'a pas encore évalué le cluster                    |
+
+Le bouton **Accéder au cluster** est désactivé pour un cluster injoignable ou désactivé.
+
+## Accéder à un cluster SSO
+
+Pour un cluster dont `auth_config.oidc_provider` est activé, **Accéder au cluster** lance un
+login OIDC propre à ce cluster (son propre client OIDC), puis revient sur
+`/auth/callback/<namespace>/<nom>`. La page affiche alors :
+
+- **Informations du Cluster** : nom, namespace, URL ;
+- **Tokens d'Authentification** : `access_token`, `id_token` et, s'il existe, `refresh_token`,
+  chacun copiable ;
+- **Configuration Kubernetes** : deux kubeconfigs à télécharger ou copier.
+  - le **kubeconfig** simple, qui embarque l'`id_token` : prêt à l'emploi, mais valable
+    seulement jusqu'à l'expiration du jeton ;
+  - le **kubeconfig plugin**, dont l'utilisateur appelle `kubectl proxyauth get-token` : le
+    jeton est lu à chaque appel dans le trousseau du plugin. C'est ce qu'écrit aussi
+    `kubectl proxyauth login`, qui reste la solution recommandée.
+- les étapes pour installer et configurer le [plugin kubectl](/docs/kubectl-plugin) avec ces
+  jetons.
+
+<Callout type="warn">
+Ces jetons donnent accès au cluster : ne les collez pas dans un ticket ou un chat. Pour les
+révoquer avant expiration, passez par votre provider OIDC.
+</Callout>
+
+## Accéder à un cluster sans SSO
+
+Pour un cluster en mode `Kubernetes` (jetons ServiceAccount, cloud, etc.), **Accéder au
+cluster** ouvre `/clusters/<namespace>/<nom>/nosso`. ProxyAuthK8S ne délivre pas de jeton pour
+ces clusters : la page fournit un kubeconfig pointant sur le proxy, avec un
+`YOUR_ACCESS_TOKEN` à remplacer par un jeton valide **sur le cluster cible** (par exemple
+`kubectl create token <serviceaccount>` exécuté sur ce cluster).
+
+Avec le plugin, l'équivalent est :
+
+```bash
+kubectl proxyauth -n <namespace> login <nom> --token <jeton>
+```
+
+## La page CLI
+
+L'entrée **CLI** du menu (`/cli`) rassemble le guide d'installation et d'usage du plugin
+`kubectl proxyauth`, également disponible ici : [Plugin kubectl](/docs/kubectl-plugin).
+
+## La page À propos
+
+`/about` est publique (accessible sans être connecté, c'est la cible des boutons « En savoir
+plus » de l'accueil). Elle présente le projet et renvoie vers cette documentation, la page du
+plugin kubectl, la référence interactive de l'API du serveur (`/api/docs`) et le dépôt GitHub.

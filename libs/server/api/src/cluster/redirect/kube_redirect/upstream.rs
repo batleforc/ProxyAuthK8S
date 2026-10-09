@@ -1,7 +1,14 @@
 //! Building the upstream request, shared by the standard and virtual paths.
 
+use std::{sync::Arc, time::Duration};
+
 use actix_web::{HttpRequest, dev::PeerAddr, web};
-use common::State;
+use common::{
+    State,
+    upstream_cache::{
+        UPSTREAM_CLIENTS, UPSTREAM_TLS_CONFIGS, UpstreamCacheKey, upstream_client_ttl,
+    },
+};
 use crd::ProxyKubeApi;
 use tracing::info;
 
@@ -12,12 +19,28 @@ use crate::cluster::redirect::forwarded::{
 };
 use crate::model::user::User;
 
+/// Upper bound on establishing the TCP + TLS connection to the target apiserver.
+const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// A reqwest client trusting whatever the cluster's `CertSource` says.
+///
+/// Cached per cluster (see [`common::upstream_cache`]) so its connection pool
+/// keeps connections to the apiserver alive across requests. A new client
+/// always resolves the TLS material afresh (and refreshes the cached TLS
+/// configuration the upgrade path uses), so neither outlives the TTL.
 pub(super) async fn upstream_client(
     proxy: &ProxyKubeApi,
     data: &web::Data<State>,
 ) -> Result<reqwest::Client, String> {
-    build_client(proxy, data, true).await
+    let key = UpstreamCacheKey::for_proxy(proxy);
+    let ttl = upstream_client_ttl();
+    UPSTREAM_CLIENTS
+        .get_or_try_insert_with(&key, ttl, || async {
+            let tls_config = Arc::new(build_tls_config(proxy, data, true).await?);
+            UPSTREAM_TLS_CONFIGS.insert(key.clone(), Arc::clone(&tls_config), ttl);
+            build_upstream_client((*tls_config).clone())
+        })
+        .await
 }
 
 /// A reqwest client trusting the cluster's CA but never presenting a client
@@ -25,20 +48,17 @@ pub(super) async fn upstream_client(
 ///
 /// For a privileged bearer-token call (see `list_fallback`): its identity must
 /// never be conflated with the front-proxy mTLS identity used for impersonated
-/// calls, so it authenticates by the token alone.
+/// calls, so it authenticates by the token alone. Deliberately kept out of the
+/// upstream client cache, whose key does not tell the two identities apart.
 pub(super) async fn ca_only_client(
     proxy: &ProxyKubeApi,
     data: &web::Data<State>,
 ) -> Result<reqwest::Client, String> {
-    build_client(proxy, data, false).await
+    build_upstream_client(build_tls_config(proxy, data, false).await?)
 }
 
-async fn build_client(
-    proxy: &ProxyKubeApi,
-    data: &web::Data<State>,
-    attach_client_cert: bool,
-) -> Result<reqwest::Client, String> {
-    let tls_config = build_tls_config(proxy, data, attach_client_cert).await?;
+/// The upstream client for `tls_config`: no redirects, bounded connect.
+fn build_upstream_client(tls_config: rustls::ClientConfig) -> Result<reqwest::Client, String> {
     reqwest::ClientBuilder::new()
         .use_preconfigured_tls(tls_config)
         // Never follow redirects to the upstream: a Kubernetes apiserver does not
@@ -46,6 +66,11 @@ async fn build_client(
         // bounce the request (and the forwarded bearer token) to an unintended
         // host — e.g. the cloud metadata endpoint.
         .redirect(reqwest::redirect::Policy::none())
+        // Fail fast on an unreachable/black-holed apiserver instead of pinning a
+        // worker. Only the connect phase is bounded: proxied calls include
+        // long-lived `watch`/`exec`/`logs -f` streams that a total or read
+        // timeout would cut.
+        .connect_timeout(UPSTREAM_CONNECT_TIMEOUT)
         .build()
         .map_err(|err| err.to_string())
 }

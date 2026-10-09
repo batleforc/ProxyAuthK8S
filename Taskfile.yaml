@@ -1,16 +1,19 @@
 version: "3"
 
 includes:
-  talos: .taskfile/talos.yaml
-  lab: .taskfile/lab.yaml
-  gen: .taskfile/gen.yaml
-  k3d: .taskfile/kube3d.yaml
-  tool: .taskfile/tool.yaml
-  lint: .taskfile/lint.yaml
-  audit: .taskfile/audit.yaml
-  test: .taskfile/test.yaml
-  envtest: .taskfile/envtest.yaml
-  tmux: .taskfile/tmux.yaml
+  talos: .tasks/talos.yaml
+  lab: .tasks/lab.yaml
+  gen: .tasks/gen.yaml
+  k3d: .tasks/kube3d.yaml
+  tool: .tasks/tool.yaml
+  lint: .tasks/lint.yaml
+  audit: .tasks/audit.yaml
+  test: .tasks/test.yaml
+  envtest: .tasks/envtest.yaml
+  tmux: .tasks/tmux.yaml
+  mise: .tasks/mise.yaml
+  claude: .tasks/claude.yaml
+  template: .tasks/template.yaml
 
 dotenv:
   - .env
@@ -22,6 +25,8 @@ tasks:
     cmds:
       - echo "Initializing the project"
       - git submodule update --init --recursive
+      - task mise:install
+      - task claude:install
       - cargo install cargo-set-version cargo-machete
       - yarn install
       - cd .docs && yarn install
@@ -134,6 +139,7 @@ tasks:
     deps:
       - lint:rust
       - lint:helm
+      - lint:actions
     cmds:
       - task lint:all
 

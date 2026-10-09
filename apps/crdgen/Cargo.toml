@@ -7,6 +7,6 @@ edition = "2024"
 [dependencies]
 kube = { workspace = true }
 crd = { path = "../../libs/server/crd", version = "0.1.9" }
-serde_yaml = { workspace = true }
+serde_yaml_ng = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

@@ -4,6 +4,8 @@ pub mod get_all_visible_cluster_body;
 pub use self::get_all_visible_cluster_body::GetAllVisibleClusterBody;
 pub mod o_auth_authorization_server_metadata;
 pub use self::o_auth_authorization_server_metadata::OAuthAuthorizationServerMetadata;
+pub mod readiness_body;
+pub use self::readiness_body::ReadinessBody;
 pub mod token_error_body;
 pub use self::token_error_body::TokenErrorBody;
 pub mod token_response_body;

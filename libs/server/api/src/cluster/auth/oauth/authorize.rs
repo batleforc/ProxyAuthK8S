@@ -70,7 +70,7 @@ pub async fn authorize(
     };
     let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
         Ok(proxy) => proxy,
-        Err(response) => return response,
+        Err(gate) => return gate.into_response(),
     };
     if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
         return response;
@@ -78,7 +78,7 @@ pub async fn authorize(
 
     let Some(redirect_uri) = parse_loopback_redirect_uri(&query.redirect_uri) else {
         return HttpResponse::BadRequest()
-            .body("invalid_request: redirect_uri must be a loopback URI (http://localhost or http://127.0.0.1)");
+            .body("invalid_request: redirect_uri must be a loopback URI (http://localhost, http://127.0.0.1 or http://[::1])");
     };
 
     if query.response_type != "code" {
@@ -113,7 +113,7 @@ pub async fn authorize(
             return HttpResponse::InternalServerError().finish();
         }
     };
-    let client = match oauth_conf.oidc_core(&data.discovery_cache).await {
+    let client = match oauth_conf.oidc_core().await {
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't get oidc client");

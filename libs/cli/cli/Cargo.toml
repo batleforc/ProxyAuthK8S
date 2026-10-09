@@ -11,20 +11,16 @@ kube = { workspace = true }
 k8s-openapi = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
-serde_yaml = { workspace = true }
+serde_yaml_ng = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
+base64 = "0.23"
 tokio = { version = "1", features = ["rt", "net", "time", "io-util", "macros"] }
-keyring = { version = "3", features = [
-  "linux-native",
-  "apple-native",
-  "windows-native",
-  "sync-secret-service",
-] }
+keyring-core = "1"
 
 cli_trace = { path = "../cli_trace", version = "0.1.9" }
 client_api = { path = "../client_api", version = "0.1.9" }
-comfy-table = "7.2"
+comfy-table = "8"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dev-dependencies]
@@ -32,3 +28,16 @@ wiremock = "0.6"
 
 [package.metadata.cargo-machete]
 ignored = ["k8s-openapi"]
+
+# OS credential stores behind keyring-core (see `src/keystore.rs`).
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = "1"
+
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
+zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+linux-keyutils-keyring-store = "1"

@@ -113,7 +113,7 @@ pub async fn callback_login(
             return HttpResponse::InternalServerError().finish();
         }
     };
-    let client_oidc = match oidc_conf.oidc_core(&data.discovery_cache).await {
+    let client_oidc = match oidc_conf.oidc_core().await {
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't get oidc client");
@@ -121,8 +121,11 @@ pub async fn callback_login(
         }
     };
     info!(%ns, %cluster, "Callback received for cluster");
+    // The CSRF state/nonce is single-use: it is read and deleted atomically so
+    // the same `code`+`state` cannot be replayed against the callback within its
+    // TTL window, even by concurrent requests.
     let login_to_callback = match data
-        .redis_get(&format!(
+        .redis_take(&format!(
             "oidc_csrf_nonce:{}/{}/{}",
             ns, cluster, callback.state
         ))
@@ -146,17 +149,6 @@ pub async fn callback_login(
             return HttpResponse::ServiceUnavailable().finish();
         }
     };
-    // The CSRF state/nonce is single-use: drop it now so the same `code`+`state`
-    // cannot be replayed against the callback within its TTL window.
-    if let Err(e) = data
-        .delete_key(&format!(
-            "oidc_csrf_nonce:{}/{}/{}",
-            ns, cluster, callback.state
-        ))
-        .await
-    {
-        error!(error = %e, "couldn't delete used csrf state");
-    }
     let exchange_code =
         match client_oidc.exchange_code(AuthorizationCode::new(callback.code.clone())) {
             Ok(code) => code,

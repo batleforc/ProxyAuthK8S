@@ -79,14 +79,14 @@ impl CliConfig {
     }
 
     pub fn from_yaml(yaml_str: &str) -> Result<Self, CliConfigError> {
-        match serde_yaml::from_str::<CliConfig>(yaml_str) {
+        match serde_yaml_ng::from_str::<CliConfig>(yaml_str) {
             Ok(config) => Ok(config),
             Err(err) => Err(CliConfigError::YamlParseError(err.to_string())),
         }
     }
 
     pub fn to_yaml(&self) -> Result<String, CliConfigError> {
-        match serde_yaml::to_string(self) {
+        match serde_yaml_ng::to_string(self) {
             Ok(yaml_str) => Ok(yaml_str),
             Err(err) => Err(CliConfigError::YamlSerializeError(err.to_string())),
         }

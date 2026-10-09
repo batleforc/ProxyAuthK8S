@@ -63,7 +63,16 @@ impl AllowedCrdConfiguration {
         if !crate::security::path_matcher::path_has_no_traversal(path) {
             return false;
         }
-        let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+        // Compare the segments the way the upstream apiserver will see them:
+        // it percent-decodes the path once, so `namespaces/kube%2Dsystem` reaches
+        // `kube-system`. Matching the raw segment would let an encoded spelling
+        // slip past a `DeniedNamespaces` rule.
+        let decoded: Vec<String> = path
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .map(crate::security::path_matcher::percent_decode_once)
+            .collect();
+        let segments: Vec<&str> = decoded.iter().map(String::as_str).collect();
         let mut idx = 0;
 
         // API group prefix.
@@ -236,6 +245,18 @@ mod tests {
         ));
         assert!(!rule.matches(
             "/apis/example.com/v1/namespaces/kube-system/widgets",
+            "alice",
+            &groups()
+        ));
+        // The apiserver decodes the path, so an encoded spelling of a denied
+        // namespace must be denied too.
+        assert!(!rule.matches(
+            "/apis/example.com/v1/namespaces/kube%2Dsystem/widgets",
+            "alice",
+            &groups()
+        ));
+        assert!(!rule.matches(
+            "/apis/example.com/v1/namespaces/%6bube-system/widgets",
             "alice",
             &groups()
         ));

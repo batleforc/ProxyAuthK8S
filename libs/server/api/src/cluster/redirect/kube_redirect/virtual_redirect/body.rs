@@ -8,19 +8,14 @@ use actix_web::{HttpResponse, http, web};
 use futures_util::StreamExt;
 use serde_json::Value;
 
-/// Upper bound on a buffered virtual response.
+/// Upper bound on a buffered virtual response (`PROXY_VIRTUAL_MAX_BODY_BYTES`,
+/// default 32 MiB, see `common::config`).
 ///
 /// A translated response must be held in memory in full; a `NamespaceList` on a
 /// very large cluster is the realistic worst case, and past this the request is
 /// refused rather than allowed to grow without bound.
-const DEFAULT_MAX_BUFFERED_BYTES: usize = 32 * 1024 * 1024;
-
 pub(super) fn max_buffered_bytes() -> usize {
-    std::env::var("PROXY_VIRTUAL_MAX_BODY_BYTES")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_MAX_BUFFERED_BYTES)
+    common::config::get().proxy.virtual_max_body_bytes
 }
 
 pub(super) fn json_response(status: http::StatusCode, body: &Value) -> HttpResponse {

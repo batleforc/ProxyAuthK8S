@@ -1,0 +1,71 @@
+---
+title: Tâches (Taskfile)
+description: Les commandes de développement, de génération, de test et d'audit
+icon: SquareTerminal
+---
+
+Toutes les commandes passent par [Task](https://taskfile.dev). `task --list` affiche la liste
+complète avec leur description ; cette page regroupe les plus utiles.
+
+## Lancer le projet
+
+| Tâche          | Effet                                                              |
+| -------------- | ------------------------------------------------------------------ |
+| `task init`    | Prépare le projet (outils mise, plugins Claude, cargo-set-version, cargo-machete, `yarn install`) |
+| `task service` | Démarre les services de dev en compose (Redis, Authelia/Keycloak, Traefik, OTel...) via Docker ou Podman ; `init:service` génère leurs clés |
+| `task back`    | Lance le serveur (`back:tls` derrière un terminateur TLS)          |
+| `task front`   | Lance le dashboard en mode dev (`front:tls` avec TLS)              |
+| `task aio`     | Back + front ensemble                                              |
+| `task docs`    | Lance ce site de documentation en local                            |
+| `task cli -- <args>` | Lance le plugin kubectl (`cli:login`, `cli:get-token`)       |
+| `task tmux:dev` | Session tmux avec tous les logs de dev (`tmux:kill` pour l'arrêter) |
+
+## Clusters de test
+
+| Tâche                         | Effet                                                                |
+| ----------------------------- | -------------------------------------------------------------------- |
+| `task k3d:create`             | Crée le cluster k3d local (certificats, CRD, kubeconfigs)            |
+| `task k3d:start` / `k3d:stop` | Redémarre / arrête le cluster existant ; `k3d:delete` le détruit     |
+| `task k3d:k -- <args>`        | `kubectl` direct ; `k3d:k-proxy` via ProxyAuthK8S, `k3d:k-oidc` en OIDC |
+| `task k3d:k9s*`               | k9s direct, via le proxy ou avec un service account                  |
+| `task talos:up` / `talos:down` | Cluster Talos local (mêmes raccourcis `talos:k*`, `talos:k9s`)      |
+| `task lab:*`                  | Raccourcis vers le cluster de lab                                    |
+
+## Tests
+
+| Tâche                   | Effet                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `task test:unit`        | Tests unitaires seuls (ni Redis, ni réseau)                                     |
+| `task test:integration` | Tier d'intégration rapide (wiremock + Redis réel) ; échoue si Redis est absent |
+| `task test:server`      | Tests côté serveur uniquement (sans les crates CLI)                             |
+| `task test:all`         | Tous les tests du workspace                                                     |
+| `task envtest:setup`    | Télécharge kube-apiserver et etcd pour l'envtest                                |
+| `task envtest:run`      | Suite envtest contre un apiserver éphémère réel (`envtest:clean` pour nettoyer) |
+
+Le Redis de test se règle avec `TEST_REDIS_URL` (défaut `redis://127.0.0.1:6379`) ;
+`REQUIRE_TEST_REDIS=1` transforme un Redis absent en échec plutôt qu'en test sauté.
+
+## Génération
+
+| Tâche                     | Effet                                                                  |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `task recu`               | Lance toutes les générations ci-dessous                                |
+| `task gen:crds-file`      | Régénère `deploy/crds.yaml` et le chart des CRD                         |
+| `task gen:swagger-file`   | Régénère `swagger.json` (et sa copie dans `.docs`)                      |
+| `task gen:client`         | Régénère les clients API : TypeScript (`front-api`) et Rust (`client_api`) |
+| `task gen:docs:api`       | Régénère les pages de [référence API](/docs/api) depuis `swagger.json`  |
+| `task gen:docs:crd`       | Régénère la page [CRDs](/docs/crds)                                     |
+| `task gen:api-lint`       | Lint du spec OpenAPI avec Spectral                                     |
+| `task gen:tls*`           | Certificats auto-signés de dev (mkcert)                                |
+
+Après une modification d'API : `task gen:swagger-file && task gen:client && task gen:docs:api`.
+
+## Qualité, sécurité, dépendances
+
+| Tâche                | Effet                                                                 |
+| -------------------- | --------------------------------------------------------------------- |
+| `task lint`          | Tous les linters (`lint:rust`, `lint:all` pour nx, `lint:helm`)        |
+| `task audit`         | Audit CVE : `cargo audit`, `yarn npm audit`, `trivy` sur les images    |
+| `task tool:upgrade`  | Met à jour les dépendances dans les majeures actuelles (Rust, front, docs) |
+| `task bump`          | Incrémente la version (voir [Préparer une version](/docs/developper-guide/release)) |
+| `task template:*`    | Synchronise le projet avec son template (`diff`, `fetch`, `sync`)      |

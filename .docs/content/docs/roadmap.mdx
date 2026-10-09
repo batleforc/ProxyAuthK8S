@@ -116,9 +116,10 @@ Authentification des utilisateurs via un provider OIDC pour l'UI avec filtrage d
 | Guide | Statut |
 |-------|--------|
 | Comment déployer ProxyAuthK8S | ✅ Terminé |
-| Comment utiliser le plugin Kubectl ProxyAuth | ⏳ En cours |
-| Comment utiliser l'UI | ⏳ En cours |
-| Comment ajouter une nouvelle API Kubernetes | ⏳ En cours |
+| Comment utiliser le plugin Kubectl ProxyAuth | ✅ Terminé |
+| Comment utiliser l'UI | ✅ Terminé |
+| Comment exposer un nouveau cluster (`ProxyKubeApi`) | ✅ Terminé |
+| Environnement de développement CDE (Eclipse Che) | ✅ Terminé |
 | Vue d'ensemble de l'architecture | ✅ Terminé |
 | Documentation API | ✅ Terminé |
 | Comment contribuer | ✅ Terminé |
@@ -130,7 +131,7 @@ Authentification des utilisateurs via un provider OIDC pour l'UI avec filtrage d
 <Step>
 ### Plugin Krew
 
-Création d'un plugin Krew (`proxyauthk8s`) pour faciliter l'utilisation en CLI.
+Création d'un plugin Krew (`proxyauth`) pour faciliter l'utilisation en CLI.
 
 - ✅ Client auto-généré depuis l'OpenAPI spec
 - ⏳ Publication sur le Krew Index
@@ -140,7 +141,7 @@ Création d'un plugin Krew (`proxyauthk8s`) pour faciliter l'utilisation en CLI.
 <Step>
 ### CI/CD
 
-- ⏳ Build et publication du plugin Krew lors d'un TAG
+- ✅ Build du plugin et rendu du manifeste Krew, attachés à la release GitHub lors d'un TAG
 
 </Step>
 

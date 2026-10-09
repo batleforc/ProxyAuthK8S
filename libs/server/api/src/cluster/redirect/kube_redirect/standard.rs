@@ -18,33 +18,18 @@ const DEBUG_BODY_LOG_LIMIT: usize = 8 * 1024;
 /// legitimate long-lived watch while capping abuse.
 const MAX_UPSTREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_hours(1);
 
-/// Upper bound on the amount of memory a single request may buffer when debug
-/// logging is enabled. Beyond that the body is streamed through untouched and
-/// simply not logged, so an oversized payload can never balloon the worker.
-const DEFAULT_DEBUG_BODY_MAX_BYTES: usize = 10 * 1024 * 1024;
-
-/// Number of in-flight chunks between the client payload reader and the
-/// upstream request body. Bounded so a slow upstream applies back-pressure to
-/// the client instead of accumulating the whole body in memory.
-const DEFAULT_STREAM_CHANNEL_CAPACITY: usize = 32;
-
-fn env_usize(key: &str, default: usize) -> usize {
-    std::env::var(key)
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(default)
-}
-
+/// Upper bound on the memory a single request may buffer when debug logging is
+/// enabled (`PROXY_DEBUG_BODY_MAX_BYTES`, see `common::config`). Beyond that the
+/// body is streamed through untouched and simply not logged.
 fn debug_body_max_bytes() -> usize {
-    env_usize("PROXY_DEBUG_BODY_MAX_BYTES", DEFAULT_DEBUG_BODY_MAX_BYTES)
+    common::config::get().proxy.debug_body_max_bytes
 }
 
+/// In-flight chunks between the client payload reader and the upstream request
+/// body (`PROXY_STREAM_CHANNEL_CAPACITY`): bounded so a slow upstream applies
+/// back-pressure instead of accumulating the whole body in memory.
 fn stream_channel_capacity() -> usize {
-    env_usize(
-        "PROXY_STREAM_CHANNEL_CAPACITY",
-        DEFAULT_STREAM_CHANNEL_CAPACITY,
-    )
+    common::config::get().proxy.stream_channel_capacity
 }
 
 /// Content-Length of a request/response, when the peer announced one.
@@ -78,7 +63,7 @@ fn body_for_debug_log(body: &[u8]) -> String {
 )]
 pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
     let url_to_call = ctx.url_to_call();
-    tracing::Span::current().record("url_to_call", url_to_call.as_str());
+    tracing::Span::current().record("url_to_call", ctx.url_without_query().as_str());
     let is_debug_enabled = tracing::enabled!(tracing::Level::DEBUG);
     if is_debug_enabled {
         tracing::Span::current().record("proxy", tracing::field::debug(&ctx.proxy));

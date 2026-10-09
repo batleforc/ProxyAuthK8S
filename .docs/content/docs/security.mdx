@@ -468,6 +468,49 @@ Migration : renommez le champ dans vos `ProxyKubeApi`, le champ déprécié disp
 prochaine version majeure.
 </Callout>
 
+### Ports autorisés pour le port-forward
+
+Une règle `Path` peut limiter les ports qu'un `kubectl port-forward` est autorisé à ouvrir :
+
+```yaml
+security_config:
+  enabled: true
+  allowed_resources:
+    - Path:
+        path: /api/v1/namespaces/dev/pods/*/portforward
+        parametised: true
+        allowed_ports: ["8080", "9000-9100"]
+```
+
+- `allowed_ports` accepte des ports seuls (`"8080"`) ou des plages inclusives (`"9000-9100"`),
+  entre 1 et 65535. Il n'est lu que pour les chemins `.../pods/{nom}/portforward`.
+  L'admission refuse un port hors bornes (`"0"`, `"70000"`) ou une plage inversée
+  (`"200-100"`) ; une telle entrée déjà stockée est signalée dans le statut et n'autorise
+  aucun port.
+- Sans `allowed_ports`, la règle ne restreint pas les ports. Quand plusieurs règles
+  correspondent, leurs ports s'additionnent, et **une seule règle sans `allowed_ports` lève la
+  restriction** (y compris une règle `Crd` ou un `**` plus large) : gardez les règles larges
+  hors des chemins de port-forward si vous voulez restreindre.
+- Une liste vide (`allowed_ports: []`) n'autorise aucun port.
+
+**Où le proxy lit les ports.** `kubectl` ne met pas les ports dans l'URL : il ouvre un flux
+SPDY par port, tunnelé dans la websocket (sous-protocole `SPDY/3.1+portforward.k8s.io`), et le
+port est un en-tête compressé de chaque flux. Le proxy décode donc le trafic client de la
+session et vérifie chaque nouveau flux avant de le transmettre. Avec les protocoles websocket
+« canal » (`v4.channel.k8s.io`), les ports sont dans le paramètre `ports` de l'URL et sont
+vérifiés avant de contacter le cluster (`403` sinon).
+
+**Au premier port refusé, toute la session est fermée** ; le flux refusé n'atteint jamais le
+cluster. Tout ce que le proxy ne sait pas lire (extension websocket comme
+`permessage-deflate`, sous-protocole inconnu, trame SPDY invalide) ferme aussi la session : un
+port illisible est traité comme un port refusé.
+
+<Callout type="info">
+Les ports d'un pod restent joignables par d'autres chemins, notamment le sous-ressource
+`proxy` (`/api/v1/namespaces/x/pods/web:22/proxy/`). `allowed_ports` ne les couvre pas :
+n'autorisez pas `.../pods/*/proxy` si vous comptez sur la restriction de ports.
+</Callout>
+
 ## 5. Quotas
 
 ```yaml
@@ -535,6 +578,21 @@ Pour ne router que l'audit :
 ```
 RUST_LOG=warn,audit=info
 ```
+
+## Connexions upgrade (exec, attach, port-forward)
+
+Seules les connexions **websocket** sont tunnelées. Un `Upgrade: SPDY/3.1` reçoit un `400`
+explicite sans que le cluster soit contacté : le serveur HTTP du proxy ne transmet pas au
+gestionnaire les octets qui suivent une poignée de main SPDY, la session mourrait juste après
+son `101`. Les versions récentes de `kubectl` utilisent la websocket par défaut pour `exec`,
+`attach` et `port-forward`.
+
+Le proxy ne passe en mode tunnel qu'après un `101 Switching Protocols` de l'apiserver, et
+seulement pour les chemins qui en ont besoin (`exec`, `attach`, `portforward`, `proxy`, `watch`).
+Toute autre réponse est renvoyée telle quelle puis la connexion est fermée, sans transmettre au
+cluster les octets envoyés par le client après sa requête : sinon une seconde requête cachée
+derrière la première échapperait à l'authentification, à la liste des ressources autorisées et
+au filtrage des en-têtes d'identité.
 
 ## mTLS vers le cluster cible
 

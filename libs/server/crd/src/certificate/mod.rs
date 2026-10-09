@@ -71,13 +71,27 @@ impl std::fmt::Debug for CertSource {
 /// `namespace` turns a tenant who can create `ProxyKubeApi` objects into a
 /// cross-namespace Secret read oracle. Set `PROXYAUTH_ALLOW_CROSS_NS_CERT=true`
 /// only on a single-tenant cluster where every CR author is already trusted.
+///
+/// This crate is schema-level and must not depend on `common`, so it reads the
+/// variable itself; `common::config::Config` parses it with the same
+/// [`parse_allow_cross_namespace_cert`] for visibility at startup.
 fn cross_namespace_cert_allowed() -> bool {
-    std::env::var("PROXYAUTH_ALLOW_CROSS_NS_CERT").is_ok_and(|value| {
-        matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "true" | "1" | "yes" | "on" | "enabled"
-        )
-    })
+    std::env::var(ALLOW_CROSS_NS_CERT_ENV)
+        .is_ok_and(|value| parse_allow_cross_namespace_cert(&value))
+}
+
+/// Env var gating cross-namespace cert reads (`false` unless set to a truthy value).
+pub const ALLOW_CROSS_NS_CERT_ENV: &str = "PROXYAUTH_ALLOW_CROSS_NS_CERT";
+
+/// Parsing rule for `PROXYAUTH_ALLOW_CROSS_NS_CERT`: `true`/`1`/`yes`/`on`/
+/// `enabled` (case-insensitive, surrounding whitespace ignored) allow it,
+/// anything else denies it.
+#[must_use]
+pub fn parse_allow_cross_namespace_cert(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "true" | "1" | "yes" | "on" | "enabled"
+    )
 }
 
 /// Resolve the namespace a cert is actually read from, applying the
@@ -98,6 +112,28 @@ fn resolve_cert_namespace<'a>(requested: Option<&'a str>, cr_ns: &'a str) -> &'a
     }
 }
 
+/// Turn a Secret value into the text it holds.
+///
+/// The usual layout — cert-manager, `kubectl create secret tls`, a
+/// `kubernetes.io/tls` Secret — stores the raw PEM (base64 only on the wire,
+/// which the client already undid), so PEM is taken as-is. Older releases
+/// required the value to be base64-encoded PEM on top of that, so a value that
+/// base64-decodes to PEM is decoded to keep those Secrets working. Anything
+/// else is returned unchanged: the same source also carries non-PEM values such
+/// as a raw bearer token (`listFallbackToken`), which must not be mangled.
+fn decode_secret_cert(raw: &[u8]) -> Result<String, CertError> {
+    let text = String::from_utf8(raw.to_vec())?;
+    if text.trim_start().starts_with("-----BEGIN") {
+        return Ok(text);
+    }
+    let legacy_pem = BASE64_STANDARD
+        .decode(text.trim())
+        .ok()
+        .and_then(|decoded| String::from_utf8(decoded).ok())
+        .filter(|decoded| decoded.trim_start().starts_with("-----BEGIN"));
+    Ok(legacy_pem.unwrap_or(text))
+}
+
 impl CertSource {
     pub async fn get_cert(&self, client: Client, ns: &str) -> Result<Option<String>, CertError> {
         match self {
@@ -116,12 +152,7 @@ impl CertSource {
                 })?;
                 if let Some(data) = secret.data {
                     if let Some(cert) = data.get(key) {
-                        // `Secret.data` is already base64-decoded by the k8s
-                        // client on deserialization (`ByteString`); decoding
-                        // it again would corrupt any value containing bytes
-                        // outside the base64 alphabet (e.g. a raw JWT token).
-                        let cert_str = String::from_utf8(cert.0.clone())?;
-                        return Ok(Some(cert_str));
+                        return decode_secret_cert(&cert.0).map(Some);
                     }
                     return Err(CertError::KeyNotFound {
                         kind: "secret",
@@ -131,13 +162,7 @@ impl CertSource {
                 }
                 if let Some(data) = secret.string_data {
                     if let Some(cert) = data.get(key) {
-                        // `stringData` is a write-only convenience field: the
-                        // apiserver accepts plain text through it and never
-                        // returns it populated on a read, but on the off
-                        // chance it ever is, its value is plain text too (the
-                        // server folds it into `data`, base64-encoded, before
-                        // persisting) — not base64 to decode here.
-                        return Ok(Some(cert.clone()));
+                        return decode_secret_cert(cert.as_bytes()).map(Some);
                     }
                     return Err(CertError::KeyNotFound {
                         kind: "secret",
@@ -188,5 +213,46 @@ impl CertSource {
             }
             CertSource::Insecure(_) => Ok(None),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PEM: &str = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
+
+    #[test]
+    fn secret_value_holding_raw_pem_is_used_as_is() {
+        assert_eq!(decode_secret_cert(PEM.as_bytes()).unwrap(), PEM);
+    }
+
+    #[test]
+    fn secret_value_holding_base64_pem_is_decoded() {
+        let encoded = BASE64_STANDARD.encode(PEM);
+        assert_eq!(decode_secret_cert(encoded.as_bytes()).unwrap(), PEM);
+        // A trailing newline (`echo | base64`) is tolerated.
+        assert_eq!(
+            decode_secret_cert(format!("{encoded}\n").as_bytes()).unwrap(),
+            PEM
+        );
+    }
+
+    #[test]
+    fn secret_value_that_is_not_base64_pem_is_returned_unchanged() {
+        // A raw bearer token (JWT-shaped: its dots are not base64) and base64
+        // that does not decode to PEM are both used verbatim.
+        let token = "header.payload.signature";
+        assert_eq!(decode_secret_cert(token.as_bytes()).unwrap(), token);
+        let not_pem = BASE64_STANDARD.encode("plain secret");
+        assert_eq!(decode_secret_cert(not_pem.as_bytes()).unwrap(), not_pem);
+    }
+
+    #[test]
+    fn secret_value_that_is_not_utf8_is_an_error() {
+        assert!(matches!(
+            decode_secret_cert(&[0xff, 0xfe]),
+            Err(CertError::Utf8(_))
+        ));
     }
 }

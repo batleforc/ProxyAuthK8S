@@ -16,7 +16,8 @@ rustls = { workspace = true }
 openidconnect = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-base64 = "0.22"
+base64 = "0.23"
+sha2 = "0.11"
 reqwest = { workspace = true }
 thiserror = { workspace = true }
 k8s-openapi = { workspace = true }
@@ -31,4 +32,4 @@ tokio = { workspace = true }
 ignored = ["k8s-openapi"]
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "macros", "time"] }

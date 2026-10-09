@@ -4,12 +4,18 @@ on:
   push:
     branches: ["main"]
     paths:
-      - "deploy/**/Dockerfile"
+      # Rebuild and rescan when an image recipe or a locked dependency changes.
+      - "deploy/build/**"
+      - "Cargo.lock"
+      - "yarn.lock"
   pull_request:
     # The branches below must be a subset of the branches above
     branches: ["main"]
     paths:
-      - "deploy/**/Dockerfile"
+      # Rebuild and rescan when an image recipe or a locked dependency changes.
+      - "deploy/build/**"
+      - "Cargo.lock"
+      - "yarn.lock"
   workflow_dispatch:
   schedule:
     - cron: "50 23 * * *"

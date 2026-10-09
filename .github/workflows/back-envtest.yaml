@@ -12,7 +12,7 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - "deploy/crds.yaml"
-      - ".taskfile/envtest.yaml"
+      - ".tasks/envtest.yaml"
       - ".github/workflows/back-envtest.yaml"
   pull_request:
     branches: ["main"]
@@ -21,7 +21,7 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - "deploy/crds.yaml"
-      - ".taskfile/envtest.yaml"
+      - ".tasks/envtest.yaml"
       - ".github/workflows/back-envtest.yaml"
   workflow_dispatch:
 
@@ -32,8 +32,8 @@ jobs:
   envtest:
     name: 🧪 Run the envtest suite
     runs-on: ubuntu-latest
-    # The reconcile tier writes the cluster cache before it patches the status,
-    # so this job needs Redis as well as an apiserver.
+    # The reconcile and Kubernetes-auth suites also need Redis: the controller
+    # mirrors proxies there and the request path reads them back.
     services:
       redis:
         image: redis:8-alpine

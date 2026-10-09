@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 
 use crate::cluster::auth::{
     load_discovery_enabled_proxy,
-    oauth::model::{CODE_PREFIX, IssuedCode, verify_pkce_s256},
+    oauth::model::{CODE_PREFIX, IssuedCode, redirect_uri_matches, verify_pkce_s256},
     throttle_oauth_as,
 };
 use crate::helper::extract_ns_cluster;
@@ -79,7 +79,7 @@ pub async fn token(
     };
     let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
         Ok(proxy) => proxy,
-        Err(response) => return response,
+        Err(gate) => return gate.into_response(),
     };
     if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
         return response;
@@ -93,7 +93,10 @@ pub async fn token(
     }
 
     let code_key = format!("{CODE_PREFIX}:{ns}/{cluster}/{}", form.code);
-    let issued = match data.redis_get(&code_key).await {
+    // Single-use: the code is read and deleted atomically, regardless of what
+    // follows, so a leaked, retried or concurrently replayed code can never be
+    // redeemed twice.
+    let issued = match data.redis_take(&code_key).await {
         Ok(Some(raw)) => match serde_json::from_str::<IssuedCode>(&raw) {
             Ok(issued) => issued,
             Err(e) => {
@@ -107,13 +110,7 @@ pub async fn token(
             return HttpResponse::ServiceUnavailable().finish();
         }
     };
-    // Single-use: drop it now regardless of what follows, so a leaked or
-    // retried code can never be redeemed twice.
-    if let Err(e) = data.delete_key(&code_key).await {
-        error!(error = %e, "couldn't delete used issued code");
-    }
-
-    if form.redirect_uri != issued.redirect_uri {
+    if !redirect_uri_matches(&form.redirect_uri, &issued.redirect_uri) {
         return token_error(actix_web::http::StatusCode::BAD_REQUEST, "invalid_grant");
     }
     if !verify_pkce_s256(&form.code_verifier, &issued.code_challenge) {

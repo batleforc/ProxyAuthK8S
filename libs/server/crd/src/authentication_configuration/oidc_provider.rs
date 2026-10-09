@@ -170,23 +170,36 @@ impl OidcProvider {
 /// `common::oidc_conf::OidcConf`'s, which redact for the same reason.
 impl std::fmt::Debug for OidcProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Destructured so a new field cannot be added without deciding here
+        // whether it is safe to print.
+        let Self {
+            enabled,
+            issuer_url,
+            client_id,
+            client_secret,
+            extra_scope,
+            audience,
+            accept_authorized_party,
+            expose_oauth_authorization_server,
+            config_from,
+        } = self;
         f.debug_struct("OidcProvider")
-            .field("enabled", &self.enabled)
-            .field("issuer_url", &self.issuer_url)
-            .field("client_id", &self.client_id)
+            .field("enabled", enabled)
+            .field("issuer_url", issuer_url)
+            .field("client_id", client_id)
             .field(
                 "client_secret",
-                &self.client_secret.as_ref().map(|_| "***REDACTED***"),
+                &client_secret.as_ref().map(|_| "***REDACTED***"),
             )
-            .field("extra_scope", &self.extra_scope)
-            .field("audience", &self.audience)
-            .field("accept_authorized_party", &self.accept_authorized_party)
+            .field("extra_scope", extra_scope)
+            .field("audience", audience)
+            .field("accept_authorized_party", accept_authorized_party)
             .field(
                 "expose_oauth_authorization_server",
-                &self.expose_oauth_authorization_server,
+                expose_oauth_authorization_server,
             )
             // Only a name/namespace reference, so it stays visible.
-            .field("config_from", &self.config_from)
+            .field("config_from", config_from)
             .finish()
     }
 }
