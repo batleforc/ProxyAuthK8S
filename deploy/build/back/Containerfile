@@ -10,6 +10,9 @@ RUN mkdir -p libs/server/api/src && \
   mkdir -p libs/server/crd/src && \
   mkdir -p libs/server/trace/src && \
   mkdir -p libs/server/controller/src && \
+  mkdir -p libs/server/crd_runtime/src && \
+  mkdir -p libs/server/virtual_api/src && \
+  mkdir -p libs/server/jwt_validator/src && \
   mkdir -p libs/cli/client_api/src && \
   mkdir -p libs/cli/cli/src && \
   mkdir -p libs/cli/cli_trace/src && \
@@ -25,6 +28,9 @@ COPY libs/server/common/Cargo.toml libs/server/common/Cargo.toml
 COPY libs/server/crd/Cargo.toml libs/server/crd/Cargo.toml
 COPY libs/server/trace/Cargo.toml libs/server/trace/Cargo.toml
 COPY libs/server/controller/Cargo.toml libs/server/controller/Cargo.toml
+COPY libs/server/crd_runtime/Cargo.toml libs/server/crd_runtime/Cargo.toml
+COPY libs/server/virtual_api/Cargo.toml libs/server/virtual_api/Cargo.toml
+COPY libs/server/jwt_validator/Cargo.toml libs/server/jwt_validator/Cargo.toml
 
 COPY libs/cli/client_api/Cargo.toml libs/cli/client_api/Cargo.toml
 COPY libs/cli/cli/Cargo.toml libs/cli/cli/Cargo.toml
@@ -34,7 +40,11 @@ COPY apps/server/Cargo.toml apps/server/Cargo.toml
 COPY apps/crdgen/Cargo.toml apps/crdgen/Cargo.toml
 COPY apps/swaggergen/Cargo.toml apps/swaggergen/Cargo.toml
 COPY apps/kubectl_proxyauth/Cargo.toml apps/kubectl_proxyauth/Cargo.toml
-COPY .cargo .
+# `.cargo/` and not `.` — Docker copies a directory's *contents*, so the bare
+# form put config.toml at /app/config.toml where cargo never looks. That config
+# sets `target-dir = dist/target`, which is exactly where the final stage copies
+# the binaries from, so flattening it broke the build twice over.
+COPY .cargo .cargo/
 
 # Create dummy file.rs files to allow cargo to make cache
 RUN echo "fn main() {}" > libs/server/api/src/lib.rs && \
@@ -42,6 +52,9 @@ RUN echo "fn main() {}" > libs/server/api/src/lib.rs && \
   echo "fn main() {}" > libs/server/crd/src/lib.rs && \
   echo "fn main() {}" > libs/server/trace/src/lib.rs && \
   echo "fn main() {}" > libs/server/controller/src/lib.rs && \
+  echo "fn main() {}" > libs/server/crd_runtime/src/lib.rs && \
+  echo "fn main() {}" > libs/server/virtual_api/src/lib.rs && \
+  echo "fn main() {}" > libs/server/jwt_validator/src/lib.rs && \
   echo "fn main() {}" > libs/cli/client_api/src/lib.rs && \
   echo "fn main() {}" > libs/cli/cli/src/lib.rs && \
   echo "fn main() {}" > libs/cli/cli_trace/src/lib.rs && \

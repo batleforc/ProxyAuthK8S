@@ -19,6 +19,7 @@ uv = "latest"
 "aqua:rustsec/rustsec/cargo-audit" = "latest"
 "cargo:cargo-nextest" = "latest"
 "cargo:cargo-llvm-cov" = "latest"
+"go:fybrik.io/crdoc" = "latest"
 
 [env]
 MISE_NODE_COREPACK = "true"

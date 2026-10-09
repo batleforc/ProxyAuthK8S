@@ -21,6 +21,7 @@ tasks:
     silent: true
     cmds:
       - echo "Initializing the project"
+      - git submodule update --init --recursive
       - cargo install cargo-set-version cargo-machete
       - yarn install
       - cd .docs && yarn install

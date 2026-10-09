@@ -208,6 +208,171 @@ pub async fn check_rate_limit(
     None
 }
 
+/// Throttling for endpoints that are not scoped to a cluster.
+///
+/// `/api/v1/clusters` (the dashboard listing) authenticates every caller, so an
+/// anonymous request still costs one outbound `/userinfo` call to the provider
+/// before it can be refused. Everything above keys on a `ProxyKubeApi` and reads
+/// its `SecurityConfiguration`; there is no proxy here, so the budget comes from
+/// the environment instead and the Redis keys carry a fixed scope.
+///
+/// **Both limits are off by default, deliberately.** Behind an ingress that has
+/// not had `TRUSTED_PROXY_COUNT` configured, every caller collapses to the
+/// ingress address — so a default-on ban would let one bad client lock out
+/// everybody, which is the same hazard `redirect()` documents for its own
+/// pre-authentication half. An operator who has configured the trusted-proxy
+/// depth (or terminates TLS directly) can turn these on and get a real budget;
+/// one who has not is no worse off than before.
+pub mod unscoped {
+    use super::{FAILURE_WINDOW_SECONDS, RATE_LIMIT_WINDOW_SECONDS, Throttled, fail_closed};
+    use common::State;
+    use tracing::{debug, warn};
+
+    /// Key scope for throttling with no cluster to name. Distinct from any
+    /// `to_path()` value, which is always `namespace/name`.
+    const SCOPE: &str = "_unscoped";
+
+    fn rate_limit_key(subject: &str) -> String {
+        format!("proxyk8sauth:ratelimit:{SCOPE}:{subject}")
+    }
+
+    fn failure_key(subject: &str) -> String {
+        format!("proxyk8sauth:fail2login:{SCOPE}:{subject}")
+    }
+
+    fn ban_key(subject: &str) -> String {
+        format!("proxyk8sauth:ban:{SCOPE}:{subject}")
+    }
+
+    /// Read a `u32` knob, treating absent/unparsable/0 as "disabled".
+    fn limit_from_env(name: &str) -> Option<u32> {
+        std::env::var(name)
+            .ok()?
+            .trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|value| *value > 0)
+    }
+
+    /// Requests per minute allowed per caller, from
+    /// `UNSCOPED_RATE_LIMIT_PER_MINUTE`. Unset or `0` disables the limit.
+    fn rate_limit() -> Option<u32> {
+        limit_from_env("UNSCOPED_RATE_LIMIT_PER_MINUTE")
+    }
+
+    /// Failed authentications tolerated before a ban, from
+    /// `UNSCOPED_MAX_FAILED_LOGINS`. Unset or `0` disables fail2login.
+    fn max_failed_logins() -> Option<u32> {
+        limit_from_env("UNSCOPED_MAX_FAILED_LOGINS")
+    }
+
+    /// Ban length in seconds, from `UNSCOPED_BAN_DURATION_SECONDS` (default 300).
+    fn ban_duration() -> u64 {
+        limit_from_env("UNSCOPED_BAN_DURATION_SECONDS").map_or(300, u64::from)
+    }
+
+    /// Whether `subject` is currently banned on the unscoped surface.
+    ///
+    /// Fails open on a Redis error for the same reason as the cluster-scoped
+    /// check: a counter store outage must not become a full outage.
+    pub async fn is_banned(state: &State, subject: &str) -> bool {
+        if max_failed_logins().is_none() {
+            return false;
+        }
+        match state.key_exists(&ban_key(subject)).await {
+            Ok(banned) => banned,
+            Err(err) => {
+                if fail_closed() {
+                    warn!(%err, "ban state unavailable; failing closed (refusing the request)");
+                    true
+                } else {
+                    warn!(%err, "could not read the ban state, letting the request through");
+                    false
+                }
+            }
+        }
+    }
+
+    /// Remaining ban duration, for the `Retry-After` header.
+    pub async fn ban_retry_after(state: &State, subject: &str) -> Option<u64> {
+        state.key_ttl(&ban_key(subject)).await.ok().flatten()
+    }
+
+    /// Record a failed authentication and ban once the threshold is reached.
+    pub async fn record_auth_failure(state: &State, subject: &str) {
+        let Some(max_failures) = max_failed_logins() else {
+            return;
+        };
+
+        let failures = match state
+            .incr_with_ttl(&failure_key(subject), FAILURE_WINDOW_SECONDS)
+            .await
+        {
+            Ok(failures) => failures,
+            Err(err) => {
+                warn!(%err, "could not record the failed authentication");
+                return;
+            }
+        };
+
+        if u32::try_from(failures).unwrap_or(u32::MAX) < max_failures {
+            debug!(failures, subject, "failed authentication recorded");
+            return;
+        }
+
+        let duration = ban_duration();
+        warn!(
+            failures,
+            subject, duration, "banning the client after too many failed authentications"
+        );
+        if let Err(err) = state.set_flag(&ban_key(subject), duration).await {
+            warn!(%err, "could not apply the ban");
+        }
+    }
+
+    /// Forget the failure history of a caller that just authenticated.
+    pub async fn clear_auth_failures(state: &State, subject: &str) {
+        if max_failed_logins().is_none() {
+            return;
+        }
+        if let Err(err) = state.delete_key(&failure_key(subject)).await {
+            debug!(%err, "could not clear the failure counter");
+        }
+    }
+
+    /// Count this request and report whether it went over the caller's budget.
+    pub async fn check_rate_limit(state: &State, subject: &str) -> Option<Throttled> {
+        let limit = rate_limit()?;
+
+        let used = match state
+            .incr_with_ttl(&rate_limit_key(subject), RATE_LIMIT_WINDOW_SECONDS)
+            .await
+        {
+            Ok(used) => used,
+            Err(err) => {
+                if fail_closed() {
+                    warn!(%err, "rate limit counter unavailable; failing closed");
+                    return Some(Throttled::RateLimited {
+                        limit,
+                        retry_after: RATE_LIMIT_WINDOW_SECONDS as u64,
+                    });
+                }
+                warn!(%err, "could not read the rate limit counter, letting the request through");
+                return None;
+            }
+        };
+
+        if used > u64::from(limit) {
+            warn!(subject, used, limit, "rate limit exceeded");
+            return Some(Throttled::RateLimited {
+                limit,
+                retry_after: RATE_LIMIT_WINDOW_SECONDS as u64,
+            });
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

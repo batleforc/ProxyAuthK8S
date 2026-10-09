@@ -6,10 +6,17 @@ use tracing::{info, instrument};
 
 use deadpool_redis::redis;
 
+use jwt_validator::JwtValidator;
+
+use crate::discovery_cache::DiscoveryCache;
+use crate::oidc_config_cache::OidcConfigCache;
+
 use crate::redis_pool::{RedisPool, RedisPoolError};
 use crate::traits::ObjectRedis;
 
+pub mod discovery_cache;
 pub mod oidc_conf;
+pub mod oidc_config_cache;
 pub mod oidc_error;
 pub mod redis_pool;
 pub mod token_audience;
@@ -25,6 +32,16 @@ pub struct State {
     pub is_leader: Arc<std::sync::atomic::AtomicBool>,
     pub lease_namespace: String,
     pub lease_name: String,
+    /// Shared across every request so the JWKS cache and the per-issuer HTTP
+    /// clients are process-wide: one per request would refetch the issuer's keys
+    /// on every call.
+    pub jwt_validator: Arc<JwtValidator>,
+    /// Short-lived cache for `oidc_provider.config_from`, so resolving it does
+    /// not put an apiserver Secret GET behind every proxied request.
+    pub oidc_config_cache: Arc<OidcConfigCache>,
+    /// Shared so a provider's discovery document is fetched once an hour rather
+    /// than twice per authenticated request.
+    pub discovery_cache: Arc<DiscoveryCache>,
 }
 
 /// Everything that can stop [`State::new`] from booting.
@@ -54,7 +71,10 @@ impl State {
         let client = Client::try_default().await?;
         info!("Connected to Kubernetes");
         let oidc_client = oidc_conf::OidcConf::new();
-        oidc_client.oidc_core().await?;
+        // Built before the boot check so the document it fetches is the one the
+        // first requests reuse, rather than being thrown away and refetched.
+        let discovery_cache = Arc::new(DiscoveryCache::new());
+        oidc_client.oidc_core(&discovery_cache).await?;
         info!("OIDC discovery successful");
         let oidc_cluster_redirect_base_url = env::var("API_CLUSTER_OIDC_BASE_REDIRECT_URL")
             .unwrap_or("https://localhost:5437".to_string());
@@ -71,6 +91,9 @@ impl State {
             is_leader: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             lease_namespace,
             lease_name,
+            jwt_validator: Arc::new(JwtValidator::new()),
+            oidc_config_cache: Arc::new(OidcConfigCache::new()),
+            discovery_cache,
         })
     }
 
@@ -95,6 +118,9 @@ impl State {
             is_leader: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             lease_namespace: "default".to_string(),
             lease_name: "test".to_string(),
+            jwt_validator: Arc::new(JwtValidator::new()),
+            oidc_config_cache: Arc::new(OidcConfigCache::new()),
+            discovery_cache: Arc::new(DiscoveryCache::new()),
         }
     }
 

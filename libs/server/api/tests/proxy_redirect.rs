@@ -2,7 +2,13 @@
 //!
 //! The upstream Kubernetes API is a `wiremock` server; Redis is real (see
 //! `harness`). Upgrade (exec/attach) is not covered here because it needs a raw
-//! HTTP/1.1 101 exchange on a bound socket — that lives in the envtest tier.
+//! HTTP/1.1 101 exchange on a bound socket.
+//!
+//! That exchange has no integration coverage anywhere — the envtest tier does
+//! not touch it either, despite what this comment used to claim. What is covered
+//! are the two functions on that path which encode a security contract rather
+//! than an I/O shape: the request-smuggling guard and the request serializer,
+//! unit-tested in `kube_redirect/upgrade.rs` itself.
 
 mod harness;
 

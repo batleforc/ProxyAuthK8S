@@ -29,8 +29,18 @@ impl From<GetAllVisibleClusterError> for ProxyAuthK8sError {
             GetAllVisibleClusterError::Status401() => ProxyAuthK8sError::Unauthenticated(
                 "Authentification failed, please re-login to the server.".to_owned(),
             ),
+            // The server applies a throttle on this endpoint when an operator
+            // has configured the `UNSCOPED_*` budget; retrying immediately would
+            // only deepen a ban, so the message says to wait rather than
+            // suggesting the request itself was malformed.
+            GetAllVisibleClusterError::Status429() => ProxyAuthK8sError::RemoteServerError(
+                "Rate limited or temporarily banned by the server, retry in a minute".to_owned(),
+            ),
             GetAllVisibleClusterError::Status500() => ProxyAuthK8sError::RemoteServerError(
                 "Invalid response from server, see debug to have more details".to_owned(),
+            ),
+            GetAllVisibleClusterError::Status503() => ProxyAuthK8sError::RemoteServerError(
+                "The server is temporarily unable to serve this request, retry shortly".to_owned(),
             ),
             GetAllVisibleClusterError::UnknownValue(val) => {
                 ProxyAuthK8sError::RemoteServerError(format!("Unknown error from server: {val}"))

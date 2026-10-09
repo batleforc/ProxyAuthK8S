@@ -1,0 +1,41 @@
+# `cargo audit` configuration for `task audit:rust`.
+#
+# Why this file exists: both advisories below are transitive, neither has a fix
+# this project can apply, and together they made the gate exit non-zero on every
+# single run. A gate that is always red is a gate nobody reads — the next
+# genuinely new CVE would have landed in the same noise. Each ignore is an
+# explicit, dated acceptance with the condition that retires it, not a blanket
+# silence: any advisory NOT listed here still fails the build.
+#
+# Review these whenever `cargo update` moves actix-web or openidconnect.
+
+[advisories]
+ignore = [
+    # h2 unbounded empty DATA frames (DoS).
+    #
+    # Reached through actix-http -> actix-web, the HTTP server itself, so this
+    # IS on the serving path and is the more serious of the two. It is not
+    # fixable here: the advisory wants h2 >= 0.4.16 and actix-web 4.x pins the
+    # 0.3 line. The workspace already resolves h2 0.4.19 for reqwest; only the
+    # actix side is stuck.
+    #
+    # Accepted 2026-08-29 as upstream-blocked. RETIRE THIS the moment actix-web
+    # ships a release on h2 0.4 — check on every actix-web bump, and do not let
+    # this entry outlive that release.
+    "RUSTSEC-2026-0258",
+
+    # rsa: Marvin Attack, key recovery through timing sidechannels (5.9 medium).
+    #
+    # Reached through openidconnect. The attack requires an adversary to observe
+    # the timing of RSA operations performed with a PRIVATE key (decryption).
+    # This codebase is an OIDC *client*: it verifies ID token and JWT signatures
+    # with the provider's PUBLIC keys and never holds or decrypts with an RSA
+    # private key — `grep -rn "RsaPrivateKey|decrypt|private_key"` over
+    # libs/server and apps returns nothing outside tests. The vulnerable code
+    # path is therefore not reachable.
+    #
+    # Upstream has no fixed release ("No fixed upgrade is available"). Retire
+    # this when the openidconnect retirement lands (it is the sole source of
+    # `rsa`), or sooner if the crate ships a constant-time fix.
+    "RUSTSEC-2023-0071",
+]

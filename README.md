@@ -170,17 +170,18 @@ the connector drops upstream groups otherwise.
   - [x] Fast integration tier (wiremock upstream + real Redis)
   - [x] envtest tier against a real ephemeral kube-apiserver
 - [x] Add [redis cluster](https://docs.rs/deadpool-redis/latest/deadpool_redis/#example-cluster) support for HA and state storage
-- [ ] Add security features
+- [x] Add security features
   - [x] Enforce `allowed_resources` on the proxy path
   - [x] Per-cluster authorization (`proxy_group`)
   - [x] Rate limiting and fail2login, backed by Redis counters
   - [x] Audit trail on every proxied request
   - [x] mTLS between the proxy and the target clusters
   - [x] CEL admission rules on the CRD
-  - [ ] Local JWT validation against the `jwt` authenticators (signature, claim
+  - [x] Local JWT validation against the `jwt` authenticators (signature, claim
         validation rules and claim mappings, as the apiserver's structured
-        authentication configuration does)
-  - [ ] Allow getting oidc configuration from an external secrets
+        authentication configuration does) — `validate_against: JwtAuthenticators`
+  - [x] Allow getting oidc configuration from an external secrets
+        (`oidc_provider.config_from`)
 - [x] Add Oidc token validation
 - [x] Match allowed resources on group/version/kind (`AllowedCrdConfiguration`)
       instead of only on paths
@@ -196,3 +197,7 @@ the connector drops upstream groups otherwise.
 - [ ] Setup Exchange token between IdP and ProxyAuthK8S main auth server
 - [ ] Add ability to go through a proxy (example with Netbird)
 - [ ] Setup Agent Mode, Allow to not expose each cluster to the world and just have an agent doing a tunnel between the Cluster ApiServer and ProxyAuthK8S
+- [ ] Handle mTLS for authentication between the client and the Kubernetes API
+      server, so a caller can authenticate with a client certificate instead of
+      a bearer token (distinct from the v1.0.0 item, which is the mTLS the proxy
+      itself presents to the target clusters)

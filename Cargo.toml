@@ -10,6 +10,7 @@ members = [
   'apps/swaggergen',
   'libs/server/api',
   'libs/server/virtual_api',
+  'libs/server/jwt_validator',
   'libs/server/controller',
   'libs/server/common',
   'apps/kubectl_proxyauth',

@@ -240,6 +240,7 @@ async fn an_invalid_configuration_is_reported_without_probing_the_cluster() {
             audience: String::new(),
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
+            config_from: None,
         },
         disable_validation: false,
         validate_against: ValidateAgainst::OidcProvider,

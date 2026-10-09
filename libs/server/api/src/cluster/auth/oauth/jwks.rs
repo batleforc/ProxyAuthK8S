@@ -42,11 +42,18 @@ pub async fn jwks(req: HttpRequest, data: web::Data<State>) -> impl Responder {
         return response;
     }
 
-    let oidc_conf = if let Some(conf) = proxy.get_oidc_conf(data.into_inner(), false, None) {
-        conf
-    } else {
-        error!("OIDC config not found");
-        return HttpResponse::InternalServerError().finish();
+    let oidc_conf = match proxy.get_oidc_conf(data.into_inner(), false, None).await {
+        Ok(Some(conf)) => conf,
+        Ok(None) => {
+            error!("OIDC config not found");
+            return HttpResponse::InternalServerError().finish();
+        }
+        Err(e) => {
+            // The cluster does have OIDC configured, we just could not read it
+            // (typically a `config_from` Secret that is missing or unreadable).
+            error!(error = %e, "couldn't resolve the OIDC config");
+            return HttpResponse::InternalServerError().finish();
+        }
     };
     let client = match oidc_conf.reqwest_client() {
         Ok(client) => client,

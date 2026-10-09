@@ -99,13 +99,21 @@ pub async fn authorize(
         return redirect_with_error(&redirect_uri, "invalid_request", query.state.as_deref());
     }
 
-    let oauth_conf = if let Some(conf) = proxy.get_oauth_as_oidc_conf(data.clone().into_inner()) {
-        conf
-    } else {
-        error!("OIDC config not found");
-        return HttpResponse::InternalServerError().finish();
+    let oauth_conf = match proxy
+        .get_oauth_as_oidc_conf(data.clone().into_inner())
+        .await
+    {
+        Ok(Some(conf)) => conf,
+        Ok(None) => {
+            error!("OIDC config not found");
+            return HttpResponse::InternalServerError().finish();
+        }
+        Err(e) => {
+            error!(error = %e, "couldn't resolve the OIDC config");
+            return HttpResponse::InternalServerError().finish();
+        }
     };
-    let client = match oauth_conf.oidc_core().await {
+    let client = match oauth_conf.oidc_core(&data.discovery_cache).await {
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't get oidc client");

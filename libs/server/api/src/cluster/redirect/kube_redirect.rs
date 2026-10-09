@@ -132,7 +132,16 @@ pub async fn redirect(
             }
             Err(e) => {
                 warn!("Error while getting user info from OIDC token: {}", e);
-                throttle::record_auth_failure(data.get_ref(), &proxy, &peer_id).await;
+                // Only a fault in the caller's own token counts toward a ban. A
+                // server-side failure (an unreadable `config_from` Secret, a
+                // Redis blip, an unreachable JWKS) is not something a different
+                // token would have avoided, and charging it to the caller would
+                // ban legitimate clients for an outage they did not cause.
+                if e.is_caller_fault() {
+                    throttle::record_auth_failure(data.get_ref(), &proxy, &peer_id).await;
+                } else {
+                    warn!("not counting a server-side auth failure against the caller");
+                }
                 audited!(audit, unauthorized("the token could not be validated"));
             }
         }

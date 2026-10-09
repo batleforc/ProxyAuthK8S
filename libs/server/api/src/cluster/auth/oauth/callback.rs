@@ -96,15 +96,27 @@ pub async fn callback(
         return HttpResponse::InternalServerError().finish();
     };
 
-    let oauth_conf = if let Some(conf) = proxy.get_oauth_as_oidc_conf(data.clone().into_inner()) {
-        conf
-    } else {
-        error!("OIDC config not found");
-        return redirect_with_error(
-            &client_redirect_uri,
-            "server_error",
-            pending.client_state.as_deref(),
-        );
+    let oauth_conf = match proxy
+        .get_oauth_as_oidc_conf(data.clone().into_inner())
+        .await
+    {
+        Ok(Some(conf)) => conf,
+        Ok(None) => {
+            error!("OIDC config not found");
+            return redirect_with_error(
+                &client_redirect_uri,
+                "server_error",
+                pending.client_state.as_deref(),
+            );
+        }
+        Err(e) => {
+            error!(error = %e, "couldn't resolve the OIDC config");
+            return redirect_with_error(
+                &client_redirect_uri,
+                "server_error",
+                pending.client_state.as_deref(),
+            );
+        }
     };
     let client_reqwest = match oauth_conf.oidc_reqwest_client() {
         Ok(client) => client,
@@ -117,7 +129,7 @@ pub async fn callback(
             );
         }
     };
-    let client_oidc = match oauth_conf.oidc_core().await {
+    let client_oidc = match oauth_conf.oidc_core(&data.discovery_cache).await {
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't get oidc client");

@@ -13,6 +13,15 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// Header/payload/signature are base64url; the signature is never verified here.
 const VALID_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJwcm94eWF1dGhrOHMiLCJzdWIiOiJhbGljZS1zdWIifQ.c2lnbmF0dXJlLW5vdC12ZXJpZmllZC1pbi10aGVzZS10ZXN0cw";
 
+/// A cache with nothing in it.
+///
+/// Each test gets its own, because these tests assert on what the provider is
+/// actually asked for — a shared cache would let one test's discovery satisfy
+/// another's fetch and quietly stop exercising the path under test.
+fn fresh_cache() -> common::discovery_cache::DiscoveryCache {
+    common::discovery_cache::DiscoveryCache::new()
+}
+
 fn oidc_conf(issuer_url: &str) -> OidcConf {
     OidcConf {
         client_id: "proxyauthk8s".to_string(),
@@ -85,11 +94,14 @@ async fn resolves_a_user_from_the_userinfo_endpoint() {
     )
     .await;
 
-    let user =
-        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
-            .await
-            .expect("user info should resolve")
-            .expect("user should be present");
+    let user = User::get_user_info_from_oidc_token(
+        VALID_TOKEN.to_string(),
+        oidc_conf(&server.uri()),
+        &fresh_cache(),
+    )
+    .await
+    .expect("user info should resolve")
+    .expect("user should be present");
 
     assert_eq!(user.username, "alice");
     assert_eq!(user.email, "alice@example.com");
@@ -104,11 +116,14 @@ async fn tolerates_missing_optional_claims() {
     mount_discovery(&server).await;
     mount_userinfo(&server, json!({ "sub": "alice-sub", "groups": [] })).await;
 
-    let user =
-        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
-            .await
-            .expect("user info should resolve")
-            .expect("user should be present");
+    let user = User::get_user_info_from_oidc_token(
+        VALID_TOKEN.to_string(),
+        oidc_conf(&server.uri()),
+        &fresh_cache(),
+    )
+    .await
+    .expect("user info should resolve")
+    .expect("user should be present");
 
     assert_eq!(user.username, "");
     assert_eq!(user.email, "");
@@ -129,11 +144,14 @@ async fn resolves_a_user_from_a_response_without_the_groups_claim() {
     )
     .await;
 
-    let user =
-        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
-            .await
-            .expect("user info should resolve")
-            .expect("user should be present");
+    let user = User::get_user_info_from_oidc_token(
+        VALID_TOKEN.to_string(),
+        oidc_conf(&server.uri()),
+        &fresh_cache(),
+    )
+    .await
+    .expect("user info should resolve")
+    .expect("user should be present");
 
     assert_eq!(user.username, "alice");
     assert!(user.groups.is_empty());
@@ -150,9 +168,12 @@ async fn rejects_an_unknown_token() {
         .mount(&server)
         .await;
 
-    let result =
-        User::get_user_info_from_oidc_token("expired-token".to_string(), oidc_conf(&server.uri()))
-            .await;
+    let result = User::get_user_info_from_oidc_token(
+        "expired-token".to_string(),
+        oidc_conf(&server.uri()),
+        &fresh_cache(),
+    )
+    .await;
 
     assert!(result.is_err(), "expected an error, got {result:?}");
 }
@@ -167,9 +188,12 @@ async fn surfaces_a_provider_error() {
         .mount(&server)
         .await;
 
-    let result =
-        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
-            .await;
+    let result = User::get_user_info_from_oidc_token(
+        VALID_TOKEN.to_string(),
+        oidc_conf(&server.uri()),
+        &fresh_cache(),
+    )
+    .await;
 
     assert!(result.is_err(), "expected an error, got {result:?}");
 }
@@ -178,9 +202,12 @@ async fn surfaces_a_provider_error() {
 async fn fails_when_discovery_is_unavailable() {
     let server = MockServer::start().await;
     // No discovery document mounted at all.
-    let result =
-        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
-            .await;
+    let result = User::get_user_info_from_oidc_token(
+        VALID_TOKEN.to_string(),
+        oidc_conf(&server.uri()),
+        &fresh_cache(),
+    )
+    .await;
 
     assert!(result.is_err(), "expected an error, got {result:?}");
 }

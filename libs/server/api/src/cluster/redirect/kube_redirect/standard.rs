@@ -67,13 +67,22 @@ fn body_for_debug_log(body: &[u8]) -> String {
     )
 }
 
+// `proxy` is deliberately `Empty` rather than `?ctx.proxy`: an `#[instrument]`
+// field is formatted at span creation whatever the subscriber's level, so a
+// direct binding dumped the whole `ProxyKubeApi` into the trace backend on every
+// proxied request. It is filled in below only under DEBUG. The span still
+// identifies the target cluster at any level through `url_to_call`.
 #[instrument(
     skip_all,
-    fields(method = ?ctx.method, peer_addr = ?ctx.peer_addr, proxy = ?ctx.proxy, url_to_call)
+    fields(method = ?ctx.method, peer_addr = ?ctx.peer_addr, proxy = tracing::field::Empty, url_to_call)
 )]
 pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
     let url_to_call = ctx.url_to_call();
     tracing::Span::current().record("url_to_call", url_to_call.as_str());
+    let is_debug_enabled = tracing::enabled!(tracing::Level::DEBUG);
+    if is_debug_enabled {
+        tracing::Span::current().record("proxy", tracing::field::debug(&ctx.proxy));
+    }
     let RedirectContext {
         req,
         data,
@@ -85,7 +94,6 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
         audit,
         ..
     } = ctx;
-    let is_debug_enabled = tracing::enabled!(tracing::Level::DEBUG);
     // watch=true/1 and follow=true/1 produce infinite streaming responses; treat them specially
     let is_streaming_request = req
         .query_string()

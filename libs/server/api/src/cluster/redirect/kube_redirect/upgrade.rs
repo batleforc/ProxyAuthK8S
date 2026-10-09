@@ -221,13 +221,19 @@ async fn read_upgrade_response_headers(
     }
 }
 
+// See `standard_redirect`: `proxy` is `Empty` so the whole `ProxyKubeApi` is not
+// formatted into the span on every proxied request, and is recorded only under
+// DEBUG.
 #[instrument(
     skip_all,
-    fields(method = ?ctx.method, peer_addr = ?ctx.peer_addr, proxy = ?ctx.proxy, url_to_call)
+    fields(method = ?ctx.method, peer_addr = ?ctx.peer_addr, proxy = tracing::field::Empty, url_to_call)
 )]
 pub(super) async fn upgrade_redirect(ctx: RedirectContext) -> HttpResponse {
     let url_to_call = ctx.url_to_call();
     tracing::Span::current().record("url_to_call", url_to_call.as_str());
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        tracing::Span::current().record("proxy", tracing::field::debug(&ctx.proxy));
+    }
     let RedirectContext {
         req,
         data,
@@ -367,4 +373,245 @@ pub(super) async fn upgrade_redirect(ctx: RedirectContext) -> HttpResponse {
     }
 
     client_resp.streaming(ReceiverStream::new(rx).map(Ok::<web::Bytes, actix_web::Error>))
+}
+
+#[cfg(test)]
+mod tests {
+    //! Characterization tests for the upgrade path's security contract.
+    //!
+    //! Written deliberately BEFORE the planned merge of the response-header
+    //! logic into a shared `copy_upstream_response_headers`. Tests added after a
+    //! refactor can only pin whatever the refactor produced; these pin what the
+    //! code is required to do, so they can still fail if the merge changes it.
+    //!
+    //! Scope is the two functions that encode a security contract rather than an
+    //! implementation shape: the request-smuggling guard, and the serializer that
+    //! strips client-supplied identity and stamps the proxy's own.
+
+    use super::{is_upgrade_request, serialize_upgrade_request, upgrade_request_declares_body};
+    use crate::model::user::User;
+    use actix_web::dev::PeerAddr;
+    use actix_web::test::TestRequest;
+    use actix_web::{HttpRequest, http};
+
+    fn request(headers: &[(&str, &str)]) -> HttpRequest {
+        let mut req = TestRequest::get().uri("/api/v1/pods");
+        for (name, value) in headers {
+            req = req.insert_header((*name, *value));
+        }
+        req.to_http_request()
+    }
+
+    fn user() -> User {
+        User {
+            username: "alice".to_string(),
+            email: "alice@example.com".to_string(),
+            groups: vec!["dev".to_string(), "platform".to_string()],
+        }
+    }
+
+    fn serialize(headers: &[(&str, &str)], user: Option<&User>) -> String {
+        let req = request(headers);
+        let url = reqwest::Url::parse("https://cluster.example.com:6443/api/v1/pods?watch=true")
+            .expect("test url should parse");
+        String::from_utf8(serialize_upgrade_request(
+            &req,
+            &http::Method::GET,
+            &url,
+            Some(PeerAddr(
+                "10.1.2.3:5555".parse().expect("addr should parse"),
+            )),
+            user,
+        ))
+        .expect("serialized request should be utf-8")
+    }
+
+    #[test]
+    fn an_upgrade_is_recognised_from_either_header() {
+        assert!(is_upgrade_request(&request(&[("upgrade", "websocket")])));
+        assert!(is_upgrade_request(&request(&[("connection", "upgrade")])));
+        // A multi-token Connection header is the common real-world shape.
+        assert!(is_upgrade_request(&request(&[(
+            "connection",
+            "keep-alive, Upgrade"
+        )])));
+        // Case-insensitive, per RFC 7230.
+        assert!(is_upgrade_request(&request(&[("connection", "UPGRADE")])));
+        assert!(!is_upgrade_request(&request(&[(
+            "connection",
+            "keep-alive"
+        )])));
+        assert!(!is_upgrade_request(&request(&[])));
+    }
+
+    /// The smuggling guard. An upgrade handshake never carries a body, and this
+    /// path hand-serializes onto a raw socket — a client-controlled framing
+    /// header plus a body would let a second request ride past authorization.
+    #[test]
+    fn a_declared_body_is_refused_on_the_upgrade_path() {
+        assert!(upgrade_request_declares_body(&request(&[(
+            "content-length",
+            "5"
+        )])));
+        assert!(upgrade_request_declares_body(&request(&[(
+            "transfer-encoding",
+            "chunked"
+        )])));
+        // Unparseable length: fail closed rather than guess.
+        assert!(upgrade_request_declares_body(&request(&[(
+            "content-length",
+            "not-a-number"
+        )])));
+        // Transfer-Encoding wins even alongside a zero length — the pair is the
+        // classic desync primitive.
+        assert!(upgrade_request_declares_body(&request(&[
+            ("content-length", "0"),
+            ("transfer-encoding", "chunked"),
+        ])));
+    }
+
+    #[test]
+    fn a_bodyless_handshake_is_allowed() {
+        assert!(!upgrade_request_declares_body(&request(&[])));
+        assert!(!upgrade_request_declares_body(&request(&[(
+            "content-length",
+            "0"
+        )])));
+    }
+
+    /// The framing headers must never reach the raw socket, or the guard above
+    /// could be bypassed by anything that sets them later.
+    #[test]
+    fn framing_headers_are_stripped_from_the_serialized_request() {
+        let wire = serialize(
+            &[
+                ("content-length", "0"),
+                ("transfer-encoding", "chunked"),
+                ("upgrade", "websocket"),
+            ],
+            Some(&user()),
+        );
+        let lower = wire.to_ascii_lowercase();
+        assert!(!lower.contains("content-length"), "{wire}");
+        assert!(!lower.contains("transfer-encoding"), "{wire}");
+    }
+
+    /// `connection`/`upgrade` are what make this an upgrade — stripping them
+    /// would silently turn the handshake into an ordinary request.
+    #[test]
+    fn the_upgrade_headers_themselves_are_preserved() {
+        let wire = serialize(
+            &[("upgrade", "SPDY/3.1"), ("connection", "Upgrade")],
+            Some(&user()),
+        );
+        assert!(wire.contains("upgrade: SPDY/3.1"), "{wire}");
+        assert!(wire.contains("connection: Upgrade"), "{wire}");
+    }
+
+    /// The whole point of the proxy's identity stamping: a client must not be
+    /// able to present itself as someone else by setting the headers the proxy
+    /// owns.
+    #[test]
+    fn client_supplied_identity_headers_are_replaced_not_forwarded() {
+        let wire = serialize(
+            &[
+                ("x-forwarded-user", "root"),
+                ("x-forwarded-groups", "system:masters"),
+                ("upgrade", "websocket"),
+            ],
+            Some(&user()),
+        );
+
+        assert!(
+            !wire.contains("root"),
+            "a spoofed x-forwarded-user reached the upstream: {wire}"
+        );
+        assert!(
+            !wire.contains("system:masters"),
+            "spoofed groups reached the upstream: {wire}"
+        );
+        assert!(wire.contains("x-forwarded-user: alice"), "{wire}");
+        assert!(wire.contains("x-forwarded-groups: dev,platform"), "{wire}");
+    }
+
+    /// Impersonation headers are the upstream's own auth mechanism; a client
+    /// that could set them would be talking to the apiserver as anyone.
+    ///
+    /// `Authorization` is deliberately NOT in that set: the caller's bearer
+    /// token IS the cluster credential in this design, so it is forwarded. This
+    /// test records that on purpose — the standard path applies the identical
+    /// policy at `upstream.rs:68`, and the two must not drift apart.
+    #[test]
+    fn upstream_auth_headers_from_the_client_are_dropped() {
+        let wire = serialize(
+            &[
+                ("impersonate-user", "system:admin"),
+                ("impersonate-group", "system:masters"),
+                ("x-remote-user", "root"),
+                ("authorization", "Bearer the-callers-own-token"),
+                ("upgrade", "websocket"),
+            ],
+            Some(&user()),
+        );
+        let lower = wire.to_ascii_lowercase();
+        assert!(!lower.contains("impersonate-user"), "{wire}");
+        assert!(!lower.contains("impersonate-group"), "{wire}");
+        assert!(!lower.contains("x-remote-user"), "{wire}");
+        assert!(
+            lower.contains("authorization: bearer the-callers-own-token"),
+            "the caller's own token is the upstream credential and must survive: {wire}"
+        );
+    }
+
+    /// The Host must describe the upstream we actually opened a socket to, not
+    /// whatever the client asked for.
+    #[test]
+    fn the_host_is_rewritten_to_the_upstream_authority() {
+        let wire = serialize(
+            &[("host", "evil.example.com"), ("upgrade", "websocket")],
+            Some(&user()),
+        );
+        assert!(wire.contains("Host: cluster.example.com:6443"), "{wire}");
+        assert!(!wire.contains("evil.example.com"), "{wire}");
+    }
+
+    /// The request line has to carry the query, or a `watch=true` upgrade
+    /// silently becomes a non-watch request.
+    #[test]
+    fn the_request_line_keeps_method_path_and_query() {
+        let wire = serialize(&[("upgrade", "websocket")], Some(&user()));
+        assert!(
+            wire.starts_with("GET /api/v1/pods?watch=true HTTP/1.1\r\n"),
+            "{wire}"
+        );
+    }
+
+    /// No resolved user means no identity headers at all — an absent header is
+    /// safe, an empty one asserts an identity nobody holds.
+    #[test]
+    fn no_user_means_no_identity_headers() {
+        let wire = serialize(&[("upgrade", "websocket")], None);
+        let lower = wire.to_ascii_lowercase();
+        assert!(!lower.contains("x-forwarded-user"), "{wire}");
+        assert!(!lower.contains("x-forwarded-groups"), "{wire}");
+    }
+
+    #[test]
+    fn the_forwarded_for_chain_is_appended_not_replaced() {
+        let wire = serialize(
+            &[("x-forwarded-for", "203.0.113.9"), ("upgrade", "websocket")],
+            Some(&user()),
+        );
+        assert!(
+            wire.contains("x-forwarded-for: 203.0.113.9, 10.1.2.3"),
+            "the original client hop must survive: {wire}"
+        );
+    }
+
+    /// Headers end with a blank line; without it the upstream waits forever.
+    #[test]
+    fn the_header_block_is_terminated() {
+        let wire = serialize(&[("upgrade", "websocket")], Some(&user()));
+        assert!(wire.ends_with("\r\n\r\n"), "{wire:?}");
+    }
 }

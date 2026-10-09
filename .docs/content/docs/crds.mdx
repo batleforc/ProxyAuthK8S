@@ -110,7 +110,7 @@ Auto-generated derived type for ProxyKubeApiSpec via `CustomResource`
         <td>
           Main configuration for authentication<br/>
           <br/>
-            <i>Validations</i>:<li>self.validate_against != 'OidcProvider' || self.oidc_provider.enabled: validate_against is set to OidcProvider but the OIDC provider is not enabled</li>
+            <i>Validations</i>:<li>self.validate_against != 'OidcProvider' || self.oidc_provider.enabled: validate_against is set to OidcProvider but the OIDC provider is not enabled</li><li>self.validate_against != 'JwtAuthenticators' || size(self.jwt) > 0: validate_against is set to JwtAuthenticators but no jwt authenticator is configured</li><li>self.jwt.all(a, self.jwt.exists_one(b, b.issuer.url == a.issuer.url)): two jwt authenticators are configured for the same issuer; only the first would ever apply</li>
         </td>
         <td>false</td>
       </tr><tr>
@@ -447,7 +447,7 @@ Main configuration for authentication
           An enabled provider that cannot be contacted is a cluster that never
 authenticates anyone, so the apiserver refuses the CR outright.<br/>
           <br/>
-            <i>Validations</i>:<li>!self.enabled || (self.issuer_url != '' && self.client_id != ''): an enabled OIDC provider requires a non-empty issuer_url and client_id</li><li>!self.expose_oauth_authorization_server || self.enabled: expose_oauth_authorization_server requires the OIDC provider to be enabled</li>
+            <i>Validations</i>:<li>!self.enabled || has(self.config_from) || (self.issuer_url != '' && self.client_id != ''): an enabled OIDC provider requires a non-empty issuer_url and client_id, or a config_from reference supplying them</li><li>!self.expose_oauth_authorization_server || self.enabled: expose_oauth_authorization_server requires the OIDC provider to be enabled</li>
         </td>
         <td>true</td>
       </tr><tr>
@@ -465,7 +465,10 @@ Default : false<br/>
         <td><b><a href="#proxykubeapispecauth_configjwtindex">jwt</a></b></td>
         <td>[]object</td>
         <td>
-          <br/>
+          Bounded so the quadratic uniqueness rule above stays inside the
+apiserver's CEL cost budget — the estimator multiplies this bound by the
+bound on `issuer.url`, and an unbounded pair is rejected outright. Still
+far above any real deployment, which trusts a handful of issuers.<br/>
           <br/>
             <i>Default</i>: []<br/>
         </td>
@@ -475,9 +478,12 @@ Default : false<br/>
         <td>enum</td>
         <td>
           Validate against the configured JWT authenticators, OIDC provider or Kubernetes API
-Default : `OidcProvider` if enabled, otherwise `JwtAuthenticators` if configured, otherwise Kubernetes<br/>
+Default : `Kubernetes` — the fail-closed choice, valid for every cluster.
+Selecting `OidcProvider` or `JwtAuthenticators` is always explicit, so a
+cluster never silently changes how it authenticates because a field was
+added elsewhere in the spec.<br/>
           <br/>
-            <i>Enum</i>: OidcProvider, Kubernetes<br/>
+            <i>Enum</i>: OidcProvider, Kubernetes, JwtAuthenticators<br/>
             <i>Default</i>: Kubernetes<br/>
         </td>
         <td>false</td>
@@ -503,20 +509,6 @@ authenticates anyone, so the apiserver refuses the CR outright.
         </tr>
     </thead>
     <tbody><tr>
-        <td><b>client_id</b></td>
-        <td>string</td>
-        <td>
-          <br/>
-        </td>
-        <td>true</td>
-      </tr><tr>
-        <td><b>issuer_url</b></td>
-        <td>string</td>
-        <td>
-          <br/>
-        </td>
-        <td>true</td>
-      </tr><tr>
         <td><b>accept_authorized_party</b></td>
         <td>boolean</td>
         <td>
@@ -546,10 +538,45 @@ expected audience (what the token is for) are configured independently.<br/>
         </td>
         <td>false</td>
       </tr><tr>
+        <td><b>client_id</b></td>
+        <td>string</td>
+        <td>
+          Ignored when the `config_from` Secret carries a `client_id` key. See
+`issuer_url` for why it is optional.<br/>
+          <br/>
+            <i>Default</i>: <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
         <td><b>client_secret</b></td>
         <td>string</td>
         <td>
-          <br/>
+          The OAuth client secret, inline.
+
+Prefer `config_from`: a value here is readable by anyone with `get` on
+this resource, shows up in `kubectl get -o yaml`, and is copied into
+every backup of it.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecauth_configoidc_providerconfig_from">config_from</a></b></td>
+        <td>object</td>
+        <td>
+          Read the provider block from an external Secret instead of inlining it
+here.
+
+The Secret's keys are the snake_case field names of this struct —
+`issuer_url`, `client_id`, `client_secret`, `audience`, `extra_scope` —
+and any key it carries wins over the inline value; keys it does not carry
+fall back to the inline value, so a partial Secret (the common case: just
+`client_secret`) works. Keys outside that set are ignored, since a Secret
+managed by external-secrets is routinely shared with other consumers.
+
+The policy toggles (`enabled`, `accept_authorized_party`,
+`expose_oauth_authorization_server`) are deliberately *not* readable from
+the Secret: they decide how strictly tokens are validated and who may
+reach this cluster, so they must stay visible in the CR that admission
+and review look at.<br/>
         </td>
         <td>false</td>
       </tr><tr>
@@ -598,6 +625,95 @@ open redirect. Requires `enabled: true`.<br/>
             <i>Default</i>: <br/>
         </td>
         <td>false</td>
+      </tr><tr>
+        <td><b>issuer_url</b></td>
+        <td>string</td>
+        <td>
+          Ignored when the `config_from` Secret carries an `issuer_url` key.
+Optional only so a `config_from`-only block need not restate it; an
+enabled provider must end up with a non-empty value from one side or the
+other.<br/>
+          <br/>
+            <i>Default</i>: <br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.oidc_provider.config_from
+<sup><sup>[↩ Parent](#proxykubeapispecauth_configoidc_provider)</sup></sup>
+
+
+
+Read the provider block from an external Secret instead of inlining it
+here.
+
+The Secret's keys are the snake_case field names of this struct —
+`issuer_url`, `client_id`, `client_secret`, `audience`, `extra_scope` —
+and any key it carries wins over the inline value; keys it does not carry
+fall back to the inline value, so a partial Secret (the common case: just
+`client_secret`) works. Keys outside that set are ignored, since a Secret
+managed by external-secrets is routinely shared with other consumers.
+
+The policy toggles (`enabled`, `accept_authorized_party`,
+`expose_oauth_authorization_server`) are deliberately *not* readable from
+the Secret: they decide how strictly tokens are validated and who may
+reach this cluster, so they must stay visible in the CR that admission
+and review look at.
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b><a href="#proxykubeapispecauth_configoidc_providerconfig_fromsecret">Secret</a></b></td>
+        <td>object</td>
+        <td>
+          Read the provider block from the keys of a Secret.<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.oidc_provider.config_from.Secret
+<sup><sup>[↩ Parent](#proxykubeapispecauth_configoidc_providerconfig_from)</sup></sup>
+
+
+
+Read the provider block from the keys of a Secret.
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>name</b></td>
+        <td>string</td>
+        <td>
+          <br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>namespace</b></td>
+        <td>string</td>
+        <td>
+          Defaults to the `ProxyKubeApi`'s own namespace. Honoured only when
+`PROXYAUTH_ALLOW_CROSS_NS_OIDC` is set — see
+[`cross_namespace_oidc_allowed`].<br/>
+        </td>
+        <td>false</td>
       </tr></tbody>
 </table>
 
@@ -607,7 +723,9 @@ open redirect. Requires `enabled: true`.<br/>
 
 
 
-
+One trusted JWT issuer and the rules applied to the tokens it mints,
+mirroring one entry of the apiserver's structured authentication
+configuration `jwt:` list.
 
 <table>
     <thead>
@@ -622,30 +740,39 @@ open redirect. Requires `enabled: true`.<br/>
         <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_mappings">claim_mappings</a></b></td>
         <td>object</td>
         <td>
+          How the claims become a username, groups, uid and extra.<br/>
           <br/>
-        </td>
-        <td>true</td>
-      </tr><tr>
-        <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_validation_rulesindex">claim_validation_rules</a></b></td>
-        <td>[]object</td>
-        <td>
-          <br/>
+            <i>Validations</i>:<li>has(self.username): claim_mappings.username is required: without it a validated token maps to no user</li>
         </td>
         <td>true</td>
       </tr><tr>
         <td><b><a href="#proxykubeapispecauth_configjwtindexissuer">issuer</a></b></td>
         <td>object</td>
         <td>
+          The token issuer a [`super::JWTAuthenticator`] trusts, mirroring the
+apiserver's `issuer`.<br/>
           <br/>
+            <i>Validations</i>:<li>self.url.startsWith('https://'): issuer.url must be an https:// URL</li><li>size(self.audiences) > 0: issuer.audiences must list at least one audience</li><li>!has(self.discovery_url) || self.discovery_url.startsWith('https://'): issuer.discovery_url must be an https:// URL</li>
         </td>
         <td>true</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_validation_rulesindex">claim_validation_rules</a></b></td>
+        <td>[]object</td>
+        <td>
+          Rules the raw claims must satisfy before any mapping happens.<br/>
+          <br/>
+            <i>Default</i>: []<br/>
+        </td>
+        <td>false</td>
       </tr><tr>
         <td><b><a href="#proxykubeapispecauth_configjwtindexuser_validation_rulesindex">user_validation_rules</a></b></td>
         <td>[]object</td>
         <td>
+          Rules the *mapped* user must satisfy — e.g. refusing a `system:` prefix.<br/>
           <br/>
+            <i>Default</i>: []<br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr></tbody>
 </table>
 
@@ -655,7 +782,7 @@ open redirect. Requires `enabled: true`.<br/>
 
 
 
-
+How the claims become a username, groups, uid and extra.
 
 <table>
     <thead>
@@ -671,27 +798,40 @@ open redirect. Requires `enabled: true`.<br/>
         <td>[]object</td>
         <td>
           <br/>
+          <br/>
+            <i>Default</i>: []<br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr><tr>
         <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_mappingsgroups">groups</a></b></td>
         <td>object</td>
         <td>
+          Either a claim (with an optional prefix) or a CEL expression, never both.
+
+`prefix` exists to keep an external identity provider from minting a
+username that collides with a local one; it applies only to the `claim`
+form, since an `expression` can prepend whatever it likes itself.<br/>
           <br/>
+            <i>Validations</i>:<li>has(self.claim) != has(self.expression): exactly one of claim or expression must be set</li><li>!has(self.prefix) || has(self.claim): prefix may only be set together with claim</li><li>!has(self.claim) || has(self.prefix): prefix is required with claim (use "" to opt out of prefixing deliberately)</li>
         </td>
         <td>false</td>
       </tr><tr>
         <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_mappingsuid">uid</a></b></td>
         <td>object</td>
         <td>
+          Either a claim or a CEL expression, never both.<br/>
           <br/>
+            <i>Validations</i>:<li>has(self.claim) != has(self.expression): exactly one of claim or expression must be set</li>
         </td>
         <td>false</td>
       </tr><tr>
         <td><b><a href="#proxykubeapispecauth_configjwtindexclaim_mappingsusername">username</a></b></td>
         <td>object</td>
         <td>
+          Required — a token that validates but maps to no username authenticates
+nobody, so the apiserver requires it too.<br/>
           <br/>
+            <i>Validations</i>:<li>has(self.claim) != has(self.expression): exactly one of claim or expression must be set</li><li>!has(self.prefix) || has(self.claim): prefix may only be set together with claim</li><li>!has(self.claim) || has(self.prefix): prefix is required with claim (use "" to opt out of prefixing deliberately)</li>
         </td>
         <td>false</td>
       </tr></tbody>
@@ -703,7 +843,7 @@ open redirect. Requires `enabled: true`.<br/>
 
 
 
-
+One entry of the user's `extra` map, keyed by a domain-prefixed name.
 
 <table>
     <thead>
@@ -725,9 +865,11 @@ open redirect. Requires `enabled: true`.<br/>
         <td><b>value_expression</b></td>
         <td>string</td>
         <td>
+          A CEL expression over `claims` producing the value(s) for `key`.<br/>
           <br/>
+            <i>Default</i>: <br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr></tbody>
 </table>
 
@@ -737,7 +879,11 @@ open redirect. Requires `enabled: true`.<br/>
 
 
 
+Either a claim (with an optional prefix) or a CEL expression, never both.
 
+`prefix` exists to keep an external identity provider from minting a
+username that collides with a local one; it applies only to the `claim`
+form, since an `expression` can prepend whatever it likes itself.
 
 <table>
     <thead>
@@ -754,19 +900,19 @@ open redirect. Requires `enabled: true`.<br/>
         <td>
           <br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr><tr>
         <td><b>expression</b></td>
         <td>string</td>
         <td>
           <br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr><tr>
         <td><b>prefix</b></td>
         <td>string</td>
         <td>
-          <br/>
+          Prepended to the claim's value. Only valid with `claim`.<br/>
         </td>
         <td>false</td>
       </tr></tbody>
@@ -778,7 +924,7 @@ open redirect. Requires `enabled: true`.<br/>
 
 
 
-
+Either a claim or a CEL expression, never both.
 
 <table>
     <thead>
@@ -812,7 +958,8 @@ open redirect. Requires `enabled: true`.<br/>
 
 
 
-
+Required — a token that validates but maps to no username authenticates
+nobody, so the apiserver requires it too.
 
 <table>
     <thead>
@@ -829,19 +976,94 @@ open redirect. Requires `enabled: true`.<br/>
         <td>
           <br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr><tr>
         <td><b>expression</b></td>
         <td>string</td>
         <td>
           <br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr><tr>
         <td><b>prefix</b></td>
         <td>string</td>
         <td>
+          Prepended to the claim's value. Only valid with `claim`.<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.auth_config.jwt[index].issuer
+<sup><sup>[↩ Parent](#proxykubeapispecauth_configjwtindex)</sup></sup>
+
+
+
+The token issuer a [`super::JWTAuthenticator`] trusts, mirroring the
+apiserver's `issuer`.
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>url</b></td>
+        <td>string</td>
+        <td>
+          The `iss` claim every token must carry, and the base for OIDC discovery
+unless `discovery_url` overrides it.<br/>
+        </td>
+        <td>true</td>
+      </tr><tr>
+        <td><b>audience_match_policy</b></td>
+        <td>enum</td>
+        <td>
           <br/>
+          <br/>
+            <i>Enum</i>: MatchAny<br/>
+            <i>Default</i>: MatchAny<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>audiences</b></td>
+        <td>[]string</td>
+        <td>
+          Accepted `aud` values. At least one — an authenticator that accepts any
+audience is the audience-confusion hole this whole area exists to close.<br/>
+          <br/>
+            <i>Default</i>: []<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>certificate_authority</b></td>
+        <td>string</td>
+        <td>
+          PEM bundle used to verify the issuer's TLS certificate. Absent means the
+system trust store.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>discovery_url</b></td>
+        <td>string</td>
+        <td>
+          Where the discovery document lives, when it is not `url` +
+`/.well-known/openid-configuration`.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>egress_selector</b></td>
+        <td>enum</td>
+        <td>
+          <br/>
+          <br/>
+            <i>Enum</i>: controlplane, cluster<br/>
+            <i>Default</i>: controlplane<br/>
         </td>
         <td>false</td>
       </tr></tbody>
@@ -853,7 +1075,20 @@ open redirect. Requires `enabled: true`.<br/>
 
 
 
+A rule the token's claims must satisfy, mirroring the apiserver's
+`claimValidationRules`.
 
+Two mutually exclusive shapes, exactly as upstream:
+  - `claim` + `required_value`: the named claim must be a string equal to
+    `required_value`;
+  - `expression` (+ `message`): a CEL expression over `claims` that must
+    evaluate to `true`.
+
+Both halves are optional in the schema because only one may be given; which
+one was given is checked by [`ClaimValidationRule::validate`] and by the CEL
+admission rule that mirrors it. Before this was modelled as an either/or, all
+four fields were required — a rule could not be written at all without
+supplying nonsense for the half you did not mean.
 
 <table>
     <thead>
@@ -868,94 +1103,34 @@ open redirect. Requires `enabled: true`.<br/>
         <td><b>claim</b></td>
         <td>string</td>
         <td>
-          <br/>
+          The claim whose value must equal `required_value`.<br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr><tr>
         <td><b>expression</b></td>
         <td>string</td>
         <td>
-          <br/>
+          A CEL expression over `claims` that must evaluate to `true`.<br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr><tr>
         <td><b>message</b></td>
         <td>string</td>
         <td>
+          Shown when `expression` rejects a token. Required with `expression`: a
+rejection nobody can explain is a support ticket, not a security control.<br/>
           <br/>
+            <i>Default</i>: <br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr><tr>
         <td><b>required_value</b></td>
         <td>string</td>
         <td>
+          The value `claim` must hold. Absent means "the claim must merely be
+present", which is how the apiserver reads an empty `requiredValue`.<br/>
           <br/>
-        </td>
-        <td>true</td>
-      </tr></tbody>
-</table>
-
-
-### ProxyKubeApi.spec.auth_config.jwt[index].issuer
-<sup><sup>[↩ Parent](#proxykubeapispecauth_configjwtindex)</sup></sup>
-
-
-
-
-
-<table>
-    <thead>
-        <tr>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Description</th>
-            <th>Required</th>
-        </tr>
-    </thead>
-    <tbody><tr>
-        <td><b>audience_match_policy</b></td>
-        <td>enum</td>
-        <td>
-          <br/>
-          <br/>
-            <i>Enum</i>: MatchAny<br/>
-        </td>
-        <td>true</td>
-      </tr><tr>
-        <td><b>audiences</b></td>
-        <td>[]string</td>
-        <td>
-          <br/>
-        </td>
-        <td>true</td>
-      </tr><tr>
-        <td><b>egress_selector</b></td>
-        <td>enum</td>
-        <td>
-          <br/>
-          <br/>
-            <i>Enum</i>: controlplane, cluster<br/>
-        </td>
-        <td>true</td>
-      </tr><tr>
-        <td><b>url</b></td>
-        <td>string</td>
-        <td>
-          <br/>
-        </td>
-        <td>true</td>
-      </tr><tr>
-        <td><b>certificate_authority</b></td>
-        <td>string</td>
-        <td>
-          <br/>
-        </td>
-        <td>false</td>
-      </tr><tr>
-        <td><b>discovery_url</b></td>
-        <td>string</td>
-        <td>
-          <br/>
+            <i>Default</i>: <br/>
         </td>
         <td>false</td>
       </tr></tbody>
@@ -967,7 +1142,12 @@ open redirect. Requires `enabled: true`.<br/>
 
 
 
+A rule the *mapped* user must satisfy, mirroring the apiserver's
+`userValidationRules`.
 
+Runs after [`super::ClaimMappings`], over a `user` variable — which is what
+makes it the right place to refuse a username an external IdP should never be
+able to mint, such as anything under `system:`.
 
 <table>
     <thead>
@@ -982,16 +1162,20 @@ open redirect. Requires `enabled: true`.<br/>
         <td><b>expression</b></td>
         <td>string</td>
         <td>
+          A CEL expression over `user` that must evaluate to `true`.<br/>
           <br/>
+            <i>Default</i>: <br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr><tr>
         <td><b>message</b></td>
         <td>string</td>
         <td>
+          Shown when the rule rejects a user.<br/>
           <br/>
+            <i>Default</i>: <br/>
         </td>
-        <td>true</td>
+        <td>false</td>
       </tr></tbody>
 </table>
 

@@ -33,13 +33,7 @@ cog check
 [git_hooks.pre-commit]
 script = """#!/bin/sh
 set -e
-task recu
-git add . # in case recu needed to regenerate files, add need to be done before linting
-task lint
-git add . # in case linting fixed anything
-gitleaks git --pre-commit --redact --staged --verbose
-.hooks/end-of-line.sh
-.hooks/whitespace-fixer.sh
+.hooks/pre-commit.sh
 """
 
 [commit_types]

@@ -8,6 +8,7 @@ use openidconnect::{
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
+use crate::discovery_cache::DiscoveryCache;
 use crate::oidc_error::OidcError;
 
 pub type CoreClientFront = CoreClient<
@@ -107,12 +108,28 @@ impl OidcConf {
     /// Returns [`OidcError`] if the issuer URL is invalid, provider discovery
     /// fails, the redirect URL is invalid, or the HTTP client cannot be built.
     #[instrument(skip(self))]
-    pub async fn oidc_core(&self) -> Result<CoreClientFront, OidcError> {
-        let provider_metadata = CoreProviderMetadata::discover_async(
-            IssuerUrl::new(self.issuer_url.clone())?,
-            &self.oidc_reqwest_client()?,
-        )
-        .await?;
+    /// Build the OIDC client, reusing a cached discovery document when one is
+    /// still fresh.
+    ///
+    /// The cache stores what `discover_async` returned rather than a raw
+    /// document re-parsed here, so the issuer check that call performs — the
+    /// guard against being pointed at a provider that claims someone else's
+    /// issuer — still runs on every document that enters the cache.
+    pub async fn oidc_core(&self, cache: &DiscoveryCache) -> Result<CoreClientFront, OidcError> {
+        let provider_metadata = match cache.metadata(&self.issuer_url).await {
+            Some(metadata) => metadata,
+            None => {
+                let metadata = CoreProviderMetadata::discover_async(
+                    IssuerUrl::new(self.issuer_url.clone())?,
+                    &self.oidc_reqwest_client()?,
+                )
+                .await?;
+                cache
+                    .put_metadata(self.issuer_url.clone(), metadata.clone())
+                    .await;
+                metadata
+            }
+        };
         let client_secret = self
             .client_secret
             .as_ref()
@@ -145,7 +162,11 @@ impl OidcConf {
     /// and the mode is `Enforce` (or when it cannot be determined and the mode
     /// fails closed).
     #[instrument(skip(self, token))]
-    pub async fn ensure_token_audience(&self, token: &str) -> Result<(), OidcError> {
+    pub async fn ensure_token_audience(
+        &self,
+        token: &str,
+        cache: &DiscoveryCache,
+    ) -> Result<(), OidcError> {
         use crate::token_audience::{AudienceValidationMode, extract_jwt_audiences};
 
         let mode = AudienceValidationMode::from_env();
@@ -154,7 +175,7 @@ impl OidcConf {
         }
 
         // 1. Introspection first, when the provider exposes an endpoint.
-        if let Some(endpoint) = self.discover_introspection_endpoint().await {
+        if let Some(endpoint) = self.discover_introspection_endpoint(cache).await {
             match self.introspect_audiences(&endpoint, token).await {
                 Ok(Some(auds)) => return self.decide_audience(&auds, mode, "introspection"),
                 Ok(None) => {
@@ -221,17 +242,35 @@ impl OidcConf {
 
     /// Fetch the provider's `introspection_endpoint` from its discovery document,
     /// or `None` when the provider does not advertise one.
-    async fn discover_introspection_endpoint(&self) -> Option<String> {
+    ///
+    /// A successful fetch is cached either way — "this provider has no
+    /// introspection endpoint" is the common answer and worth remembering, since
+    /// otherwise every request re-asks. A *failed* fetch is deliberately not
+    /// cached: it is indistinguishable here from a genuine absence, and storing
+    /// it would silently downgrade audience validation to the JWT-claims
+    /// fallback for a whole TTL because the provider blipped once.
+    async fn discover_introspection_endpoint(&self, cache: &DiscoveryCache) -> Option<String> {
+        if let Some(known) = cache.introspection_endpoint(&self.issuer_url).await {
+            return known;
+        }
+
         let url = format!(
             "{}/.well-known/openid-configuration",
             self.issuer_url.trim_end_matches('/')
         );
+        // Each `?`/`ok()?` below is a fetch failure, not an answer, so it
+        // returns without touching the cache.
         let response = self.reqwest_client().ok()?.get(url).send().await.ok()?;
         let metadata: serde_json::Value = response.json().await.ok()?;
-        metadata
-            .get("introspection_endpoint")?
-            .as_str()
-            .map(std::string::ToString::to_string)
+
+        let endpoint = metadata
+            .get("introspection_endpoint")
+            .and_then(serde_json::Value::as_str)
+            .map(std::string::ToString::to_string);
+        cache
+            .put_introspection_endpoint(self.issuer_url.clone(), endpoint.clone())
+            .await;
+        endpoint
     }
 
     /// RFC 7662 token introspection.

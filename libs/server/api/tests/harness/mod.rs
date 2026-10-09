@@ -195,6 +195,7 @@ pub fn oidc_auth_config(issuer_url: &str) -> AuthenticationConfiguration {
             audience: String::new(),
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
+            config_from: None,
         },
         disable_validation: false,
         validate_against: ValidateAgainst::OidcProvider,
@@ -218,6 +219,7 @@ pub fn kubernetes_auth_config() -> AuthenticationConfiguration {
             audience: String::new(),
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
+            config_from: None,
         },
         disable_validation: false,
         validate_against: ValidateAgainst::Kubernetes,
@@ -449,6 +451,43 @@ pub fn sign_id_token(issuer: &str, audience: &str, subject: &str, nonce: &str) -
     let key = EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_KEY_PEM.as_bytes())
         .expect("test RSA key should parse");
     encode(&header, &claims, &key).expect("test id_token should sign")
+}
+
+/// Sign arbitrary claims with [`TEST_RSA_PRIVATE_KEY_PEM`], as an issuer would.
+///
+/// The narrower [`sign_id_token`] covers the OIDC login flow; the local JWT
+/// authenticator tier needs to shape the whole payload (custom claims, a wrong
+/// audience, an expired `exp`), so it signs through this instead.
+pub fn sign_claims(claims: &serde_json::Value) -> String {
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some(TEST_RSA_KID.to_string());
+    let key = EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_KEY_PEM.as_bytes())
+        .expect("test RSA key should parse");
+    encode(&header, claims, &key).expect("test token should sign")
+}
+
+/// Mount an issuer that publishes only discovery + JWKS, which is all a local
+/// `jwt` authenticator needs (no `/userinfo`, no `/token`).
+pub async fn mount_jwks_issuer(server: &wiremock::MockServer) {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    let issuer = server.uri();
+    Mock::given(method("GET"))
+        .and(path("/.well-known/openid-configuration"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "issuer": issuer,
+            "jwks_uri": format!("{issuer}/keys"),
+        })))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/keys"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks()))
+        .mount(server)
+        .await;
 }
 
 /// Mount a full, signature-capable OIDC provider: discovery, a real JWKS

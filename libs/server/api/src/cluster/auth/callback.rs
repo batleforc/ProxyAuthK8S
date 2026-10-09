@@ -7,7 +7,9 @@ use serde::Deserialize;
 use tracing::{error, info, instrument};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::cluster::auth::{auth_model::LoginToCallBackModel, callback_model::CallbackModel};
+use crate::cluster::auth::{
+    auth_model::LoginToCallBackModel, callback_model::CallbackModel, throttle_oauth_as,
+};
 use crate::helper::extract_ns_cluster;
 
 #[derive(Deserialize, ToSchema, IntoParams)]
@@ -25,8 +27,11 @@ pub struct CallbackQuery {
     tag = "auth_clusters",
     responses(
         (status = 200, description = "Response from remote cluster.", body = CallbackModel),
+        (status = 400, description = "Missing or already-used CSRF state."),
         (status = 404, description = "Cluster not found or disabled."),
+        (status = 429, description = "Rate limited or banned for this cluster."),
         (status = 500, description = "Internal server error."),
+        (status = 503, description = "Redis is unavailable."),
     ),
     params(
         ("ns" = String, description = "Namespace containing the cluster."),
@@ -71,19 +76,35 @@ pub async fn callback_login(
     {
         return HttpResponse::NotFound().finish();
     }
+    // Before any OIDC work: `oidc_core()` below performs an uncached discovery
+    // fetch against the provider, and this endpoint is unauthenticated, so
+    // without a gate here every anonymous request with a junk `state` turns into
+    // an outbound request to the cluster's IdP. The CSRF check that rejects such
+    // a request is further down, so the cheap rejection would otherwise sit
+    // behind the expensive call. Same helper, same position, as the `/oauth/*`
+    // siblings.
+    if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
+        return response;
+    }
     let redirect_front = req.headers().contains_key("x-front-callback");
     let redirect_kubectl = req
         .headers()
         .get("x-kubectl-callback")
         .and_then(|v| v.to_str().ok())
         .map(std::string::ToString::to_string);
-    let oidc_conf = if let Some(conf) =
-        proxy.get_oidc_conf(data.clone().into_inner(), redirect_front, redirect_kubectl)
+    let oidc_conf = match proxy
+        .get_oidc_conf(data.clone().into_inner(), redirect_front, redirect_kubectl)
+        .await
     {
-        conf
-    } else {
-        error!("OIDC config not found or invalid");
-        return HttpResponse::InternalServerError().finish();
+        Ok(Some(conf)) => conf,
+        Ok(None) => {
+            error!("OIDC config not found or invalid");
+            return HttpResponse::InternalServerError().finish();
+        }
+        Err(e) => {
+            error!(error = %e, "couldn't resolve the OIDC config");
+            return HttpResponse::InternalServerError().finish();
+        }
     };
     let client_reqwest = match oidc_conf.oidc_reqwest_client() {
         Ok(client) => client,
@@ -92,7 +113,7 @@ pub async fn callback_login(
             return HttpResponse::InternalServerError().finish();
         }
     };
-    let client_oidc = match oidc_conf.oidc_core().await {
+    let client_oidc = match oidc_conf.oidc_core(&data.discovery_cache).await {
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't get oidc client");

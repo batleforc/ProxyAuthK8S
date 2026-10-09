@@ -32,6 +32,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
       Redesign UI      : Nouvelle interface
       Exchange Token   : Federation IdP
       Proxy & Agent    : Mode agent, tunnel
+      mTLS client      : Auth par certificat client
 `} />
 
 ---
@@ -228,6 +229,17 @@ Ajout de la possibilité de passer par un proxy (ex: Netbird) pour les connexion
 ### Mode Agent
 
 Permet de ne pas exposer chaque cluster directement mais d'utiliser un agent qui crée un tunnel entre l'API Server du cluster et ProxyAuthK8S.
+
+</Step>
+
+<Step>
+### mTLS d'authentification client
+
+Gestion du mTLS pour l'authentification entre le client et l'API Server Kubernetes : un appelant
+pourrait s'authentifier avec un certificat client plutôt qu'avec un jeton `Bearer`.
+
+À distinguer du mTLS livré en v1.0.0, qui est celui que le proxy présente lui-même aux clusters
+cibles (voir « mTLS vers le cluster cible » dans la page Sécurité).
 
 </Step>
 

@@ -85,21 +85,27 @@ tasks:
       CRDOC_IMAGE: ghcr.io/fybrik/crdoc:latest
     cmds:
       - echo "Generating documentation for Custom Resource Definitions"
-      # Run crdoc via a container engine if available (docker/podman), otherwise
-      # fall back to a native crdoc binary (e.g. installed through mise). This
-      # keeps the task usable in sandboxes without a container engine.
+      # The native binary is preferred and pinned in mise.toml
+      # ("go:fybrik.io/crdoc"). The container image is only a fallback for an
+      # environment without it: `{{.CRDOC_IMAGE}}` has not been rebuilt since
+      # January 2023 and produces visibly worse output than a current crdoc — it
+      # drops the x-kubernetes-validations lists and links to the v1.20 API docs
+      # — so regenerating through it would silently regress the committed page.
       - |
-        if command -v docker >/dev/null 2>&1; then
-          echo "Using docker + crdoc image"
+        if command -v crdoc >/dev/null 2>&1; then
+          echo "Using the crdoc binary from mise"
+          crdoc --resources "{{.CRD_YAML}}" --output "{{.CRD_MDX}}"
+        elif command -v docker >/dev/null 2>&1; then
+          echo "No crdoc binary found; falling back to docker + the (stale) crdoc image"
           docker run -u "$(id -u):$(id -g)" --rm -v "${PWD}:/workdir" {{.CRDOC_IMAGE}} --resources "/workdir/{{.CRD_YAML}}" --output "/workdir/{{.CRD_MDX}}"
         elif command -v podman >/dev/null 2>&1; then
-          echo "Using podman + crdoc image"
-          podman run -u "$(id -u):$(id -g)" --rm -v "${PWD}:/workdir" {{.CRDOC_IMAGE}} --resources "/workdir/{{.CRD_YAML}}" --output "/workdir/{{.CRD_MDX}}"
-        elif command -v crdoc >/dev/null 2>&1; then
-          echo "No container engine found; using native crdoc binary"
-          crdoc --resources "{{.CRD_YAML}}" --output "{{.CRD_MDX}}"
+          echo "No crdoc binary found; falling back to podman + the (stale) crdoc image"
+          # --userns=keep-id: rootless podman otherwise maps the caller to a
+          # different uid inside the container, and writing the output file onto
+          # the bind mount fails with "permission denied".
+          podman run --userns=keep-id -u "$(id -u):$(id -g)" --rm -v "${PWD}:/workdir" {{.CRDOC_IMAGE}} --resources "/workdir/{{.CRD_YAML}}" --output "/workdir/{{.CRD_MDX}}"
         else
-          echo "Error: need docker, podman, or a native 'crdoc' binary (install e.g. with: go install fybrik.io/crdoc@latest)" >&2
+          echo "Error: need a 'crdoc' binary (run 'mise install'), or docker/podman" >&2
           exit 1
         fi
       - echo "Escaping braces outside inline code spans for MDX/JSX safety"
