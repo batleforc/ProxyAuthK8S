@@ -1,0 +1,4 @@
+[submodule ".hooks/vendor/watermarks-remover"]
+	path = .hooks/vendor/watermarks-remover
+	url = https://github.com/guillaumemeyer/watermarks-remover
+	branch = main

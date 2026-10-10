@@ -1,6 +1,6 @@
 //! Error types raised while booting the shared state and the HTTP(S) listener.
 
-use crate::{oidc_error, redis_pool::RedisPoolError};
+use crate::redis_pool::RedisPoolError;
 
 /// Everything that can stop [`crate::State::new`] from booting.
 #[derive(Debug, thiserror::Error)]
@@ -9,8 +9,6 @@ pub enum StateInitError {
     Redis(#[from] RedisPoolError),
     #[error("failed to create the Kubernetes client: {0}")]
     Kube(#[from] kube::Error),
-    #[error("OIDC discovery failed: {0}")]
-    Oidc(#[from] oidc_error::OidcError),
 }
 
 /// Everything that can stop [`crate::ServerConfig::rustls_config`] from

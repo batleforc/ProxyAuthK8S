@@ -10,6 +10,8 @@ use crate::cluster::redirect::throttle;
 use crate::helper::{extract_authorization_header, extract_ns_cluster};
 use crate::model::user::User;
 
+mod context;
+mod list_fallback;
 mod port_forward;
 mod spdy_dictionary;
 mod standard;
@@ -18,23 +20,11 @@ mod upgrade;
 mod upstream;
 mod virtual_redirect;
 
+use context::RedirectContext;
 use standard::standard_redirect;
 use upgrade::{is_upgrade_request, upgrade_redirect};
 use virtual_api::MapperRegistry;
 use virtual_redirect::virtual_redirect as serve_virtual_api;
-
-/// What every redirect worker needs about the request being proxied, once it
-/// has been authenticated and authorized by [`redirect`].
-struct RedirectContext {
-    req: HttpRequest,
-    data: web::Data<State>,
-    payload: web::Payload,
-    method: http::Method,
-    peer_addr: Option<PeerAddr>,
-    proxy: ProxyKubeApi,
-    user: Option<User>,
-    audit: AuditContext,
-}
 
 /// Answer with `response`, recording the audit event for it first.
 macro_rules! audited {
@@ -145,7 +135,16 @@ pub async fn redirect(
             }
             Err(e) => {
                 warn!("Error while getting user info from OIDC token: {}", e);
-                throttle::record_auth_failure(data.get_ref(), &proxy, &peer_id).await;
+                // Only a fault in the caller's own token counts toward a ban. A
+                // server-side failure (an unreadable `config_from` Secret, a
+                // Redis blip, an unreachable JWKS) is not something a different
+                // token would have avoided, and charging it to the caller would
+                // ban legitimate clients for an outage they did not cause.
+                if e.is_caller_fault() {
+                    throttle::record_auth_failure(data.get_ref(), &proxy, &peer_id).await;
+                } else {
+                    warn!("not counting a server-side auth failure against the caller");
+                }
                 audited!(audit, unauthorized("the token could not be validated"));
             }
         }
@@ -274,35 +273,27 @@ pub async fn redirect(
         proxy,
         user,
         audit,
+        base_url,
+        upstream_path,
     };
-
     if let Some(virtual_plan) = virtual_plan {
         // Path only at info: query strings can carry user-controlled or
         // sensitive values (label selectors, field selectors, exec commands).
         info!(from = %ctx.req.path(), method = %ctx.method.as_str(), "Serving a virtual API request");
         debug!(from = %ctx.req.uri(), "Virtual API request full URI");
-        return serve_virtual_api(ctx, base_url, registry, upstream_path, virtual_plan).await;
+        return serve_virtual_api(ctx, registry, virtual_plan).await;
     }
-
-    let url_to_call = {
-        let query_string = ctx.req.query_string();
-        if query_string.is_empty() {
-            format!("{base_url}{upstream_path}")
-        } else {
-            format!("{base_url}{upstream_path}?{query_string}")
-        }
-    };
 
     // Path only at info (no query string: it can carry user-controlled or
     // sensitive values such as exec commands or selectors); the full URLs are
     // kept at debug for troubleshooting.
-    info!(from = %ctx.req.path(), to = %format_args!("{base_url}{upstream_path}"),
+    info!(from = %ctx.req.path(), to = %ctx.url_without_query(),
         method = %ctx.method.as_str(), "Forwarding request");
-    debug!(from = %ctx.req.uri(), to = %url_to_call, "Forwarding request (full URLs)");
+    debug!(from = %ctx.req.uri(), to = %ctx.url_to_call(), "Forwarding request (full URLs)");
 
     if is_upgrade {
-        return upgrade_redirect(ctx, url_to_call, port_policy).await;
+        return upgrade_redirect(ctx, port_policy).await;
     }
 
-    standard_redirect(ctx, url_to_call).await
+    standard_redirect(ctx).await
 }

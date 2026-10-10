@@ -75,7 +75,7 @@ async fn wait_for_crd(client: kube::Client) {
 fn minimal_spec() -> serde_json::Value {
     json!({
         "enabled": true,
-        "cert": { "Insecure": true },
+        "cert": { "SystemRoots": true },
         "service": { "ExternalService": { "url": "https://cluster.example.com:6443" } },
     })
 }

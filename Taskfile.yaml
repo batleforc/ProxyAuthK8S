@@ -24,6 +24,7 @@ tasks:
     silent: true
     cmds:
       - echo "Initializing the project"
+      - git submodule update --init --recursive
       - task mise:install
       - task claude:install
       - cargo install cargo-set-version cargo-machete

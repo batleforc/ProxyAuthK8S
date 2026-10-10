@@ -8,7 +8,7 @@ metadata:
   namespace: default
 spec:
   cert:
-    Insecure: true
+    SystemRoots: true
   service:
     KubernetesService:
       name: kubernetes

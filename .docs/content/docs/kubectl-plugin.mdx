@@ -70,6 +70,61 @@ suivantes (et les logins de cluster) lui font confiance sans repréciser l'optio
 écrite en `certificate-authority-data` dans les clusters du kubeconfig, pour que `kubectl`
 lui fasse confiance. Repasser `--certificate-authority` la remplace.
 
+**Confiance au premier usage.** Lors du premier login à un serveur `https` sans CA connue, le
+plugin récupère le certificat présenté (la poignée de main est interrompue dès sa réception :
+rien n'est envoyé à un serveur non vérifié). Si le système ne le reconnaît pas mais qu'il s'agit
+d'un certificat **auto-signé** valide pour ce nom d'hôte (certificat du serveur lui-même, ou
+racine envoyée avec la chaîne), le plugin affiche son sujet, sa validité et son empreinte
+SHA-256, puis demande confirmation :
+
+```text
+The server https://proxyauthk8s.example.com presents a self-signed certificate this system does not trust:
+  Subject:  CN=proxyauthk8s.example.com
+  Valid:    2026-10-01T00:00:00Z to 2027-10-01T00:00:00Z
+  SHA-256:  3F:A1:…:9C
+Check this fingerprint with the server's administrator before accepting.
+Trust this certificate for https://proxyauthk8s.example.com? [y/N]:
+```
+
+Vérifiez l'empreinte auprès de l'administrateur (par ex. `openssl x509 -noout -fingerprint
+-sha256 -in cert.pem`) avant d'accepter. Une réponse `y` l'enregistre exactement comme
+`--certificate-authority` ; toute autre réponse arrête le login (`ERR000020`). Rien n'est proposé
+sans terminal (scripts, CI), ni quand le certificat est expiré, émis pour un autre nom, ou
+signé par une CA que le serveur n'envoie pas : passez alors la CA avec `--certificate-authority`.
+
+**Renouvellement du certificat.** Un certificat auto-signé épinglé ne vérifie plus le serveur
+dès qu'il est renouvelé avec une nouvelle clé — ce que fait cert-manager par défaut
+(`rotationPolicy: Always`, environ tous les 60 jours). Les commandes échouent alors
+(`ERR000020` pour le plugin, `x509: certificate signed by unknown authority` pour `kubectl`).
+Relancez `kubectl proxyauth login` depuis un terminal : le plugin détecte le changement et
+affiche l'ancienne et la nouvelle empreinte :
+
+```text
+WARNING: the certificate of https://proxyauthk8s.example.com has CHANGED since it was trusted.
+Previously trusted SHA-256: 3F:A1:…:9C
+Now presented:
+  Subject:  CN=proxyauthk8s.example.com
+  Valid:    2026-12-01T00:00:00Z to 2027-12-01T00:00:00Z
+  SHA-256:  B7:02:…:E4
+This is expected after a certificate renewal, but it is also what an attacker
+intercepting the connection would show. Check the new fingerprint with the
+server's administrator before accepting.
+Replace the trusted certificate for https://proxyauthk8s.example.com? [y/N]:
+```
+
+Le défaut est **non** : un changement inattendu est exactement ce que montrerait une
+interception. En acceptant, le nouveau certificat remplace l'ancien pour ce serveur **et** dans
+tous les clusters du kubeconfig qui passent par lui, sans relogin cluster par cluster (même
+chose quand `--certificate-authority` change la CA d'un serveur). Sans terminal, rien n'est
+remplacé.
+
+<Callout type="info">
+  Pour un serveur utilisé dans la durée, évitez d'épingler un certificat feuille qui tourne :
+  servez un certificat émis par une CA (interne ou publique) et distribuez cette CA avec
+  `--certificate-authority`, ou envoyez une racine auto-signée stable avec la chaîne — seule la
+  rotation de cette racine demande alors une nouvelle confirmation.
+</Callout>
+
 Pour récupérer la CA :
 
 - **cert-manager avec une CA interne** : `kubectl get secret <secret-du-certificat> -n <ns> -o jsonpath='{.data.ca\.crt}' | base64 -d`
@@ -116,6 +171,61 @@ L'URI de redirection utilisée est `http://localhost:<port>/auth/callback/<ns>/<
 être enregistrée pour le client OIDC du cluster côté IdP. Le port par défaut est `18000` ;
 changez-le avec `PROXYAUTH_CALLBACK_PORT` si besoin (et enregistrez l'URI correspondante).
 </Callout>
+
+#### Navigateur sur une autre machine (Eclipse Che, SSH, poste distant)
+
+Après la connexion, le provider redirige le navigateur vers
+`http://localhost:<port>/auth/callback/<ns>/<cluster>?code=…&state=…`. Ce `localhost` est celui
+de la machine **du navigateur** : quand le plugin tourne ailleurs (workspace Eclipse Che,
+session SSH, conteneur distant), la redirection ne l'atteint pas et la page **ne se charge
+pas**. C'est attendu : depuis un terminal, le plugin accepte aussi qu'on **colle l'URL** de cette
+page.
+
+```bash
+kubectl proxyauth login mon-cluster --browser none   # n'essaie pas d'ouvrir un navigateur local
+```
+
+1. Ouvrez l'URL affichée dans le navigateur de votre poste et connectez-vous.
+2. Le navigateur arrive sur `http://localhost:18000/auth/callback/...` et affiche une erreur de
+   connexion : copiez l'**adresse complète** depuis la barre d'adresse.
+3. Collez-la dans le terminal et validez. Le plugin termine le login (échange du code, kubeconfig).
+
+- Le collage et le callback local sont attendus **en même temps** : sur un poste classique, rien
+  ne change, le premier arrivé l'emporte.
+- L'adresse complète, `?code=…&state=…` ou `code=…&state=…` sont acceptés ; une saisie qui n'est
+  pas une redirection est signalée et l'attente continue. Une erreur renvoyée par le provider
+  (`error=access_denied`, …) arrête le login avec son détail.
+- Le délai d'attente passe de 3 à 10 minutes quand le collage est possible. Sans terminal
+  (script), seul le callback local est attendu.
+- `state` reste vérifié par le serveur : coller l'URL d'un autre login échoue.
+
+#### Choisir le navigateur
+
+Par défaut, le navigateur du système est utilisé. Si le provider impose un autre navigateur
+(navigateur d'entreprise, profil dédié), indiquez-le avec `--browser`, et ses arguments avec
+`--browser-arg` (répétable) :
+
+```bash
+# Linux / macOS
+kubectl proxyauth login mon-cluster --browser /opt/corp/browser
+kubectl proxyauth login mon-cluster --browser google-chrome \
+  --browser-arg=--profile-directory=Work --browser-arg=--new-window
+
+# Windows : chemin complet, sans guillemets supplémentaires à prévoir
+kubectl proxyauth login mon-cluster --browser "C:\Program Files\Corp\browser.exe"
+```
+
+- Le programme est lancé **directement, sans shell** : l'URL est toujours un seul argument, et
+  un chemin avec des espaces n'a pas besoin d'échappement.
+- L'URL est passée en dernier argument, sauf si un argument contient `{url}`, qui est alors
+  remplacé (ex. `--browser-arg=--app={url}`).
+- Le choix est **enregistré pour le serveur** (visible dans la colonne `Browser` de
+  `kubectl proxyauth config get`) : les logins suivants via ce serveur l'utilisent sans
+  repréciser l'option. Il peut aussi être donné dès le login serveur.
+- `--browser none` n'ouvre rien et se contente d'afficher l'URL (poste sans navigateur, URL à
+  ouvrir ailleurs) ; `--browser default` revient au navigateur du système.
+- `PROXYAUTH_BROWSER=<programme>` remplace le choix enregistré pour une seule exécution, sans le
+  modifier.
 
 Pour un cluster non-SSO (ou pour fournir un jeton directement) :
 
@@ -230,4 +340,6 @@ l'appel, applique les règles de sécurité, puis relaie vers l'apiserver.
 | `403` avec un message sur un chemin             | Le chemin n'est pas dans `security_config.allowed_resources`                   |
 | `429` avec un en-tête `Retry-After`             | Rate limiting, ou bannissement après des échecs d'authentification répétés      |
 | `certificate verify failed`                     | Certificat du serveur non reconnu : voir `--certificate-authority` ci-dessus     |
+| `ERR000020: Server certificate not trusted`     | Certificat auto-signé refusé à l'invite de confiance, ou certificat **renouvelé** depuis qu'il a été épinglé : relancer `kubectl proxyauth login` depuis un terminal et accepter après vérification de l'empreinte, ou passer `--certificate-authority` |
+| `x509: certificate signed by unknown authority` (kubectl) | Le certificat du serveur a changé : relancer `kubectl proxyauth login`, qui met à jour la CA des clusters du kubeconfig |
 | Le cluster n'apparaît pas dans `get`            | `expose_via_dashboard` est à `false` (défaut) ou le groupe dashboard ne correspond pas |

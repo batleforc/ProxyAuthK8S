@@ -75,6 +75,22 @@ pub fn segments(path: &str) -> Vec<&str> {
     path.split('/').filter(|s| !s.is_empty()).collect()
 }
 
+/// What to check, per candidate item, to decide whether a caller may see it.
+///
+/// Pure data: a mapper describes the `SelfSubjectAccessReview` attributes to
+/// probe with, the caller (which does I/O) runs the actual review. Used to
+/// filter a LIST response down to the items the caller can individually
+/// access, mirroring `OpenShift`'s per-project visibility model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AccessProbe {
+    /// API group of the resource being checked, e.g. `""` for core.
+    pub group: &'static str,
+    /// Resource plural, e.g. `namespaces`.
+    pub resource: &'static str,
+    /// Verb that determines visibility, e.g. `get`.
+    pub verb: &'static str,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -80,8 +80,8 @@ back:
   replicas: 2
   port: 5437
   # Browser origins allowed by CORS (comma separated). Empty = the ingress
-  # origin only (the dashboard), which is all the bundled front needs; "*" is
-  # not supported, list origins explicitly.
+  # origin only (the dashboard), which is all the bundled front needs. "*"
+  # alone allows any origin (not recommended); prefer listing origins.
   corsAllowedOrigins: ""
   # Seconds the server waits for in-flight requests (watch/exec streams) to
   # finish on shutdown (SERVER_SHUTDOWN_TIMEOUT). The pod's grace period is set

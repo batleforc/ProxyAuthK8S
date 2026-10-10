@@ -1,0 +1,15 @@
+services:
+  dex:
+    image: "ghcr.io/dexidp/dex:v2.45.1"
+    container_name: dex
+    command: [ "dex", "serve", "/etc/dex/config.yaml" ]
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.dex.rule: "Host(`dex.k8s.localhost`)"
+      traefik.http.routers.dex.entrypoints: "https"
+      traefik.http.routers.dex.tls: "true"
+      traefik.http.routers.dex.tls.options: "default"
+      traefik.http.services.dex.loadbalancer.server.port: "5556"
+    volumes:
+      - "./dex/config.yaml:/etc/dex/config.yaml:ro"
+    restart: "unless-stopped"

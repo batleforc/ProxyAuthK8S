@@ -31,11 +31,21 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.set-version.outputs.version }}
+      prerelease: ${{ steps.set-version.outputs.prerelease }}
       name: ${{ steps.set-name.outputs.name }}
     steps:
       - name: Set version
         id: set-version
-        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        # A tag with a SemVer pre-release suffix (v0.1.10-rc.1) is a rehearsal:
+        # it must not move `latest` and is published as a GitHub pre-release.
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Set name
         id: set-name
         run: |
@@ -129,7 +139,7 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: 🏷️ Create the multi-arch index (version + latest)
+      - name: 🏷️ Create the multi-arch index (version, + latest on a final release)
         id: index
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ github.repository_owner }}/proxyauthk8s/${{ matrix.component }}"
@@ -138,10 +148,11 @@ jobs:
           for digest in digests/*; do
             SOURCES+=("$IMAGE@sha256:$(basename "$digest")")
           done
-          docker buildx imagetools create \
-            --tag "$IMAGE:$VERSION" \
-            --tag "$IMAGE:latest" \
-            "${SOURCES[@]}"
+          TAGS=(--tag "$IMAGE:$VERSION")
+          if [ "${{ needs.gather-facts.outputs.prerelease }}" != "true" ]; then
+            TAGS+=(--tag "$IMAGE:latest")
+          fi
+          docker buildx imagetools create "${TAGS[@]}" "${SOURCES[@]}"
           DIGEST=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
           echo "image=$IMAGE:$VERSION" >> "$GITHUB_OUTPUT"
           echo "digest=$IMAGE@$DIGEST" >> "$GITHUB_OUTPUT"
@@ -189,8 +200,17 @@ jobs:
       - name: ⎈ Lint, package and push
         id: push
         run: |
+          VERSION="${{ needs.gather-facts.outputs.version }}"
           helm lint "deploy/${{ matrix.chart }}"
-          helm package "deploy/${{ matrix.chart }}" --destination dist-charts
+          # Version the package from the tag, not Chart.yaml: on a release cog
+          # already bumped both to the same value, and on a pre-release tag
+          # this keeps an rc from re-pushing (overwriting) the last chart.
+          APP_VERSION_ARG=()
+          if [ "${{ matrix.chart }}" = "chart" ]; then
+            APP_VERSION_ARG=(--app-version "$VERSION")
+          fi
+          helm package "deploy/${{ matrix.chart }}" --destination dist-charts \
+            --version "${VERSION#v}" "${APP_VERSION_ARG[@]}"
           PACKAGE=$(ls dist-charts/*.tgz)
           OUTPUT=$(helm push "$PACKAGE" "oci://${{ env.REGISTRY }}/${{ env.CHART_BASE_ARTEFACT }}" 2>&1)
           echo "$OUTPUT"
@@ -337,6 +357,9 @@ jobs:
         run: echo "Create draft release with version ${{ needs.gather-facts.outputs.version }} and name ${{ needs.gather-facts.outputs.name }}"
       - name: 🔍 Checkout release branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history: the contributors list is read from `git log`.
+          fetch-depth: 0
       - name: ⬇️ Download the plugin archives and krew manifest
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -379,5 +402,6 @@ jobs:
             artifacts/server-sbom.json
             artifacts/front-sbom.json
           draft: true
+          prerelease: ${{ needs.gather-facts.outputs.prerelease == 'true' }}
           generate_release_notes: true
           token: ${{ secrets.GITHUB_TOKEN }}

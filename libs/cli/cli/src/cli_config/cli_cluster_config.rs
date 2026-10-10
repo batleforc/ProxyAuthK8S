@@ -17,3 +17,16 @@ impl CliClusterConfig {
         CliClusterConfig { token_exist: true }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_cluster_config_records_that_a_token_exists() {
+        // A cluster entry is only written once its token has been stored, so
+        // `new` (and the `Default` that forwards to it) start out at `true`.
+        assert!(CliClusterConfig::new().token_exist);
+        assert!(CliClusterConfig::default().token_exist);
+    }
+}

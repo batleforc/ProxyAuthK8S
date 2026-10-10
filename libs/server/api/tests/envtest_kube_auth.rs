@@ -106,6 +106,7 @@ fn kubernetes_mode_proxy(env_test: &EnvTest, ns: &str, cluster: &str) -> ProxyKu
             audience: String::new(),
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
+            config_from: None,
         },
         disable_validation: false,
         validate_against: ValidateAgainst::Kubernetes,

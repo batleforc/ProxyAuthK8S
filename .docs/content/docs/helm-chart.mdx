@@ -84,7 +84,7 @@ toute personne pouvant lire les Deployments le voit. Préférez `secret`.
 | `back.podDisruptionBudget.enabled` | `true`   | PDB (`minAvailable: 1`)                                                     |
 | `back.autoscaling.*`               | désactivé | HPA (`minReplicas`, `maxReplicas`, `targetCPUUtilizationPercentage`)        |
 
-Sondes : liveness sur `/management/health`, readiness sur `/management/ready` (vérifie Redis).
+Sondes : liveness sur `/management/health`, readiness sur `/management/ready` (vérifie Redis et la découverte OIDC du démarrage).
 
 ## Front
 

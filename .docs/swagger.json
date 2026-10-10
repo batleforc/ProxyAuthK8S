@@ -43,8 +43,14 @@
           "401": {
             "description": "User is not authenticated."
           },
+          "429": {
+            "description": "Rate limited or banned (see UNSCOPED_* environment knobs)."
+          },
           "500": {
             "description": "Internal server error."
+          },
+          "503": {
+            "description": "Redis is unavailable."
           }
         },
         "security": [
@@ -183,11 +189,20 @@
               }
             }
           },
+          "400": {
+            "description": "Missing or already-used CSRF state."
+          },
           "404": {
             "description": "Cluster not found or disabled."
           },
+          "429": {
+            "description": "Rate limited or banned for this cluster."
+          },
           "500": {
             "description": "Internal server error."
+          },
+          "503": {
+            "description": "Redis is unavailable."
           }
         }
       }
@@ -255,11 +270,20 @@
               }
             }
           },
+          "401": {
+            "description": "Missing, malformed, or unresolvable bearer token."
+          },
           "404": {
             "description": "Cluster not found or disabled."
           },
+          "429": {
+            "description": "Rate limited or banned for this cluster."
+          },
           "500": {
             "description": "Internal server error."
+          },
+          "503": {
+            "description": "Redis is unavailable."
           }
         },
         "security": [
@@ -872,13 +896,38 @@
         }
       }
     },
+    "/management/metrics": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Prometheus metrics in the text exposition format 0.0.4.",
+        "description": "Only served when `METRICS_PROMETHEUS_ENABLED` is set; `404` otherwise. The\nsame metrics are exported over OTLP when a collector is configured.",
+        "operationId": "prometheus_metrics",
+        "responses": {
+          "200": {
+            "description": "Metrics in the Prometheus text exposition format 0.0.4.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The Prometheus endpoint is disabled (`METRICS_PROMETHEUS_ENABLED` is not set)."
+          }
+        }
+      }
+    },
     "/management/ready": {
       "get": {
         "tags": [
           "health"
         ],
         "summary": "Readiness: the pod can serve proxied traffic.",
-        "description": "Every proxied request needs Redis (cluster registry, sessions, throttling),\nso the pod is only ready when Redis answers a `PING` within 2 seconds.",
+        "description": "Every proxied request needs Redis (cluster registry, sessions, throttling),\nso the pod is only ready when Redis answers a `PING` within 2 seconds, and\nonce the boot-time OIDC discovery has succeeded (it retries with backoff\ninstead of crashing the pod while the IdP is down).",
         "operationId": "ready",
         "responses": {
           "200": {
@@ -892,7 +941,7 @@
             }
           },
           "503": {
-            "description": "A required dependency (Redis) is unavailable.",
+            "description": "A required dependency (Redis, or the OIDC provider at boot) is unavailable.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1013,9 +1062,14 @@
         "type": "object",
         "description": "Body of the readiness probe.",
         "required": [
-          "redis"
+          "redis",
+          "oidc"
         ],
         "properties": {
+          "oidc": {
+            "type": "string",
+            "description": "`ok` once the service-wide OIDC provider has been discovered, `pending`\nwhile the boot-time discovery is still retrying."
+          },
           "redis": {
             "type": "string",
             "description": "`ok` when Redis answered a `PING`, `unavailable` otherwise."

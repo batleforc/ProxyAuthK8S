@@ -30,128 +30,250 @@ spec:
                     type: boolean
                   jwt:
                     default: []
+                    description: |-
+                      Bounded so the quadratic uniqueness rule above stays inside the
+                      apiserver's CEL cost budget — the estimator multiplies this bound by the
+                      bound on `issuer.url`, and an unbounded pair is rejected outright. Still
+                      far above any real deployment, which trusts a handful of issuers.
                     items:
+                      description: |-
+                        One trusted JWT issuer and the rules applied to the tokens it mints,
+                        mirroring one entry of the apiserver's structured authentication
+                        configuration `jwt:` list.
                       properties:
                         claim_mappings:
+                          description: How the claims become a username, groups, uid and extra.
                           properties:
                             extra:
+                              default: []
                               items:
+                                description: One entry of the user's `extra` map, keyed by a domain-prefixed name.
                                 properties:
                                   key:
                                     type: string
                                   value_expression:
+                                    default: ''
+                                    description: A CEL expression over `claims` producing the value(s) for `key`.
                                     type: string
                                 required:
                                 - key
-                                - value_expression
                                 type: object
                               type: array
                             groups:
+                              description: |-
+                                Either a claim (with an optional prefix) or a CEL expression, never both.
+
+                                `prefix` exists to keep an external identity provider from minting a
+                                username that collides with a local one; it applies only to the `claim`
+                                form, since an `expression` can prepend whatever it likes itself.
                               nullable: true
                               properties:
                                 claim:
-                                  type: string
-                                expression:
-                                  type: string
-                                prefix:
+                                  maxLength: 253
                                   nullable: true
                                   type: string
-                              required:
-                              - claim
-                              - expression
+                                expression:
+                                  maxLength: 4096
+                                  nullable: true
+                                  type: string
+                                prefix:
+                                  description: Prepended to the claim's value. Only valid with `claim`.
+                                  maxLength: 253
+                                  nullable: true
+                                  type: string
                               type: object
+                              x-kubernetes-validations:
+                              - message: exactly one of claim or expression must be set
+                                rule: has(self.claim) != has(self.expression)
+                              - message: prefix may only be set together with claim
+                                rule: '!has(self.prefix) || has(self.claim)'
+                              - message: prefix is required with claim (use "" to opt out of prefixing deliberately)
+                                rule: '!has(self.claim) || has(self.prefix)'
                             uid:
+                              description: Either a claim or a CEL expression, never both.
                               nullable: true
                               properties:
                                 claim:
+                                  maxLength: 253
                                   nullable: true
                                   type: string
                                 expression:
+                                  maxLength: 4096
                                   nullable: true
                                   type: string
                               type: object
+                              x-kubernetes-validations:
+                              - message: exactly one of claim or expression must be set
+                                rule: has(self.claim) != has(self.expression)
                             username:
+                              description: |-
+                                Required — a token that validates but maps to no username authenticates
+                                nobody, so the apiserver requires it too.
                               nullable: true
                               properties:
                                 claim:
+                                  maxLength: 253
+                                  nullable: true
                                   type: string
                                 expression:
+                                  maxLength: 4096
+                                  nullable: true
                                   type: string
                                 prefix:
+                                  description: Prepended to the claim's value. Only valid with `claim`.
+                                  maxLength: 253
                                   nullable: true
                                   type: string
-                              required:
-                              - claim
-                              - expression
                               type: object
-                          required:
-                          - extra
+                              x-kubernetes-validations:
+                              - message: exactly one of claim or expression must be set
+                                rule: has(self.claim) != has(self.expression)
+                              - message: prefix may only be set together with claim
+                                rule: '!has(self.prefix) || has(self.claim)'
+                              - message: prefix is required with claim (use "" to opt out of prefixing deliberately)
+                                rule: '!has(self.claim) || has(self.prefix)'
                           type: object
+                          x-kubernetes-validations:
+                          - message: 'claim_mappings.username is required: without it a validated token maps to no user'
+                            rule: has(self.username)
                         claim_validation_rules:
+                          default: []
+                          description: Rules the raw claims must satisfy before any mapping happens.
                           items:
+                            description: |-
+                              A rule the token's claims must satisfy, mirroring the apiserver's
+                              `claimValidationRules`.
+
+                              Two mutually exclusive shapes, exactly as upstream:
+                                - `claim` + `required_value`: the named claim must be a string equal to
+                                  `required_value`;
+                                - `expression` (+ `message`): a CEL expression over `claims` that must
+                                  evaluate to `true`.
+
+                              Both halves are optional in the schema because only one may be given; which
+                              one was given is checked by [`ClaimValidationRule::validate`] and by the CEL
+                              admission rule that mirrors it. Before this was modelled as an either/or, all
+                              four fields were required — a rule could not be written at all without
+                              supplying nonsense for the half you did not mean.
                             properties:
                               claim:
+                                description: The claim whose value must equal `required_value`.
+                                maxLength: 253
+                                nullable: true
                                 type: string
                               expression:
+                                description: A CEL expression over `claims` that must evaluate to `true`.
+                                maxLength: 4096
+                                nullable: true
                                 type: string
                               message:
+                                default: ''
+                                description: |-
+                                  Shown when `expression` rejects a token. Required with `expression`: a
+                                  rejection nobody can explain is a support ticket, not a security control.
+                                maxLength: 1024
                                 type: string
                               required_value:
+                                default: ''
+                                description: |-
+                                  The value `claim` must hold. Absent means "the claim must merely be
+                                  present", which is how the apiserver reads an empty `requiredValue`.
+                                maxLength: 1024
                                 type: string
-                            required:
-                            - claim
-                            - expression
-                            - message
-                            - required_value
                             type: object
+                            x-kubernetes-validations:
+                            - message: exactly one of claim or expression must be set
+                              rule: has(self.claim) != has(self.expression)
+                            - message: required_value may only be set together with claim
+                              rule: self.required_value == '' || has(self.claim)
+                            - message: an expression rule requires a message explaining what it rejects
+                              rule: '!has(self.expression) || self.message != '''''
                           type: array
                         issuer:
+                          description: |-
+                            The token issuer a [`super::JWTAuthenticator`] trusts, mirroring the
+                            apiserver's `issuer`.
                           properties:
                             audience_match_policy:
+                              default: MatchAny
                               enum:
                               - MatchAny
                               type: string
                             audiences:
+                              default: []
+                              description: |-
+                                Accepted `aud` values. At least one — an authenticator that accepts any
+                                audience is the audience-confusion hole this whole area exists to close.
                               items:
                                 type: string
                               type: array
                             certificate_authority:
+                              description: |-
+                                PEM bundle used to verify the issuer's TLS certificate. Absent means the
+                                system trust store.
                               nullable: true
                               type: string
                             discovery_url:
+                              description: |-
+                                Where the discovery document lives, when it is not `url` +
+                                `/.well-known/openid-configuration`.
+                              maxLength: 253
                               nullable: true
                               type: string
                             egress_selector:
+                              default: controlplane
                               enum:
                               - controlplane
                               - cluster
                               type: string
                             url:
+                              description: |-
+                                The `iss` claim every token must carry, and the base for OIDC discovery
+                                unless `discovery_url` overrides it.
+                              maxLength: 253
                               type: string
                           required:
-                          - audience_match_policy
-                          - audiences
-                          - egress_selector
                           - url
                           type: object
+                          x-kubernetes-validations:
+                          - message: issuer.url must be an https:// URL
+                            rule: self.url.startsWith('https://')
+                          - message: issuer.audiences must list at least one audience
+                            rule: size(self.audiences) > 0
+                          - message: issuer.discovery_url must be an https:// URL
+                            rule: '!has(self.discovery_url) || self.discovery_url.startsWith(''https://'')'
                         user_validation_rules:
+                          default: []
+                          description: Rules the *mapped* user must satisfy — e.g. refusing a `system:` prefix.
                           items:
+                            description: |-
+                              A rule the *mapped* user must satisfy, mirroring the apiserver's
+                              `userValidationRules`.
+
+                              Runs after [`super::ClaimMappings`], over a `user` variable — which is what
+                              makes it the right place to refuse a username an external IdP should never be
+                              able to mint, such as anything under `system:`.
                             properties:
                               expression:
+                                default: ''
+                                description: A CEL expression over `user` that must evaluate to `true`.
+                                maxLength: 4096
                                 type: string
                               message:
+                                default: ''
+                                description: Shown when the rule rejects a user.
+                                maxLength: 1024
                                 type: string
-                            required:
-                            - expression
-                            - message
                             type: object
+                            x-kubernetes-validations:
+                            - message: a user validation rule requires both an expression and a message
+                              rule: self.expression != '' && self.message != ''
                           type: array
                       required:
                       - claim_mappings
-                      - claim_validation_rules
                       - issuer
-                      - user_validation_rules
                       type: object
+                    maxItems: 8
                     type: array
                   oidc_provider:
                     description: |-
@@ -180,10 +302,58 @@ spec:
                           expected audience (what the token is for) are configured independently.
                         type: string
                       client_id:
+                        default: ''
+                        description: |-
+                          Ignored when the `config_from` Secret carries a `client_id` key. See
+                          `issuer_url` for why it is optional.
                         type: string
                       client_secret:
+                        description: |-
+                          The OAuth client secret, inline.
+
+                          Prefer `config_from`: a value here is readable by anyone with `get` on
+                          this resource, shows up in `kubectl get -o yaml`, and is copied into
+                          every backup of it.
                         nullable: true
                         type: string
+                      config_from:
+                        description: |-
+                          Read the provider block from an external Secret instead of inlining it
+                          here.
+
+                          The Secret's keys are the snake_case field names of this struct —
+                          `issuer_url`, `client_id`, `client_secret`, `audience`, `extra_scope` —
+                          and any key it carries wins over the inline value; keys it does not carry
+                          fall back to the inline value, so a partial Secret (the common case: just
+                          `client_secret`) works. Keys outside that set are ignored, since a Secret
+                          managed by external-secrets is routinely shared with other consumers.
+
+                          The policy toggles (`enabled`, `accept_authorized_party`,
+                          `expose_oauth_authorization_server`) are deliberately *not* readable from
+                          the Secret: they decide how strictly tokens are validated and who may
+                          reach this cluster, so they must stay visible in the CR that admission
+                          and review look at.
+                        nullable: true
+                        oneOf:
+                        - required:
+                          - Secret
+                        properties:
+                          Secret:
+                            description: Read the provider block from the keys of a Secret.
+                            properties:
+                              name:
+                                type: string
+                              namespace:
+                                description: |-
+                                  Defaults to the `ProxyKubeApi`'s own namespace. Honoured only when
+                                  `PROXYAUTH_ALLOW_CROSS_NS_OIDC` is set — see
+                                  [`cross_namespace_oidc_allowed`].
+                                nullable: true
+                                type: string
+                            required:
+                            - name
+                            type: object
+                        type: object
                       enabled:
                         default: false
                         type: boolean
@@ -215,24 +385,31 @@ spec:
                         default: ''
                         type: string
                       issuer_url:
+                        default: ''
+                        description: |-
+                          Ignored when the `config_from` Secret carries an `issuer_url` key.
+                          Optional only so a `config_from`-only block need not restate it; an
+                          enabled provider must end up with a non-empty value from one side or the
+                          other.
                         type: string
-                    required:
-                    - client_id
-                    - issuer_url
                     type: object
                     x-kubernetes-validations:
-                    - message: an enabled OIDC provider requires a non-empty issuer_url and client_id
-                      rule: '!self.enabled || (self.issuer_url != '''' && self.client_id != '''')'
+                    - message: an enabled OIDC provider requires a non-empty issuer_url and client_id, or a config_from reference supplying them
+                      rule: '!self.enabled || has(self.config_from) || (self.issuer_url != '''' && self.client_id != '''')'
                     - message: expose_oauth_authorization_server requires the OIDC provider to be enabled
                       rule: '!self.expose_oauth_authorization_server || self.enabled'
                   validate_against:
                     default: Kubernetes
                     description: |-
                       Validate against the configured JWT authenticators, OIDC provider or Kubernetes API
-                      Default : `OidcProvider` if enabled, otherwise `JwtAuthenticators` if configured, otherwise Kubernetes
+                      Default : `Kubernetes` — the fail-closed choice, valid for every cluster.
+                      Selecting `OidcProvider` or `JwtAuthenticators` is always explicit, so a
+                      cluster never silently changes how it authenticates because a field was
+                      added elsewhere in the spec.
                     enum:
                     - OidcProvider
                     - Kubernetes
+                    - JwtAuthenticators
                     type: string
                 required:
                 - oidc_provider
@@ -240,6 +417,10 @@ spec:
                 x-kubernetes-validations:
                 - message: validate_against is set to OidcProvider but the OIDC provider is not enabled
                   rule: self.validate_against != 'OidcProvider' || self.oidc_provider.enabled
+                - message: validate_against is set to JwtAuthenticators but no jwt authenticator is configured
+                  rule: self.validate_against != 'JwtAuthenticators' || size(self.jwt) > 0
+                - message: two jwt authenticators are configured for the same issuer; only the first would ever apply
+                  rule: self.jwt.all(a, self.jwt.exists_one(b, b.issuer.url == a.issuer.url))
               cert:
                 description: Certificate for the Kubernetes API
                 oneOf:
@@ -249,6 +430,8 @@ spec:
                   - Cert
                 - required:
                   - ConfigMap
+                - required:
+                  - SystemRoots
                 - required:
                   - Insecure
                 properties:
@@ -270,7 +453,9 @@ spec:
                     - name
                     type: object
                   Insecure:
-                    description: Insecure, do not use TLS
+                    description: |-
+                      Deprecated, use `SystemRoots`. Despite its name this never disabled TLS
+                      verification: it behaves exactly like `SystemRoots`. The value is ignored.
                     type: boolean
                   Secret:
                     description: Use a cert from a secret
@@ -286,6 +471,11 @@ spec:
                     - key
                     - name
                     type: object
+                  SystemRoots:
+                    description: |-
+                      Verify the target with the system trust store (no custom CA). The
+                      value is ignored.
+                    type: boolean
                 type: object
               client_cert:
                 description: |-
@@ -303,6 +493,8 @@ spec:
                     - required:
                       - ConfigMap
                     - required:
+                      - SystemRoots
+                    - required:
                       - Insecure
                     properties:
                       Cert:
@@ -323,7 +515,9 @@ spec:
                         - name
                         type: object
                       Insecure:
-                        description: Insecure, do not use TLS
+                        description: |-
+                          Deprecated, use `SystemRoots`. Despite its name this never disabled TLS
+                          verification: it behaves exactly like `SystemRoots`. The value is ignored.
                         type: boolean
                       Secret:
                         description: Use a cert from a secret
@@ -339,6 +533,11 @@ spec:
                         - key
                         - name
                         type: object
+                      SystemRoots:
+                        description: |-
+                          Verify the target with the system trust store (no custom CA). The
+                          value is ignored.
+                        type: boolean
                     type: object
                   key:
                     description: PEM private key matching the certificate
@@ -350,6 +549,8 @@ spec:
                     - required:
                       - ConfigMap
                     - required:
+                      - SystemRoots
+                    - required:
                       - Insecure
                     properties:
                       Cert:
@@ -370,7 +571,9 @@ spec:
                         - name
                         type: object
                       Insecure:
-                        description: Insecure, do not use TLS
+                        description: |-
+                          Deprecated, use `SystemRoots`. Despite its name this never disabled TLS
+                          verification: it behaves exactly like `SystemRoots`. The value is ignored.
                         type: boolean
                       Secret:
                         description: Use a cert from a secret
@@ -386,6 +589,11 @@ spec:
                         - key
                         - name
                         type: object
+                      SystemRoots:
+                        description: |-
+                          Verify the target with the system trust store (no custom CA). The
+                          value is ignored.
+                        type: boolean
                     type: object
                 required:
                 - cert
@@ -912,6 +1120,71 @@ spec:
                       enum:
                       - OpenShiftProject
                       type: string
+                    list_fallback_token:
+                      description: |-
+                        A least-privilege bearer token (`list` only on `namespaces`, nothing
+                        else) used to enumerate candidate namespaces so `OpenShiftProject`'s
+                        `LIST projects` can be filtered to what the caller can individually
+                        `get`, matching `OpenShift`'s per-project visibility model.
+
+                        Unset by default: `LIST projects` then behaves as a plain,
+                        unfiltered `LIST namespaces`. Only meaningful for
+                        `VirtualApiKind::OpenShiftProject`.
+                      nullable: true
+                      oneOf:
+                      - required:
+                        - Secret
+                      - required:
+                        - Cert
+                      - required:
+                        - ConfigMap
+                      - required:
+                        - SystemRoots
+                      - required:
+                        - Insecure
+                      properties:
+                        Cert:
+                          description: Base64 encoded cert
+                          type: string
+                        ConfigMap:
+                          description: Configmap
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              nullable: true
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        Insecure:
+                          description: |-
+                            Deprecated, use `SystemRoots`. Despite its name this never disabled TLS
+                            verification: it behaves exactly like `SystemRoots`. The value is ignored.
+                          type: boolean
+                        Secret:
+                          description: Use a cert from a secret
+                          properties:
+                            key:
+                              type: string
+                            name:
+                              type: string
+                            namespace:
+                              nullable: true
+                              type: string
+                          required:
+                          - key
+                          - name
+                          type: object
+                        SystemRoots:
+                          description: |-
+                            Verify the target with the system trust store (no custom CA). The
+                            value is ignored.
+                          type: boolean
+                      type: object
                   required:
                   - kind
                   type: object

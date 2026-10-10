@@ -1,0 +1,59 @@
+name: postmortem supply-chain gate
+
+# Dogfoods mlab-sh/postmortem against every dependency graph in the repo:
+# the root Cargo workspace, the root yarn workspace (front), and the docs
+# site's own yarn workspace (.docs). `online` scores each dependency's
+# source repo for reputation/provenance, `vulns` queries known advisories.
+# Complements back-dep-audit.yaml (Rust-only, RustSec) and
+# dependency-review.yml (PR-only, GHSA) rather than replacing them.
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "yarn.lock"
+      - ".docs/package.json"
+      - ".docs/yarn.lock"
+      - ".github/workflows/postmortem-scan.yaml"
+  pull_request:
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "yarn.lock"
+      - ".docs/package.json"
+      - ".docs/yarn.lock"
+      - ".github/workflows/postmortem-scan.yaml"
+  schedule:
+    - cron: "15 5 * * 1" # weekly — catch newly-published advisories on pinned deps
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: postmortem gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # for the SARIF upload to Code Scanning
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: postmortem supply-chain gate
+        uses: mlab-sh/postmortem@v2.1.2
+        with:
+          paths: |
+            Cargo.lock
+            yarn.lock
+            .docs
+          online: true # resolve crates.io/npm -> source repo for reputation scoring
+          vulns: true
+          fail-on-vuln: high # block only on High+ advisories
+          sarif: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          vuln-token: ${{ secrets.VULN_MLAB_TOKEN }} # optional — raises the rate limit

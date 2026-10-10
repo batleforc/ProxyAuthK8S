@@ -36,11 +36,25 @@ pub(super) async fn upstream_client(
     let ttl = upstream_client_ttl();
     UPSTREAM_CLIENTS
         .get_or_try_insert_with(&key, ttl, || async {
-            let tls_config = Arc::new(build_tls_config(proxy, data).await?);
+            let tls_config = Arc::new(build_tls_config(proxy, data, true).await?);
             UPSTREAM_TLS_CONFIGS.insert(key.clone(), Arc::clone(&tls_config), ttl);
             build_upstream_client((*tls_config).clone())
         })
         .await
+}
+
+/// A reqwest client trusting the cluster's CA but never presenting a client
+/// certificate, even when the cluster is configured for mutual TLS.
+///
+/// For a privileged bearer-token call (see `list_fallback`): its identity must
+/// never be conflated with the front-proxy mTLS identity used for impersonated
+/// calls, so it authenticates by the token alone. Deliberately kept out of the
+/// upstream client cache, whose key does not tell the two identities apart.
+pub(super) async fn ca_only_client(
+    proxy: &ProxyKubeApi,
+    data: &web::Data<State>,
+) -> Result<reqwest::Client, String> {
+    build_upstream_client(build_tls_config(proxy, data, false).await?)
 }
 
 /// The upstream client for `tls_config`: no redirects, bounded connect.

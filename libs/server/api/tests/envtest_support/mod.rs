@@ -24,19 +24,57 @@ const STARTUP_TIMEOUT: Duration = Duration::from_secs(90);
 /// these tests are about CRD admission and controller behaviour, not RBAC.
 const TEST_TOKEN: &str = "envtest-token";
 
+/// A `token,username,uid,"group1,group2"` line for `--token-auth-file`, beyond
+/// the built-in admin token every `EnvTest` already carries.
+pub struct ExtraToken<'a> {
+    pub token: &'a str,
+    pub username: &'a str,
+    pub uid: &'a str,
+    pub groups: &'a str,
+}
+
+/// How to start the apiserver, beyond the `AlwaysAllow`/single-admin-token
+/// default every existing envtest case relies on.
+pub struct EnvTestOptions<'a> {
+    /// `AlwaysAllow` (the default — these tests are about CRD admission and
+    /// controller behaviour, not RBAC) or `RBAC`, for a case that needs real
+    /// authorization decisions (e.g. `SelfSubjectAccessReview` filtering).
+    pub authorization_mode: &'a str,
+    /// Additional identities beyond the built-in `system:masters` admin.
+    pub extra_tokens: &'a [ExtraToken<'a>],
+}
+
+impl Default for EnvTestOptions<'_> {
+    fn default() -> Self {
+        Self {
+            authorization_mode: "AlwaysAllow",
+            extra_tokens: &[],
+        }
+    }
+}
+
 pub struct EnvTest {
     etcd: Child,
     apiserver: Child,
     /// Kept alive so the scratch directory outlives the processes.
     _workdir: TempDir,
     apiserver_url: String,
-    /// Where the apiserver writes its self-signed serving certificate.
-    cert_dir: PathBuf,
+    /// PEM of the CA that signed this instance's serving certificate, so a
+    /// caller that (unlike `client()`) cannot skip TLS verification can pin
+    /// it as a trust anchor instead.
+    serving_cert_pem: String,
 }
 
 impl EnvTest {
-    /// Start etcd and kube-apiserver, or explain why the suite cannot run.
+    /// Start etcd and kube-apiserver with the default options, or explain why
+    /// the suite cannot run.
     pub async fn start() -> Result<Self, String> {
+        Self::start_with(EnvTestOptions::default()).await
+    }
+
+    /// Start etcd and kube-apiserver with `options`, or explain why the suite
+    /// cannot run.
+    pub async fn start_with(options: EnvTestOptions<'_>) -> Result<Self, String> {
         install_crypto_provider();
         let assets = assets_dir()?;
         let etcd_bin = assets.join("etcd");
@@ -52,12 +90,20 @@ impl EnvTest {
 
         let workdir = TempDir::new()?;
         let (sa_key, sa_pub) = generate_service_account_keys(workdir.path())?;
+        let (serving_cert, serving_key, serving_ca_cert) = generate_serving_cert(workdir.path())?;
+        let serving_cert_pem = std::fs::read_to_string(&serving_ca_cert)
+            .map_err(|err| format!("could not read the generated CA cert: {err}"))?;
+
+        let mut token_lines = format!("{TEST_TOKEN},envtest-admin,uid-1,\"system:masters\"\n");
+        for extra in options.extra_tokens {
+            token_lines.push_str(&format!(
+                "{},{},{},\"{}\"\n",
+                extra.token, extra.username, extra.uid, extra.groups
+            ));
+        }
         let token_file = workdir.path().join("tokens.csv");
-        std::fs::write(
-            &token_file,
-            format!("{TEST_TOKEN},envtest-admin,uid-1,\"system:masters\"\n"),
-        )
-        .map_err(|err| format!("could not write the token file: {err}"))?;
+        std::fs::write(&token_file, token_lines)
+            .map_err(|err| format!("could not write the token file: {err}"))?;
 
         let etcd_client_port = free_port()?;
         let etcd_peer_port = free_port()?;
@@ -90,7 +136,7 @@ impl EnvTest {
                 "--secure-port",
                 &apiserver_port.to_string(),
                 "--authorization-mode",
-                "AlwaysAllow",
+                options.authorization_mode,
                 // The ServiceAccount admission plugin needs a running
                 // controller-manager, which envtest does not provide.
                 "--disable-admission-plugins",
@@ -108,18 +154,24 @@ impl EnvTest {
             .arg(&sa_key)
             .arg("--token-auth-file")
             .arg(&token_file)
+            // Override the auto-generated serving cert with one whose PEM we
+            // keep, so a client that must actually verify the chain (rather
+            // than skip verification like `client()` does) can pin it.
+            .arg("--tls-cert-file")
+            .arg(&serving_cert)
+            .arg("--tls-private-key-file")
+            .arg(&serving_key)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .map_err(|err| format!("could not start kube-apiserver: {err}"))?;
 
-        let cert_dir = workdir.path().join("certs");
         let env_test = Self {
             etcd,
             apiserver,
             _workdir: workdir,
             apiserver_url,
-            cert_dir,
+            serving_cert_pem,
         };
         env_test.wait_until_ready().await?;
         Ok(env_test)
@@ -130,7 +182,12 @@ impl EnvTest {
     /// Returns `None` after printing why, unless `REQUIRE_ENVTEST` is set —
     /// which CI does, so a broken setup can never silently green the suite.
     pub async fn try_start() -> Option<Self> {
-        match Self::start().await {
+        Self::try_start_with(EnvTestOptions::default()).await
+    }
+
+    /// Like [`Self::try_start`], with non-default options.
+    pub async fn try_start_with(options: EnvTestOptions<'_>) -> Option<Self> {
+        match Self::start_with(options).await {
             Ok(env_test) => Some(env_test),
             Err(err) => {
                 assert!(
@@ -178,13 +235,18 @@ impl EnvTest {
         TEST_TOKEN
     }
 
-    /// The PEM bundle (serving certificate and its self-signed CA) the
-    /// apiserver generated in `--cert-dir`, for clients that must verify TLS
-    /// instead of skipping it — e.g. a `ProxyKubeApi` with `CertSource::Cert`.
+    /// PEM of the CA that issued the apiserver's serving certificate — the
+    /// trust anchor a client must pin to verify it.
+    pub fn serving_cert_pem(&self) -> &str {
+        &self.serving_cert_pem
+    }
+
+    /// The CA PEM a client must trust to verify the apiserver — e.g. a
+    /// `ProxyKubeApi` with `CertSource::Cert`. Same anchor as
+    /// [`Self::serving_cert_pem`]: since the apiserver serves the harness's own
+    /// `--tls-cert-file`, it no longer writes an `apiserver.crt` to `--cert-dir`.
     pub fn ca_pem(&self) -> Result<String, String> {
-        let path = self.cert_dir.join("apiserver.crt");
-        std::fs::read_to_string(&path)
-            .map_err(|err| format!("could not read {}: {err}", path.display()))
+        Ok(self.serving_cert_pem.clone())
     }
 
     /// A client trusting the apiserver's self-signed certificate.
@@ -309,6 +371,103 @@ fn generate_service_account_keys(dir: &Path) -> Result<(PathBuf, PathBuf), Strin
     }
 
     Ok((key, public))
+}
+
+/// A CA-issued serving certificate for the apiserver, so its trust anchor's
+/// exact PEM is known ahead of time — kube-apiserver's own auto-generated
+/// `--cert-dir` cert is signed by an in-memory CA that is never written to
+/// disk, which a caller that must actually verify the chain has no way to
+/// obtain.
+///
+/// A single self-signed leaf (subject == issuer, `CA:true`, pinned as its own
+/// trust anchor) does not work here: rustls/webpki refuses a `CA:true`
+/// certificate as the end-entity leaf a server presents
+/// (`CaUsedAsEndEntity`). A real two-tier chain — a CA cert and a leaf it
+/// signs — is what an actual issued certificate looks like, so this builds
+/// one: the CA's PEM is the trust anchor a client pins, the leaf (`CA:false`)
+/// is what the apiserver serves.
+///
+/// Returns `(leaf_cert, leaf_key, ca_cert)`.
+fn generate_serving_cert(dir: &Path) -> Result<(PathBuf, PathBuf, PathBuf), String> {
+    let run = |args: &[&str]| -> Result<(), String> {
+        let status = Command::new("openssl")
+            .args(args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map_err(|err| format!("openssl is required by the envtest harness: {err}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("openssl {args:?} failed"))
+        }
+    };
+
+    let ca_key = dir.join("ca.key");
+    let ca_cert = dir.join("ca.crt");
+    let leaf_key = dir.join("serving.key");
+    let leaf_csr = dir.join("serving.csr");
+    let leaf_cert = dir.join("serving.crt");
+    let ext_file = dir.join("serving.ext");
+
+    fn p(path: &Path) -> &str {
+        path.to_str().expect("scratch paths are valid UTF-8")
+    }
+
+    run(&["genrsa", "-out", p(&ca_key), "2048"])?;
+    run(&[
+        "req",
+        "-x509",
+        "-new",
+        "-key",
+        p(&ca_key),
+        "-out",
+        p(&ca_cert),
+        "-days",
+        "2",
+        "-subj",
+        "/CN=envtest-ca",
+        "-addext",
+        "basicConstraints=critical,CA:true",
+        "-addext",
+        "keyUsage=critical,keyCertSign,cRLSign",
+    ])?;
+
+    run(&["genrsa", "-out", p(&leaf_key), "2048"])?;
+    run(&[
+        "req",
+        "-new",
+        "-key",
+        p(&leaf_key),
+        "-out",
+        p(&leaf_csr),
+        "-subj",
+        "/CN=127.0.0.1",
+    ])?;
+    std::fs::write(
+        &ext_file,
+        "subjectAltName=IP:127.0.0.1\nbasicConstraints=CA:false\nextendedKeyUsage=serverAuth\n",
+    )
+    .map_err(|err| format!("could not write the cert extension file: {err}"))?;
+    run(&[
+        "x509",
+        "-req",
+        "-in",
+        p(&leaf_csr),
+        "-CA",
+        p(&ca_cert),
+        "-CAkey",
+        p(&ca_key),
+        "-CAcreateserial",
+        "-out",
+        p(&leaf_cert),
+        "-days",
+        "2",
+        "-extfile",
+        p(&ext_file),
+    ])?;
+
+    Ok((leaf_cert, leaf_key, ca_cert))
 }
 
 /// The kube client speaks TLS to the apiserver, so rustls needs its provider.

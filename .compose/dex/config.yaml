@@ -1,0 +1,101 @@
+# Dex configuration for local ProxyAuthK8S development.
+#
+# Mirrors .compose/keycloak/realm-proxyauthk8s.json: the same two clients
+# (`proxyauthk8s` for the front, `kube_login` for cluster OIDC) and the same two
+# users (dev-admin / dev-user, password == username).
+
+# Must match VITE_OIDC_ISSUER_URL / API_OIDC_ISSUER_URL exactly, including the
+# absence of a trailing slash: discovery rejects an issuer that differs by even
+# one character. Traefik terminates TLS in front, so the scheme is https here
+# while Dex itself listens on plain http below.
+issuer: https://dex.k8s.localhost
+
+storage:
+  # In-memory: the stack is disposable and nothing here is worth persisting.
+  # Restarting Dex invalidates every issued refresh token.
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+oauth2:
+  responseTypes: [ "code" ]
+  # No consent screen in dev — the login flow is already a redirect round-trip.
+  skipApprovalScreen: true
+  # The proxy always sends a PKCE challenge (see cluster/auth/login.rs). Dex
+  # advertises S256 unconditionally, so nothing needs configuring here — but
+  # `oauth2.pkce.enforce: true` is available if you want to reject the plain
+  # method outright.
+
+staticClients:
+  # Front login. Public (no secret): the SPA runs oidc-client-ts with PKCE.
+  - id: proxyauthk8s
+    name: "ProxyAuthK8S Front"
+    public: true
+    redirectURIs:
+      - "http://localhost:4200/auth/callback"
+      - "https://localhost:4200/auth/callback"
+      - "http://localhost:18000"
+
+  # Cluster OIDC. Confidential, and the secret must match the one passed by
+  # kubeconfig-template.oidc.yaml and by the ProxyKubeApi CR.
+  #
+  # Dex matches redirect URIs exactly for confidential clients, so every callback
+  # the proxy can build has to be listed. The kubectl plugin's loopback callback
+  # is constrained to `http://localhost:<port>/` with no path by
+  # crd_runtime::get_oidc_conf, which is why the bare localhost entries appear.
+  - id: kube_login
+    name: "Kubernetes Cluster Access"
+    secret: insecure_secret
+    redirectURIs:
+      - "http://localhost:8000"
+      - "http://localhost:18000"
+      - "https://localhost:5437/clusters/default/local-sso/auth/callback"
+      - "https://localhost:5437/clusters/default/local-sso-validate/auth/callback"
+      - "https://localhost:4200/auth/callback/default/local-sso"
+      - "https://localhost:4200/auth/callback/default/local-sso-validate"
+
+# Local password database.
+#
+# NOTE: Dex's local connector asserts NO groups — these users authenticate fine
+# but reach only clusters with no `proxy_group` restriction. To exercise
+# group-restricted clusters, switch to the federated connector below.
+enablePasswordDB: true
+staticPasswords:
+  - email: "dev-admin@local.test"
+    username: "dev-admin"
+    # bcrypt of "dev-admin"
+    hash: "$2a$10$KIYKtOkN9kZgQrbcAmlOJ.ZHyNqOc9io6aFbDRCYmzjao5.FpeRSy"
+    userID: "5f3c1d92-0d31-4f0a-9f0f-2f5f0c9a1b01"
+  - email: "dev-user@local.test"
+    username: "dev-user"
+    # bcrypt of "dev-user"
+    hash: "$2a$10$9BEGQjkdu0hAeYLqa7AHWOt.V/anHNpD7KoyPrQqB9O7n981tKZtu"
+    userID: "5f3c1d92-0d31-4f0a-9f0f-2f5f0c9a1b02"
+
+connectors: []
+# Federated setup — Dex in front of the cluster, another IdP as the source of
+# truth. This is the topology to use with Authentik (or the Keycloak already in
+# this stack); point `issuer` at the upstream provider and enable its include in
+# compose.yaml alongside this one.
+#
+# `insecureEnableGroups` is required: the oidc connector drops upstream groups by
+# default, and without groups Dex omits the claim entirely. Upstream group
+# changes only land when the ID token is re-issued, not on a plain refresh.
+#
+# connectors:
+#   - type: oidc
+#     id: upstream
+#     name: Upstream IdP
+#     config:
+#       # Keycloak: https://keycloak.k8s.localhost/realms/proxyauthk8s
+#       # Authentik: https://authentik.k8s.localhost/application/o/<app-slug>/
+#       issuer: https://keycloak.k8s.localhost/realms/proxyauthk8s
+#       clientID: dex
+#       clientSecret: insecure_secret
+#       redirectURI: https://dex.k8s.localhost/callback
+#       insecureEnableGroups: true
+#       # Authentik ships groups inside `profile`, not a `groups` scope.
+#       scopes: [ "openid", "profile", "email", "groups" ]
+#       # Traefik serves a local CA cert; trust it or Dex refuses the upstream.
+#       insecureSkipEmailVerified: true

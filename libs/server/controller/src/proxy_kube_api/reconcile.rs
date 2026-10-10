@@ -79,6 +79,37 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
         }
     };
 
+    if proxy_cloned.spec.cert.is_deprecated_insecure() {
+        warn!(
+            "ProxyKubeApi {} uses the deprecated `cert: Insecure`; it still verifies the \
+             target with the system trust store, rename it to `cert: SystemRoots`",
+            proxy.to_identifier()
+        );
+    }
+
+    // `validate()` deliberately skips the completeness check when `config_from`
+    // is set — the fields are expected to arrive from the Secret, which only a
+    // live read can confirm. Without this, a mistyped Secret name is admitted,
+    // reconciles as healthy, and shows up only as every request 401-ing with the
+    // cause visible in the proxy logs alone.
+    if new_status.error.is_none()
+        && let Some(auth_config) = &proxy_cloned.spec.auth_config
+        && auth_config.oidc_provider.enabled
+        && auth_config.oidc_provider.config_from.is_some()
+        && let Err(e) = proxy_cloned.get_oidc_conf(ctx.clone(), false, None).await
+    {
+        tracing::error!(
+            "Failed to resolve the OIDC config_from of ProxyKubeApi {}: {}",
+            proxy.to_identifier(),
+            e
+        );
+        new_status = ProxyKubeApiStatus::new(
+            false,
+            None,
+            Some(format!("Failed to resolve the OIDC configuration: {e}")),
+        );
+    }
+
     if new_status.error.is_none() {
         new_status = match proxy.clone().is_reachable(ctx.clone()).await {
             Ok(reachable) => {

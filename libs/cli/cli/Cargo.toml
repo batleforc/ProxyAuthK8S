@@ -21,7 +21,19 @@ keyring-core = "1"
 cli_trace = { path = "../cli_trace", version = "0.1.9" }
 client_api = { path = "../client_api", version = "0.1.9" }
 comfy-table = "8"
+# Trust on first use (`login/tofu.rs`): fetch and check the server certificate.
+rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
+tokio-rustls = { workspace = true }
+sha2 = "0.11"
+x509-cert = "0.3.0"
+url = "2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"
+rcgen = { version = "0.14.10", default-features = false, features = ["ring"] }
 
 [package.metadata.cargo-machete]
 ignored = ["k8s-openapi"]

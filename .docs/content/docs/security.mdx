@@ -59,10 +59,103 @@ disponibilité plutôt qu'en protection anti-brute-force.
 Selon `auth_config.validate_against` :
 
 - `OidcProvider` : le jeton est présenté au endpoint `userinfo` du provider ;
-- `Kubernetes` : le jeton est validé par un `SelfSubjectReview` sur le cluster cible.
+- `Kubernetes` : le jeton est validé par un `SelfSubjectReview` sur le cluster cible ;
+- `JwtAuthenticators` : le jeton est validé **localement** contre les authenticators
+  `auth_config.jwt` (voir [Validation JWT locale](#validation-jwt-locale-jwtauthenticators)).
+
+Défaut : `Kubernetes`, le choix qui échoue en fermé et vaut pour n'importe quel cluster. Les deux
+autres modes se choisissent toujours explicitement, pour qu'un cluster ne change jamais de mode
+d'authentification parce qu'un champ a été ajouté ailleurs dans le spec.
 
 `auth_config.disable_validation: true` désactive complètement cette étape — le proxy relaie
 alors sans savoir qui appelle.
+
+### Validation JWT locale (`JwtAuthenticators`)
+
+Reproduit la *structured authentication configuration* de l'apiserver : le jeton est vérifié sur
+place, sans aucun aller-retour vers le provider ni vers le cluster cible sur le chemin de la
+requête.
+
+```yaml
+auth_config:
+  validate_against: JwtAuthenticators
+  jwt:
+    - issuer:
+        url: https://issuer.example.com
+        audiences: ["proxyauthk8s"]
+      claim_validation_rules:
+        - claim: hd
+          required_value: example.com
+        # ou, en CEL :
+        - expression: "claims.email.endsWith('@example.com')"
+          message: "seules les identités example.com sont acceptées"
+      claim_mappings:
+        username:
+          claim: sub
+          prefix: "oidc:"
+        groups:
+          claim: groups
+          prefix: ""
+        extra:
+          - key: email
+            value_expression: claims.email
+      user_validation_rules:
+        - expression: "!user.username.startsWith('system:')"
+          message: "un username ne peut pas utiliser le préfixe réservé system:"
+```
+
+L'ordre n'est pas un détail d'implémentation : **rien n'est cru avant la vérification de
+signature**, les `claim_validation_rules` s'appliquent à des claims déjà vérifiés, et les
+`user_validation_rules` s'appliquent à l'identité **déjà mappée** — c'est le seul moment où le
+username final est connu, donc le seul endroit où l'on peut empêcher un IdP de forger un nom
+privilégié.
+
+1. lecture de `iss` dans la charge utile **non vérifiée**, uniquement pour choisir l'authenticator
+   — `iss` est ensuite re-contrôlé pendant la vérification de signature, donc un `iss` forgé
+   sélectionne un authenticator dont la clé rejettera le jeton ;
+2. récupération de la JWKS de l'issuer (via son document de découverte), avec cache ;
+3. vérification de la signature, puis de `exp`, `nbf`, `iss` et `aud` ;
+4. `claim_validation_rules` ;
+5. `claim_mappings` → username, groups, uid, extra ;
+6. `user_validation_rules` sur l'utilisateur mappé.
+
+Les expressions CEL disposent de la bibliothèque d'extensions Kubernetes (`strings`, `lists`,
+`sets`, `regex`, `urls`, `ip`, …) : une expression copiée depuis une configuration d'apiserver s'y
+comporte de la même façon, plutôt que sur un sous-ensemble à découvrir à l'usage.
+
+<Callout type="warn">
+`prefix` est **obligatoire** dès que `claim` est utilisé (`""` pour y renoncer explicitement),
+comme chez l'apiserver. Sans préfixe, un username venu d'un IdP externe peut coïncider avec un
+username local existant, et l'identité externe se retrouve autorisée comme cet utilisateur local —
+la décision doit être consciente, pas un défaut.
+
+`issuer.discovery_url`, quand il est fourni, est soumis à la même contrainte `https://` que
+`issuer.url` : c'est lui que le proxy va réellement chercher, et la JWKS qu'il désigne décide des
+clés qui valident les jetons.
+</Callout>
+
+<Callout type="warn">
+Seuls les algorithmes **asymétriques** sont acceptés (RS/PS/ES/EdDSA). Une JWKS publie des clés
+*publiques* : accepter un algorithme HMAC laisserait quiconque sait la lire forger un jeton qui se
+vérifie — la confusion d'algorithme classique. `none` n'est pas représentable non plus.
+</Callout>
+
+<Callout type="info">
+Le compromis par rapport à `OidcProvider` : aucun appel à `/userinfo` signifie aussi qu'un jeton
+révoqué avant son expiration reste accepté jusqu'à celle-ci. À arbitrer selon la durée de vie des
+jetons émis par l'IdP.
+</Callout>
+
+<Callout type="info">
+La JWKS est mise en cache **en mémoire** (15 min), le document de découverte 1 h. Une rotation de
+clé est prise en compte sans redémarrage : un `kid` inconnu déclenche un rafraîchissement, limité
+à un par minute et par issuer — sans ce plancher, des jetons à `kid` aléatoire transformeraient
+chaque requête en appel sortant vers l'IdP.
+
+`issuer.egress_selector` est accepté pour rester compatible avec la configuration de l'apiserver
+mais n'est **pas** appliqué : le proxy n'a pas les chemins réseau `controlplane`/`cluster` d'un
+control plane.
+</Callout>
 
 ### Validation d'audience (OIDC)
 
@@ -111,6 +204,70 @@ passez temporairement en `warn` le temps de la migration.
 champs distincts. Si votre IdP place le client dans `aud`, laissez `audience` vide. S'il émet des
 jetons « self-audience » sans `aud` nommant ce service, activez `accept_authorized_party: true`
 plutôt que d'affaiblir le mode global.
+</Callout>
+
+### Configuration OIDC dans un Secret externe (`config_from`)
+
+Le `client_secret` écrit directement dans le `ProxyKubeApi` est lisible par quiconque a le droit
+`get` sur la ressource, apparaît dans un `kubectl get -o yaml` et se retrouve dans chaque
+sauvegarde de l'objet. `oidc_provider.config_from` permet de ne garder qu'une **référence** dans
+le CR, le secret vivant dans l'objet que les opérateurs protègent déjà — et que
+[external-secrets](https://external-secrets.io/) sait alimenter :
+
+```yaml
+auth_config:
+  oidc_provider:
+    enabled: true
+    config_from:
+      Secret:
+        name: oidc-config
+        # namespace: shared   # voir l'encart ci-dessous
+```
+
+Les clés du Secret sont les noms de champs de `oidc_provider`, en snake_case :
+
+| Clé              | Remplace                       |
+| ---------------- | ------------------------------ |
+| `issuer_url`     | `oidc_provider.issuer_url`     |
+| `client_id`      | `oidc_provider.client_id`      |
+| `client_secret`  | `oidc_provider.client_secret`  |
+| `audience`       | `oidc_provider.audience`       |
+| `extra_scope`    | `oidc_provider.extra_scope`    |
+
+Règles de résolution :
+
+- **une clé présente dans le Secret l'emporte** sur la valeur en ligne ;
+- **une clé absente retombe sur la valeur en ligne**, donc un Secret partiel — le cas courant :
+  seulement `client_secret` — fonctionne, le reste restant lisible dans le CR ;
+- les clés hors de cette liste sont **ignorées** : un Secret géré par external-secrets est
+  couramment partagé avec d'autres consommateurs, une clé inconnue ne doit pas faire échouer le
+  bloc ;
+- un Secret ne portant **aucune** des clés ci-dessus est en revanche une **erreur** : c'est
+  presque toujours une faute de frappe, et retomber silencieusement sur le bloc en ligne que
+  l'opérateur cherchait justement à remplacer serait le pire des comportements ;
+- un Secret illisible ou absent est une **erreur** : la résolution échoue en fermé, elle ne
+  retombe jamais sur le bloc en ligne.
+
+Les interrupteurs de politique (`enabled`, `accept_authorized_party`,
+`expose_oauth_authorization_server`) ne sont **volontairement pas** lisibles depuis le Secret :
+ils décident de la sévérité de la validation des jetons et de qui atteint le cluster, ils doivent
+donc rester visibles dans le CR que l'admission et la revue regardent.
+
+<Callout type="info">
+Avec `config_from`, la règle CEL d'admission n'exige plus `issuer_url` et `client_id` en ligne —
+ils sont censés arriver du Secret. Le contrôle est donc reporté à l'exécution : si le bloc reste
+incomplet après fusion, la résolution échoue explicitement au lieu de construire un client OIDC
+qui rejetterait tous les jetons sans raison visible.
+</Callout>
+
+<Callout type="warn">
+`namespace` dans la référence est refusé par défaut et rabattu sur le namespace du
+`ProxyKubeApi`. La lecture utilise le `ServiceAccount` cluster-wide du contrôleur : autoriser un
+namespace arbitraire transformerait un tenant capable de créer un `ProxyKubeApi` en oracle de
+lecture de Secrets — et ici la valeur lue est un secret client OAuth. Mettre
+`PROXYAUTH_ALLOW_CROSS_NS_OIDC=true` uniquement sur un cluster mono-tenant. C'est un
+interrupteur **distinct** de `PROXYAUTH_ALLOW_CROSS_NS_CERT` : partager un bundle de CA entre
+namespaces n'est pas une raison de partager aussi des identifiants OIDC.
 </Callout>
 
 ### OAuth Authorization Server médiée (RFC 8414 + RFC 6749/PKCE)
@@ -170,6 +327,32 @@ loopback : accepter une valeur arbitraire en ferait une redirection ouverte (l'a
 construit lui-même toute l'URL `/oauth/authorize`, PKCE ne protège pas contre ce scénario).
 Restreindre au loopback ramène l'attaque à un scénario où l'attaquant contrôle déjà un
 processus sur la machine de la victime — une machine déjà compromise.
+</Callout>
+
+<Callout type="warn">
+Si le cluster proxifié est lui-même OpenShift (ou tout autre apiserver qui expose déjà
+`/.well-known/oauth-authorization-server` nativement), ce document **remplace** le sien sans
+fusion : la route explicite du proxy est enregistrée avant la route générique
+`/{ns}/{cluster}/{path:.*}` et gagne donc toujours. C'est voulu — l'appelant ne doit jamais
+avoir besoin de connaître le fournisseur réel, seulement le proxy — mais n'activez
+`expose_oauth_authorization_server` sur un tel cluster que si vous voulez délibérément masquer
+son propre serveur OAuth natif derrière celui du proxy ; sinon, deux serveurs d'autorisation
+incohérents coexisteront selon que l'appelant passe par le proxy ou par le cluster directement.
+</Callout>
+
+<Callout type="warn">
+`GET /clusters/{ns}/{cluster}/.well-known/openid-configuration` — le document de *Service
+Account Issuer Discovery* qu'un apiserver Kubernetes expose nativement, sans authentification,
+pour la vérification des jetons de compte de service — n'est **pas** intercepté par le proxy :
+faute de route dédiée, il tombe sur la route générique de redirection comme n'importe quelle
+autre ressource. Si le cluster requiert la validation des jetons (`oidc_provider.enabled` ou
+`jwt` configuré), cette requête devra donc, elle aussi, porter un jeton Bearer valide —
+contrairement à un apiserver direct, où ce document est public par défaut (RBAC
+`system:service-account-issuer-discovery` lié à `system:public-info-viewer`). Décision
+délibérée, pas un correctif : rendre ce chemin public par défaut réintroduirait exactement le
+risque d'énumération anonyme que `expose_oauth_authorization_server` rend opt-in ci-dessus. Un
+vérificateur externe de jetons de compte de service qui attend une découverte publique doit
+viser l'apiserver réel, pas ce chemin via le proxy.
 </Callout>
 
 ## 3. Autorisation par cluster
@@ -458,13 +641,27 @@ Comme la cible est administrée via CRD, restreignez qui peut créer/éditer des
 | `TRUSTED_PROXY_COUNT`          | `0`       | Nombre de proxies de confiance ; identité de ban/quota lue ce nombre de sauts en arrière dans `X-Forwarded-For` |
 | `OIDC_AUDIENCE_VALIDATION`     | `enforce` | `enforce` / `warn` / `off` — contrôle d'audience des access-tokens |
 | `PROXYAUTH_ALLOW_CROSS_NS_CERT`| `false`   | `true` réautorise un `namespace` de cert autre que celui du `ProxyKubeApi` (mono-tenant seulement) |
+| `PROXYAUTH_ALLOW_CROSS_NS_OIDC`| `false`   | `true` réautorise un `namespace` de Secret `config_from` autre que celui du `ProxyKubeApi` (mono-tenant seulement) — voir [Configuration OIDC dans un Secret externe](#configuration-oidc-dans-un-secret-externe-config_from) |
 | `THROTTLE_FAIL_CLOSED`         | `false`   | `true` refuse la requête quand Redis est indisponible (au lieu de laisser passer) — préserve bans/quotas au prix de la disponibilité |
-| `CORS_ALLOWED_ORIGINS`         | *(vide)*  | Liste d'origines autorisées (séparées par des virgules) ; vide = toutes origines. L'API étant authentifiée par `Bearer`, un navigateur n'attache pas de credentials automatiquement, mais restreindre limite qui peut piloter l'API depuis un navigateur |
+| `UNSCOPED_MAX_FAILED_LOGINS`   | *(désactivé)* | Nombre d'échecs d'authentification tolérés sur `/api/v1/clusters` avant bannissement. Vide ou `0` = pas de fail2login sur cette surface |
+| `UNSCOPED_BAN_DURATION_SECONDS`| `300`     | Durée du bannissement ci-dessus |
+| `UNSCOPED_RATE_LIMIT_PER_MINUTE`| *(désactivé)* | Quota par minute et par appelant sur `/api/v1/clusters`. Vide ou `0` = pas de quota |
+| `CORS_ALLOWED_ORIGINS`         | *(vide)*  | Liste d'origines autorisées (séparées par des virgules) ; vide = aucune origine tierce (même origine uniquement, défaut depuis la 0.2) ; `*` seul = toutes origines, à activer explicitement. Un `*` mêlé à d'autres origines est ignoré. La chart renseigne l'origine de l'Ingress |
 
 <Callout type="info">
 L'audience OIDC (`audience`) et l'acceptation de `azp` (`accept_authorized_party`) ne sont **pas**
 des variables d'environnement mais des champs par-cluster du `ProxyKubeApi` (voir
 [Validation d'audience](#validation-daudience-oidc)).
+</Callout>
+
+<Callout type="warn">
+Les trois knobs `UNSCOPED_*` sont **désactivés par défaut**, et c'est délibéré. `/api/v1/clusters`
+n'est rattaché à aucun cluster : il n'a donc pas de `SecurityConfiguration` pour porter une
+politique, et son budget est forcément global. Or, derrière un ingress dont
+`TRUSTED_PROXY_COUNT` n'a pas été configuré, tous les appelants se réduisent à une seule adresse —
+un bannissement actif par défaut laisserait alors un seul client fautif verrouiller tout le monde.
+Un opérateur qui a configuré la profondeur de proxy de confiance (ou qui termine TLS directement)
+peut les activer et obtenir un vrai quota ; sans cela, la situation reste celle d'avant.
 </Callout>
 
 ## Limites de mémoire
@@ -486,4 +683,5 @@ Chacun est un choix conscient, avec sa mitigation ; réévaluez-les selon votre 
 | **Allow-list vide = fail-open (tout est autorisé)** | **Accepté (défaut)** | Le proxy est d'abord une passerelle d'authentification ; l'autorisation fine par ressource est **opt-in** pour ne pas casser les déploiements existants au premier upgrade. Mitigation : définir au moins une règle dans `allowed_resources` fait basculer le cluster en default-deny (toute requête doit alors matcher une règle, sinon `403`). |
 | **NetworkPolicy désactivée par défaut dans le chart** | **Accepté** | Toutes les installations ne disposent pas d'un CNI appliquant les NetworkPolicy, et une policy d'egress par défaut casserait le trafic sur ces clusters. Mitigation : activer `networkPolicy.enabled` dans les values du chart — les exclusions egress (endpoint metadata `169.254.0.0/16`, CGNAT `100.64.0.0/10`) sont alors câblées automatiquement (cf. [Cible upstream (SSRF)](#cible-upstream-ssrf)). |
 | **`state` OIDC non lié à un cookie de session** | **Fermé — ne sera pas implémenté** | L'application est volontairement **sans cookie de session** (authentification par `Bearer`/token). Le `state` est **à usage unique** (supprimé de Redis après consommation) et le flux utilise **PKCE** ; le mainteneur juge cette combinaison suffisante. Résidu accepté : une fenêtre de login-CSRF résiduelle minime, sans élévation de privilège possible (le jeton obtenu reste celui de l'utilisateur qui termine le flux). |
+| **Authentification par certificat client (`admin.conf` kubeadm)** | **Fermé — ne sera pas implémenté** | Le proxy termine le TLS et n'a pas la clé privée de l'appelant : transmettre l'identité en amont exigerait que le credential du proxy se substitue à celui de l'utilisateur (impersonation, front-proxy ou `SubjectAccessReview` + credential du proxy). Le proxy ne doit jamais pouvoir fabriquer ni endosser une identité. Voir la [roadmap](/docs/roadmap), section « Hors périmètre ». |
 | **[RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) (`rsa` crate, Marvin Attack)** | **Accepté (aucun correctif disponible)** | Dépendance transitive via `openidconnect`, sans version corrigée à ce jour. Le canal de fuite temporelle touche les opérations **clé privée** (déchiffrement/signature) ; `openidconnect` ne l'utilise ici que pour **vérifier** la signature des ID tokens émis par l'IdP (opération clé publique), et l'application ne réalise aucune signature/déchiffrement RSA côté serveur. Ignoré explicitement dans `cargo audit` (`back-dep-audit.yaml`) et `dependency-review` (`allow-ghsas`) ; à ré-auditer si un usage de clé privée RSA est introduit. |

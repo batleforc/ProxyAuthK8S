@@ -25,7 +25,11 @@ pub enum CertSource {
         key: String,
         namespace: Option<String>,
     },
-    /// Insecure, do not use TLS
+    /// Verify the target with the system trust store (no custom CA). The
+    /// value is ignored.
+    SystemRoots(bool),
+    /// Deprecated, use `SystemRoots`. Despite its name this never disabled TLS
+    /// verification: it behaves exactly like `SystemRoots`. The value is ignored.
     Insecure(bool),
 }
 
@@ -57,6 +61,7 @@ impl std::fmt::Debug for CertSource {
                 .field("key", key)
                 .field("namespace", namespace)
                 .finish(),
+            CertSource::SystemRoots(value) => f.debug_tuple("SystemRoots").field(value).finish(),
             CertSource::Insecure(value) => f.debug_tuple("Insecure").field(value).finish(),
         }
     }
@@ -112,20 +117,26 @@ fn resolve_cert_namespace<'a>(requested: Option<&'a str>, cr_ns: &'a str) -> &'a
     }
 }
 
-/// Turn a Secret value into PEM text.
+/// Turn a Secret value into the text it holds.
 ///
 /// The usual layout — cert-manager, `kubectl create secret tls`, a
 /// `kubernetes.io/tls` Secret — stores the raw PEM (base64 only on the wire,
 /// which the client already undid), so PEM is taken as-is. Older releases
-/// required the value to be base64-encoded PEM on top of that; anything that is
-/// not PEM is still base64-decoded so those Secrets keep working.
+/// required the value to be base64-encoded PEM on top of that, so a value that
+/// base64-decodes to PEM is decoded to keep those Secrets working. Anything
+/// else is returned unchanged: the same source also carries non-PEM values such
+/// as a raw bearer token (`listFallbackToken`), which must not be mangled.
 fn decode_secret_cert(raw: &[u8]) -> Result<String, CertError> {
     let text = String::from_utf8(raw.to_vec())?;
     if text.trim_start().starts_with("-----BEGIN") {
         return Ok(text);
     }
-    let decoded = BASE64_STANDARD.decode(text.trim())?;
-    Ok(String::from_utf8(decoded)?)
+    let legacy_pem = BASE64_STANDARD
+        .decode(text.trim())
+        .ok()
+        .and_then(|decoded| String::from_utf8(decoded).ok())
+        .filter(|decoded| decoded.trim_start().starts_with("-----BEGIN"));
+    Ok(legacy_pem.unwrap_or(text))
 }
 
 impl CertSource {
@@ -205,8 +216,14 @@ impl CertSource {
                 let decoded = BASE64_STANDARD.decode(c)?;
                 Ok(Some(String::from_utf8(decoded)?))
             }
-            CertSource::Insecure(_) => Ok(None),
+            CertSource::SystemRoots(_) | CertSource::Insecure(_) => Ok(None),
         }
+    }
+
+    /// Whether this is the deprecated `Insecure` spelling of `SystemRoots`.
+    #[must_use]
+    pub fn is_deprecated_insecure(&self) -> bool {
+        matches!(self, CertSource::Insecure(_))
     }
 }
 
@@ -233,11 +250,32 @@ mod tests {
     }
 
     #[test]
-    fn secret_value_that_is_neither_pem_nor_base64_is_an_error() {
-        assert!(matches!(
-            decode_secret_cert(b"not a cert!"),
-            Err(CertError::Base64(_))
-        ));
+    fn secret_value_that_is_not_base64_pem_is_returned_unchanged() {
+        // A raw bearer token (JWT-shaped: its dots are not base64) and base64
+        // that does not decode to PEM are both used verbatim.
+        let token = "header.payload.signature";
+        assert_eq!(decode_secret_cert(token.as_bytes()).unwrap(), token);
+        let not_pem = BASE64_STANDARD.encode("plain secret");
+        assert_eq!(decode_secret_cert(not_pem.as_bytes()).unwrap(), not_pem);
+    }
+
+    #[test]
+    fn system_roots_and_its_deprecated_insecure_spelling_both_deserialize() {
+        let current: CertSource =
+            serde_json::from_value(serde_json::json!({ "SystemRoots": true }))
+                .expect("SystemRoots should deserialize");
+        assert!(matches!(current, CertSource::SystemRoots(true)));
+        assert!(!current.is_deprecated_insecure());
+
+        // Resources written before the rename must keep working unchanged.
+        let legacy: CertSource = serde_json::from_value(serde_json::json!({ "Insecure": false }))
+            .expect("Insecure should still deserialize");
+        assert!(matches!(legacy, CertSource::Insecure(false)));
+        assert!(legacy.is_deprecated_insecure());
+    }
+
+    #[test]
+    fn secret_value_that_is_not_utf8_is_an_error() {
         assert!(matches!(
             decode_secret_cert(&[0xff, 0xfe]),
             Err(CertError::Utf8(_))

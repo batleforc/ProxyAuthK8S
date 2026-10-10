@@ -21,7 +21,7 @@ peuvent être ajoutées via `back.env`.
 | `SERVER_CERT_PATH` | —       | Chemin du certificat PEM (chaîne complète), requis si `SERVER_HTTPS=true`                    |
 | `SERVER_KEY_PATH`  | —       | Chemin de la clé privée PEM, requis si `SERVER_HTTPS=true`                                   |
 | `SERVER_SHUTDOWN_TIMEOUT` | `30` | Secondes laissées aux requêtes en cours (flux `watch`/`exec`/`port-forward` compris) pour se terminer au `SIGTERM`. Le grace period du pod doit être plus long (le chart le fixe à cette valeur + 15 s) |
-| `CORS_ALLOWED_ORIGINS` | *(vide)* | Origines autorisées, séparées par des virgules ; vide = toutes (voir [Sécurité](/docs/security#variables-denvironnement-de-sécurité)) |
+| `CORS_ALLOWED_ORIGINS` | *(vide)* | Origines autorisées, séparées par des virgules ; vide = **aucune** requête cross-origin ; `*` seul = toutes (déconseillé). Voir [Sécurité](/docs/security#variables-denvironnement-de-sécurité) |
 
 ### OIDC (dashboard et API)
 
@@ -96,7 +96,7 @@ les flux `watch`, `exec`, `attach`, `port-forward` ou `logs -f`.
 | -------------------- | --------- | ------------------------------------------------------------------------------------- |
 | `/management/health` | liveness  | Toujours `200` tant que le processus répond ; ne vérifie aucune dépendance             |
 | `/management/metrics` | métriques | Format Prometheus (texte 0.0.4) si `METRICS_PROMETHEUS_ENABLED=true`, sinon `404`. Expose notamment `http_server_request_duration_seconds` (méthode, route, statut) |
-| `/management/ready`  | readiness | `200` si Redis répond à un `PING` en moins de 2 s, sinon `503` (`{"redis": "unavailable"}`) |
+| `/management/ready`  | readiness | `200` si Redis répond à un `PING` en moins de 2 s **et** que la découverte OIDC du démarrage a réussi, sinon `503` (`{"redis": "unavailable" \| "ok", "oidc": "pending" \| "ok"}`). Si l'IdP est indisponible au démarrage, le pod ne crashe plus : il réessaie (backoff 1 s → 60 s) et reste non-ready |
 
 Une panne Redis sort donc les pods du service sans les redémarrer.
 

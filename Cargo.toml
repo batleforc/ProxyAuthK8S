@@ -10,6 +10,7 @@ members = [
   'apps/swaggergen',
   'libs/server/api',
   'libs/server/virtual_api',
+  'libs/server/jwt_validator',
   'libs/server/controller',
   'libs/server/common',
   'apps/kubectl_proxyauth',
@@ -41,10 +42,14 @@ opentelemetry_sdk = { version = '0.32', features = [
   'metrics',
   'rt-tokio',
 ] }
-opentelemetry-otlp = { version = '0.32', features = [
+# default-features = false drops the `http-proto` / `reqwest-blocking-client`
+# defaults: the exporters here are tonic-only, and those defaults were the sole
+# reason `reqwest` 0.12 was built alongside the pinned 0.13.
+opentelemetry-otlp = { version = '0.32', default-features = false, features = [
   'grpc-tonic',
   'trace',
   'metrics',
+  'logs',
   'internal-logs',
   'serialize',
 ] }
@@ -59,8 +64,15 @@ rustls = { version = '0.23', features = ['ring'], default-features = false }
 rustls-platform-verifier = '0.7'
 tokio-rustls = '0.26'
 flate2 = { version = '1.1', default-features = false, features = ['zlib-rs'] }
+# default-features = false disables openidconnect's `reqwest` feature, which
+# routes to `oauth2/reqwest` and pins reqwest 0.12. `oauth2-reqwest` is the
+# upstream (same author) adapter that provides the same `AsyncHttpClient` over
+# reqwest 0.13; it is pre-release only because it is new, not unstable. Both
+# lines move together; pinned exactly so a `cargo update` cannot pull a newer
+# alpha into the auth path unnoticed. Re-check when `oauth2` 6 ships or
+# `oauth2-reqwest` 0.1.0 stable lands.
 openidconnect = { version = '4.0.1', default-features = false }
-oauth2-reqwest = "0.1.0-alpha.3"
+oauth2-reqwest = "=0.1.0-alpha.3"
 thiserror = { version = '2' }
 regex = "1.12.3"
 

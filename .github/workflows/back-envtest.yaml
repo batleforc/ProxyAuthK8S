@@ -82,4 +82,8 @@ jobs:
       - name: 🧪 Run the envtest suite
         # Serialised: each test owns an apiserver, and running several at once
         # only multiplies the memory footprint for no wall-clock gain.
-        run: cargo nextest run -p api --features envtest --test envtest --test envtest_kube_auth --test envtest_reconcile --test envtest_crd_runtime -j 1
+        #
+        # Selected by binary name rather than a single `--test` flag, matching
+        # `task envtest:run`, so every tests/envtest_*.rs file runs instead of
+        # only the one named here.
+        run: cargo nextest run -p api --features envtest -E 'binary(/^envtest/)' -j 1

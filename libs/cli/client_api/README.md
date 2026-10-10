@@ -36,6 +36,7 @@ Class | Method | HTTP request | Description
 *AuthClustersApi* | [**oauth_authorization_server**](docs/AuthClustersApi.md#oauth_authorization_server) | **GET** /clusters/{ns}/{cluster}/.well-known/oauth-authorization-server | OAuth 2.0 Authorization Server Metadata for the cluster's mediated OAuth Authorization Server
 *AuthClustersApi* | [**token**](docs/AuthClustersApi.md#token) | **POST** /clusters/{ns}/{cluster}/oauth/token | Exchange a proxy-minted authorization code for the upstream tokens
 *HealthApi* | [**health**](docs/HealthApi.md#health) | **GET** /management/health | Liveness: the process is up and serving HTTP.
+*HealthApi* | [**prometheus_metrics**](docs/HealthApi.md#prometheus_metrics) | **GET** /management/metrics | Prometheus metrics in the text exposition format 0.0.4.
 *HealthApi* | [**ready**](docs/HealthApi.md#ready) | **GET** /management/ready | Readiness: the pod can serve proxied traffic.
 *ProxyClustersApi* | [**delete_redirect**](docs/ProxyClustersApi.md#delete_redirect) | **DELETE** /clusters/{ns}/{cluster}/{path} | Cluster redirect
 *ProxyClustersApi* | [**get_redirect**](docs/ProxyClustersApi.md#get_redirect) | **GET** /clusters/{ns}/{cluster}/{path} | Cluster redirect

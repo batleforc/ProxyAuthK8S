@@ -97,6 +97,10 @@ impl ProxyKubeApi {
                 .security_config
                 .as_ref()
                 .map_or(Ok(()), security::SecurityConfiguration::validate)?;
+            self.spec
+                .virtual_apis
+                .iter()
+                .try_for_each(VirtualApiConfiguration::validate)?;
         }
         Ok(())
     }
@@ -200,6 +204,7 @@ mod tests {
             audience: String::new(),
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
+            config_from: None,
         }
     }
 
@@ -218,7 +223,7 @@ mod tests {
     fn spec() -> ProxyKubeApiSpec {
         ProxyKubeApiSpec {
             enabled: true,
-            cert: CertSource::Insecure(true),
+            cert: CertSource::SystemRoots(true),
             client_cert: None,
             service: service::Service::ExternalService {
                 url: "https://cluster.example.com:6443".to_string(),
@@ -361,7 +366,7 @@ mod tests {
         // Regression guard: an unset field must not expose the cluster.
         let json = serde_json::json!({
             "enabled": true,
-            "cert": { "Insecure": true },
+            "cert": { "SystemRoots": true },
             "service": { "ExternalService": { "url": "https://cluster.example.com:6443" } }
         });
         let spec: ProxyKubeApiSpec = serde_json::from_value(json).expect("spec should deserialize");
@@ -430,5 +435,25 @@ mod tests {
             auth_config.disable_validation = true;
         }
         assert!(!proxy(spec).need_token_validation());
+    }
+
+    /// The regression this guards: the redirect workers record the whole
+    /// resource as a span field (`fields(proxy = ?ctx.proxy)`) on every proxied
+    /// request, so a derived `Debug` on any nested type puts that type's secrets
+    /// in the trace backend. Asserted here on the full `ProxyKubeApi` rather
+    /// than only on `OidcProvider`, because that is the shape actually logged.
+    #[test]
+    fn debug_of_the_whole_resource_never_carries_the_oidc_client_secret() {
+        let mut spec = spec();
+        let mut config = auth_config(ValidateAgainst::OidcProvider, true);
+        config.oidc_provider.client_secret = Some("unmistakable-client-secret".to_string());
+        spec.auth_config = Some(config);
+
+        let rendered = format!("{:?}", proxy(spec));
+        assert!(
+            !rendered.contains("unmistakable-client-secret"),
+            "client_secret leaked into ProxyKubeApi Debug output: {rendered}"
+        );
+        assert!(rendered.contains("***REDACTED***"), "{rendered}");
     }
 }

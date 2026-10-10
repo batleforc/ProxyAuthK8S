@@ -44,7 +44,7 @@ fn proxy_to(url: &str) -> ProxyKubeApi {
         "prod",
         ProxyKubeApiSpec {
             enabled: true,
-            cert: CertSource::Insecure(true),
+            cert: CertSource::SystemRoots(true),
             client_cert: None,
             service: Service::ExternalService {
                 url: url.to_string(),
@@ -133,15 +133,12 @@ async fn probe_hits_the_configured_url_verbatim() {
 }
 
 #[tokio::test]
-async fn closed_port_is_a_transport_error() {
-    let err = proxy_to(&closed_port_url())
+async fn closed_port_is_unreachable_not_an_error() {
+    let reachable = proxy_to(&closed_port_url())
         .is_reachable(state())
         .await
-        .expect_err("connection refused carries no status");
-    match err {
-        ProxyRuntimeError::Http(source) => assert!(source.is_connect(), "{source:?}"),
-        other => panic!("expected an Http error, got {other:?}"),
-    }
+        .expect("connection refused means unreachable, not a probe failure");
+    assert!(!reachable);
 }
 
 #[tokio::test]
@@ -182,10 +179,10 @@ async fn black_holed_upstream_times_out() {
     let elapsed = started.elapsed();
     holder.abort();
 
-    match outcome {
-        Err(ProxyRuntimeError::Http(source)) => assert!(source.is_timeout(), "{source:?}"),
-        other => panic!("expected a timeout error, got {other:?}"),
-    }
+    assert!(
+        matches!(outcome, Ok(false)),
+        "a timeout means unreachable, got {outcome:?}"
+    );
     assert!(
         elapsed >= Duration::from_secs(9) && elapsed < Duration::from_secs(11),
         "probe should end at the 10s request timeout, took {elapsed:?}"

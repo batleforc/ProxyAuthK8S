@@ -22,12 +22,12 @@ common = { path = "../common", version = "0.1.9" }
 trace = { path = "../trace", version = "0.1.9" }
 
 [dev-dependencies]
-# `test-util` unlocks `State::from_parts` so tests can build a `State` without
-# a live cluster; dev-dependencies are not part of a normal build.
+# `test-util` unlocks `State::from_parts`; dev-dependencies are not part of a
+# normal build so the feature stays off outside `cargo test`.
 common = { path = "../common", version = "0.1.9", features = ["test-util"] }
-# Building a `kube::Client` in tests needs a process-level rustls provider,
-# which the server binary installs in `main`.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 rustls = { workspace = true }
+wiremock = "0.6"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [package.metadata.cargo-machete]

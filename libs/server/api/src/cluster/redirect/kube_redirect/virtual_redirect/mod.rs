@@ -11,156 +11,30 @@
 //! Response rewriting means buffering, which is why watches get their own
 //! newline-delimited path: a watch never ends, so it can never be buffered.
 
-use super::RedirectContext;
 use actix_web::{HttpRequest, HttpResponse, dev::PeerAddr, http, web};
 use common::State;
 use crd::ProxyKubeApi;
-use futures_util::StreamExt;
 use serde_json::Value;
 use tracing::{debug, error, warn};
 use virtual_api::MapperRegistry;
-use virtual_api::discovery::{
-    DiscoveryRequest, api_group_response, api_resource_list_response, classify,
-    merge_api_group_list,
-};
+use virtual_api::discovery::merge_api_group_list;
 
+use super::context::RedirectContext;
+use super::list_fallback;
 use super::upstream::{apply_forward_headers, upstream_client};
 use crate::cluster::redirect::audit::AuditContext;
 use crate::model::user::User;
 
-/// Upper bound on a buffered virtual response (`PROXY_VIRTUAL_MAX_BODY_BYTES`,
-/// default 32 MiB, see `common::config`).
-///
-/// A translated response must be held in memory in full; a `NamespaceList` on a
-/// very large cluster is the realistic worst case, and past this the request is
-/// refused rather than allowed to grow without bound.
-fn max_buffered_bytes() -> usize {
-    common::config::get().proxy.virtual_max_body_bytes
-}
+mod body;
+mod plan;
+mod watch;
 
-/// What the proxy will do with a request a virtual API claims.
-pub(super) enum VirtualPlan {
-    /// Answer from the mapper, no upstream call at all.
-    Direct(Value),
-    /// Fetch `/apis` upstream, then merge the virtual groups into it.
-    MergeApiGroups,
-    /// Rewrite the request onto `upstream_path` and translate the response.
-    Mapped { upstream_path: String },
-    /// The path is a known virtual resource but the method is not one it
-    /// supports; answer `405` (with this `Allow` header) without any upstream call.
-    MethodNotAllowed { allow: String },
-}
-
-impl VirtualPlan {
-    /// The path actually reached on the target cluster, when there is one.
-    ///
-    /// Used to run the resource allow-list against what is really accessed, not
-    /// only against the virtual path the client typed.
-    pub(super) fn upstream_path(&self) -> Option<&str> {
-        match self {
-            VirtualPlan::Direct(_) => None,
-            VirtualPlan::MergeApiGroups => Some("/apis"),
-            VirtualPlan::Mapped { upstream_path } => Some(upstream_path),
-            VirtualPlan::MethodNotAllowed { .. } => None,
-        }
-    }
-}
-
-/// Decide what a virtual API does with `path`, if anything.
-///
-/// `path` must be free of its query string.
-pub(super) fn plan(registry: &MapperRegistry, path: &str, method: &str) -> Option<VirtualPlan> {
-    if registry.is_empty() {
-        return None;
-    }
-
-    if method.eq_ignore_ascii_case("GET") {
-        match classify(registry, path) {
-            Some(DiscoveryRequest::ApiGroupList) => return Some(VirtualPlan::MergeApiGroups),
-            Some(DiscoveryRequest::ApiGroup(group)) => {
-                let mapper = registry.find_group(&group)?;
-                return Some(VirtualPlan::Direct(api_group_response(mapper)));
-            }
-            Some(DiscoveryRequest::ApiResourceList(group, version)) => {
-                let mapper = registry.find_group_version(&group, &version)?;
-                return Some(VirtualPlan::Direct(api_resource_list_response(mapper)));
-            }
-            None => {}
-        }
-    }
-
-    let (mapper, mut route) = registry.resolve(path)?;
-    route.method = method.to_ascii_uppercase();
-    if let Some(allow) = mapper.method_not_allowed(&route) {
-        return Some(VirtualPlan::MethodNotAllowed { allow });
-    }
-    Some(VirtualPlan::Mapped {
-        upstream_path: mapper.map_request(&route).path,
-    })
-}
-
-/// `true` when the request asks for a watch stream.
-fn is_watch(query_string: &str) -> bool {
-    query_string
-        .split('&')
-        .any(|param| matches!(param, "watch=true" | "watch=1"))
-}
-
-fn json_response(status: http::StatusCode, body: &Value) -> HttpResponse {
-    HttpResponse::build(status)
-        .content_type("application/json")
-        .body(body.to_string())
-}
-
-/// Read the client body, capped, so a mapper can rewrite it.
-async fn read_client_body(
-    payload: &mut web::Payload,
-    limit: usize,
-) -> Result<web::Bytes, ReadCapError> {
-    let mut body = web::BytesMut::new();
-    while let Some(chunk) = payload.next().await {
-        let chunk = chunk.map_err(|err| ReadCapError::Upstream(err.to_string()))?;
-        if body.len() + chunk.len() > limit {
-            return Err(ReadCapError::TooLarge);
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body.freeze())
-}
-
-/// Why a capped upstream read stopped short.
-enum ReadCapError {
-    /// The body exceeded `limit`; aborted without buffering the rest.
-    TooLarge,
-    /// The upstream connection failed mid-read.
-    Upstream(String),
-}
-
-/// Read an upstream response into memory, aborting as soon as it exceeds `limit`
-/// instead of buffering the whole body first. A translated response must be held
-/// in full, so without an incremental cap a multi-GB `NamespaceList` (or a
-/// hostile upstream) would be read entirely into RAM before the size was checked.
-async fn read_response_capped(
-    res: reqwest::Response,
-    limit: usize,
-) -> Result<web::Bytes, ReadCapError> {
-    // Reject early when the upstream announced an oversized body.
-    if let Some(len) = res.content_length()
-        && len > limit as u64
-    {
-        return Err(ReadCapError::TooLarge);
-    }
-    let mut body = web::BytesMut::new();
-    let mut stream = res.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|err| ReadCapError::Upstream(err.to_string()))?;
-        if body.len() + chunk.len() > limit {
-            return Err(ReadCapError::TooLarge);
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body.freeze())
-}
+use body::{
+    ReadCapError, json_response, max_buffered_bytes, read_client_body, read_response_capped,
+};
+use plan::is_watch;
+pub(super) use plan::{VirtualPlan, plan};
+use watch::stream_watch;
 
 /// Where a virtual request is forwarded, once the local answers are ruled out.
 enum Forward {
@@ -466,11 +340,79 @@ async fn translated_response(
     Ok(json_response(status, &translated))
 }
 
+/// Where a virtual request is sent: the cluster and its upstream origin.
+struct Target<'a> {
+    proxy: &'a ProxyKubeApi,
+    data: &'a web::Data<State>,
+    /// Upstream origin, trailing slash already trimmed.
+    base_url: &'a str,
+}
+
+/// A mapper offering per-item visibility filtering, on a cluster that has
+/// opted into it: skip the plain forward entirely and always return the
+/// filtered collection, whether or not the caller could also have listed it
+/// directly. See `list_fallback` for why this can't just be a 403 rescue.
+///
+/// `None` when the request does not qualify (no per-item probe for this route,
+/// e.g. a single-object GET; not a plain GET; a watch; or the cluster has not
+/// opted in), so the caller falls through to the plain forward, unchanged.
+async fn list_fallback_response(
+    forward: &Forward,
+    registry: &MapperRegistry,
+    upstream_path: &str,
+    caller: &Caller<'_>,
+    target: &Target<'_>,
+    audit: &AuditContext,
+) -> Option<HttpResponse> {
+    let query_string = caller.req.query_string();
+    if !matches!(forward, Forward::Mapped { .. })
+        || !caller.method.as_str().eq_ignore_ascii_case("GET")
+        || is_watch(query_string)
+        || !list_fallback::is_configured(target.proxy)
+    {
+        return None;
+    }
+    let (mapper, mut route) = registry.resolve(upstream_path)?;
+    route.method = caller.method.as_str().to_ascii_uppercase();
+    let probe = mapper.list_access_probe(&route)?;
+
+    let client = match upstream_client(target.proxy, target.data).await {
+        Ok(client) => client,
+        Err(err) => return Some(VirtualFailure::ClientUnavailable(err).respond(audit)),
+    };
+    // The same path mapping the plain forward would use for this route —
+    // derived here instead of duplicated as a literal, so it can never drift
+    // from the mapper's own mapping.
+    let namespaces_path = mapper.map_request(&route).path;
+    let args = list_fallback::ListFallbackArgs {
+        proxy: target.proxy,
+        state: target.data,
+        client: &client,
+        req: caller.req,
+        peer_addr: caller.peer_addr,
+        user: caller.user,
+        base_url: target.base_url,
+        namespaces_path: &namespaces_path,
+        query_string,
+        probe,
+    };
+    let response = match list_fallback::list_projects_filtered(&args).await {
+        Ok(json) => {
+            audit.emit(200);
+            json_response(http::StatusCode::OK, &mapper.map_response(json))
+        }
+        Err(list_fallback::DiscoveryError(err)) => {
+            error!(err, "list fallback discovery failed");
+            audit.emit(503);
+            HttpResponse::ServiceUnavailable().body("upstream unavailable")
+        }
+    };
+    Some(response)
+}
+
 pub(super) async fn virtual_redirect(
     ctx: RedirectContext,
-    base_url: String,
     registry: MapperRegistry,
-    upstream_path: String,
     plan: VirtualPlan,
 ) -> HttpResponse {
     let RedirectContext {
@@ -482,6 +424,8 @@ pub(super) async fn virtual_redirect(
         proxy,
         user,
         audit,
+        base_url,
+        upstream_path,
     } = ctx;
     let forward = match plan {
         VirtualPlan::Direct(body) => return answer_discovery(&body, &upstream_path, &audit),
@@ -494,17 +438,35 @@ pub(super) async fn virtual_redirect(
         } => Forward::Mapped { mapped_path },
     };
 
+    let caller = Caller {
+        req: &req,
+        method: &method,
+        peer_addr,
+        user: user.as_ref(),
+    };
+    let target = Target {
+        proxy: &proxy,
+        data: &data,
+        base_url: &base_url,
+    };
+    if let Some(response) = list_fallback_response(
+        &forward,
+        &registry,
+        &upstream_path,
+        &caller,
+        &target,
+        &audit,
+    )
+    .await
+    {
+        return response;
+    }
+
     let outcome = async {
         let request_body =
             forwarded_body(&forward, &registry, &upstream_path, &method, &mut payload).await?;
         let query_string = req.query_string();
         let url = upstream_url(&base_url, forward.path(), query_string);
-        let caller = Caller {
-            req: &req,
-            method: &method,
-            peer_addr,
-            user: user.as_ref(),
-        };
         let res = send_upstream(&proxy, &data, &url, &caller, request_body).await?;
         let status = http::StatusCode::from_u16(res.status().as_u16())
             .unwrap_or(http::StatusCode::BAD_GATEWAY);
@@ -533,67 +495,6 @@ enum VirtualRequestBody {
     Verbatim(Vec<u8>),
 }
 
-/// Translate a newline-delimited watch stream event by event.
-fn stream_watch(
-    res: reqwest::Response,
-    status: http::StatusCode,
-    registry: MapperRegistry,
-    upstream_path: String,
-) -> HttpResponse {
-    let mut buffer = web::BytesMut::new();
-    // Cap a single unterminated line: a watch that never emits a newline (a
-    // hostile or stuck upstream) would otherwise grow `buffer` without bound.
-    let line_limit = max_buffered_bytes();
-    let translated = res.bytes_stream().map(move |chunk| {
-        let chunk = chunk.map_err(actix_web::error::ErrorBadGateway)?;
-        buffer.extend_from_slice(&chunk);
-
-        let mut out = web::BytesMut::new();
-        // Only whole lines can be parsed; a partial one stays buffered until
-        // the rest of it arrives.
-        while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
-            let line = buffer.split_to(newline + 1);
-            let trimmed = &line[..line.len() - 1];
-            if trimmed.is_empty() {
-                continue;
-            }
-
-            match serde_json::from_slice::<Value>(trimmed) {
-                Ok(event) => {
-                    let event = match registry.resolve(&upstream_path) {
-                        Some((mapper, _)) => mapper.map_watch_event(event),
-                        None => event,
-                    };
-                    out.extend_from_slice(event.to_string().as_bytes());
-                    out.extend_from_slice(b"\n");
-                }
-                Err(err) => {
-                    // Pass unparseable lines through untouched rather than
-                    // silently dropping part of the stream.
-                    warn!(error = %err, "watch event is not JSON, forwarding it untouched");
-                    out.extend_from_slice(&line);
-                }
-            }
-        }
-
-        // Whatever is left is an as-yet-unterminated line; refuse to let it grow
-        // past the limit.
-        if buffer.len() > line_limit {
-            return Err(actix_web::error::ErrorBadGateway(
-                "watch line exceeds the size limit",
-            ));
-        }
-
-        Ok::<web::Bytes, actix_web::Error>(out.freeze())
-    });
-
-    HttpResponse::build(status)
-        .content_type("application/json")
-        // Stop actix' Compress middleware from buffering the stream.
-        .insert_header(("content-encoding", "identity"))
-        .streaming(translated)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -601,72 +502,6 @@ mod tests {
 
     fn registry() -> MapperRegistry {
         MapperRegistry::from_kinds(&[VirtualApiKind::OpenShiftProject])
-    }
-
-    #[test]
-    fn an_empty_registry_plans_nothing() {
-        assert!(plan(&MapperRegistry::new(), "/apis", "GET").is_none());
-    }
-
-    #[test]
-    fn an_unsupported_verb_plans_a_405() {
-        let plan = plan(
-            &registry(),
-            "/apis/project.openshift.io/v1/projectrequests",
-            "DELETE",
-        )
-        .expect("a known virtual path should still be planned");
-        match &plan {
-            VirtualPlan::MethodNotAllowed { allow } => assert_eq!(allow, "GET, POST"),
-            _ => panic!("DELETE on projectrequests must be refused"),
-        }
-        assert_eq!(plan.upstream_path(), None);
-    }
-
-    #[test]
-    fn discovery_of_a_served_group_is_answered_locally() {
-        let plan = plan(&registry(), "/apis/project.openshift.io", "GET")
-            .expect("group discovery should be planned");
-        assert!(matches!(plan, VirtualPlan::Direct(_)));
-        assert_eq!(plan.upstream_path(), None);
-    }
-
-    #[test]
-    fn the_group_list_is_merged_with_the_cluster() {
-        let plan = plan(&registry(), "/apis", "GET").expect("group list should be planned");
-        assert!(matches!(plan, VirtualPlan::MergeApiGroups));
-        assert_eq!(plan.upstream_path(), Some("/apis"));
-    }
-
-    #[test]
-    fn a_resource_request_is_mapped_onto_the_real_api() {
-        let plan = plan(
-            &registry(),
-            "/apis/project.openshift.io/v1/projects/dev",
-            "GET",
-        )
-        .expect("project should be planned");
-        assert_eq!(plan.upstream_path(), Some("/api/v1/namespaces/dev"));
-    }
-
-    #[test]
-    fn a_project_request_maps_onto_a_namespace_creation() {
-        let plan = plan(
-            &registry(),
-            "/apis/project.openshift.io/v1/projectrequests",
-            "POST",
-        )
-        .expect("project request should be planned");
-        assert_eq!(plan.upstream_path(), Some("/api/v1/namespaces"));
-    }
-
-    #[test]
-    fn real_api_paths_are_left_to_the_standard_proxy() {
-        let registry = registry();
-        assert!(plan(&registry, "/api/v1/namespaces", "GET").is_none());
-        assert!(plan(&registry, "/apis/apps/v1/deployments", "GET").is_none());
-        // Discovery only applies to GET.
-        assert!(plan(&registry, "/apis/project.openshift.io", "POST").is_none());
     }
 
     fn audit() -> AuditContext {
@@ -781,14 +616,5 @@ mod tests {
             let label = format!("{failure:?}");
             assert_eq!(failure.respond(&audit).status().as_u16(), status, "{label}");
         }
-    }
-
-    #[test]
-    fn watch_detection_only_accepts_the_real_parameter() {
-        assert!(is_watch("watch=true"));
-        assert!(is_watch("resourceVersion=1&watch=1"));
-        assert!(!is_watch("watch=false"));
-        assert!(!is_watch("allowWatchBookmarks=true"));
-        assert!(!is_watch(""));
     }
 }

@@ -34,6 +34,7 @@ prometheus = { version = "0.14", default-features = false }
 
 common = { path = "../common", version = "0.1.9" }
 crd = { path = "../crd", version = "0.1.9" }
+jwt_validator = { path = "../jwt_validator", version = "0.1.9" }
 crd_runtime = { path = "../crd_runtime", version = "0.1.9" }
 virtual_api = { path = "../virtual_api", version = "0.1.9" }
 
@@ -49,10 +50,13 @@ wiremock = "0.6"
 deadpool-redis = { workspace = true }
 serde_yaml_ng = { workspace = true }
 secrecy = "0.10.3"
+# Dev-only, for the envtest reconcile tier: the controller is tested against the
+# same ephemeral apiserver the rest of the envtest suite already spins up, rather
+# than duplicating that ~460-line harness into the controller crate. No
+# production dependency of `api` on `controller` is implied.
+controller = { path = "../controller", version = "0.1.9" }
 k8s-openapi = { workspace = true }
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
-# The envtest tier runs the real reconcile loop against the apiserver + Redis.
-controller = { path = "../controller", version = "0.1.9" }
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
