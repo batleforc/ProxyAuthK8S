@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::cli_config::cli_cluster_config::CliClusterConfig;
+use crate::cli_config::{browser::BrowserConfig, cli_cluster_config::CliClusterConfig};
 
 mod keyring_store;
 mod remote;
@@ -26,6 +26,10 @@ pub struct CliServerConfig {
     /// internal CA). Same encoding as a kubeconfig `certificate-authority-data`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub certificate_authority_data: Option<String>,
+    /// Browser for the interactive SSO logins through this server, when it
+    /// is not the system's default (`login --browser`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<BrowserConfig>,
 }
 
 impl CliServerConfig {
@@ -36,6 +40,7 @@ impl CliServerConfig {
             namespace: "default".to_string(),
             clusters: vec![].into_iter().collect(),
             certificate_authority_data: None,
+            browser: None,
         }
     }
     #[must_use]

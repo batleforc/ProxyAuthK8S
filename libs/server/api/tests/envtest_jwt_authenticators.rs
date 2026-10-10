@@ -88,7 +88,7 @@ fn resource(name: &str, jwt: Value, validate_against: &str) -> Value {
         "metadata": { "name": name, "namespace": "default" },
         "spec": {
             "enabled": true,
-            "cert": { "Insecure": true },
+            "cert": { "SystemRoots": true },
             "service": { "ExternalService": { "url": "https://cluster.example.com:6443" } },
             "auth_config": {
                 "jwt": jwt,

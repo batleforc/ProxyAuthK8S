@@ -79,6 +79,14 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
         }
     };
 
+    if proxy_cloned.spec.cert.is_deprecated_insecure() {
+        warn!(
+            "ProxyKubeApi {} uses the deprecated `cert: Insecure`; it still verifies the \
+             target with the system trust store, rename it to `cert: SystemRoots`",
+            proxy.to_identifier()
+        );
+    }
+
     // `validate()` deliberately skips the completeness check when `config_from`
     // is set — the fields are expected to arrive from the Secret, which only a
     // live read can confirm. Without this, a mistyped Secret name is admitted,

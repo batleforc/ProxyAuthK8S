@@ -99,6 +99,23 @@ pub enum Commands {
         /// internal CA). Saved for the server and written to the kubeconfig.
         #[arg(long, value_name = "FILE")]
         certificate_authority: Option<PathBuf>,
+        /// Browser for the SSO login, instead of the system's default one
+        /// (e.g. a corporate browser the identity provider requires): a
+        /// program name or full path, `none` to only print the URL, or
+        /// `default` to go back to the system browser. Saved for the server,
+        /// so later logins through it use it too. `PROXYAUTH_BROWSER`
+        /// overrides the saved one for a single run.
+        #[arg(long, value_name = "PROGRAM")]
+        browser: Option<String>,
+        /// Argument passed to `--browser` (repeatable). `{url}` is replaced by
+        /// the login URL; without it the URL is passed last.
+        #[arg(
+            long = "browser-arg",
+            value_name = "ARG",
+            requires = "browser",
+            allow_hyphen_values = true
+        )]
+        browser_args: Vec<String>,
     },
     /// Logout either from `ProxyAuthK8S` server or from a specific cluster
     Logout {
@@ -140,4 +157,53 @@ pub enum Commands {
 pub enum CacheCommands {
     /// Clear all cached authentication tokens
     Clear,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn login_browser(args: &[&str]) -> Result<(Option<String>, Vec<String>), clap::Error> {
+        let cli = Cli::try_parse_from(
+            ["kubectl-proxyauth", "login", "prod"]
+                .into_iter()
+                .chain(args.iter().copied()),
+        )?;
+        match cli.command {
+            Some(Commands::Login {
+                browser,
+                browser_args,
+                ..
+            }) => Ok((browser, browser_args)),
+            other => panic!("expected a login, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn login_takes_a_browser_and_its_arguments() {
+        assert_eq!(login_browser(&[]).unwrap(), (None, vec![]));
+        assert_eq!(
+            login_browser(&[
+                "--browser",
+                "/opt/corp/browser",
+                "--browser-arg",
+                "--profile-directory=Work",
+                "--browser-arg=--new-window",
+            ])
+            .unwrap(),
+            (
+                Some("/opt/corp/browser".to_string()),
+                vec![
+                    "--profile-directory=Work".to_string(),
+                    "--new-window".to_string()
+                ]
+            )
+        );
+    }
+
+    #[test]
+    fn a_browser_argument_needs_a_browser() {
+        assert!(login_browser(&["--browser-arg", "--kiosk"]).is_err());
+    }
 }

@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::vec;
 
-use crate::{cli_config::cli_server_config::CliServerConfig, output::TableRow};
+use crate::{
+    cli_config::{browser::DEFAULT_BROWSER, cli_server_config::CliServerConfig},
+    output::TableRow,
+};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GetOutput {
@@ -9,6 +12,9 @@ pub struct GetOutput {
     pub url: String,
     pub default_namespace: String,
     pub has_clusters: bool,
+    /// Browser for SSO logins: `default`, `none`, or the program and its
+    /// arguments.
+    pub browser: String,
 }
 
 impl GetOutput {
@@ -22,6 +28,15 @@ impl GetOutput {
             url: cli_server_config.url,
             default_namespace: cli_server_config.namespace,
             has_clusters: !cli_server_config.clusters.is_empty(),
+            browser: cli_server_config.browser.map_or_else(
+                || DEFAULT_BROWSER.to_string(),
+                |browser| {
+                    std::iter::once(browser.program)
+                        .chain(browser.args)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                },
+            ),
         }
     }
 }
@@ -33,6 +48,7 @@ impl TableRow for GetOutput {
             "Server URL".to_string(),
             "Default Namespace".to_string(),
             "Has Clusters".to_string(),
+            "Browser".to_string(),
         ]
     }
 
@@ -42,6 +58,7 @@ impl TableRow for GetOutput {
             self.url.clone(),
             self.default_namespace.clone(),
             self.has_clusters.to_string(),
+            self.browser.clone(),
         ]
     }
 }
@@ -64,12 +81,19 @@ mod tests {
                 "Is Default",
                 "Server URL",
                 "Default Namespace",
-                "Has Clusters"
+                "Has Clusters",
+                "Browser"
             ]
         );
         assert_eq!(
             output.row(),
-            vec!["true", "https://localhost:5437", "default", "false"]
+            vec![
+                "true",
+                "https://localhost:5437",
+                "default",
+                "false",
+                "default"
+            ]
         );
         assert_eq!(GetOutput::headers().len(), output.row().len());
     }
@@ -111,5 +135,16 @@ mod tests {
         let output = GetOutput::new_from_servers(config, String::new());
         assert_eq!(output.default_namespace, "team-a");
         assert_eq!(output.row()[2], "team-a");
+    }
+
+    #[test]
+    fn the_saved_browser_is_shown_with_its_arguments() {
+        let mut config = server_config();
+        config.browser = Some(crate::cli_config::browser::BrowserConfig {
+            program: "/opt/corp/browser".to_string(),
+            args: vec!["--sso".to_string(), "{url}".to_string()],
+        });
+        let output = GetOutput::new_from_servers(config, String::new());
+        assert_eq!(output.row()[4], "/opt/corp/browser --sso {url}");
     }
 }

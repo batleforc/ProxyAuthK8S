@@ -32,35 +32,49 @@ pub async fn health() -> impl Responder {
 pub struct ReadinessBody {
     /// `ok` when Redis answered a `PING`, `unavailable` otherwise.
     pub redis: &'static str,
+    /// `ok` once the service-wide OIDC provider has been discovered, `pending`
+    /// while the boot-time discovery is still retrying.
+    pub oidc: &'static str,
 }
 
 /// Readiness: the pod can serve proxied traffic.
 ///
 /// Every proxied request needs Redis (cluster registry, sessions, throttling),
-/// so the pod is only ready when Redis answers a `PING` within 2 seconds.
+/// so the pod is only ready when Redis answers a `PING` within 2 seconds, and
+/// once the boot-time OIDC discovery has succeeded (it retries with backoff
+/// instead of crashing the pod while the IdP is down).
 #[utoipa::path(
     tag = "health",
     responses(
         (status = 200, description = "Ready to serve traffic.", body = ReadinessBody),
-        (status = 503, description = "A required dependency (Redis) is unavailable.", body = ReadinessBody),
+        (status = 503, description = "A required dependency (Redis, or the OIDC provider at boot) is unavailable.", body = ReadinessBody),
     )
 )]
 #[get("/ready")]
 #[instrument(name = "ready", level = "debug", skip(state))]
 pub async fn ready(state: web::Data<State>) -> impl Responder {
-    match tokio::time::timeout(READINESS_REDIS_TIMEOUT, state.redis_ping()).await {
-        Ok(Ok(())) => HttpResponse::Ok().json(ReadinessBody { redis: "ok" }),
+    let redis_ok = match tokio::time::timeout(READINESS_REDIS_TIMEOUT, state.redis_ping()).await {
+        Ok(Ok(())) => true,
         Ok(Err(err)) => {
             warn!("Readiness check failed: Redis error: {}", err);
-            HttpResponse::ServiceUnavailable().json(ReadinessBody {
-                redis: "unavailable",
-            })
+            false
         }
         Err(_) => {
             warn!("Readiness check failed: Redis PING timed out");
-            HttpResponse::ServiceUnavailable().json(ReadinessBody {
-                redis: "unavailable",
-            })
+            false
         }
+    };
+    let oidc_ok = state.is_oidc_ready();
+    if !oidc_ok {
+        warn!("Readiness check failed: OIDC discovery has not succeeded yet");
+    }
+    let body = ReadinessBody {
+        redis: if redis_ok { "ok" } else { "unavailable" },
+        oidc: if oidc_ok { "ok" } else { "pending" },
+    };
+    if redis_ok && oidc_ok {
+        HttpResponse::Ok().json(body)
+    } else {
+        HttpResponse::ServiceUnavailable().json(body)
     }
 }

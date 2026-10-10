@@ -384,20 +384,19 @@ async fn list_fallback_response(
     // derived here instead of duplicated as a literal, so it can never drift
     // from the mapper's own mapping.
     let namespaces_path = mapper.map_request(&route).path;
-    let response = match list_fallback::list_projects_filtered(
-        target.proxy,
-        target.data,
-        &client,
-        caller.req,
-        caller.peer_addr,
-        caller.user,
-        target.base_url,
-        &namespaces_path,
+    let args = list_fallback::ListFallbackArgs {
+        proxy: target.proxy,
+        state: target.data,
+        client: &client,
+        req: caller.req,
+        peer_addr: caller.peer_addr,
+        user: caller.user,
+        base_url: target.base_url,
+        namespaces_path: &namespaces_path,
         query_string,
         probe,
-    )
-    .await
-    {
+    };
+    let response = match list_fallback::list_projects_filtered(&args).await {
         Ok(json) => {
             audit.emit(200);
             json_response(http::StatusCode::OK, &mapper.map_response(json))

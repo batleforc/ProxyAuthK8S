@@ -26,6 +26,14 @@ use crate::proxy_kube_api::{error_policy_proxy_kube_api, main_reconcile_proxy_ku
 pub mod error;
 pub mod proxy_kube_api;
 
+/// Name of the Lease the replicas compete for, in `State::lease_namespace`.
+pub const LEASE_NAME: &str = "proxy-auth-k8s-leader-election";
+/// How long a leader keeps the Lease without renewing it.
+pub const LEASE_TTL: Duration = Duration::from_secs(15);
+/// How often the Lease is renewed (or retried): well under [`LEASE_TTL`], so
+/// a live leader never lets it lapse.
+pub const LEASE_RENEW_INTERVAL: Duration = Duration::from_secs(5);
+
 /// Decide whether a lease renewal outcome changes this instance's leadership.
 ///
 /// Returns `Some(new_value)` when `is_leader` must be updated (promotion when
@@ -37,8 +45,30 @@ pub fn leadership_transition(currently_leader: bool, acquired: bool) -> Option<b
     (currently_leader != acquired).then_some(acquired)
 }
 
-pub async fn run_leader_election(state: State, leadership: LeaseLock) {
-    let mut interval = interval(Duration::from_secs(5));
+/// The Lease `holder_id` competes for as [`LEASE_NAME`] in `namespace`, held
+/// for `ttl` without renewal.
+#[must_use]
+pub fn lease_lock(
+    client: kube::Client,
+    namespace: &str,
+    holder_id: &str,
+    ttl: Duration,
+) -> LeaseLock {
+    LeaseLock::new(
+        client,
+        namespace,
+        LeaseLockParams {
+            holder_id: holder_id.to_string(),
+            lease_name: LEASE_NAME.into(),
+            lease_ttl: ttl,
+        },
+    )
+}
+
+/// Keep `state.is_leader` in step with `leadership`, renewing (or trying to
+/// acquire) it every `renew_every`. Never returns.
+pub async fn run_leader_election(state: State, leadership: LeaseLock, renew_every: Duration) {
+    let mut interval = interval(renew_every);
     loop {
         match leadership.try_acquire_or_renew().await {
             Ok(lease) => {
@@ -86,14 +116,11 @@ pub async fn run(state: State) -> Result<()> {
         return Err(err);
     }
 
-    let leadership = LeaseLock::new(
+    let leadership = lease_lock(
         state.client.clone(),
-        &state.lease_namespace.clone(),
-        LeaseLockParams {
-            holder_id: state.lease_name.clone(),
-            lease_name: "proxy-auth-k8s-leader-election".into(),
-            lease_ttl: Duration::from_secs(15),
-        },
+        &state.lease_namespace,
+        &state.lease_name,
+        LEASE_TTL,
     );
 
     match leadership.try_acquire_or_renew().await {
@@ -124,7 +151,7 @@ pub async fn run(state: State) -> Result<()> {
             .filter_map(|x| async move { std::result::Result::ok(x) })
             .for_each(|_| futures_util::future::ready(())) => {
         },
-        () = run_leader_election(state.clone(), leadership) => {
+        () = run_leader_election(state.clone(), leadership, LEASE_RENEW_INTERVAL) => {
         }
     };
     Ok(())

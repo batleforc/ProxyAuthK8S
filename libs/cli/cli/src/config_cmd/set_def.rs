@@ -66,3 +66,116 @@ impl CliCtx {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli_config::CliConfig;
+
+    const URL_A: &str = "https://setdef-a.example";
+    const URL_B: &str = "https://setdef-b.example:8443";
+
+    fn ctx_with_two_servers(dir: &std::path::Path) -> CliCtx {
+        let mut ctx = CliCtx::for_test_in(dir);
+        for url in [URL_A, URL_B] {
+            ctx.config.get_or_insert_server_config(
+                CliServerConfig::url_to_name_from_string(url.to_string()),
+                url.to_string(),
+            );
+        }
+        ctx.config.default_server_name = "setdef-a-example".to_string();
+        ctx
+    }
+
+    fn written(ctx: &CliCtx) -> CliConfig {
+        CliConfig::read_from_file(ctx.config_path.clone()).unwrap()
+    }
+
+    #[test]
+    fn default_server_is_switched_and_persisted_owner_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_with_two_servers(dir.path());
+
+        ctx.handle_set_def(None, None, Some(&URL_B.to_string()))
+            .unwrap();
+
+        assert_eq!(written(&ctx).default_server_name, "setdef-b-example-8443");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&ctx.config_path)
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn default_server_must_be_known() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_with_two_servers(dir.path());
+
+        assert!(matches!(
+            ctx.handle_set_def(None, None, Some(&"https://unknown".to_string())),
+            Err(ProxyAuthK8sError::ServerNotFound(url)) if url == "https://unknown"
+        ));
+        assert_eq!(ctx.config.default_server_name, "setdef-a-example");
+        assert!(!ctx.config_path.exists());
+    }
+
+    #[test]
+    fn default_namespace_is_set_on_the_given_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_with_two_servers(dir.path());
+
+        ctx.handle_set_def(Some(&URL_B.to_string()), Some(&"team-b".to_string()), None)
+            .unwrap();
+
+        let config = written(&ctx);
+        assert_eq!(config.servers["setdef-b-example-8443"].namespace, "team-b");
+        // The other server and the default are untouched.
+        assert_eq!(config.servers["setdef-a-example"].namespace, "default");
+        assert_eq!(config.default_server_name, "setdef-a-example");
+    }
+
+    #[test]
+    fn namespace_needs_both_flags_and_a_known_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_with_two_servers(dir.path());
+
+        assert!(matches!(
+            ctx.handle_set_def(Some(&URL_A.to_string()), None, None),
+            Err(ProxyAuthK8sError::InvalidUsage(_))
+        ));
+        assert!(matches!(
+            ctx.handle_set_def(None, Some(&"ns".to_string()), None),
+            Err(ProxyAuthK8sError::InvalidUsage(_))
+        ));
+        assert!(matches!(
+            ctx.handle_set_def(
+                Some(&"https://unknown".to_string()),
+                Some(&"ns".to_string()),
+                None
+            ),
+            Err(ProxyAuthK8sError::ServerNotFound(name)) if name == "unknown"
+        ));
+        assert!(!ctx.config_path.exists());
+    }
+
+    #[test]
+    fn set_def_reports_a_config_write_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_with_two_servers(dir.path());
+        ctx.config_path = dir.path().join("missing/config.yaml");
+
+        assert!(matches!(
+            ctx.handle_set_def(None, None, Some(&URL_B.to_string())),
+            Err(ProxyAuthK8sError::KubeconfigWriteError(_))
+        ));
+        assert!(matches!(
+            ctx.handle_set_def(Some(&URL_A.to_string()), Some(&"ns".to_string()), None),
+            Err(ProxyAuthK8sError::KubeconfigWriteError(_))
+        ));
+    }
+}

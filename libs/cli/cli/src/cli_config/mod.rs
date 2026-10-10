@@ -2,6 +2,7 @@ use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf};
 
+pub mod browser;
 pub mod cli_cluster_config;
 pub mod cli_server_config;
 pub mod error;

@@ -144,4 +144,103 @@ mod tests {
             "https://localhost:5437::team-a/prod"
         );
     }
+
+    // The tests below run against the in-memory mock store `keystore` selects
+    // under `cfg(test)`. Each uses its own server URL so they stay independent
+    // when run in one process (`cargo test`).
+
+    #[test]
+    fn server_token_round_trips_through_the_keyring() {
+        let config = CliServerConfig::new("https://tokens.example".to_string());
+        assert!(matches!(
+            config.server_token(),
+            Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
+
+        config.set_server_token("tok".to_string()).unwrap();
+        assert_eq!(config.server_token().unwrap(), "tok");
+        // Stored under the documented service/user pair.
+        let raw = keystore::entry(KEYRING_SERVICE, "https://tokens.example").unwrap();
+        assert_eq!(raw.get_password().unwrap(), "tok");
+
+        config.clear_server_token().unwrap();
+        assert!(config.server_token().is_err());
+        // Nothing left to delete.
+        assert!(matches!(
+            config.clear_server_token(),
+            Err(ProxyAuthK8sError::KeyringDeleteError(_))
+        ));
+    }
+
+    #[test]
+    fn cluster_token_round_trips_and_marks_the_cluster_known() {
+        let mut config = CliServerConfig::new("https://clusters.example".to_string());
+        config
+            .set_cluster_token("team-a".to_string(), "prod".to_string(), "ct".to_string())
+            .unwrap();
+        assert!(config.clusters["team-a/prod"].token_exist);
+        assert_eq!(
+            config
+                .get_cluster_token("team-a".to_string(), "prod".to_string())
+                .unwrap(),
+            "ct"
+        );
+        let raw =
+            keystore::entry(KEYRING_SERVICE, "https://clusters.example::team-a/prod").unwrap();
+        assert_eq!(raw.get_password().unwrap(), "ct");
+
+        config
+            .clear_cluster_token("team-a".to_string(), "prod".to_string())
+            .unwrap();
+        assert!(matches!(
+            config.get_cluster_token("team-a".to_string(), "prod".to_string()),
+            Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
+    }
+
+    #[test]
+    fn keyring_failures_map_to_the_matching_error() {
+        let config = CliServerConfig::new("https://failing.example".to_string());
+        let raw = keystore::entry(KEYRING_SERVICE, "https://failing.example").unwrap();
+        let mock: &keyring_core::mock::Cred = raw.as_any().downcast_ref().unwrap();
+        mock.set_error(keyring_core::Error::NoStorageAccess(
+            "locked".to_string().into(),
+        ));
+        assert!(matches!(
+            config.set_server_token("tok".to_string()),
+            Err(ProxyAuthK8sError::KeyringWriteError(_))
+        ));
+        // The injected error is one-shot: the next write goes through.
+        config.set_server_token("tok".to_string()).unwrap();
+    }
+
+    #[test]
+    fn clear_all_tokens_drops_the_server_and_every_cluster_token() {
+        let mut config = CliServerConfig::new("https://all.example".to_string());
+        config.set_server_token("st".to_string()).unwrap();
+        for cluster in ["a", "b"] {
+            config
+                .set_cluster_token("ns".to_string(), cluster.to_string(), "ct".to_string())
+                .unwrap();
+        }
+        // A cluster known in the config but without a stored token is only
+        // logged, not fatal.
+        config.clusters.insert(
+            "ns/no-token".to_string(),
+            CliClusterConfig { token_exist: true },
+        );
+
+        config.clear_all_tokens();
+
+        assert!(config.server_token().is_err());
+        for cluster in ["a", "b"] {
+            assert!(
+                config
+                    .get_cluster_token("ns".to_string(), cluster.to_string())
+                    .is_err()
+            );
+        }
+        // Clearing again (nothing left) does not panic.
+        config.clear_all_tokens();
+    }
 }

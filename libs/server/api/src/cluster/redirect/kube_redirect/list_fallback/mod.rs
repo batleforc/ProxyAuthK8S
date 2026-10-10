@@ -74,6 +74,26 @@ pub(super) fn is_configured(proxy: &ProxyKubeApi) -> bool {
     configured_token(proxy, VirtualApiKind::OpenShiftProject).is_some()
 }
 
+/// Everything [`list_projects_filtered`] needs about the request and its
+/// target, borrowed from the caller. Three of these are `&str`, so naming them
+/// keeps a transposition from compiling.
+pub(super) struct ListFallbackArgs<'a> {
+    pub(super) proxy: &'a ProxyKubeApi,
+    pub(super) state: &'a web::Data<State>,
+    /// Client for the caller's own (impersonated) access reviews.
+    pub(super) client: &'a reqwest::Client,
+    pub(super) req: &'a HttpRequest,
+    pub(super) peer_addr: Option<PeerAddr>,
+    pub(super) user: Option<&'a User>,
+    /// Upstream origin, trailing slash already trimmed.
+    pub(super) base_url: &'a str,
+    /// Upstream path of the candidate collection, e.g. `/api/v1/namespaces`.
+    pub(super) namespaces_path: &'a str,
+    /// The client's query string, forwarded to the candidate fetch.
+    pub(super) query_string: &'a str,
+    pub(super) probe: virtual_api::AccessProbe,
+}
+
 /// Produce the `NamespaceList` filtered to what the impersonated caller can
 /// individually `get`, or a [`DiscoveryError`] if the candidate set itself
 /// could not be produced.
@@ -83,25 +103,21 @@ pub(super) fn is_configured(proxy: &ProxyKubeApi) -> bool {
 /// item, never whole-request. See the module doc for why this is
 /// unconditional rather than a 403 rescue, and for the rules-review fast path
 /// and cache in front of the per-item loop.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn list_projects_filtered(
-    proxy: &ProxyKubeApi,
-    state: &web::Data<State>,
-    client: &reqwest::Client,
-    req: &HttpRequest,
-    peer_addr: Option<PeerAddr>,
-    user: Option<&User>,
-    base_url: &str,
-    namespaces_path: &str,
-    query_string: &str,
-    probe: virtual_api::AccessProbe,
+    args: &ListFallbackArgs<'_>,
 ) -> Result<Value, DiscoveryError> {
     // Independent upstream calls: the candidate collection itself, and
     // whatever a cache hit can already resolve for it. Run them concurrently
     // rather than paying for both round-trips one after the other.
     let (candidates_result, cached) = tokio::join!(
-        privileged_namespaces(proxy, state, base_url, namespaces_path, query_string),
-        load_cached_outcome(state, proxy, user, probe)
+        privileged_namespaces(
+            args.proxy,
+            args.state,
+            args.base_url,
+            args.namespaces_path,
+            args.query_string
+        ),
+        load_cached_outcome(args.state, args.proxy, args.user, args.probe)
     );
     let mut candidates = candidates_result.map_err(DiscoveryError)?;
 
@@ -111,10 +127,7 @@ pub(super) async fn list_projects_filtered(
         .map(std::mem::take)
         .unwrap_or_default();
 
-    let (outcome, from_cache) = resolve_outcome_for(
-        proxy, state, client, req, peer_addr, user, base_url, probe, cached, &items,
-    )
-    .await;
+    let (outcome, from_cache) = resolve_outcome_for(args, cached, &items).await;
 
     let kept: Vec<Value> = items
         .into_iter()

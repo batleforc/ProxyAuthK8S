@@ -7,6 +7,7 @@ use api::{
     init_api, init_base_api, init_cluster_api,
     metrics::{HttpMetrics, PrometheusRegistry},
 };
+use common::config::CorsOrigins;
 use trace::{shutdown_tracing, start_tracing};
 use tracing_actix_web::{RequestId, TracingLogger};
 use utoipa::OpenApi;
@@ -41,6 +42,19 @@ async fn main() -> anyhow::Result<()> {
     let http_metrics = HttpMetrics::new(&opentelemetry::global::meter("proxyauthk8s"));
 
     let state = common::State::new().await?;
+    // Runs next to the server: an IdP that is down at boot keeps the pod alive
+    // and not-ready (`/management/ready` → 503) instead of crash-looping.
+    let oidc_discovery = tokio::spawn({
+        let state = state.clone();
+        async move {
+            state
+                .discover_oidc_until_ready(
+                    common::state::OIDC_DISCOVERY_RETRY_BASE,
+                    common::state::OIDC_DISCOVERY_RETRY_MAX,
+                )
+                .await;
+        }
+    });
     let server_config = common::ServerConfig::new();
     let controller = controller::run(state.clone());
     let shutdown_timeout = config.server.shutdown_timeout_secs;
@@ -48,11 +62,18 @@ async fn main() -> anyhow::Result<()> {
     let mut api_doc = ApiDoc::openapi();
     api_doc.info.version = env!("CARGO_PKG_VERSION").to_string();
 
-    // CORS: permissive by default (kept for backward compatibility — the API is
-    // Bearer-authenticated, so a browser never auto-attaches credentials). Set
-    // `CORS_ALLOWED_ORIGINS` to a comma-separated allow-list to restrict which
-    // origins may drive the API from a browser.
+    // CORS: same-origin only unless `CORS_ALLOWED_ORIGINS` lists the origins
+    // allowed to drive the API from a browser (`*` explicitly allows any).
     let cors_allowed_origins = config.server.cors_allowed_origins.clone();
+    match &cors_allowed_origins {
+        CorsOrigins::SameOriginOnly => tracing::info!(
+            "CORS: CORS_ALLOWED_ORIGINS is unset, cross-origin browser requests are refused"
+        ),
+        CorsOrigins::Any => {
+            tracing::warn!("CORS: CORS_ALLOWED_ORIGINS=*, any origin may call the API");
+        }
+        CorsOrigins::List(origins) => tracing::info!(?origins, "CORS: allowed origins"),
+    }
 
     let mut server = HttpServer::new(move || {
         let cors = Cors::default()
@@ -60,10 +81,11 @@ async fn main() -> anyhow::Result<()> {
             .allow_any_header()
             .max_age(3600);
         let cors = match &cors_allowed_origins {
-            Some(origins) => origins
+            CorsOrigins::SameOriginOnly => cors,
+            CorsOrigins::Any => cors.allow_any_origin(),
+            CorsOrigins::List(origins) => origins
                 .iter()
                 .fold(cors, |cors, origin| cors.allowed_origin(origin)),
-            None => cors.allow_any_origin(),
         };
         let (app, api) = App::new()
             .into_utoipa_app()
@@ -131,6 +153,7 @@ async fn main() -> anyhow::Result<()> {
         },
         res = server.run() => res.map_err(Into::into),
     };
+    oidc_discovery.abort();
     if let Err(e) = &result {
         tracing::error!(error = format!("{e:#}"), "Server stopped with an error");
     }

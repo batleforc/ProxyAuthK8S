@@ -49,21 +49,69 @@ impl From<GetAllVisibleClusterError> for ProxyAuthK8sError {
     }
 }
 
+/// Longest slice of an unmodelled error body carried into the message.
+const MAX_ERROR_BODY_CHARS: usize = 200;
+
 impl From<client_api::apis::Error<GetAllVisibleClusterError>> for ProxyAuthK8sError {
     fn from(value: client_api::apis::Error<GetAllVisibleClusterError>) -> Self {
         match value {
-            client_api::apis::Error::ResponseError(resp_content) => match resp_content.entity {
-                Some(err) => ProxyAuthK8sError::from(err),
-                None => ProxyAuthK8sError::RemoteServerError(
-                    "No error details provided by server".to_string(),
-                ),
-            },
+            // Map from the HTTP status, not `entity`: the generated client
+            // deserialises the body into an untagged enum whose unit variants
+            // match `[]` and nothing else, so the server's empty 401 had no
+            // entity and any `[]` error body passed for a 401.
+            client_api::apis::Error::ResponseError(resp_content) => {
+                match resp_content.status.as_u16() {
+                    401 => GetAllVisibleClusterError::Status401().into(),
+                    429 => GetAllVisibleClusterError::Status429().into(),
+                    500 => GetAllVisibleClusterError::Status500().into(),
+                    503 => GetAllVisibleClusterError::Status503().into(),
+                    _ => {
+                        let body = resp_content.content.trim();
+                        let body: String = body.chars().take(MAX_ERROR_BODY_CHARS).collect();
+                        if body.is_empty() {
+                            ProxyAuthK8sError::RemoteServerError(format!(
+                                "Server answered {} without error details",
+                                resp_content.status
+                            ))
+                        } else {
+                            ProxyAuthK8sError::RemoteServerError(format!(
+                                "Server answered {}: {body}",
+                                resp_content.status
+                            ))
+                        }
+                    }
+                }
+            }
             client_api::apis::Error::Serde(err) => {
                 ProxyAuthK8sError::RemoteServerError(format!("Serialization error: {err}"))
+            }
+            client_api::apis::Error::Reqwest(err) if is_certificate_error(&err) => {
+                ProxyAuthK8sError::UntrustedServerCertificate(
+                    "the server's TLS certificate is not trusted; if it was renewed, run \
+                     `kubectl proxyauth login` from a terminal to review the new one, or pass \
+                     --certificate-authority"
+                        .to_string(),
+                )
             }
             other => ProxyAuthK8sError::RemoteServerError(format!("Unexpected error: {other:?}")),
         }
     }
+}
+
+/// Whether a request failed on the server's certificate, whichever TLS
+/// backend reqwest used (rustls: "invalid peer certificate: UnknownIssuer";
+/// OpenSSL: "certificate verify failed"; Secure Transport/SChannel likewise
+/// name the certificate).
+fn is_certificate_error(err: &reqwest::Error) -> bool {
+    let mut source: Option<&dyn std::error::Error> = Some(err);
+    while let Some(current) = source {
+        let message = current.to_string().to_ascii_lowercase();
+        if message.contains("certificate") || message.contains("unknownissuer") {
+            return true;
+        }
+        source = current.source();
+    }
+    false
 }
 
 #[cfg(test)]
@@ -127,30 +175,105 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_response_error_unwraps_the_status_it_carries() {
-        let response = client_api::apis::Error::ResponseError(client_api::apis::ResponseContent {
-            status: reqwest::StatusCode::UNAUTHORIZED,
-            content: String::new(),
-            entity: Some(GetAllVisibleClusterError::Status401()),
-        });
-        assert!(matches!(
-            ProxyAuthK8sError::from(response),
-            ProxyAuthK8sError::Unauthenticated(_)
-        ));
+    fn response_error(
+        status: reqwest::StatusCode,
+        content: &str,
+        entity: Option<GetAllVisibleClusterError>,
+    ) -> client_api::apis::Error<GetAllVisibleClusterError> {
+        client_api::apis::Error::ResponseError(client_api::apis::ResponseContent {
+            status,
+            content: content.to_string(),
+            entity,
+        })
     }
 
     #[test]
-    fn a_response_error_without_a_parsed_entity_still_reports_a_server_error() {
-        let response: client_api::apis::Error<GetAllVisibleClusterError> =
-            client_api::apis::Error::ResponseError(client_api::apis::ResponseContent {
-                status: reqwest::StatusCode::BAD_GATEWAY,
-                content: "<html>502</html>".to_string(),
-                entity: None,
-            });
-        match ProxyAuthK8sError::from(response) {
+    fn a_401_is_unauthenticated_whatever_the_body() {
+        // The server answers its 401 with an empty body: that must still ask
+        // the user to re-login.
+        for content in ["", "[]", "{\"reason\":\"expired\"}"] {
+            assert!(
+                matches!(
+                    ProxyAuthK8sError::from(response_error(
+                        reqwest::StatusCode::UNAUTHORIZED,
+                        content,
+                        None,
+                    )),
+                    ProxyAuthK8sError::Unauthenticated(_)
+                ),
+                "body {content:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_status_wins_over_the_parsed_entity() {
+        // `[]` parses as `Status401()` whatever the status: a 500 with that
+        // body is still a server error.
+        match ProxyAuthK8sError::from(response_error(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            "[]",
+            Some(GetAllVisibleClusterError::Status401()),
+        )) {
             ProxyAuthK8sError::RemoteServerError(message) => {
-                assert!(message.contains("No error details"));
+                assert!(message.contains("Invalid response from server"));
+            }
+            other => panic!("expected a remote server error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn modelled_statuses_keep_their_message() {
+        for (status, needle) in [
+            (reqwest::StatusCode::TOO_MANY_REQUESTS, "Rate limited"),
+            (
+                reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                "temporarily unable",
+            ),
+        ] {
+            match ProxyAuthK8sError::from(response_error(status, "", None)) {
+                ProxyAuthK8sError::RemoteServerError(message) => {
+                    assert!(message.contains(needle), "{status}: {message}");
+                }
+                other => panic!("expected a remote server error, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn other_statuses_report_the_status_and_a_bounded_body() {
+        match ProxyAuthK8sError::from(response_error(
+            reqwest::StatusCode::BAD_GATEWAY,
+            "<html>502</html>",
+            None,
+        )) {
+            ProxyAuthK8sError::RemoteServerError(message) => {
+                assert!(message.contains("502"));
+                assert!(message.contains("<html>502</html>"));
+            }
+            other => panic!("expected a remote server error, got {other:?}"),
+        }
+
+        match ProxyAuthK8sError::from(response_error(reqwest::StatusCode::FORBIDDEN, " ", None)) {
+            ProxyAuthK8sError::RemoteServerError(message) => {
+                assert!(message.contains("403"));
+                assert!(message.contains("without error details"));
+            }
+            other => panic!("expected a remote server error, got {other:?}"),
+        }
+
+        let long = "x".repeat(MAX_ERROR_BODY_CHARS * 2);
+        match ProxyAuthK8sError::from(response_error(
+            reqwest::StatusCode::BAD_REQUEST,
+            &long,
+            None,
+        )) {
+            ProxyAuthK8sError::RemoteServerError(message) => {
+                assert!(
+                    message.len() < MAX_ERROR_BODY_CHARS + 50,
+                    "{}",
+                    message.len()
+                );
             }
             other => panic!("expected a remote server error, got {other:?}"),
         }
@@ -176,6 +299,27 @@ mod tests {
                 assert!(message.contains("Unexpected error"));
             }
             other => panic!("expected a remote server error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_untrusted_server_certificate_says_how_to_recover() {
+        use crate::test_support::{TlsTestServer, self_signed_cert};
+        let server = TlsTestServer::start(&[&self_signed_cert("proxy", &["localhost"])]).await;
+        let err = client_api::apis::api_clusters_api::get_all_visible_cluster(
+            &client_api::apis::configuration::Configuration {
+                base_path: server.url(),
+                client: crate::cli_config::cli_server_config::http_client(None).unwrap(),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("the certificate is not trusted");
+        match ProxyAuthK8sError::from(err) {
+            ProxyAuthK8sError::UntrustedServerCertificate(message) => {
+                assert!(message.contains("kubectl proxyauth login"), "{message}");
+            }
+            other => panic!("expected an untrusted certificate error, got {other:?}"),
         }
     }
 }

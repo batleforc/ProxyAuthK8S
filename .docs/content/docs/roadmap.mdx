@@ -32,7 +32,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
       Redesign UI      : Nouvelle interface
       Exchange Token   : Federation IdP
       Proxy & Agent    : Mode agent, tunnel
-      mTLS client      : Auth par certificat client
+      Device code      : Login SSO sans navigateur local
 `} />
 
 ---
@@ -181,15 +181,29 @@ Support du [mode cluster Redis](https://docs.rs/deadpool-redis/latest/deadpool_r
 <Step>
 ### Sécurité renforcée
 
-- Récupération de la configuration OIDC depuis des secrets externes (ex: Vault)
-- Validation des tokens OIDC renforcée
+- ✅ Application de `allowed_resources` sur le chemin proxy, y compris par group/version/kind (`AllowedCrdConfiguration`)
+- ✅ Autorisation par cluster (`proxy_group`)
+- ✅ Rate limiting et fail2login, adossés à des compteurs Redis
+- ✅ Audit de chaque requête proxifiée
+- ✅ mTLS entre le proxy et les clusters cibles
+- ✅ Règles d'admission CEL sur la CRD
+- ✅ Validation locale des JWT contre les authenticators `jwt` (`validate_against: JwtAuthenticators`)
+- ✅ Récupération de la configuration OIDC depuis des secrets externes (`oidc_provider.config_from`)
+- ✅ Validation des tokens OIDC renforcée
+
+</Step>
+
+<Step>
+### Nettoyage (breaking)
+
+- ⏳ Supprimer l'orthographe dépréciée `allowed_ressources` une fois les ressources migrées vers `allowed_resources`
 
 </Step>
 
 <Step>
 ### CI/CD
 
-- Publication automatique de la documentation sur GitHub Pages lors d'un TAG
+- ⏳ Publication automatique de la documentation sur GitHub Pages lors d'un TAG
 
 </Step>
 
@@ -234,15 +248,59 @@ Permet de ne pas exposer chaque cluster directement mais d'utiliser un agent qui
 </Step>
 
 <Step>
-### mTLS d'authentification client
+### Login SSO par device code
 
-Gestion du mTLS pour l'authentification entre le client et l'API Server Kubernetes : un appelant
-pourrait s'authentifier avec un certificat client plutôt qu'avec un jeton `Bearer`.
+Prise en charge de l'*OAuth 2.0 Device Authorization Grant* ([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628))
+pour le login SSO du plugin kubectl quand le navigateur n'est pas sur la machine du plugin
+(workspace Eclipse Che, session SSH, conteneur distant) : l'utilisateur ouvre une URL courte sur
+n'importe quel appareil et saisit un code, sans redirection vers `localhost` ni URL à recoller.
 
-À distinguer du mTLS livré en v1.0.0, qui est celui que le proxy présente lui-même aux clusters
-cibles (voir « mTLS vers le cluster cible » dans la page Sécurité).
+Aujourd'hui, ce cas est couvert en collant l'URL de redirection dans le terminal (voir
+« Navigateur sur une autre machine » dans la page du plugin kubectl) ; le device code en serait
+la variante la plus confortable.
+
+- **IdP** : endpoint `device_authorization_endpoint` annoncé par la discovery (Keycloak,
+  Entra ID, Okta, Dex…) et *device grant* activé sur le client OIDC de chaque cluster.
+- **Serveur** : démarrage du flux et interrogation du token endpoint
+  (`authorization_pending`, `slow_down`, `expired_token`), le client secret restant côté serveur
+  comme pour l'échange de code actuel, avec le même contrôle `proxy_group` que `/auth/login`.
+- **Plugin** : `login --device-code`, ou automatiquement quand le provider le propose et qu'aucun
+  navigateur local n'est utilisable ; affichage de l'URL de vérification et du code.
 
 </Step>
 
 </Steps>
 
+---
+
+## Hors périmètre {"\u26D4"}
+
+Décisions prises pour ne pas avoir à les rediscuter.
+
+### Authentification par certificat client (`admin.conf` kubeadm)
+
+Décidé le 2026-10-10 : **non retenu**. Le cas d'usage était de pointer l'`admin.conf` généré par
+kubeadm (utilisateur `client-certificate-data`, ex. `CN=kubernetes-admin`,
+`O=kubeadm:cluster-admins`) vers `/clusters/{ns}/{cluster}`.
+
+Le proxy termine le TLS et n'a jamais la clé privée de l'utilisateur : il ne peut pas rejouer le
+certificat vers l'apiserver. Toutes les façons de transmettre l'identité en amont reviennent à
+ce que le **credential du proxy se substitue à celui de l'utilisateur** :
+
+- **Impersonation** (`Impersonate-User` / `Impersonate-Group`) ou **front-proxy**
+  (`X-Remote-User` / `X-Remote-Group` + certificat front-proxy) : le proxy affirme une identité
+  que l'apiserver ne vérifie pas lui-même, et son credential doit pouvoir endosser les identités
+  les plus privilégiées (`system:masters`).
+- **`SubjectAccessReview` puis requête avec le credential du proxy** : la décision d'accès
+  passe de l'apiserver au proxy (traduction URL → attributs RBAC), le credential du proxy doit
+  détenir tous les droits possibles, et l'audit du cluster ne voit que le proxy. Une
+  `SelfSubjectReview` ne règle rien : « self » est celui qui s'authentifie auprès de
+  l'apiserver, donc le proxy.
+- **TLS passthrough** : l'apiserver authentifie bien le certificat, mais le proxy ne voit plus ni
+  chemin ni en-têtes — plus de routage par cluster, plus de politique, de bannissement ni
+  d'audit.
+
+Aucune n'est acceptable : le proxy ne doit jamais pouvoir fabriquer ou endosser une identité.
+Les admins utilisent leur `admin.conf` directement contre l'apiserver, ou se connectent via le
+proxy avec OIDC. Les en-têtes `Impersonate-*` et `X-Remote-*` envoyés par un client restent
+systématiquement retirés (voir « En-têtes transmis » dans la page Sécurité).

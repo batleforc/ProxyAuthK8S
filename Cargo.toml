@@ -68,9 +68,11 @@ flate2 = { version = '1.1', default-features = false, features = ['zlib-rs'] }
 # routes to `oauth2/reqwest` and pins reqwest 0.12. `oauth2-reqwest` is the
 # upstream (same author) adapter that provides the same `AsyncHttpClient` over
 # reqwest 0.13; it is pre-release only because it is new, not unstable. Both
-# lines move together — see todo.md before touching either.
+# lines move together; pinned exactly so a `cargo update` cannot pull a newer
+# alpha into the auth path unnoticed. Re-check when `oauth2` 6 ships or
+# `oauth2-reqwest` 0.1.0 stable lands.
 openidconnect = { version = '4.0.1', default-features = false }
-oauth2-reqwest = "0.1.0-alpha.3"
+oauth2-reqwest = "=0.1.0-alpha.3"
 thiserror = { version = '2' }
 regex = "1.12.3"
 

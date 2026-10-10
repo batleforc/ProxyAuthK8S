@@ -81,3 +81,6 @@ release.md
 
 # graphify incremental cache (the graph itself stays tracked)
 graphify-out/cache/
+
+# Local working notes, never committed (public plan: .docs/content/docs/roadmap.mdx)
+todo.md

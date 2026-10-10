@@ -25,7 +25,11 @@ pub enum CertSource {
         key: String,
         namespace: Option<String>,
     },
-    /// Insecure, do not use TLS
+    /// Verify the target with the system trust store (no custom CA). The
+    /// value is ignored.
+    SystemRoots(bool),
+    /// Deprecated, use `SystemRoots`. Despite its name this never disabled TLS
+    /// verification: it behaves exactly like `SystemRoots`. The value is ignored.
     Insecure(bool),
 }
 
@@ -57,6 +61,7 @@ impl std::fmt::Debug for CertSource {
                 .field("key", key)
                 .field("namespace", namespace)
                 .finish(),
+            CertSource::SystemRoots(value) => f.debug_tuple("SystemRoots").field(value).finish(),
             CertSource::Insecure(value) => f.debug_tuple("Insecure").field(value).finish(),
         }
     }
@@ -211,8 +216,14 @@ impl CertSource {
                 let decoded = BASE64_STANDARD.decode(c)?;
                 Ok(Some(String::from_utf8(decoded)?))
             }
-            CertSource::Insecure(_) => Ok(None),
+            CertSource::SystemRoots(_) | CertSource::Insecure(_) => Ok(None),
         }
+    }
+
+    /// Whether this is the deprecated `Insecure` spelling of `SystemRoots`.
+    #[must_use]
+    pub fn is_deprecated_insecure(&self) -> bool {
+        matches!(self, CertSource::Insecure(_))
     }
 }
 
@@ -246,6 +257,21 @@ mod tests {
         assert_eq!(decode_secret_cert(token.as_bytes()).unwrap(), token);
         let not_pem = BASE64_STANDARD.encode("plain secret");
         assert_eq!(decode_secret_cert(not_pem.as_bytes()).unwrap(), not_pem);
+    }
+
+    #[test]
+    fn system_roots_and_its_deprecated_insecure_spelling_both_deserialize() {
+        let current: CertSource =
+            serde_json::from_value(serde_json::json!({ "SystemRoots": true }))
+                .expect("SystemRoots should deserialize");
+        assert!(matches!(current, CertSource::SystemRoots(true)));
+        assert!(!current.is_deprecated_insecure());
+
+        // Resources written before the rename must keep working unchanged.
+        let legacy: CertSource = serde_json::from_value(serde_json::json!({ "Insecure": false }))
+            .expect("Insecure should still deserialize");
+        assert!(matches!(legacy, CertSource::Insecure(false)));
+        assert!(legacy.is_deprecated_insecure());
     }
 
     #[test]

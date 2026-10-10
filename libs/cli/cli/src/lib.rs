@@ -16,6 +16,8 @@ pub mod keystore;
 pub mod login;
 pub mod logout;
 pub mod output;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 // Re-exported at the crate root: `cli::Cli` is the binary's entry point and the
 // path every caller already uses.

@@ -67,6 +67,11 @@ pub trait ProxyKubeApiRuntime {
     ) -> String;
 
     /// Check whether the upstream service answers.
+    ///
+    /// `Ok(false)` when the target is down from here: the service can't be
+    /// resolved, the connection is refused or times out, the TLS handshake
+    /// fails, or it answers with a 5xx. `Err` only when the probe itself can't
+    /// be run (e.g. the `cert` can't be read or the client can't be built).
     async fn is_reachable(&self, ctx: Arc<State>) -> Result<bool, ProxyRuntimeError>;
 
     /// Build a `reqwest` client trusting this cluster's CA (if any).
@@ -209,6 +214,17 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
                 if resp.status().is_success() {
                     return Ok(true);
                 }
+                Ok(false)
+            }
+            Err(err) if err.is_connect() || err.is_timeout() => {
+                // Refused / unroutable / TLS handshake failure, or no answer in
+                // time: the target is down from here, which is what `Ok(false)`
+                // means. `Err` stays reserved for failures on our side.
+                tracing::warn!(
+                    "ProxyKubeApi {} is unreachable: {}",
+                    self.to_identifier(),
+                    err
+                );
                 Ok(false)
             }
             Err(err) => {
@@ -455,7 +471,7 @@ mod tests {
             NAME,
             ProxyKubeApiSpec {
                 enabled: true,
-                cert: CertSource::Insecure(true),
+                cert: CertSource::SystemRoots(true),
                 client_cert: None,
                 service: Service::ExternalService {
                     url: UPSTREAM.to_string(),

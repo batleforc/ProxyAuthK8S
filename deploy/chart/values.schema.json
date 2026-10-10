@@ -294,7 +294,7 @@
         },
         "corsAllowedOrigins": {
           "type": "string",
-          "description": "Comma-separated origins; empty = the ingress origin."
+          "description": "Comma-separated origins; empty = the ingress origin; \"*\" alone = any origin."
         },
         "shutdownTimeoutSeconds": {
           "type": "integer",

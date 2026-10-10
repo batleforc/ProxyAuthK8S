@@ -142,7 +142,7 @@ mod tests {
             "test-cluster",
             ProxyKubeApiSpec {
                 enabled: true,
-                cert: CertSource::Insecure(true),
+                cert: CertSource::SystemRoots(true),
                 client_cert: None,
                 service: Service::ExternalService {
                     url: "https://127.0.0.1:1".to_string(),

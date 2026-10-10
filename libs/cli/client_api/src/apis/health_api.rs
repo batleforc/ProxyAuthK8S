@@ -109,7 +109,7 @@ pub async fn prometheus_metrics(
     }
 }
 
-/// Every proxied request needs Redis (cluster registry, sessions, throttling), so the pod is only ready when Redis answers a `PING` within 2 seconds.
+/// Every proxied request needs Redis (cluster registry, sessions, throttling), so the pod is only ready when Redis answers a `PING` within 2 seconds, and once the boot-time OIDC discovery has succeeded (it retries with backoff instead of crashing the pod while the IdP is down).
 pub async fn ready(
     configuration: &configuration::Configuration,
 ) -> Result<models::ReadinessBody, Error<ReadyError>> {

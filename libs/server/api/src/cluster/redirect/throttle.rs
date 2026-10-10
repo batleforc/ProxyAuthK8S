@@ -381,7 +381,7 @@ mod tests {
             "local",
             ProxyKubeApiSpec {
                 enabled: true,
-                cert: CertSource::Insecure(true),
+                cert: CertSource::SystemRoots(true),
                 client_cert: None,
                 service: Service::ExternalService {
                     url: "https://cluster.example.com".to_string(),

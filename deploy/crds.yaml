@@ -431,6 +431,8 @@ spec:
                 - required:
                   - ConfigMap
                 - required:
+                  - SystemRoots
+                - required:
                   - Insecure
                 properties:
                   Cert:
@@ -451,7 +453,9 @@ spec:
                     - name
                     type: object
                   Insecure:
-                    description: Insecure, do not use TLS
+                    description: |-
+                      Deprecated, use `SystemRoots`. Despite its name this never disabled TLS
+                      verification: it behaves exactly like `SystemRoots`. The value is ignored.
                     type: boolean
                   Secret:
                     description: Use a cert from a secret
@@ -467,6 +471,11 @@ spec:
                     - key
                     - name
                     type: object
+                  SystemRoots:
+                    description: |-
+                      Verify the target with the system trust store (no custom CA). The
+                      value is ignored.
+                    type: boolean
                 type: object
               client_cert:
                 description: |-
@@ -484,6 +493,8 @@ spec:
                     - required:
                       - ConfigMap
                     - required:
+                      - SystemRoots
+                    - required:
                       - Insecure
                     properties:
                       Cert:
@@ -504,7 +515,9 @@ spec:
                         - name
                         type: object
                       Insecure:
-                        description: Insecure, do not use TLS
+                        description: |-
+                          Deprecated, use `SystemRoots`. Despite its name this never disabled TLS
+                          verification: it behaves exactly like `SystemRoots`. The value is ignored.
                         type: boolean
                       Secret:
                         description: Use a cert from a secret
@@ -520,6 +533,11 @@ spec:
                         - key
                         - name
                         type: object
+                      SystemRoots:
+                        description: |-
+                          Verify the target with the system trust store (no custom CA). The
+                          value is ignored.
+                        type: boolean
                     type: object
                   key:
                     description: PEM private key matching the certificate
@@ -531,6 +549,8 @@ spec:
                     - required:
                       - ConfigMap
                     - required:
+                      - SystemRoots
+                    - required:
                       - Insecure
                     properties:
                       Cert:
@@ -551,7 +571,9 @@ spec:
                         - name
                         type: object
                       Insecure:
-                        description: Insecure, do not use TLS
+                        description: |-
+                          Deprecated, use `SystemRoots`. Despite its name this never disabled TLS
+                          verification: it behaves exactly like `SystemRoots`. The value is ignored.
                         type: boolean
                       Secret:
                         description: Use a cert from a secret
@@ -567,6 +589,11 @@ spec:
                         - key
                         - name
                         type: object
+                      SystemRoots:
+                        description: |-
+                          Verify the target with the system trust store (no custom CA). The
+                          value is ignored.
+                        type: boolean
                     type: object
                 required:
                 - cert
@@ -1112,6 +1139,8 @@ spec:
                       - required:
                         - ConfigMap
                       - required:
+                        - SystemRoots
+                      - required:
                         - Insecure
                       properties:
                         Cert:
@@ -1132,7 +1161,9 @@ spec:
                           - name
                           type: object
                         Insecure:
-                          description: Insecure, do not use TLS
+                          description: |-
+                            Deprecated, use `SystemRoots`. Despite its name this never disabled TLS
+                            verification: it behaves exactly like `SystemRoots`. The value is ignored.
                           type: boolean
                         Secret:
                           description: Use a cert from a secret
@@ -1148,6 +1179,11 @@ spec:
                           - key
                           - name
                           type: object
+                        SystemRoots:
+                          description: |-
+                            Verify the target with the system trust store (no custom CA). The
+                            value is ignored.
+                          type: boolean
                       type: object
                   required:
                   - kind

@@ -50,8 +50,15 @@ cert:
 # cert:
 #   Cert: LS0tLS1CRUdJTi...                             # PEM encodé en base64
 # cert:
-#   Insecure: true                                      # aucune vérification : tests uniquement
+#   SystemRoots: true                                   # magasin de confiance système, pas de CA dédié
 ```
+
+<Callout type="warn">
+  `Insecure: true` est l'ancien nom, déprécié, de `SystemRoots`. Malgré son nom, il n'a **jamais**
+  désactivé la vérification TLS : le cluster cible est vérifié avec le magasin de confiance système.
+  Il reste accepté pour les ressources existantes (le controller log un avertissement) ; renommez-le
+  en `SystemRoots: true`.
+</Callout>
 
 Le Secret/ConfigMap est lu dans le **namespace du `ProxyKubeApi`**. Un champ `namespace`
 différent est refusé, sauf si `PROXYAUTH_ALLOW_CROSS_NS_CERT=true` (voir [mTLS vers le cluster

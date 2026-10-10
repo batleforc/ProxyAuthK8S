@@ -329,7 +329,7 @@ async fn a_config_from_only_provider_is_admitted() {
         "metadata": { "name": "config-from-only", "namespace": "default" },
         "spec": {
             "enabled": true,
-            "cert": { "Insecure": true },
+            "cert": { "SystemRoots": true },
             "service": { "ExternalService": { "url": "https://cluster.example.com:6443" } },
             "auth_config": {
                 "oidc_provider": {
@@ -370,7 +370,7 @@ async fn an_enabled_provider_without_config_from_still_needs_its_fields() {
         "metadata": { "name": "no-config-from", "namespace": "default" },
         "spec": {
             "enabled": true,
-            "cert": { "Insecure": true },
+            "cert": { "SystemRoots": true },
             "service": { "ExternalService": { "url": "https://cluster.example.com:6443" } },
             "auth_config": {
                 "oidc_provider": { "enabled": true },

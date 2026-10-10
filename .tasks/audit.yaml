@@ -21,7 +21,10 @@ tasks:
     silent: true
     cmds:
       - echo "Auditing JS dependencies with yarn npm audit"
-      - yarn npm audit --all --recursive
+      # CVEs only: deprecation notices (e.g. whatwg-encoding via http-server,
+      # which has no release off it yet) are not vulnerabilities and would keep
+      # the gate red forever. Accepted advisories live in .yarnrc.yml.
+      - yarn npm audit --all --recursive --no-deprecations
 
   container:
     desc: "Scan the back/front Containerfiles for CVEs (trivy)"

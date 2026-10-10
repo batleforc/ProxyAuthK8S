@@ -115,7 +115,7 @@ pub fn proxy_fixture(ns: &str, cluster: &str, upstream_url: &str) -> ProxyKubeAp
         cluster,
         ProxyKubeApiSpec {
             enabled: true,
-            cert: CertSource::Insecure(true),
+            cert: CertSource::SystemRoots(true),
             client_cert: None,
             service: Service::ExternalService {
                 url: upstream_url.to_string(),

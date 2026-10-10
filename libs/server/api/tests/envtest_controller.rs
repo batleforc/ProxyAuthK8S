@@ -100,6 +100,8 @@ fn proxy_resource(name: &str, upstream: &str) -> ProxyKubeApi {
         "metadata": { "name": name, "namespace": NAMESPACE },
         "spec": {
             "enabled": true,
+            // Deprecated spelling of `SystemRoots`, kept here on purpose: the
+            // regenerated CRD must still admit resources written before the rename.
             "cert": { "Insecure": true },
             "service": { "ExternalService": { "url": upstream } },
         },

@@ -63,8 +63,6 @@ pub struct EnvTest {
     /// caller that (unlike `client()`) cannot skip TLS verification can pin
     /// it as a trust anchor instead.
     serving_cert_pem: String,
-    /// Where the apiserver writes its self-signed serving certificate.
-    cert_dir: PathBuf,
 }
 
 impl EnvTest {
@@ -168,14 +166,12 @@ impl EnvTest {
             .spawn()
             .map_err(|err| format!("could not start kube-apiserver: {err}"))?;
 
-        let cert_dir = workdir.path().join("certs");
         let env_test = Self {
             etcd,
             apiserver,
             _workdir: workdir,
             apiserver_url,
             serving_cert_pem,
-            cert_dir,
         };
         env_test.wait_until_ready().await?;
         Ok(env_test)
@@ -245,13 +241,12 @@ impl EnvTest {
         &self.serving_cert_pem
     }
 
-    /// The PEM bundle (serving certificate and its self-signed CA) the
-    /// apiserver generated in `--cert-dir`, for clients that must verify TLS
-    /// instead of skipping it — e.g. a `ProxyKubeApi` with `CertSource::Cert`.
+    /// The CA PEM a client must trust to verify the apiserver — e.g. a
+    /// `ProxyKubeApi` with `CertSource::Cert`. Same anchor as
+    /// [`Self::serving_cert_pem`]: since the apiserver serves the harness's own
+    /// `--tls-cert-file`, it no longer writes an `apiserver.crt` to `--cert-dir`.
     pub fn ca_pem(&self) -> Result<String, String> {
-        let path = self.cert_dir.join("apiserver.crt");
-        std::fs::read_to_string(&path)
-            .map_err(|err| format!("could not read {}: {err}", path.display()))
+        Ok(self.serving_cert_pem.clone())
     }
 
     /// A client trusting the apiserver's self-signed certificate.

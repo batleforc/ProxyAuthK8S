@@ -82,9 +82,44 @@ pub struct ServerSettings {
     pub key_path: Option<String>,
     /// `SERVER_SHUTDOWN_TIMEOUT` (default `30`): graceful-shutdown timeout in seconds.
     pub shutdown_timeout_secs: u64,
-    /// `CORS_ALLOWED_ORIGINS`: comma-separated allow-list; `None` (unset or
-    /// empty) allows any origin.
-    pub cors_allowed_origins: Option<Vec<String>>,
+    /// `CORS_ALLOWED_ORIGINS`: which browser origins may call the API.
+    pub cors_allowed_origins: CorsOrigins,
+}
+
+/// Parsed `CORS_ALLOWED_ORIGINS`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum CorsOrigins {
+    /// Unset or empty (the default): no cross-origin request is allowed.
+    #[default]
+    SameOriginOnly,
+    /// `*`: any origin, the pre-0.2 default. Explicit opt-in only.
+    Any,
+    /// A comma-separated allow-list of exact origins.
+    List(Vec<String>),
+}
+
+impl CorsOrigins {
+    /// Parse the raw variable: `*` alone means any origin, anything else is an
+    /// allow-list. Blank entries are dropped, and so is a `*` mixed with real
+    /// origins: it must not widen the list, and actix-cors refuses to start
+    /// with a wildcard in an allow-list. Nothing left means same-origin only.
+    #[must_use]
+    pub fn parse(value: &str) -> Self {
+        let origins: Vec<String> = value
+            .split(',')
+            .map(|origin| origin.trim().to_string())
+            .filter(|origin| !origin.is_empty())
+            .collect();
+        if origins.len() == 1 && origins[0] == "*" {
+            return Self::Any;
+        }
+        let origins: Vec<String> = origins.into_iter().filter(|origin| origin != "*").collect();
+        if origins.is_empty() {
+            Self::SameOriginOnly
+        } else {
+            Self::List(origins)
+        }
+    }
 }
 
 /// Service-wide OIDC client (dashboard and API).
@@ -240,14 +275,8 @@ impl Config {
             shutdown_timeout_secs: loader.shutdown_timeout(),
             cors_allowed_origins: loader
                 .raw("CORS_ALLOWED_ORIGINS")
-                .map(|value| {
-                    value
-                        .split(',')
-                        .map(|origin| origin.trim().to_string())
-                        .filter(|origin| !origin.is_empty())
-                        .collect::<Vec<_>>()
-                })
-                .filter(|origins| !origins.is_empty()),
+                .map(|value| CorsOrigins::parse(&value))
+                .unwrap_or_default(),
         };
 
         let oidc = OidcSettings {
@@ -527,7 +556,7 @@ mod tests {
                 cert_path: None,
                 key_path: None,
                 shutdown_timeout_secs: 30,
-                cors_allowed_origins: None,
+                cors_allowed_origins: CorsOrigins::SameOriginOnly,
             }
         );
         assert_eq!(config.oidc.client_id, "proxy-auth-k8s");
@@ -646,7 +675,7 @@ mod tests {
                 cert_path: Some("/tls/crt.pem".to_string()),
                 key_path: Some("/tls/key.pem".to_string()),
                 shutdown_timeout_secs: 120,
-                cors_allowed_origins: Some(vec![
+                cors_allowed_origins: CorsOrigins::List(vec![
                     "https://a.example".to_string(),
                     "https://b.example".to_string(),
                 ]),
@@ -708,6 +737,28 @@ mod tests {
     }
 
     #[test]
+    fn cors_star_alone_is_an_explicit_any_origin() {
+        assert_eq!(CorsOrigins::parse("*"), CorsOrigins::Any);
+        assert_eq!(CorsOrigins::parse(" * "), CorsOrigins::Any);
+    }
+
+    #[test]
+    fn cors_blank_means_same_origin_only() {
+        assert_eq!(CorsOrigins::parse(""), CorsOrigins::SameOriginOnly);
+        assert_eq!(CorsOrigins::parse(" , ,"), CorsOrigins::SameOriginOnly);
+    }
+
+    #[test]
+    fn cors_star_inside_a_list_is_dropped_not_a_wildcard() {
+        // Only a lone `*` opts into any origin; mixed with real origins it is
+        // dropped rather than widening the list.
+        assert_eq!(
+            CorsOrigins::parse("https://a.example,*"),
+            CorsOrigins::List(vec!["https://a.example".to_string()])
+        );
+    }
+
+    #[test]
     fn empty_values_keep_their_historical_meaning() {
         let config = load(&[
             // Plain `unwrap_or` reads kept an empty value as-is...
@@ -725,7 +776,10 @@ mod tests {
         assert_eq!(config.oidc.client_secret.as_deref(), Some(""));
         assert_eq!(config.redis.url, DEFAULT_REDIS_URL);
         assert_eq!(config.leader_election.lease_namespace, "default");
-        assert_eq!(config.server.cors_allowed_origins, None);
+        assert_eq!(
+            config.server.cors_allowed_origins,
+            CorsOrigins::SameOriginOnly
+        );
         assert_eq!(config.server.shutdown_timeout_secs, 30);
     }
 

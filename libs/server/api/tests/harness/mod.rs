@@ -126,7 +126,7 @@ pub fn install_crypto_provider() {
 }
 
 /// Build a `State` whose Kubernetes client is never contacted: every fixture
-/// uses `Service::ExternalService` and `CertSource::Insecure`.
+/// uses `Service::ExternalService` and `CertSource::SystemRoots`.
 pub fn test_state(oidc_issuer_url: String) -> State {
     install_crypto_provider();
 
@@ -165,7 +165,7 @@ pub fn proxy_fixture(ns: &str, cluster: &str, upstream_url: &str) -> ProxyKubeAp
         cluster,
         ProxyKubeApiSpec {
             enabled: true,
-            cert: CertSource::Insecure(true),
+            cert: CertSource::SystemRoots(true),
             client_cert: None,
             service: Service::ExternalService {
                 url: upstream_url.to_string(),

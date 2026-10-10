@@ -2,7 +2,7 @@
 //! privileged fetch of the candidates, the per-item review of whatever the
 //! rules review left unresolved, and the cache/lock dance around both.
 
-use actix_web::{HttpRequest, dev::PeerAddr, web};
+use actix_web::web;
 use common::State;
 use crd::ProxyKubeApi;
 use crd::virtual_api::VirtualApiKind;
@@ -13,6 +13,7 @@ use tracing::warn;
 
 use crate::cluster::redirect::kube_redirect::{
     list_fallback::{
+        ListFallbackArgs,
         cache::{
             acquire_outcome_lock, cache_key, load_cached_outcome, release_outcome_lock,
             store_cached_outcome,
@@ -23,7 +24,6 @@ use crate::cluster::redirect::kube_redirect::{
     },
     upstream::ca_only_client,
 };
-use crate::model::user::User;
 
 /// Fetch the full candidate collection with the privileged, least-privilege
 /// token — `list` only, nothing else required on the target cluster.
@@ -81,16 +81,8 @@ pub(super) async fn privileged_namespaces(
 /// request, and under steady namespace churn the rules-review-derived part
 /// of the outcome would then never actually re-expire — a revoked grant
 /// would stop being "honoured soon after" as the module doc promises.
-#[allow(clippy::too_many_arguments)]
 async fn resolve_unresolved(
-    state: &web::Data<State>,
-    proxy: &ProxyKubeApi,
-    client: &reqwest::Client,
-    req: &HttpRequest,
-    peer_addr: Option<PeerAddr>,
-    user: Option<&User>,
-    base_url: &str,
-    probe: virtual_api::AccessProbe,
+    args: &ListFallbackArgs<'_>,
     mut outcome: RulesOutcome,
     items: &[Value],
     from_cache: bool,
@@ -120,7 +112,17 @@ async fn resolve_unresolved(
                     .and_then(|metadata| metadata.get("name"))
                     .and_then(Value::as_str)
                     .map(str::to_string)?;
-                match check_access(client, req, peer_addr, user, base_url, probe, &name).await {
+                let checked = check_access(
+                    args.client,
+                    args.req,
+                    args.peer_addr,
+                    args.user,
+                    args.base_url,
+                    args.probe,
+                    &name,
+                )
+                .await;
+                match checked {
                     Ok(allowed) => Some((name, allowed)),
                     Err(()) => {
                         warn!(namespace = %name, "could not confirm namespace visibility, excluding it");
@@ -142,7 +144,7 @@ async fn resolve_unresolved(
     }
 
     if !from_cache {
-        store_cached_outcome(state, proxy, user, probe, &outcome).await;
+        store_cached_outcome(args.state, args.proxy, args.user, args.probe, &outcome).await;
     }
     outcome
 }
@@ -160,6 +162,21 @@ fn fully_resolved(outcome: &RulesOutcome, items: &[Value]) -> bool {
         })
 }
 
+/// A live `SelfSubjectRulesReview` for the caller, or an empty outcome
+/// (everything left to the per-item checks) if it can't be used.
+async fn rules_review(args: &ListFallbackArgs<'_>) -> RulesOutcome {
+    resolve_via_rules_review(
+        args.client,
+        args.req,
+        args.peer_addr,
+        args.user,
+        args.base_url,
+        args.probe,
+    )
+    .await
+    .unwrap_or_default()
+}
+
 /// Resolve the outcome for `items` — from `cached` when it already covers
 /// every candidate, otherwise via a live rules review and/or per-item checks
 /// — deduplicating that whole live-resolution path (rules review, per-item
@@ -168,16 +185,8 @@ fn fully_resolved(outcome: &RulesOutcome, items: &[Value]) -> bool {
 /// per-key lock and then find the cache populated. A `cached` outcome that
 /// already covers everything is the one case with nothing to dedupe, so it
 /// skips the lock entirely. Returns `(outcome, from_cache)`.
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn resolve_outcome_for(
-    proxy: &ProxyKubeApi,
-    state: &web::Data<State>,
-    client: &reqwest::Client,
-    req: &HttpRequest,
-    peer_addr: Option<PeerAddr>,
-    user: Option<&User>,
-    base_url: &str,
-    probe: virtual_api::AccessProbe,
+    args: &ListFallbackArgs<'_>,
     cached: Option<RulesOutcome>,
     items: &[Value],
 ) -> (RulesOutcome, bool) {
@@ -190,43 +199,23 @@ pub(super) async fn resolve_outcome_for(
     // Caching disabled: nothing to dedupe, so skip the lock entirely rather
     // than serializing concurrent requests for no benefit.
     if cache_ttl_seconds() == 0 {
-        let outcome = resolve_via_rules_review(client, req, peer_addr, user, base_url, probe)
-            .await
-            .unwrap_or_default();
-        let outcome = resolve_unresolved(
-            state, proxy, client, req, peer_addr, user, base_url, probe, outcome, items, false,
-        )
-        .await;
+        let outcome = rules_review(args).await;
+        let outcome = resolve_unresolved(args, outcome, items, false).await;
         return (outcome, false);
     }
 
-    let key = cache_key(proxy, user, probe);
+    let key = cache_key(args.proxy, args.user, args.probe);
     let lock = acquire_outcome_lock(&key);
     let result = {
         let _guard = lock.lock().await;
         // Double-checked: another request for this key may have resolved and
         // stored a fully-checked outcome — including the per-item checks —
         // while we were waiting for the lock.
-        match load_cached_outcome(state, proxy, user, probe).await {
-            Some(outcome) => {
-                let outcome = resolve_unresolved(
-                    state, proxy, client, req, peer_addr, user, base_url, probe, outcome, items,
-                    true,
-                )
-                .await;
-                (outcome, true)
-            }
+        match load_cached_outcome(args.state, args.proxy, args.user, args.probe).await {
+            Some(outcome) => (resolve_unresolved(args, outcome, items, true).await, true),
             None => {
-                let outcome =
-                    resolve_via_rules_review(client, req, peer_addr, user, base_url, probe)
-                        .await
-                        .unwrap_or_default();
-                let outcome = resolve_unresolved(
-                    state, proxy, client, req, peer_addr, user, base_url, probe, outcome, items,
-                    false,
-                )
-                .await;
-                (outcome, false)
+                let outcome = rules_review(args).await;
+                (resolve_unresolved(args, outcome, items, false).await, false)
             }
         }
     };

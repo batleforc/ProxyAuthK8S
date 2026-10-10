@@ -3,7 +3,10 @@
 
 use tracing::{debug, warn};
 
-use crate::{CacheCommands, Cli, Commands, ctx::CliCtx, error::ProxyAuthK8sError};
+use crate::{
+    CacheCommands, Cli, Commands, cli_config::browser::BrowserFlag, ctx::CliCtx,
+    error::ProxyAuthK8sError,
+};
 
 impl Cli {
     pub async fn run_cli(&mut self, mut ctx: CliCtx) -> std::process::ExitCode {
@@ -20,7 +23,10 @@ impl Cli {
                 cluster_name,
                 token,
                 certificate_authority,
+                browser,
+                browser_args,
             }) => {
+                ctx.browser_flag = BrowserFlag::from_args(browser.as_deref(), browser_args);
                 // Never log the token value; only whether one was supplied.
                 debug!(
                     "Logging in to cluster: {:?} (token provided: {})",

@@ -122,4 +122,92 @@ mod tests {
         ));
         http_client(None).expect("no CA means the system roots");
     }
+
+    // --- against a mocked API -------------------------------------------
+
+    use crate::test_support::{mount_clusters, mount_clusters_error, tagged_url};
+    use wiremock::MockServer;
+
+    #[tokio::test]
+    async fn clusters_from_remote_sends_the_stored_token() {
+        let server = MockServer::start().await;
+        mount_clusters(&server, "remote-tok").await;
+        let config = CliServerConfig::new(tagged_url(&server, "remote-ok"));
+        config.set_server_token("remote-tok".to_string()).unwrap();
+
+        let body = config.clusters_from_remote().await.unwrap();
+        assert_eq!(body.clusters.len(), 2);
+        assert_eq!(body.clusters[0].name, "prod");
+        assert_eq!(body.clusters[0].is_reachable, Some(Some(true)));
+        assert!(body.clusters[1].sso_enabled);
+    }
+
+    #[tokio::test]
+    async fn base_configuration_needs_a_token_and_a_valid_stored_ca() {
+        // No stored token: no request is sent.
+        let config = CliServerConfig::new("http://127.0.0.1:9/remote-no-token".to_string());
+        assert!(matches!(
+            config.clusters_from_remote().await,
+            Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
+
+        let mut config = CliServerConfig::new("http://127.0.0.1:9/remote-bad-ca".to_string());
+        config.set_server_token("tok".to_string()).unwrap();
+        config.certificate_authority_data = Some("not base64!".to_string());
+        assert!(matches!(
+            config.base_configuration(),
+            Err(ProxyAuthK8sError::InvalidCertificateAuthority(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn clusters_from_remote_maps_server_errors() {
+        // (status, body, expect Unauthenticated). The status decides, not
+        // the body: the server's own 401 has an empty body, and `[]` must not
+        // turn a 500 into a re-login prompt.
+        let cases = [
+            (401, "[]", true),
+            (401, "", true),
+            (500, "", false),
+            (500, "[]", false),
+            (503, "{\"reason\":\"down\"}", false),
+        ];
+        for (status, body, unauthenticated) in cases {
+            let server = MockServer::start().await;
+            mount_clusters_error(&server, status, body).await;
+            let config = CliServerConfig::new(tagged_url(&server, "remote-errors"));
+            config.set_server_token("tok".to_string()).unwrap();
+
+            let err = config.clusters_from_remote().await.unwrap_err();
+            let matched = if unauthenticated {
+                matches!(err, ProxyAuthK8sError::Unauthenticated(_))
+            } else {
+                matches!(err, ProxyAuthK8sError::RemoteServerError(_))
+            };
+            assert!(matched, "status {status} body {body:?} gave {err:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn clusters_from_remote_rejects_a_malformed_body() {
+        let server = MockServer::start().await;
+        mount_clusters_error(&server, 200, "{\"nope\":1}").await;
+        let config = CliServerConfig::new(tagged_url(&server, "remote-malformed"));
+        config.set_server_token("tok".to_string()).unwrap();
+        assert!(matches!(
+            config.clusters_from_remote().await,
+            Err(ProxyAuthK8sError::RemoteServerError(msg)) if msg.contains("Serialization")
+        ));
+    }
+
+    #[tokio::test]
+    async fn clusters_from_remote_reports_an_unreachable_server() {
+        // Port 9 (discard) is closed on loopback: the connection is refused.
+        let config = CliServerConfig::new("http://127.0.0.1:9/remote-unreachable".to_string());
+        config.set_server_token("tok".to_string()).unwrap();
+        assert!(matches!(
+            config.clusters_from_remote().await,
+            Err(ProxyAuthK8sError::RemoteServerError(_))
+        ));
+    }
 }

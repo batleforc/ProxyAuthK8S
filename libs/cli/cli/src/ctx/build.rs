@@ -47,6 +47,7 @@ impl TryFrom<Cli> for CliCtx {
             invoked_from_kubectl,
             config,
             config_path,
+            browser_flag: None,
         })
     }
 }
@@ -238,6 +239,108 @@ mod tests {
         assert!(matches!(
             CliCtx::load_merged_kubeconfig(&[second]),
             Err(ProxyAuthK8sError::KubeconfigReadError(_))
+        ));
+    }
+
+    // --- `try_from`, with explicit paths so no env var is read for them ---
+
+    use crate::ctx::ContextFormat;
+
+    fn cli_with_paths(kubeconfig: PathBuf, proxy_auth_config: PathBuf) -> Cli {
+        Cli {
+            namespace: "team-a".to_string(),
+            kubeconfig: Some(kubeconfig),
+            proxy_auth_config: Some(proxy_auth_config),
+            context: Some("ctx".to_string()),
+            verbose: Some(1),
+            server_url: "https://proxy.example.com".to_string(),
+            format: ContextFormat::Json,
+            command: None,
+        }
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn building_from_cli_creates_missing_files_owner_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let (kubeconfig, config) = (dir.path().join("kubeconfig"), dir.path().join("cfg.yaml"));
+
+        let ctx = CliCtx::try_from(cli_with_paths(kubeconfig.clone(), config.clone())).unwrap();
+
+        // Flags are carried over as-is.
+        assert_eq!(ctx.namespace, "team-a");
+        assert_eq!(ctx.context.as_deref(), Some("ctx"));
+        assert_eq!(ctx.verbose, Some(1));
+        assert_eq!(ctx.server_url, "https://proxy.example.com");
+        assert!(matches!(ctx.format, ContextFormat::Json));
+        assert_eq!(ctx.kubeconfig_path, kubeconfig);
+        assert_eq!(ctx.config_path, config);
+        // Both files were created: an empty kubeconfig and a default config.
+        assert_eq!(fs::read_to_string(&kubeconfig).unwrap(), "");
+        assert!(ctx.kubeconfig.contexts.is_empty());
+        assert!(ctx.config.servers.is_empty());
+        let written = CliConfig::read_from_file(config.clone()).unwrap();
+        assert!(written.default_server_name.is_empty());
+        #[cfg(unix)]
+        {
+            assert_eq!(mode(&kubeconfig), 0o600);
+            assert_eq!(mode(&config), 0o600);
+        }
+    }
+
+    #[test]
+    fn building_from_cli_reads_existing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let (kubeconfig, config) = (dir.path().join("kubeconfig"), dir.path().join("cfg.yaml"));
+        fs::write(&kubeconfig, "apiVersion: v1\nkind: Config\ncurrent-context: one\ncontexts:\n- name: one\n  context:\n    cluster: c1\n").unwrap();
+        fs::write(&config, "default_server_name: srv\nservers: {}\n").unwrap();
+
+        let ctx = CliCtx::try_from(cli_with_paths(kubeconfig, config)).unwrap();
+        assert_eq!(ctx.kubeconfig.current_context.as_deref(), Some("one"));
+        assert_eq!(ctx.config.default_server_name, "srv");
+    }
+
+    #[test]
+    fn building_from_cli_fails_cleanly_on_bad_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let (kubeconfig, config) = (dir.path().join("kubeconfig"), dir.path().join("cfg.yaml"));
+
+        // Malformed kubeconfig.
+        fs::write(&kubeconfig, "contexts: [unterminated").unwrap();
+        assert!(matches!(
+            CliCtx::try_from(cli_with_paths(kubeconfig.clone(), config.clone())),
+            Err(ProxyAuthK8sError::KubeconfigReadError(_))
+        ));
+
+        // Malformed CLI config.
+        fs::write(&kubeconfig, "").unwrap();
+        fs::write(&config, "not: [valid").unwrap();
+        assert!(matches!(
+            CliCtx::try_from(cli_with_paths(kubeconfig.clone(), config)),
+            Err(ProxyAuthK8sError::KubeconfigReadError(_))
+        ));
+
+        // Kubeconfig that cannot be created (parent directory missing).
+        assert!(matches!(
+            CliCtx::try_from(cli_with_paths(
+                dir.path().join("missing/kubeconfig"),
+                dir.path().join("cfg2.yaml"),
+            )),
+            Err(ProxyAuthK8sError::KubeconfigWriteError(_))
+        ));
+
+        // CLI config that cannot be created.
+        assert!(matches!(
+            CliCtx::try_from(cli_with_paths(
+                kubeconfig,
+                dir.path().join("missing/cfg.yaml")
+            )),
+            Err(ProxyAuthK8sError::KubeconfigWriteError(_))
         ));
     }
 }

@@ -81,3 +81,117 @@ impl CliCtx {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli_config::CliConfig;
+
+    /// A context in `dir` logged in to `url` (the default server) and to its
+    /// cluster `team-a/prod`. `url` is unique per test so keyring entries are
+    /// not shared with another test of the same process.
+    fn ctx_logged_in(dir: &std::path::Path, url: &str) -> CliCtx {
+        let mut ctx = CliCtx::for_test_in(dir);
+        let name = CliServerConfig::url_to_name_from_string(url.to_string());
+        let server = ctx
+            .config
+            .get_or_insert_server_config(name.clone(), url.to_string());
+        server.set_server_token("st".to_string()).unwrap();
+        server
+            .set_cluster_token("team-a".to_string(), "prod".to_string(), "ct".to_string())
+            .unwrap();
+        ctx.config.default_server_name = name;
+        ctx
+    }
+
+    #[test]
+    fn cluster_logout_drops_only_that_cluster() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_logged_in(dir.path(), "https://logout-cluster.example");
+        ctx.namespace = "team-a".to_string();
+
+        ctx.handle_logout(Some("prod".to_string())).unwrap();
+
+        let server = &ctx.config.servers["logout-cluster-example"];
+        assert!(server.clusters.is_empty());
+        assert!(
+            server
+                .get_cluster_token("team-a".to_string(), "prod".to_string())
+                .is_err()
+        );
+        assert_eq!(server.server_token().unwrap(), "st");
+        let written = CliConfig::read_from_file(ctx.config_path.clone()).unwrap();
+        assert!(
+            written.servers["logout-cluster-example"]
+                .clusters
+                .is_empty()
+        );
+
+        // Already logged out: the keyring delete fails.
+        assert!(matches!(
+            ctx.handle_logout(Some("prod".to_string())),
+            Err(ProxyAuthK8sError::KeyringDeleteError(_))
+        ));
+    }
+
+    #[test]
+    fn server_logout_drops_the_server_and_its_tokens() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_logged_in(dir.path(), "https://logout-server.example");
+        let server = ctx.config.servers["logout-server-example"].clone();
+
+        ctx.handle_logout(None).unwrap();
+
+        assert!(ctx.config.servers.is_empty());
+        assert!(ctx.config.default_server_name.is_empty());
+        assert!(server.server_token().is_err());
+        assert!(
+            server
+                .get_cluster_token("team-a".to_string(), "prod".to_string())
+                .is_err()
+        );
+        let written = CliConfig::read_from_file(ctx.config_path.clone()).unwrap();
+        assert!(written.servers.is_empty());
+    }
+
+    #[test]
+    fn logout_needs_a_known_server_and_a_writable_config() {
+        let mut ctx = CliCtx::for_test();
+        assert!(matches!(
+            ctx.handle_logout(None),
+            Err(ProxyAuthK8sError::InvalidUsage(_))
+        ));
+        ctx.server_url = "https://unknown".to_string();
+        assert!(matches!(
+            ctx.handle_logout(None),
+            Err(ProxyAuthK8sError::ServerNotFound(name)) if name == "unknown"
+        ));
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_logged_in(dir.path(), "https://logout-fail.example");
+        ctx.config_path = dir.path().join("missing/config.yaml");
+        assert!(matches!(
+            ctx.handle_logout(None),
+            Err(ProxyAuthK8sError::KubeconfigWriteError(_))
+        ));
+    }
+
+    #[test]
+    fn cache_clear_drops_everything() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_logged_in(dir.path(), "https://logout-cache.example");
+        let server = ctx.config.servers["logout-cache-example"].clone();
+
+        ctx.handle_cache_clear().unwrap();
+
+        assert!(server.server_token().is_err());
+        let written = CliConfig::read_from_file(ctx.config_path.clone()).unwrap();
+        assert!(written.servers.is_empty());
+
+        ctx.config_path = dir.path().join("missing/config.yaml");
+        assert!(matches!(
+            ctx.handle_cache_clear(),
+            Err(ProxyAuthK8sError::KubeconfigWriteError(_))
+        ));
+    }
+}

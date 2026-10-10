@@ -25,7 +25,7 @@ oauth2-reqwest = { workspace = true }
 
 crd = { path = "../crd", version = "0.1.9" }
 jwt_validator = { path = "../jwt_validator", version = "0.1.9" }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [package.metadata.cargo-machete]

@@ -14,7 +14,10 @@ use cli_trace::level::VerboseLevel;
 use kube::config::Kubeconfig;
 use serde::{Deserialize, Serialize};
 
-use crate::{cli_config::CliConfig, error::ProxyAuthK8sError};
+use crate::{
+    cli_config::{CliConfig, browser::BrowserFlag},
+    error::ProxyAuthK8sError,
+};
 
 mod build;
 pub mod format;
@@ -33,6 +36,9 @@ pub struct CliCtx {
     pub invoked_from_kubectl: bool,
     pub config: CliConfig,
     pub config_path: PathBuf,
+    /// `login --browser` for this run (not part of any saved state).
+    #[serde(skip)]
+    pub browser_flag: Option<BrowserFlag>,
 }
 
 impl CliCtx {
@@ -138,6 +144,19 @@ impl CliCtx {
             invoked_from_kubectl: false,
             config: CliConfig::new(),
             config_path: PathBuf::new(),
+            browser_flag: None,
+        }
+    }
+
+    /// Like [`CliCtx::for_test`], but with its kubeconfig (created empty) and
+    /// CLI config paths inside `dir`, for tests that write them.
+    pub(crate) fn for_test_in(dir: &Path) -> Self {
+        let kubeconfig_path = dir.join("kubeconfig");
+        fs::write(&kubeconfig_path, "").unwrap();
+        CliCtx {
+            kubeconfig_path,
+            config_path: dir.join("proxyauth_config.yaml"),
+            ..CliCtx::for_test()
         }
     }
 }
@@ -224,6 +243,7 @@ mod tests {
             invoked_from_kubectl: false,
             config: CliConfig::default(),
             config_path: dir.join("proxyauth_config.yaml"),
+            browser_flag: None,
         };
         assert_eq!(ctx.kubeconfig.contexts.len(), 2);
 

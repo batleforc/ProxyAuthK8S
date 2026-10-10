@@ -223,7 +223,7 @@ mod tests {
     fn spec() -> ProxyKubeApiSpec {
         ProxyKubeApiSpec {
             enabled: true,
-            cert: CertSource::Insecure(true),
+            cert: CertSource::SystemRoots(true),
             client_cert: None,
             service: service::Service::ExternalService {
                 url: "https://cluster.example.com:6443".to_string(),
@@ -366,7 +366,7 @@ mod tests {
         // Regression guard: an unset field must not expose the cluster.
         let json = serde_json::json!({
             "enabled": true,
-            "cert": { "Insecure": true },
+            "cert": { "SystemRoots": true },
             "service": { "ExternalService": { "url": "https://cluster.example.com:6443" } }
         });
         let spec: ProxyKubeApiSpec = serde_json::from_value(json).expect("spec should deserialize");

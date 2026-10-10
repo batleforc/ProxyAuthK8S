@@ -160,4 +160,73 @@ mod tests {
         assert_eq!(output(Some(false)).row()[3], "false");
         assert_eq!(output(None).row()[3], "unknown");
     }
+
+    // --- `handle_get_clusters`, against a mocked API --------------------
+
+    use crate::cli_config::cli_server_config::CliServerConfig;
+    use crate::test_support::{mount_clusters, mount_clusters_error, tagged_url};
+    use wiremock::MockServer;
+
+    /// A context targeting `url`, with `token` stored as its server token.
+    fn ctx_for(url: String, token: &str) -> CliCtx {
+        let mut ctx = CliCtx::for_test();
+        ctx.config
+            .get_or_insert_server_config(
+                CliServerConfig::url_to_name_from_string(url.clone()),
+                url.clone(),
+            )
+            .set_server_token(token.to_string())
+            .unwrap();
+        ctx.server_url = url;
+        ctx
+    }
+
+    #[tokio::test]
+    async fn clusters_are_listed_with_optional_filters() {
+        let server = MockServer::start().await;
+        mount_clusters(&server, "get-tok").await;
+        let mut ctx = ctx_for(tagged_url(&server, "get-list"), "get-tok");
+
+        ctx.handle_get_clusters(None).await.unwrap();
+        ctx.namespace = "team-a".to_string();
+        ctx.handle_get_clusters(Some("prod".to_string()))
+            .await
+            .unwrap();
+        // A filter matching nothing is an empty list, not an error.
+        ctx.namespace = "team-z".to_string();
+        ctx.handle_get_clusters(None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn listing_fails_without_a_server_or_on_remote_errors() {
+        let mut ctx = CliCtx::for_test();
+        assert!(matches!(
+            ctx.handle_get_clusters(None).await,
+            Err(ProxyAuthK8sError::ServerNotFound(_))
+        ));
+
+        for (status, body, unauthenticated) in [(401, "", true), (500, "[]", false)] {
+            let server = MockServer::start().await;
+            mount_clusters_error(&server, status, body).await;
+            let mut ctx = ctx_for(tagged_url(&server, "get-errors"), "t");
+            let err = ctx.handle_get_clusters(None).await.unwrap_err();
+            if unauthenticated {
+                assert!(matches!(err, ProxyAuthK8sError::Unauthenticated(_)));
+            } else {
+                assert!(matches!(err, ProxyAuthK8sError::RemoteServerError(_)));
+            }
+        }
+
+        // A stored server without a token: no request is sent.
+        let mut ctx = CliCtx::for_test();
+        ctx.server_url = "http://127.0.0.1:9/get-no-token".to_string();
+        ctx.config.get_or_insert_server_config(
+            CliServerConfig::url_to_name_from_string(ctx.server_url.clone()),
+            ctx.server_url.clone(),
+        );
+        assert!(matches!(
+            ctx.handle_get_clusters(None).await,
+            Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
+    }
 }

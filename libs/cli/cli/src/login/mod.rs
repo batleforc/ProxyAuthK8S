@@ -11,8 +11,10 @@ use tracing::{debug, error, info, warn};
 pub mod get_token;
 mod kubeconfig;
 mod sso;
+mod tofu;
 
 use crate::{
+    cli_config::browser::{BrowserConfig, effective_browser},
     cli_config::cli_server_config::{CliServerConfig, http_client, load_certificate_authority},
     ctx::CliCtx,
     error::ProxyAuthK8sError,
@@ -85,6 +87,10 @@ impl CliCtx {
             // Saved on the server before any call, so the calls below trust it.
             self.save_certificate_authority(data)?;
         }
+        if let Some(flag) = self.browser_flag.clone() {
+            // Saved like the CA: written with the rest of the login.
+            self.cluster_login_server_mut()?.browser = flag.saved_value();
+        }
         // if server url is provided but not in config, return error
         let server_config = self.cluster_login_server_config()?;
         let server_name = CliServerConfig::url_to_name_from_string(server_config.url.clone());
@@ -92,9 +98,20 @@ impl CliCtx {
         let clusters = Self::fetch_visible_clusters(server_config).await?;
         let is_sso_enabled =
             Self::cluster_sso_enabled(&clusters, &cluster, &namespace, &server_name)?;
-        let token =
-            Self::resolve_cluster_token(token, is_sso_enabled, server_config, &namespace, &cluster)
-                .await?;
+        let browser = effective_browser(
+            self.browser_flag.as_ref(),
+            std::env::var("PROXYAUTH_BROWSER").ok().as_deref(),
+            server_config.browser.as_ref(),
+        );
+        let token = Self::resolve_cluster_token(
+            token,
+            is_sso_enabled,
+            server_config,
+            &namespace,
+            &cluster,
+            browser.as_ref(),
+        )
+        .await?;
 
         if let Some(tok) = token {
             info!("Using token for cluster authentication.");
@@ -132,12 +149,16 @@ impl CliCtx {
     /// Record `data` as the CA of the targeted server, which must already be
     /// configured.
     fn save_certificate_authority(&mut self, data: String) -> Result<(), ProxyAuthK8sError> {
+        self.cluster_login_server_mut()?.certificate_authority_data = Some(data);
+        Ok(())
+    }
+
+    /// The server a cluster login targets, to update; it must already be
+    /// configured.
+    fn cluster_login_server_mut(&mut self) -> Result<&mut CliServerConfig, ProxyAuthK8sError> {
         let server_name = self.cluster_login_server_name();
         match self.config.servers.get_mut(&server_name) {
-            Some(server) => {
-                server.certificate_authority_data = Some(data);
-                Ok(())
-            }
+            Some(server) => Ok(server),
             None => {
                 error!(
                     "Server '{}' not found in configuration, please login to server before login to cluster.",
@@ -242,6 +263,7 @@ impl CliCtx {
         server_config: &CliServerConfig,
         namespace: &str,
         cluster: &str,
+        browser: Option<&BrowserConfig>,
     ) -> Result<Option<String>, ProxyAuthK8sError> {
         match token {
             Some(token) => Ok(Some(token)),
@@ -261,7 +283,7 @@ impl CliCtx {
                         return Err(e);
                     }
                 };
-                match Self::sso_cluster_login(&base_config, namespace, cluster).await {
+                match Self::sso_cluster_login(&base_config, namespace, cluster, browser).await {
                     // A cluster login stores the id_token (see the front's
                     // ClusterCallbackView).
                     Ok(id_token) => Ok(Some(id_token)),
@@ -357,8 +379,19 @@ impl CliCtx {
         };
         info!("Using token for server authentication.");
         let (server_url, server_name) = self.resolve_login_server()?;
-        let certificate_authority_data =
-            self.server_login_certificate_authority(certificate_authority_data, &server_name);
+        let previous_certificate_authority = self.saved_certificate_authority(&server_name);
+        let certificate_authority_data = match certificate_authority_data {
+            Some(given) => Some(given),
+            // Without `--certificate-authority`: offer to trust a certificate
+            // the system does not, on first use or when it has changed since
+            // it was trusted (rotation).
+            None => tofu::check_server_certificate(
+                &server_url,
+                previous_certificate_authority.as_deref(),
+            )
+            .await?
+            .or_else(|| previous_certificate_authority.clone()),
+        };
         let clusters = Self::fetch_visible_clusters_with_token(
             &tok,
             &server_url,
@@ -369,8 +402,19 @@ impl CliCtx {
             count = clusters.clusters.len(),
             "Successfully retrieved clusters"
         );
-        let server_config =
-            self.record_server_login(server_name, server_url, certificate_authority_data);
+        let browser_server_name = server_name.clone();
+        let server_config = self.record_server_login(
+            server_name,
+            server_url.clone(),
+            certificate_authority_data.clone(),
+        );
+
+        if let (Some(flag), Some(server)) = (
+            self.browser_flag.clone(),
+            self.config.servers.get_mut(&browser_server_name),
+        ) {
+            server.browser = flag.saved_value();
+        }
 
         // Both the config write and the keyring store must succeed for the login
         // to have produced a usable, persisted credential.
@@ -384,6 +428,43 @@ impl CliCtx {
             return Err(e);
         }
         info!("Token saved to keyring successfully.");
+        if certificate_authority_data != previous_certificate_authority {
+            self.propagate_certificate_authority(
+                &server_url,
+                certificate_authority_data.as_deref(),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Rewrite the CA of the kubeconfig clusters proxied through `server_url`,
+    /// so kubectl follows a new or rotated server certificate. The file is
+    /// left untouched when no cluster of that server is in it.
+    fn propagate_certificate_authority(
+        &mut self,
+        server_url: &str,
+        certificate_authority_data: Option<&str>,
+    ) -> Result<(), ProxyAuthK8sError> {
+        let mut merged = self.kubeconfig.clone();
+        if kubeconfig::set_server_certificate_authority(
+            &mut merged,
+            server_url,
+            certificate_authority_data,
+        ) == 0
+        {
+            return Ok(());
+        }
+        let changed = self.edit_kubeconfig(|kubeconfig| {
+            kubeconfig::set_server_certificate_authority(
+                kubeconfig,
+                server_url,
+                certificate_authority_data,
+            )
+        })?;
+        info!(
+            changed,
+            "Updated the certificate authority of the kubeconfig clusters of {}.", server_url
+        );
         Ok(())
     }
 
@@ -413,19 +494,12 @@ impl CliCtx {
         }
     }
 
-    /// A CA given now wins; otherwise keep trusting the one saved by a
-    /// previous login to this server.
-    fn server_login_certificate_authority(
-        &self,
-        given: Option<String>,
-        server_name: &str,
-    ) -> Option<String> {
-        given.or_else(|| {
-            self.config
-                .servers
-                .get(server_name)
-                .and_then(|server| server.certificate_authority_data.clone())
-        })
+    /// The CA saved by a previous login to this server.
+    fn saved_certificate_authority(&self, server_name: &str) -> Option<String> {
+        self.config
+            .servers
+            .get(server_name)
+            .and_then(|server| server.certificate_authority_data.clone())
     }
 
     /// Validate `token` against the server by listing its visible clusters.
@@ -578,6 +652,7 @@ mod tests {
                 &server,
                 "team-a",
                 "prod",
+                None,
             )
             .await
             .unwrap();
@@ -610,25 +685,19 @@ mod tests {
     }
 
     #[test]
-    fn server_login_ca_prefers_the_given_one_then_the_saved_one() {
+    fn the_saved_ca_is_read_per_server() {
         let mut ctx = ctx_with_server();
-        assert_eq!(ctx.server_login_certificate_authority(None, NAME), None);
+        assert_eq!(ctx.saved_certificate_authority(NAME), None);
         ctx.config
             .servers
             .get_mut(NAME)
             .unwrap()
             .certificate_authority_data = Some("saved".to_string());
         assert_eq!(
-            ctx.server_login_certificate_authority(None, NAME)
-                .as_deref(),
+            ctx.saved_certificate_authority(NAME).as_deref(),
             Some("saved")
         );
-        assert_eq!(
-            ctx.server_login_certificate_authority(Some("given".to_string()), NAME)
-                .as_deref(),
-            Some("given")
-        );
-        assert_eq!(ctx.server_login_certificate_authority(None, "other"), None);
+        assert_eq!(ctx.saved_certificate_authority("other"), None);
     }
 
     #[test]
@@ -649,5 +718,449 @@ mod tests {
         let again = ctx.record_server_login(NAME.to_string(), "https://ignored".to_string(), None);
         assert_eq!(again.url, URL);
         assert_eq!(again.certificate_authority_data, None);
+    }
+
+    // --- HTTP paths, against a mocked API -------------------------------
+
+    use crate::cli_config::CliConfig;
+    use crate::test_support::{mount_clusters, mount_clusters_error, tagged_url};
+    use wiremock::MockServer;
+
+    /// A context in `dir` whose default server is the mock `server`, with
+    /// `token` stored as its server token.
+    fn ctx_logged_in(dir: &Path, server: &MockServer, token: &str) -> CliCtx {
+        let mut ctx = CliCtx::for_test_in(dir);
+        let name = CliServerConfig::url_to_name_from_string(server.uri());
+        ctx.config
+            .get_or_insert_server_config(name.clone(), server.uri())
+            .set_server_token(token.to_string())
+            .unwrap();
+        ctx.config.default_server_name = name;
+        ctx
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[tokio::test]
+    async fn server_login_validates_the_token_then_persists_it() {
+        let server = MockServer::start().await;
+        mount_clusters(&server, "srv-tok").await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = CliCtx::for_test_in(dir.path());
+        ctx.server_url = server.uri();
+
+        ctx.handle_login(None, Some("srv-tok".to_string()), None)
+            .await
+            .unwrap();
+
+        let name = CliServerConfig::url_to_name_from_string(server.uri());
+        let written = CliConfig::read_from_file(ctx.config_path.clone()).unwrap();
+        assert_eq!(written.default_server_name, name);
+        assert_eq!(written.servers[&name].url, server.uri());
+        assert_eq!(ctx.config.servers[&name].server_token().unwrap(), "srv-tok");
+        #[cfg(unix)]
+        assert_eq!(mode(&ctx.config_path), 0o600);
+    }
+
+    #[tokio::test]
+    async fn server_login_with_a_rejected_token_stores_nothing() {
+        let server = MockServer::start().await;
+        mount_clusters_error(&server, 401, "[]").await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = CliCtx::for_test_in(dir.path());
+        ctx.server_url = tagged_url(&server, "rejected");
+
+        assert!(matches!(
+            ctx.handle_login_servers(Some("bad".to_string()), None)
+                .await,
+            Err(ProxyAuthK8sError::Unauthenticated(_))
+        ));
+        assert!(!ctx.config_path.exists());
+        assert!(ctx.config.servers.is_empty());
+        assert!(
+            CliServerConfig::new(ctx.server_url.clone())
+                .server_token()
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn server_login_rejects_a_corrupted_certificate_authority() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = CliCtx::for_test_in(dir.path());
+        ctx.server_url = "http://127.0.0.1:9".to_string();
+        assert!(matches!(
+            ctx.handle_login_servers(Some("tok".to_string()), Some("not base64!".to_string()))
+                .await,
+            Err(ProxyAuthK8sError::InvalidCertificateAuthority(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn server_login_reports_a_config_write_failure() {
+        let server = MockServer::start().await;
+        mount_clusters(&server, "srv-tok").await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = CliCtx::for_test_in(dir.path());
+        ctx.server_url = tagged_url(&server, "write-failure");
+        ctx.config_path = dir.path().join("missing/config.yaml");
+
+        assert!(matches!(
+            ctx.handle_login_servers(Some("srv-tok".to_string()), None)
+                .await,
+            Err(ProxyAuthK8sError::KubeconfigWriteError(_))
+        ));
+        // The token is only stored once the config is persisted.
+        assert!(
+            CliServerConfig::new(ctx.server_url.clone())
+                .server_token()
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn login_requires_a_server_and_a_readable_certificate_authority() {
+        let mut ctx = CliCtx::for_test();
+        assert!(matches!(
+            ctx.handle_login(None, Some("tok".to_string()), None).await,
+            Err(ProxyAuthK8sError::InvalidUsage(_))
+        ));
+
+        ctx.server_url = URL.to_string();
+        assert!(matches!(
+            ctx.handle_login(None, None, Some(Path::new("/nonexistent/ca.pem")))
+                .await,
+            Err(ProxyAuthK8sError::InvalidCertificateAuthority(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn cluster_login_stores_the_token_and_writes_a_kubeconfig_context() {
+        let server = MockServer::start().await;
+        mount_clusters(&server, "srv-tok").await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_logged_in(dir.path(), &server, "srv-tok");
+        ctx.namespace = "team-a".to_string();
+
+        ctx.handle_login(Some("prod".to_string()), Some("cl-tok".to_string()), None)
+            .await
+            .unwrap();
+
+        let name = CliServerConfig::url_to_name_from_string(server.uri());
+        let stored = &ctx.config.servers[&name];
+        assert_eq!(
+            stored
+                .get_cluster_token("team-a".to_string(), "prod".to_string())
+                .unwrap(),
+            "cl-tok"
+        );
+        let written = CliConfig::read_from_file(ctx.config_path.clone()).unwrap();
+        assert!(written.servers[&name].clusters["team-a/prod"].token_exist);
+
+        let kubeconfig = kube::config::Kubeconfig::from_yaml(
+            &std::fs::read_to_string(&ctx.kubeconfig_path).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            kubeconfig.current_context.as_deref(),
+            Some("team-a-prod-context")
+        );
+        let cluster = kubeconfig.clusters[0].cluster.as_ref().unwrap();
+        assert_eq!(
+            cluster.server.as_deref(),
+            Some(format!("{}/clusters/team-a/prod", server.uri()).as_str())
+        );
+        #[cfg(unix)]
+        {
+            assert_eq!(mode(&ctx.config_path), 0o600);
+            assert_eq!(mode(&ctx.kubeconfig_path), 0o600);
+        }
+    }
+
+    #[tokio::test]
+    async fn cluster_login_uses_the_server_default_namespace_and_rejects_unknown_clusters() {
+        let server = MockServer::start().await;
+        mount_clusters(&server, "srv-tok").await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_logged_in(dir.path(), &server, "srv-tok");
+
+        // The server's default namespace is "default", where "prod" is unknown.
+        assert!(matches!(
+            ctx.handle_login_clusters("prod".to_string(), Some("t".to_string()), None)
+                .await,
+            Err(ProxyAuthK8sError::ClusterNotFound { cluster, .. }) if cluster == "prod"
+        ));
+        assert!(!ctx.config_path.exists());
+    }
+
+    #[tokio::test]
+    async fn cluster_login_saves_a_given_certificate_authority_first() {
+        let server = MockServer::start().await;
+        mount_clusters(&server, "srv-tok").await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_logged_in(dir.path(), &server, "srv-tok");
+        ctx.namespace = "team-a".to_string();
+
+        // A valid CA for a server reached over plain HTTP is simply unused.
+        let ca = load_certificate_authority(Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testdata/test-ca.pem"
+        )))
+        .unwrap();
+        ctx.handle_login_clusters("prod".to_string(), Some("t".to_string()), Some(ca.clone()))
+            .await
+            .unwrap();
+
+        let name = CliServerConfig::url_to_name_from_string(server.uri());
+        let written = CliConfig::read_from_file(ctx.config_path.clone()).unwrap();
+        assert_eq!(
+            written.servers[&name].certificate_authority_data.as_deref(),
+            Some(ca.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn cluster_login_surfaces_remote_failures() {
+        for (status, body, unauthenticated) in [(401, "", true), (500, "[]", false)] {
+            let server = MockServer::start().await;
+            mount_clusters_error(&server, status, body).await;
+            let dir = tempfile::tempdir().unwrap();
+            let mut ctx = ctx_logged_in(dir.path(), &server, "srv-tok");
+
+            let err = ctx
+                .handle_login_clusters("prod".to_string(), Some("t".to_string()), None)
+                .await
+                .unwrap_err();
+            if unauthenticated {
+                assert!(matches!(err, ProxyAuthK8sError::Unauthenticated(_)));
+            } else {
+                assert!(matches!(err, ProxyAuthK8sError::RemoteServerError(_)));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn cluster_login_needs_a_stored_server_token() {
+        // The remote is never called, so the server does not need to exist.
+        let url = "http://127.0.0.1:9/no-server-token".to_string();
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = CliCtx::for_test_in(dir.path());
+        ctx.server_url = url.clone();
+        ctx.config.get_or_insert_server_config(
+            CliServerConfig::url_to_name_from_string(url.clone()),
+            url,
+        );
+        assert!(matches!(
+            ctx.handle_login_clusters("prod".to_string(), Some("t".to_string()), None)
+                .await,
+            Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn sso_cluster_login_needs_a_stored_server_token() {
+        let server = CliServerConfig::new("https://sso-no-token.example".to_string());
+        assert!(matches!(
+            CliCtx::resolve_cluster_token(None, true, &server, "team-a", "sso", None).await,
+            Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
+    }
+
+    #[test]
+    fn storing_a_cluster_login_needs_the_server_and_a_writable_kubeconfig() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = CliCtx::for_test_in(dir.path());
+        assert!(matches!(
+            ctx.store_cluster_login("gone", "ns", "c", "t".to_string()),
+            Err(ProxyAuthK8sError::ServerNotFound(name)) if name == "gone"
+        ));
+
+        ctx.config.get_or_insert_server_config(
+            "store-example".to_string(),
+            "https://store.example".to_string(),
+        );
+        ctx.kubeconfig_path = dir.path().join("missing/kubeconfig");
+        assert!(matches!(
+            ctx.store_cluster_login("store-example", "ns", "c", "t".to_string()),
+            Err(ProxyAuthK8sError::KubeconfigReadError(_))
+        ));
+        // The token and config were persisted before the kubeconfig step.
+        assert!(ctx.config_path.exists());
+
+        ctx.config_path = dir.path().join("missing/config.yaml");
+        assert!(matches!(
+            ctx.store_cluster_login("store-example", "ns", "c", "t".to_string()),
+            Err(ProxyAuthK8sError::KubeconfigWriteError(_))
+        ));
+    }
+
+    // --- server certificate changes ---------------------------------------
+
+    fn test_ca() -> (std::path::PathBuf, String) {
+        let path =
+            std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/test-ca.pem"));
+        let data = load_certificate_authority(&path).unwrap();
+        (path, data)
+    }
+
+    fn cluster_ca(kubeconfig_path: &Path, cluster: &str) -> Option<String> {
+        let content = std::fs::read_to_string(kubeconfig_path).unwrap();
+        kube::config::Kubeconfig::from_yaml(&content)
+            .unwrap()
+            .clusters
+            .into_iter()
+            .find(|c| c.name == cluster)
+            .and_then(|c| c.cluster)
+            .and_then(|c| c.certificate_authority_data)
+    }
+
+    #[tokio::test]
+    async fn a_new_server_ca_reaches_the_kubeconfig_clusters_of_that_server() {
+        let server = MockServer::start().await;
+        mount_clusters(&server, "srv-tok").await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = CliCtx::for_test_in(dir.path());
+        ctx.server_url = server.uri();
+        let name = CliServerConfig::url_to_name_from_string(server.uri());
+        ctx.config
+            .get_or_insert_server_config(name.clone(), server.uri())
+            .certificate_authority_data = Some("old".to_string());
+        let uri = server.uri();
+        ctx.edit_kubeconfig(|kubeconfig| {
+            kubeconfig::upsert_proxy_context(kubeconfig, &uri, "team-a", "prod", Some("old"));
+            kubeconfig::upsert_proxy_context(
+                kubeconfig,
+                "https://other.example",
+                "team-a",
+                "elsewhere",
+                Some("other"),
+            );
+        })
+        .unwrap();
+
+        let (path, ca) = test_ca();
+        ctx.handle_login(None, Some("srv-tok".to_string()), Some(&path))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            cluster_ca(&ctx.kubeconfig_path, "team-a-prod").as_deref(),
+            Some(ca.as_str())
+        );
+        assert_eq!(
+            cluster_ca(&ctx.kubeconfig_path, "team-a-elsewhere").as_deref(),
+            Some("other")
+        );
+        assert_eq!(
+            ctx.config.servers[&name]
+                .certificate_authority_data
+                .as_deref(),
+            Some(ca.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_kubeconfig_without_clusters_of_that_server_is_not_rewritten() {
+        let server = MockServer::start().await;
+        mount_clusters(&server, "srv-tok").await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = CliCtx::for_test_in(dir.path());
+        ctx.server_url = server.uri();
+
+        let (path, _) = test_ca();
+        ctx.handle_login(None, Some("srv-tok".to_string()), Some(&path))
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(&ctx.kubeconfig_path).unwrap(), "");
+    }
+
+    #[tokio::test]
+    async fn a_rotated_server_certificate_fails_the_login_cleanly_without_a_terminal() {
+        use crate::test_support::{TlsTestServer, certificate_authority_data, self_signed_cert};
+
+        let before = self_signed_cert("proxy", &["localhost"]);
+        let server = TlsTestServer::start(&[&before]).await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = CliCtx::for_test_in(dir.path());
+        ctx.server_url = server.url();
+        let name = CliServerConfig::url_to_name_from_string(server.url());
+        let pinned = certificate_authority_data(&before);
+        ctx.config
+            .get_or_insert_server_config(name.clone(), server.url())
+            .certificate_authority_data = Some(pinned.clone());
+
+        // The pinned certificate is still the one served.
+        ctx.handle_login_servers(Some("tok".to_string()), None)
+            .await
+            .expect("the pinned certificate is trusted");
+
+        // Renewed with a new key: tests never prompt, so the change is
+        // refused and reported, and the old pin is kept.
+        server.rotate(&[&self_signed_cert("proxy", &["localhost"])]);
+        let err = ctx
+            .handle_login_servers(Some("tok".to_string()), None)
+            .await
+            .expect_err("a changed certificate is not trusted silently");
+        assert!(
+            matches!(err, ProxyAuthK8sError::UntrustedServerCertificate(_)),
+            "{err:?}"
+        );
+        assert_eq!(
+            ctx.config.servers[&name]
+                .certificate_authority_data
+                .as_deref(),
+            Some(pinned.as_str())
+        );
+    }
+
+    // --- browser for SSO ------------------------------------------------------
+
+    #[tokio::test]
+    async fn the_browser_is_saved_per_server_and_default_forgets_it() {
+        use crate::cli_config::browser::{BrowserConfig, BrowserFlag};
+
+        let server = MockServer::start().await;
+        mount_clusters(&server, "srv-tok").await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = CliCtx::for_test_in(dir.path());
+        ctx.server_url = server.uri();
+        ctx.namespace = "team-a".to_string();
+        let name = CliServerConfig::url_to_name_from_string(server.uri());
+        let saved = |ctx: &CliCtx| {
+            CliConfig::read_from_file(ctx.config_path.clone())
+                .unwrap()
+                .servers[&name]
+                .browser
+                .clone()
+        };
+        let corp = BrowserConfig {
+            program: "/opt/corp/browser".to_string(),
+            args: vec!["--sso".to_string()],
+        };
+
+        ctx.browser_flag =
+            BrowserFlag::from_args(Some("/opt/corp/browser"), &["--sso".to_string()]);
+        ctx.handle_login(None, Some("srv-tok".to_string()), None)
+            .await
+            .unwrap();
+        assert_eq!(saved(&ctx), Some(corp.clone()));
+
+        // A later login without `--browser` keeps it.
+        ctx.browser_flag = None;
+        ctx.handle_login(None, Some("srv-tok".to_string()), None)
+            .await
+            .unwrap();
+        assert_eq!(saved(&ctx), Some(corp));
+
+        // A cluster login through that server can reset it.
+        ctx.browser_flag = Some(BrowserFlag::Reset);
+        ctx.handle_login(Some("prod".to_string()), Some("cl-tok".to_string()), None)
+            .await
+            .unwrap();
+        assert_eq!(saved(&ctx), None);
     }
 }

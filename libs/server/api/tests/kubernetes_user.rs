@@ -2,7 +2,7 @@
 //!
 //! The Kubernetes auth mode resolves the caller by asking the *target cluster*
 //! who the caller's token belongs to, via a `SelfSubjectReview`. The proxy
-//! fixture points at `ExternalService` with a `CertSource::Insecure` cert, so
+//! fixture points at `ExternalService` with a `CertSource::SystemRoots` cert, so
 //! `to_kube_client` builds a plain-HTTP client aimed straight at the mock and
 //! no real apiserver (nor Redis) is involved — the OIDC mode is covered the
 //! same way in `oidc_user.rs`.

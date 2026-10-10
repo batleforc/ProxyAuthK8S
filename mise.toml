@@ -25,6 +25,7 @@ uv = "latest"
 "go:fybrik.io/crdoc" = "latest"
 "pipx:desloppify[full]" = "latest"
 "pipx:graphifyy" = "latest"
+cargo-binstall = "latest"
 
 [env]
 MISE_NODE_COREPACK = "true"
