@@ -86,7 +86,7 @@ impl From<client_api::apis::Error<GetAllVisibleClusterError>> for ProxyAuthK8sEr
                 ProxyAuthK8sError::RemoteServerError(format!("Serialization error: {err}"))
             }
             client_api::apis::Error::Reqwest(err) if is_certificate_error(&err) => {
-                ProxyAuthK8sError::UntrustedServerCertificate(
+                ProxyAuthK8sError::UntrustedServerTls(
                     "the server's TLS certificate is not trusted; if it was renewed, run \
                      `kubectl proxyauth login` from a terminal to review the new one, or pass \
                      --certificate-authority"
@@ -316,7 +316,7 @@ mod tests {
         .await
         .expect_err("the certificate is not trusted");
         match ProxyAuthK8sError::from(err) {
-            ProxyAuthK8sError::UntrustedServerCertificate(message) => {
+            ProxyAuthK8sError::UntrustedServerTls(message) => {
                 assert!(message.contains("kubectl proxyauth login"), "{message}");
             }
             other => panic!("expected an untrusted certificate error, got {other:?}"),

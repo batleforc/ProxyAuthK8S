@@ -55,5 +55,5 @@ pub enum ProxyAuthK8sError {
     #[error("ERR000019: Invalid certificate authority: {0}")]
     InvalidCertificateAuthority(String),
     #[error("ERR000020: Server certificate not trusted: {0}")]
-    UntrustedServerCertificate(String),
+    UntrustedServerTls(String),
 }

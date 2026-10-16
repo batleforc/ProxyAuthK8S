@@ -1106,7 +1106,7 @@ mod tests {
             .await
             .expect_err("a changed certificate is not trusted silently");
         assert!(
-            matches!(err, ProxyAuthK8sError::UntrustedServerCertificate(_)),
+            matches!(err, ProxyAuthK8sError::UntrustedServerTls(_)),
             "{err:?}"
         );
         assert_eq!(

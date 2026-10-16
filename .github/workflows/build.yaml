@@ -49,23 +49,32 @@ jobs:
       image_frontend: ${{ env.REGISTRY }}/${{ github.repository_owner }}/proxyauthk8s/front:${{ github.sha }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Login to Container Registry
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build Image
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          # GITHUB_REF_NAME is `<n>/merge` on a PR and may hold `/` on a branch,
+          # neither of which is a valid image tag.
+          if [ -n "$PR_NUMBER" ]; then
+            REF_TAG="pr-${PR_NUMBER}"
+          else
+            REF_TAG="$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9_.-' '-' | sed 's/^[.-]*//' | cut -c1-128)"
+          fi
           IMAGE_TAG="${{ env.REGISTRY }}/${{ matrix.image_name }}:${GITHUB_SHA}"
-          IMAGE_TAG_BRANCH="${{ env.REGISTRY }}/${{ matrix.image_name }}:${GITHUB_REF_NAME}"
+          IMAGE_TAG_BRANCH="${{ env.REGISTRY }}/${{ matrix.image_name }}:${REF_TAG}"
           docker buildx build \
             --platform linux/amd64 \
-            --tag $IMAGE_TAG \
-            --tag $IMAGE_TAG_BRANCH \
+            --tag "$IMAGE_TAG" \
+            --tag "$IMAGE_TAG_BRANCH" \
             --file ${{ matrix.dockerfile }} \
             --push ${{ matrix.context }}
 
@@ -87,19 +96,19 @@ jobs:
       packages: read
     steps:
       - name: Login to Container Registry
-        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Scan Image for CVEs
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/${{ matrix.image_name }}:${{ github.sha }}
           format: sarif
           output: trivy-report.sarif
       - name: Upload SARIF as artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.artifact_name }}
           path: trivy-report.sarif
@@ -119,11 +128,11 @@ jobs:
       actions: read
     steps:
       - name: Download SARIF artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.artifact_name }}
       - name: Upload scan results to GitHub
-        uses: github/codeql-action/upload-sarif@b8bb9f28b8d3f992092362369c57161b755dea45 # v4.35.0
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: trivy-report.sarif
           wait-for-processing: true

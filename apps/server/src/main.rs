@@ -10,6 +10,9 @@ use api::{
 use common::config::CorsOrigins;
 use trace::{shutdown_tracing, start_tracing};
 use tracing_actix_web::{RequestId, TracingLogger};
+
+mod root_span;
+use root_span::OtelRootSpanBuilder;
 use utoipa::OpenApi;
 use utoipa_actix_web::{AppExt, scope};
 use utoipa_scalar::{Scalar, Servable};
@@ -112,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 })
             })
-            .map(|app| app.wrap(TracingLogger::default()))
+            .map(|app| app.wrap(TracingLogger::<OtelRootSpanBuilder>::new()))
             .map(|app| app.wrap(http_metrics.clone()))
             .map(|app| app.wrap(Compress::default()))
             .map(|app| app.wrap(cors))

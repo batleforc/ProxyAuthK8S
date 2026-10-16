@@ -40,7 +40,7 @@ virtual_api = { path = "../virtual_api", version = "0.1.9" }
 
 [dev-dependencies]
 opentelemetry_sdk = { workspace = true }
-opentelemetry-prometheus = "0.32"
+opentelemetry-prometheus = "0.33"
 # `test-util` unlocks `State::from_parts`; dev-dependencies are not part of a
 # normal build so the feature stays off outside `cargo test`.
 common = { path = "../common", version = "0.1.9", features = ["test-util"] }

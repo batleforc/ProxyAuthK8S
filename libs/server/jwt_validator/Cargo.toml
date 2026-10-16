@@ -10,7 +10,7 @@ tracing = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-base64 = "0.22"
+base64 = "0.23"
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 # `cel` is imported through `kube-cel` (see its docs): declaring a separate
 # `cel` dependency risks a version skew that surfaces as a cryptic `Context`

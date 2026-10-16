@@ -44,11 +44,11 @@ pub fn load_certificate_authority(path: &Path) -> Result<String, ProxyAuthK8sErr
             path.to_string_lossy()
         ))
     })?;
-    parse_certificates(&pem)?;
+    parse_pem_bundle(&pem)?;
     Ok(BASE64.encode(pem))
 }
 
-fn parse_certificates(pem: &[u8]) -> Result<Vec<Certificate>, ProxyAuthK8sError> {
+fn parse_pem_bundle(pem: &[u8]) -> Result<Vec<Certificate>, ProxyAuthK8sError> {
     let certs = Certificate::from_pem_bundle(pem)
         .map_err(|e| ProxyAuthK8sError::InvalidCertificateAuthority(e.to_string()))?;
     if certs.is_empty() {
@@ -71,7 +71,7 @@ pub fn http_client(
                 "stored certificate_authority_data is not valid base64: {e}"
             ))
         })?;
-        builder = builder.tls_certs_merge(parse_certificates(&pem)?);
+        builder = builder.tls_certs_merge(parse_pem_bundle(&pem)?);
     }
     builder
         .build()

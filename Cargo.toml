@@ -36,8 +36,8 @@ reqwest = { version = '0.13.2', features = ['json', 'rustls', 'stream'] }
 schemars = { version = '1' }
 futures-util = '0.3'
 deadpool-redis = { version = '0.23', features = ['serde', 'cluster'] }
-opentelemetry = { version = '0.32', features = ['trace', 'metrics', 'logs'] }
-opentelemetry_sdk = { version = '0.32', features = [
+opentelemetry = { version = '0.33', features = ['trace', 'metrics', 'logs'] }
+opentelemetry_sdk = { version = '0.33', features = [
   'trace',
   'metrics',
   'rt-tokio',
@@ -45,13 +45,12 @@ opentelemetry_sdk = { version = '0.32', features = [
 # default-features = false drops the `http-proto` / `reqwest-blocking-client`
 # defaults: the exporters here are tonic-only, and those defaults were the sole
 # reason `reqwest` 0.12 was built alongside the pinned 0.13.
-opentelemetry-otlp = { version = '0.32', default-features = false, features = [
+opentelemetry-otlp = { version = '0.33', default-features = false, features = [
   'grpc-tonic',
   'trace',
   'metrics',
   'logs',
   'internal-logs',
-  'serialize',
 ] }
 tracing-subscriber = { version = '0.3', features = [
   'env-filter',
@@ -59,7 +58,7 @@ tracing-subscriber = { version = '0.3', features = [
   'std',
   'fmt',
 ] }
-tracing-opentelemetry = { version = '0.33' }
+tracing-opentelemetry = { version = '0.34' }
 rustls = { version = '0.23', features = ['ring'], default-features = false }
 rustls-platform-verifier = '0.7'
 tokio-rustls = '0.26'

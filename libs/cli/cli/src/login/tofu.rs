@@ -456,7 +456,7 @@ pub(super) fn decide(
         } else {
             "presents a certificate that"
         };
-        Err(ProxyAuthK8sError::UntrustedServerCertificate(format!(
+        Err(ProxyAuthK8sError::UntrustedServerTls(format!(
             "{server_url} {what} (SHA-256 {}) was not trusted",
             presented.sha256
         )))
@@ -701,7 +701,7 @@ mod tests {
             let (result, _) = decide_with(first_use(pinnable()), answer);
             let err = result.expect_err("not accepted");
             assert!(
-                matches!(err, ProxyAuthK8sError::UntrustedServerCertificate(_)),
+                matches!(err, ProxyAuthK8sError::UntrustedServerTls(_)),
                 "{answer:?}: {err:?}"
             );
         }
