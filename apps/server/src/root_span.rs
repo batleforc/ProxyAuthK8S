@@ -13,7 +13,7 @@ use actix_web::{
     dev::{ServiceRequest, ServiceResponse},
     http::header::HeaderMap,
 };
-use opentelemetry::{propagation::Extractor, trace::TraceContextExt as _};
+use opentelemetry::propagation::Extractor;
 use tracing::Span;
 use tracing_actix_web::{DefaultRootSpanBuilder, RootSpanBuilder, root_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
@@ -31,9 +31,11 @@ impl RootSpanBuilder for OtelRootSpanBuilder {
         // Only fails once the span has been entered, which cannot have
         // happened yet: the span was just created.
         let _ = span.set_parent(parent);
-        // The caller's trace id when one was propagated, the new one otherwise.
-        let trace_id = span.context().span().span_context().trace_id();
-        span.record("trace_id", tracing::field::display(trace_id));
+        // The caller's trace id when one was propagated, the new one otherwise;
+        // none at all without an OpenTelemetry layer.
+        if let Some(trace_id) = trace::helper::trace_id_of(&span) {
+            span.record("trace_id", tracing::field::display(trace_id));
+        }
         span
     }
 
@@ -68,12 +70,17 @@ mod tests {
     use super::*;
 
     async fn current_trace_id() -> HttpResponse {
-        let trace_id = Span::current().context().span().span_context().trace_id();
+        let trace_id = trace::helper::get_trace_id().unwrap_or(opentelemetry::TraceId::INVALID);
         HttpResponse::Ok().body(trace_id.to_string())
     }
 
     async fn trace_id_for(traceparent: Option<&str>) -> String {
-        opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
+        // The propagator is process-global and never reset: install it once,
+        // the same one `trace::start_tracing` installs in production.
+        static PROPAGATOR: std::sync::Once = std::sync::Once::new();
+        PROPAGATOR.call_once(|| {
+            opentelemetry::global::set_text_map_propagator(TraceContextPropagator::new());
+        });
         let provider = SdkTracerProvider::builder().build();
         let subscriber = tracing_subscriber::registry()
             .with(tracing_opentelemetry::layer().with_tracer(provider.tracer("test")));

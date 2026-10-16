@@ -69,6 +69,8 @@ jobs:
           else
             REF_TAG="$(printf '%s' "$GITHUB_REF_NAME" | tr -c 'A-Za-z0-9_.-' '-' | sed 's/^[.-]*//' | cut -c1-128)"
           fi
+          # A name made only of `.`/`-` (or unsupported characters) sanitizes to nothing.
+          REF_TAG="${REF_TAG:-branch}"
           IMAGE_TAG="${{ env.REGISTRY }}/${{ matrix.image_name }}:${GITHUB_SHA}"
           IMAGE_TAG_BRANCH="${{ env.REGISTRY }}/${{ matrix.image_name }}:${REF_TAG}"
           docker buildx build \

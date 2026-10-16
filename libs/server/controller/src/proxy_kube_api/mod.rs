@@ -8,7 +8,6 @@ use kube::Api;
 use kube::ResourceExt;
 use kube::runtime::controller::Action;
 use kube::runtime::finalizer;
-use opentelemetry::TraceId;
 use trace::helper::get_trace_id;
 use tracing::{instrument, warn};
 
@@ -65,8 +64,7 @@ pub async fn main_reconcile_proxy_kube_api(
         // their state stale for up to an hour, while still avoiding a hot loop.
         return Ok(Action::requeue(Duration::from_secs(20)));
     }
-    let trace_id = get_trace_id();
-    if trace_id != TraceId::INVALID {
+    if let Some(trace_id) = get_trace_id() {
         tracing::Span::current().record("trace_id", tracing::field::display(trace_id));
     }
     let ns = if let Some(ns) = proxy.namespace() {
