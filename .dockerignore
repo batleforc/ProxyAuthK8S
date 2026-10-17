@@ -1,0 +1,28 @@
+# Read by docker (and the CI buildx), and by podman/buildah too since there is
+# no .containerignore.
+.nx
+/.compose
+/.talos
+/.tasks
+/.tls
+dist
+node_modules
+tmp
+/.github
+/.vscode
+/.git
+/target
+# Docs-site build output (see .docs/.gitignore): several GB, never used by an
+# image. The back image still needs .docs/public/banner.art.
+/.docs/node_modules
+/.docs/.next
+/.docs/out
+/.docs/.source
+/.docs/build
+/.docs/coverage
+.env
+/kubeconfig.*.yaml
+/deploy
+# Only the runtime files the front image copies from /deploy.
+!/deploy/build/front/nginx.conf
+!/deploy/build/front/env.sh

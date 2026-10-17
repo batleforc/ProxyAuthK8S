@@ -31,6 +31,9 @@ jobs:
     name: Build container images
     runs-on: ubuntu-latest
     strategy:
+      # Each image builds on its own: a broken front must not cancel the back
+      # and hide its state (and vice versa).
+      fail-fast: false
       matrix:
         include:
           - name: "Backend Container"

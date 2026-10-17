@@ -9,11 +9,14 @@ use std::path::Path;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use reqwest::Certificate;
 use tracing::debug;
+use url::{Host, Url};
 
 use crate::{cli_config::cli_server_config::CliServerConfig, error::ProxyAuthK8sError};
 
 impl CliServerConfig {
     pub fn base_configuration(&self) -> Result<Configuration, ProxyAuthK8sError> {
+        // Checked before the keyring is read: a refused URL never sees the token.
+        require_secure_server_url(&self.url)?;
         let token = self.server_token()?;
         Ok(Configuration {
             base_path: self.url.clone(),
@@ -32,6 +35,36 @@ impl CliServerConfig {
                 debug!("Error fetching clusters from remote: {:?}", e);
                 e.into()
             })
+    }
+}
+
+/// Refuse to send a credential to `url` in cleartext. Every call to the server
+/// carries a bearer token (and the SSO callback an authorization code), so the
+/// URL must be `https`; plain `http` is only accepted to a loopback host
+/// (`localhost`, `127.0.0.0/8`, `::1`), for local development.
+pub fn require_secure_server_url(url: &str) -> Result<(), ProxyAuthK8sError> {
+    let refuse = |reason: &str| {
+        Err(ProxyAuthK8sError::InvalidServerUrl(
+            url.to_string(),
+            reason.to_string(),
+        ))
+    };
+    let parsed = match Url::parse(url) {
+        Ok(parsed) => parsed,
+        Err(e) => return refuse(&e.to_string()),
+    };
+    match parsed.scheme() {
+        "https" => Ok(()),
+        "http" => match parsed.host() {
+            Some(Host::Domain(domain)) if domain.eq_ignore_ascii_case("localhost") => Ok(()),
+            Some(Host::Ipv4(ip)) if ip.is_loopback() => Ok(()),
+            Some(Host::Ipv6(ip)) if ip.is_loopback() => Ok(()),
+            _ => refuse(
+                "plain http would send the token in cleartext; use https \
+                 (http is only accepted to localhost / a loopback address)",
+            ),
+        },
+        other => refuse(&format!("unsupported scheme '{other}', use https")),
     }
 }
 
@@ -111,6 +144,49 @@ mod tests {
         assert!(matches!(
             load_certificate_authority(Path::new("/nonexistent/ca.pem")),
             Err(ProxyAuthK8sError::InvalidCertificateAuthority(_))
+        ));
+    }
+
+    #[test]
+    fn only_https_or_loopback_http_server_urls_are_accepted() {
+        for ok in [
+            "https://proxy.example",
+            "https://10.0.0.1:8443/base",
+            "http://localhost:5437",
+            "http://LOCALHOST",
+            "http://127.0.0.1:9",
+            "http://127.1.2.3",
+            "http://[::1]:8080",
+        ] {
+            require_secure_server_url(ok).unwrap_or_else(|e| panic!("{ok} refused: {e}"));
+        }
+        for refused in [
+            "http://proxy.example",
+            "http://10.0.0.1:8080",
+            "http://localhost.evil.example",
+            "http://127.0.0.1.nip.io",
+            "http://[::ffff:7f00:1]",
+            "ftp://proxy.example",
+            "not a url",
+        ] {
+            assert!(
+                matches!(
+                    require_secure_server_url(refused),
+                    Err(ProxyAuthK8sError::InvalidServerUrl(_, _))
+                ),
+                "{refused} accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cleartext_remote_url_never_reads_the_token() {
+        // No token stored for it either: the URL is refused first, so the
+        // error is not the keyring's.
+        let config = CliServerConfig::new("http://proxy.example/remote-cleartext".to_string());
+        assert!(matches!(
+            config.base_configuration(),
+            Err(ProxyAuthK8sError::InvalidServerUrl(_, _))
         ));
     }
 

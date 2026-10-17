@@ -47,7 +47,12 @@ const links = [
     </section>
 
     <section class="about-grid">
-      <MazCard v-for="feature in features" :key="feature.title" class="about-card" elevation>
+      <MazCard
+        v-for="feature in features"
+        :key="feature.title"
+        class="about-card"
+        elevation
+      >
         <h2>{{ feature.title }}</h2>
         <p>{{ feature.text }}</p>
       </MazCard>
@@ -56,9 +61,19 @@ const links = [
     <section class="about-links">
       <h2>Aller plus loin</h2>
       <ul>
-        <li v-for="link in links" :key="link.label">
-          <a :href="link.href" target="_blank" rel="noopener noreferrer">
-            <MazBtn color="transparent" outlined>{{ link.label }}</MazBtn>
+        <li
+          v-for="link in links"
+          :key="link.label"
+        >
+          <a
+            :href="link.href"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <MazBtn
+              color="transparent"
+              outlined
+            >{{ link.label }}</MazBtn>
           </a>
           <span class="about-link-description">{{ link.description }}</span>
         </li>

@@ -1,6 +1,9 @@
 FROM registry.hub.docker.com/library/rust:1.99-alpine AS build_base
 
 WORKDIR /app
+# Set before the dependency build so both cargo invocations share one
+# fingerprint: a flag that differs between them recompiles every dependency.
+ENV RUSTFLAGS="-C target-feature=-crt-static"
 RUN apk add --no-cache clang lld musl-dev git openssl-dev libcrypto3 perl dbus-dev pkgconf
 
 
@@ -21,8 +24,9 @@ RUN mkdir -p libs/server/api/src && \
   mkdir -p apps/swaggergen/src && \
   mkdir -p apps/kubectl_proxyauth/src
 
-# Copy Cargo.toml files
-COPY Cargo.toml .
+# Copy Cargo.toml files, and the lockfile so the cached dependencies are the
+# locked versions rather than whatever resolves on the day of the build.
+COPY Cargo.toml Cargo.lock ./
 COPY libs/server/api/Cargo.toml libs/server/api/Cargo.toml
 COPY libs/server/common/Cargo.toml libs/server/common/Cargo.toml
 COPY libs/server/crd/Cargo.toml libs/server/crd/Cargo.toml
@@ -46,35 +50,36 @@ COPY apps/kubectl_proxyauth/Cargo.toml apps/kubectl_proxyauth/Cargo.toml
 # the binaries from, so flattening it broke the build twice over.
 COPY .cargo .cargo/
 
-# Create dummy file.rs files to allow cargo to make cache
-RUN echo "fn main() {}" > libs/server/api/src/lib.rs && \
-  echo "fn main() {}" > libs/server/common/src/lib.rs && \
-  echo "fn main() {}" > libs/server/crd/src/lib.rs && \
-  echo "fn main() {}" > libs/server/trace/src/lib.rs && \
-  echo "fn main() {}" > libs/server/controller/src/lib.rs && \
-  echo "fn main() {}" > libs/server/crd_runtime/src/lib.rs && \
-  echo "fn main() {}" > libs/server/virtual_api/src/lib.rs && \
-  echo "fn main() {}" > libs/server/jwt_validator/src/lib.rs && \
-  echo "fn main() {}" > libs/cli/client_api/src/lib.rs && \
-  echo "fn main() {}" > libs/cli/cli/src/lib.rs && \
-  echo "fn main() {}" > libs/cli/cli_trace/src/lib.rs && \
+# Placeholder sources so cargo can build and cache the dependencies alone
+# (an empty lib.rs: a `fn main` there is dead code and warns once per crate).
+RUN : > libs/server/api/src/lib.rs && \
+  : > libs/server/common/src/lib.rs && \
+  : > libs/server/crd/src/lib.rs && \
+  : > libs/server/trace/src/lib.rs && \
+  : > libs/server/controller/src/lib.rs && \
+  : > libs/server/crd_runtime/src/lib.rs && \
+  : > libs/server/virtual_api/src/lib.rs && \
+  : > libs/server/jwt_validator/src/lib.rs && \
+  : > libs/cli/client_api/src/lib.rs && \
+  : > libs/cli/cli/src/lib.rs && \
+  : > libs/cli/cli_trace/src/lib.rs && \
   echo "fn main() {}" > apps/server/src/main.rs && \
   echo "fn main() {}" > apps/crdgen/src/main.rs && \
   echo "fn main() {}" > apps/swaggergen/src/main.rs && \
   echo "fn main() {}" > apps/kubectl_proxyauth/src/main.rs
 
 ## Build dependencies
-RUN cargo build --release --workspace
+RUN cargo build --release --workspace --locked
 
 COPY . .
 
 # Build the actual binary
 FROM build_base AS build_back
 
-ENV RUSTFLAGS="-C target-feature=-crt-static"
-
-RUN touch apps/server/src/main.rs && \
-  cargo build --release --workspace && \
+# `COPY` keeps the host mtimes, older than the placeholder build above: touch
+# every workspace source so cargo does not keep the placeholder crates.
+RUN find apps libs -path '*/src/*.rs' -exec touch {} + && \
+  cargo build --release --workspace --locked && \
   strip dist/target/release/server && \
   strip dist/target/release/crdgen && \
   strip dist/target/release/swaggergen && \

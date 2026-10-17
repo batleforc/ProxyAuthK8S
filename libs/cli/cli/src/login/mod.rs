@@ -15,7 +15,9 @@ mod tofu;
 
 use crate::{
     cli_config::browser::{BrowserConfig, effective_browser},
-    cli_config::cli_server_config::{CliServerConfig, http_client, load_certificate_authority},
+    cli_config::cli_server_config::{
+        CliServerConfig, http_client, load_certificate_authority, require_secure_server_url,
+    },
     ctx::CliCtx,
     error::ProxyAuthK8sError,
 };
@@ -368,6 +370,12 @@ impl CliCtx {
         certificate_authority_data: Option<String>,
     ) -> Result<(), ProxyAuthK8sError> {
         debug!("Logging in to ProxyAuthK8S server.");
+        // Refuse a cleartext URL before asking for (and sending) the token.
+        let (server_url, server_name) = self.resolve_login_server()?;
+        if let Err(e) = require_secure_server_url(&server_url) {
+            error!("{}", e);
+            return Err(e);
+        }
         let token = token
             .or_else(|| Self::prompt_for_token("Server token not provided. Enter server token: "));
 
@@ -378,7 +386,6 @@ impl CliCtx {
             ));
         };
         info!("Using token for server authentication.");
-        let (server_url, server_name) = self.resolve_login_server()?;
         let previous_certificate_authority = self.saved_certificate_authority(&server_name);
         let certificate_authority_data = match certificate_authority_data {
             Some(given) => Some(given),
@@ -820,6 +827,17 @@ mod tests {
                 .server_token()
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn server_login_refuses_a_cleartext_url_before_sending_the_token() {
+        let mut ctx = CliCtx::for_test();
+        ctx.server_url = "http://proxy.example".to_string();
+        assert!(matches!(
+            ctx.handle_login_servers(Some("tok".to_string()), None)
+                .await,
+            Err(ProxyAuthK8sError::InvalidServerUrl(_, _))
+        ));
     }
 
     #[tokio::test]

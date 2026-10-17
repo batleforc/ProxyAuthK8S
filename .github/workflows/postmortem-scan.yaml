@@ -36,21 +36,31 @@ permissions:
 
 jobs:
   scan:
-    name: postmortem gate
+    name: postmortem gate (${{ matrix.target }})
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write # for the SARIF upload to Code Scanning
+    # One target per job: Code Scanning refuses a single SARIF holding several
+    # runs under the same category, and the action exposes no `category` input.
+    # The matrix value lands in upload-sarif's automatic category instead.
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - Cargo.lock
+          - yarn.lock
+          - .docs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: postmortem supply-chain gate
         uses: mlab-sh/postmortem@v2.9.0
         with:
-          paths: |
-            Cargo.lock
-            yarn.lock
-            .docs
+          # The action's `version` input picks the binary it downloads and
+          # defaults to an older release; keep it on the same tag as the action.
+          version: v2.9.0
+          path: ${{ matrix.target }}
           online: true # resolve crates.io/npm -> source repo for reputation scoring
           vulns: true
           fail-on-vuln: high # block only on High+ advisories

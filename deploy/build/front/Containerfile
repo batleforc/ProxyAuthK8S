@@ -1,9 +1,11 @@
 FROM registry.hub.docker.com/library/node:24 AS build
 WORKDIR /app
 ENV ENV=production
-COPY package.json ./
-COPY yarn.lock ./
-RUN yarn
+# The image ships Yarn 1; corepack switches to the `packageManager` pin (Yarn 4)
+# and `.yarnrc.yml` carries the linker and audit settings it needs.
+RUN corepack enable
+COPY package.json yarn.lock .yarnrc.yml ./
+RUN yarn install --immutable
 COPY . ./
 RUN npx nx build front
 
@@ -16,4 +18,4 @@ COPY ./deploy/build/front/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist/apps/front .
 COPY --chmod=755 ./deploy/build/front/env.sh /docker-entrypoint.d/99-env.sh
 
-EXPOSE 8080
+EXPOSE 4200

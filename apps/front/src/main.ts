@@ -5,7 +5,11 @@ import { createApp, markRaw } from 'vue';
 import App from './app/App.vue';
 import { client } from '@proxy-auth-k8s/front-api';
 import vueHljs from 'vue-hljs';
-import hljs from 'highlight.js';
+// Only the languages the views highlight (bash, yaml): the full
+// `highlight.js` bundle ships ~190 of them in the entry chunk.
+import hljs from 'highlight.js/lib/core';
+import bash from 'highlight.js/lib/languages/bash';
+import yaml from 'highlight.js/lib/languages/yaml';
 
 import { ToastOptions, ToastPlugin } from 'maz-ui/plugins/toast';
 import { obsidian } from '@maz-ui/themes/presets/obsidian';
@@ -18,6 +22,9 @@ import './styles.scss';
 client.setConfig({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
 });
+
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('yaml', yaml);
 
 const pinia = createPinia();
 const app = createApp(App);

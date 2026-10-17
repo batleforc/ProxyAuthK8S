@@ -79,8 +79,11 @@ release.md
 # Claude Code per-user local settings
 .claude/settings.local.json
 
-# graphify incremental cache (the graph itself stays tracked)
-graphify-out/cache/
+# graphify knowledge graph output (local only)
+graphify-out/
 
 # Local working notes, never committed (public plan: .docs/content/docs/roadmap.mdx)
 todo.md
+
+# Local RFC drafts
+.rfc

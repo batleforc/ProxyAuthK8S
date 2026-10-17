@@ -26,6 +26,7 @@ uv = "latest"
 "pipx:desloppify[full]" = "latest"
 "pipx:graphifyy" = "latest"
 cargo-binstall = "latest"
+"github:batleforc/weebo-skillsagent" = "0.10.0"
 
 [env]
 MISE_NODE_COREPACK = "true"

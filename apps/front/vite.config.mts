@@ -1,15 +1,12 @@
 /// <reference types='vitest' />
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
-import { nxViteTsPaths } from '@nx/vite/plugins/nx-tsconfig-paths.plugin';
-import { nxCopyAssetsPlugin } from '@nx/vite/plugins/nx-copy-assets.plugin';
 import fs from 'node:fs';
 
 let tls = undefined;
 
 if (process.env.VITE_TLS_ENABLE === 'true') {
-  // get current path
-  const currentPath = __dirname;
+  const currentPath = import.meta.dirname;
   tls = {
     key: fs.readFileSync(`${currentPath}/../../.tls/key.pem`),
     cert: fs.readFileSync(`${currentPath}/../../.tls/cert.pem`),
@@ -17,7 +14,7 @@ if (process.env.VITE_TLS_ENABLE === 'true') {
 }
 
 export default defineConfig(() => ({
-  root: __dirname,
+  root: import.meta.dirname,
   cacheDir: '../../node_modules/.vite/apps/front',
   server: {
     port: 4200,
@@ -34,11 +31,15 @@ export default defineConfig(() => ({
     port: 4300,
     host: 'localhost',
   },
-  plugins: [vue(), nxViteTsPaths(), nxCopyAssetsPlugin(['*.md'])],
-  // Uncomment this if you are using workers.
-  // worker: {
-  //  plugins: [ nxViteTsPaths() ],
-  // },
+  plugins: [vue()],
+  // Mirrors the `paths` of tsconfig.base.json; replaces the deprecated
+  // `nxViteTsPaths` plugin. An explicit alias rather than Vite's
+  // `resolve.tsconfigPaths`, which `vi.mock` of the package does not follow.
+  resolve: {
+    alias: {
+      '@proxy-auth-k8s/front-api': `${import.meta.dirname}/../../libs/front/front-api/src/index.ts`,
+    },
+  },
   test: {
     name: 'front',
     environment: 'jsdom',

@@ -14,7 +14,7 @@ use crate::cli_config::{browser::BrowserConfig, cli_cluster_config::CliClusterCo
 mod keyring_store;
 mod remote;
 
-pub use remote::{http_client, load_certificate_authority};
+pub use remote::{http_client, load_certificate_authority, require_secure_server_url};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CliServerConfig {
