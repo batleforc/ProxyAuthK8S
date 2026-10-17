@@ -24,12 +24,13 @@ import { Callout } from 'fumadocs-ui/components/callout';
       Documentation    : Guides d'utilisation
                        : Architecture et API docs
       Krew Plugin      : Publication sur Krew Index
+      Redesign UI      : Design system BatleHub (RFC 0002)
+      Outillage        : Sortie de NX, workspace pnpm (RFC 0001)
     section v1.0.0 📋
       Tests & Sécurité : Tests approfondis
                        : Redis cluster HA
                        : Secrets externes, OIDC validation
     section v2.0.0 🔮
-      Redesign UI      : Nouvelle interface
       Exchange Token   : Federation IdP
       Proxy & Agent    : Mode agent, tunnel
       Device code      : Login SSO sans navigateur local
@@ -152,6 +153,27 @@ Création d'un plugin Krew (`proxyauth`) pour faciliter l'utilisation en CLI.
 
 </Step>
 
+<Step>
+### Redesign de l'UI
+
+Refonte du front sur le design system BatleHub (« The Proof Sheet ») : tokens,
+polices auto-hébergées, thèmes clair et sombre, i18n en/fr, WCAG 2.2 AA et
+en-têtes de sécurité (CSP). Voir la RFC 0002.
+
+- ⏳ Refonte UI
+
+</Step>
+
+<Step>
+### Outillage
+
+Sortie de NX et passage à un workspace pnpm orchestré par Taskfile (prérequis
+de la refonte UI). Voir la RFC 0001.
+
+- ⏳ Sortie de NX et workspace pnpm
+
+</Step>
+
 </Steps>
 
 ---
@@ -218,13 +240,6 @@ Support du [mode cluster Redis](https://docs.rs/deadpool-redis/latest/deadpool_r
 </Callout>
 
 <Steps>
-
-<Step>
-### Redesign complet de l'UI
-
-Refonte de l'interface utilisateur pour une meilleure expérience.
-
-</Step>
 
 <Step>
 ### Exchange Token
