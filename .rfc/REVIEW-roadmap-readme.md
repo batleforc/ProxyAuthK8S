@@ -5,6 +5,11 @@ la roadmap), `todo.md`, `CHANGELOG.md`, `.github/workflows/*` et les issues
 ouvertes (`gh issue list`). Chaque statut a été confronté au code. Les
 références sont `fichier:ligne`.
 
+> **Alignée le 2026-10-17 sur les grills des RFC 0002 à 0007** et sur
+> [PLAN.md](PLAN.md). Les constats sur le code restent ceux de la revue ; seuls
+> les renvois aux RFC, la roadmap proposée (§10) et les questions (§11) ont été
+> mis à jour. Les mises à jour sont signalées par « → ».
+
 Légende du verdict : **OK** = conforme ; **Exagéré** = la roadmap promet plus
 que le code ; **Sous-estimé** = le code fait plus que ce qu'annonce la roadmap ;
 **Périmé** = le statut n'est plus à jour.
@@ -49,8 +54,8 @@ que le code ; **Sous-estimé** = le code fait plus que ce qu'annonce la roadmap 
 | Backend : Redis HA | `common/src/redis_pool.rs` | OK | Gère aussi le mode cluster (§4) |
 | Swagger auto-généré | `apps/swaggergen`, `api/src/api_doc.rs` | OK | |
 | CodeQL « à chaque commit » | Pas de workflow : c'est le *default setup* GitHub (rust, js/ts, actions, hebdomadaire) | OK sur le fond | Préciser « CodeQL (default setup GitHub) » |
-| Analyse CVE Rust « à chaque commit » | `back-dep-audit.yaml` : seulement quand `Cargo.toml`/`Cargo.lock` changent, plus une exécution nocturne | **Exagéré** | Sa liste `ignore:` (l. 30) ne contient que RUSTSEC-2023-0071, alors que `.cargo/audit.toml` ignore aussi h2. Les deux listes divergent |
-| Clippy en CI | `back-clippy.yaml:55` : `cargo clippy --all-features` en `continue-on-error: true` | **Non bloquant** | Seul `task lint:rust` (`-D warnings`) bloque, et seulement en local (pre-commit) |
+| Analyse CVE Rust « à chaque commit » | `back-dep-audit.yaml` : seulement quand `Cargo.toml`/`Cargo.lock` changent, plus une exécution nocturne | **Exagéré** | Sa liste `ignore:` (l. 30) ne contient que RUSTSEC-2023-0071, alors que `.cargo/audit.toml` ignore aussi h2. Les deux listes divergent. → RFC 0005 (R11) : `cargo deny` remplace `cargo audit`, et `deny.toml` devient la seule liste d'exceptions |
+| Clippy en CI | `back-clippy.yaml:55` : `cargo clippy --all-features` en `continue-on-error: true` | **Non bloquant** | Seul `task lint:rust` (`-D warnings`) bloque, et seulement en local (pre-commit). → RFC 0005 (phase 1) : `back-clippy` devient bloquant et appelle `task rust:lint` (`clippy --workspace --all-targets -D warnings`) |
 | Lint front « à chaque commit » | `front-lint.yaml:8-14,49` : main et PR vers main, filtré par chemins, `continue-on-error: true` | **Exagéré** | Il ne bloque jamais. Voir aussi le `yarn add` en CI (RFC 0001 §6.4) |
 | TAG : Docker → GHCR, Helm → GHCR, draft release | `release-prepare.yml:5,215,404` | OK, mais **cassé aujourd'hui** | Le build nocturne de main échoue depuis le 13 au 15 octobre (Containerfile back : membres `crd_runtime`/`virtual_api`/`jwt_validator` manquants, corrigé dans la PR #253). L'image front est cassée (Yarn 1 au lieu de 4, voir le diagnostic de la PR #253). Une release taguée aujourd'hui échouerait. **Sous-estimé** par ailleurs : signature, SBOM et pré-releases `-rc` ne sont pas mentionnées |
 | Pré-TAG : format vX.X.X, cog par contributeur humain, changelog | `cog.toml` (hooks `cog verify`/`cog check`, `pre_bump_hooks`) | **Exagéré** | Uniquement en local ; rien en CI n'impose cog ni le changelog |
@@ -69,10 +74,10 @@ que le code ; **Sous-estimé** = le code fait plus que ce qu'annonce la roadmap 
 
 | Élément | Preuve | Verdict | Note |
 | --- | --- | --- | --- |
-| Tests approfondis | Environ 800 tests Rust (api 320, cli 173, crd 120, common 47, crd_runtime 33, virtual_api 32, controller 31, jwt_validator 29, trace 8, cli_trace 4, server 2 ; 0 dans crdgen, swaggergen et kubectl_proxyauth). nextest + llvm-cov gate (`back-cargo-test.yaml`), envtest (`back-envtest.yaml:89`). Front : 9 specs | **Sous-estimé côté back** | Le vrai trou est le front (9 specs, pas de test a11y ni visuel). C'est traité par la RFC 0002 |
+| Tests approfondis | Environ 800 tests Rust (api 320, cli 173, crd 120, common 47, crd_runtime 33, virtual_api 32, controller 31, jwt_validator 29, trace 8, cli_trace 4, server 2 ; 0 dans crdgen, swaggergen et kubectl_proxyauth). nextest + llvm-cov gate (`back-cargo-test.yaml`), envtest (`back-envtest.yaml:89`). Front : 9 specs | **Sous-estimé côté back** | Le vrai trou est le front (9 specs, pas de test a11y ni visuel). C'est traité par la RFC 0002. → Le gate de couverture back (`coverage:ci`, nextest + Redis, seuil 62 %) est conservé par la RFC 0005 (R4). Les RFC 0003, 0004 et 0006 ajoutent des cibles de fuzz (workspace `fuzz/`, job nightly) |
 | Redis Cluster HA | `redis_pool.rs:25-28,52-73` (liste d'URLs ou `REDIS_CLUSTER=true`), feature `cluster`, documenté dans `configuration.mdx` | **Périmé** | Déjà livré : à passer en ✅ |
-| Sécurité (9 éléments ✅) | `kube_redirect.rs:174-194,221-249`, `throttle.rs`, `audit.rs`, `kube_redirect/tls.rs:43-85`, `jwt_validator`, `oidc_config_source.rs`, `api/tests/oidc_token_validation.rs` | OK | Il manque `allowed_ports` (port-forward). La RFC 0003 révèle des contournements à afficher en ⏳ |
-| Suppression de `allowed_ressources` ⏳ | toujours présent `crd/src/security/mod.rs:50-57,78`, `envtest.rs:362` | OK | Changement cassant. À coupler avec RFC 0003 Q1 et RFC 0004 Q1 (bascules de défauts en v1.0.0) |
+| Sécurité (9 éléments ✅) | `kube_redirect.rs:174-194,221-249`, `throttle.rs`, `audit.rs`, `kube_redirect/tls.rs:43-85`, `jwt_validator`, `oidc_config_source.rs`, `api/tests/oidc_token_validation.rs` | OK | Il manque `allowed_ports` (port-forward). La RFC 0003 révèle des contournements à afficher en ⏳. → Sécurité à venir : RFC 0003 (ports), 0006 (verbes), 0004 (exec/attach), dans cet ordre (PLAN.md) |
+| Suppression de `allowed_ressources` ⏳ | toujours présent `crd/src/security/mod.rs:50-57,78`, `envtest.rs:362` | OK | Changement cassant. → Bascules de la v1.0.0 (PLAN.md) : `allowed_ressources`, `verbs` absent = lecture seule (0006 R4), `exec` absent = interdit (0004, décision 1). La RFC 0003 ne bascule plus en v1.0.0 : les règles sans `allowed_ports` sont restreintes dès sa livraison (R2) |
 | Publication auto de la doc sur TAG ⏳ | `docs-deploy.yml:4-5` : publication sur push vers `main` et `feat/init-doc` (chemins `.docs/**`) | OK mais **imprécis** | La doc est **déjà** publiée automatiquement depuis main. `feat/init-doc` est un déclencheur résiduel à retirer. `--frozen-lockfile` (Yarn 1) en l. 42 |
 
 **Au niveau de la section** : passer la v1.0.0 en 🚧, ou déplacer ce qui est
@@ -83,7 +88,7 @@ de défauts cassantes et la publication de la doc par tag.
 
 | Élément | Preuve | Verdict |
 | --- | --- | --- |
-| Redesign UI | Issue #230, RFC 0002 | Non commencé. **Conflit** : #258 le met bloquant pour 0.2.0 |
+| Redesign UI | Issue #230, RFC 0002 | Non commencé. ~~Conflit avec #258~~ → **Tranché** : 0.2.0 (RFC 0002, décision 8) ; la ligne sort de la v2.0.0 |
 | Exchange token (fédération d'IdP) | Aucun code. `cluster/auth/oauth/*` est un serveur d'autorisation OAuth pour la CLI, pas de la fédération | Non commencé |
 | Support proxy (Netbird) | Aucun code de proxy sortant ni SOCKS | Non commencé |
 | Mode agent | `upgrade/tunnel.rs` est le tunnel des upgrades, pas un agent | Non commencé |
@@ -106,10 +111,13 @@ de défauts cassantes et la publication de la doc par tag.
 | Issue | Dans la roadmap ? | Proposition |
 | --- | --- | --- |
 | #258 Release 0.2.0 « Ouroboros » | v0.2.0, mais avec d'autres bloquants | Aligner la liste de #258 et la section v0.2.0 |
-| #230 Rework UI | v2.0.0 | RFC 0002 ; trancher v0.2 ou v2 (RFC 0002 Q8) |
+| #230 Rework UI | v2.0.0 | RFC 0002 → **0.2.0** (décision 8) |
 | #255 Drop NX / Update | **Absente** | RFC 0001 ; ajouter une ligne « Outillage » en v0.2.0 |
-| #265 Filtrer le port-forward par port | **Absente**, et **déjà livrée** | Fermer, en pointant vers la RFC 0003 pour les contournements |
-| — Filtrage exec/attach | **Absent** (pas d'issue) | RFC 0004 ; créer l'issue ; candidat v1.0.0 (sécurité) |
+| #265 Filtrer le port-forward par port | **Absente**, et **déjà livrée** | Fermer, en pointant vers la RFC 0003 (R1) ; créer l'issue « Port filtering bypasses » |
+| — Filtrage exec/attach | **Absent** (pas d'issue) | RFC 0004 ; créer l'issue ; release proposée 0.5.0 (PLAN.md) |
+| — Règles sensibles au verbe | **Absent** (pas d'issue) | RFC 0006 ; créer l'issue ; release proposée 0.3.0, avec la 0003 |
+| — Migration actix → axum | **Absent** (pas d'issue) | RFC 0007 ; créer l'issue ; contrat (phase 1) dès la 0006, migration en 0.4.0 |
+| — Adoption de weebo-operator-kit | **Absent** (pas d'issue) | RFC 0005 ; créer l'issue, plus une PR côté kit (peers en plages, `NPM_CLIENT`, `KIT_TAG`) |
 | #139 Doc auto du chart Helm (helm-docs) | **Absente** | v0.2.0 (Documentation) |
 | #23 Refaire la CI/CD (commits signés, scan du code modifié, Sonar) | **Absente**, partiellement couverte | La découper. « Commits signés en CI » rejoint le point « cog en CI » du §2 |
 | #87 RUSTSEC-2023-0071 (rsa) | Risque accepté (`security.mdx`) | Lier depuis la roadmap, ou fermer avec un lien vers le risque accepté |
@@ -119,7 +127,8 @@ de défauts cassantes et la publication de la doc par tag.
 
 Les advisories s'accumulent en partie parce que l'`ignore:` de
 `back-dep-audit.yaml:30` et `.cargo/audit.toml` divergent. Il faudrait une seule
-source, ce qui rejoint `task audit` imposé par le CLAUDE.md.
+source, ce qui rejoint `task audit` imposé par le CLAUDE.md. → Réglé par la RFC
+0005 : `deny.toml`, exceptions nommées et datées (R11).
 
 ---
 
@@ -137,7 +146,7 @@ source, ce qui rejoint `task audit` imposé par le CLAUDE.md.
 | R8 | Pas de lien vers la doc principale (seulement vers la roadmap) | Lien vers `https://batleforc.github.io/ProxyAuthK8S/` en tête |
 | R9 | `LICENSE` (GPL-3.0), `CONTRIBUTING.md` et `SECURITY.md` existent mais ne sont pas liés ; pas de badge de licence | Section « Contributing / Security / License » + badge |
 | R10 | Le README fait 108 lignes, dont environ 60 consacrées au dev local Keycloak/Dex | Le README présente le projet, la doc l'explique (cf. R5) |
-| R11 | Le GIF de démo (`.docs/public/demo-1.gif`) montrera l'ancienne UI après la RFC 0002 | À refaire en phase 6 de la RFC 0002 |
+| R11 | Le GIF de démo (`.docs/public/demo-1.gif`) montrera l'ancienne UI après la RFC 0002 | À refaire en phase 6 de la RFC 0002. → Avant le `git mv .docs docs` de la RFC 0005 (PLAN.md, G3) |
 
 ## 9. `todo.md` et CHANGELOG
 
@@ -152,36 +161,66 @@ source, ce qui rejoint `task audit` imposé par le CLAUDE.md.
   (todo item 2) débloquerait à la fois la release et la vérification du
   manifeste Krew.
 
-## 10. Proposition de roadmap révisée (à discuter au grill)
+## 10. Proposition de roadmap révisée
+
+Alignée sur [PLAN.md](PLAN.md) ; les numéros de 0.3.0 à 0.5.0 restent une
+proposition.
 
 ```text
 v0.2.0 « Ouroboros »  🚧
+  Outillage   : sortie de NX, workspace pnpm (RFC 0001)
+  UI          : refonte BatleHub (RFC 0002, décision 8), CSP
   Docs        : helm-docs (#139), release.mdx complété, liste des pages à jour
   Krew        : publication sur l'index (krew-release-bot ?)
-  Outillage   : sortie de NX (RFC 0001)
-  UI          : migration BatleHub (RFC 0002) ? ← à trancher (Q8 de 0002)
-  CI          : lint front bloquant, une seule liste d'ignore CVE, rc rehearsal
-  Sécurité    : contournements port-forward (RFC 0003)
+  CI          : lint front bloquant ?, rc rehearsal
+v0.3.0  (feat!)
+  Sécurité    : contournements des ports (RFC 0003), règles par verbe (RFC 0006)
+  Robustesse  : workspace fuzz/ + job nightly, compteur proxyauth_policy_decisions_total
+  Interne     : contrat HTTP de la migration (RFC 0007 phase 1)
+v0.4.0
+  Serveur     : migration actix → axum, iso-fonctionnelle (RFC 0007)
+v0.5.0  (feat!)
+  Sécurité    : filtrage exec/attach, audit de session (RFC 0004)
+Hors release
+  Outillage   : weebo-operator-kit (RFC 0005) : Taskfiles après 0001 + 0003, docs/ après 0.2.0
 v1.0.0  🚧 (une grande partie est livrée)
   ✅ Redis cluster, ✅ bloc sécurité
-  Exec/attach filtering (RFC 0004)
-  Bascules de défauts cassantes : allowed_ressources, Crd sans allowed_ports (0003 Q1), exec absent (0004 Q1), fail-open si allow-list vide (0003 Q4) ?
-  Règles sensibles au verbe (0003 Q5 / 0004 Q5) ?
+  Bascules de défauts : allowed_ressources supprimé, verbs absent = lecture seule, exec absent = interdit
   Tests front (a11y, e2e)
   Doc publiée par tag
 v2.0.0  🔮
   Exchange token, proxy sortant, mode agent, device code
+  Fail-open si allow-list vide → future RFC « default: deny » (0003 R9)
+  Sujets (users/groups) sur les règles Path (0003 R14)
 ```
 
 ## 11. Questions pour le grill
 
-1. La v1.0.0 passe-t-elle en 🚧, ou les éléments livrés sont-ils déplacés en
-   v0.2.x ?
-2. L'UI (RFC 0002) est-elle prévue en v0.2.0 (#258) ou en v2.0.0 (roadmap) ?
-3. Langue du README : anglais seul ?
-4. Les sections Keycloak/Dex du README vont-elles dans la doc ?
-5. Le lint front doit-il devenir bloquant tout de suite ?
-6. Faut-il une RFC transverse « défauts fermés en v1.0.0 » qui regroupe les
-   bascules des RFC 0003 et 0004 et `allowed_ressources` ?
+1. ~~La v1.0.0 passe-t-elle en 🚧, ou les éléments livrés sont-ils déplacés en
+   v0.2.x ?~~ → **🚧**, éléments livrés en ✅ sur place (aucun n'est sorti dans
+   une release taguée). [x] Appliqué à `roadmap.mdx`, avec les sections v0.3.0 à
+   v0.5.0 du §10.
+2. ~~L'UI (RFC 0002) est-elle prévue en v0.2.0 (#258) ou en v2.0.0
+   (roadmap) ?~~ → **0.2.0** (RFC 0002, décision 8).
+3. ~~Langue du README : anglais seul ?~~ → **Anglais seul**, diagramme traduit,
+   lien vers la doc (FR) en tête. [x] Appliqué : README réécrit (R2 à R4, R6 à
+   R10) ; le lien mort (R1) est retiré, faute de nouvelle URL connue.
+4. ~~Les sections Keycloak/Dex du README vont-elles dans la doc ?~~ → **Oui**.
+   [x] Appliqué : section « Identity provider » de
+   `developper-guide/work-localy.mdx` (Authelia par défaut, Keycloak, Dex), et
+   `compose.yaml` n'active plus qu'Authelia (R5).
+5. ~~Le lint front doit-il devenir bloquant tout de suite ?~~ → **Non, avec la
+   phase 1 de la RFC 0002** : oxlint + ESLint Vue font alors échouer le job
+   `check` ; le rendre bloquant avant corrigerait un lint remplacé deux fois
+   (RFC 0001 puis 0002).
+6. ~~Faut-il une RFC transverse « défauts fermés en v1.0.0 » ?~~ → **Non** : les
+   bascules sont listées dans PLAN.md (§ « v1.0.0 »), chacune décidée et
+   annoncée par sa RFC ; la RFC 0003 bascule dès sa livraison. Le fail-open de
+   l'allow-list vide reste une future RFC.
 7. Que faire des advisories rustls (#263, #268 à #271) : montée de version
-   immédiate, hors RFC ?
+   immédiate, hors RFC ? → `deny.toml` (RFC 0005) les rendra visibles comme
+   exceptions nommées ; la montée de version reste à faire.
+8. ~~Faut-il créer maintenant les issues des RFC 0003 (contournements), 0004,
+   0005, 0006 et 0007 (§7) ?~~ → **Oui**, textes rédigés ; [ ] à créer par le
+   mainteneur (`gh` non configuré ici), puis reporter les numéros dans les RFC
+   et `.rfc/README.md`. [ ] Fermer #265.

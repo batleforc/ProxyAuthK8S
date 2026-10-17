@@ -21,6 +21,9 @@ grill »), qui sert d'ordre du jour pour le `/grill-me`.
 
 ## Ordre de livraison
 
+Le plan détaillé, avec les points de synchronisation entre RFC et les releases
+proposées, est dans [PLAN.md](PLAN.md).
+
 - **0.2.0** : 0001 (sortie de NX, workspace pnpm), puis 0002 (refonte UI).
-- **Sécurité exec** : 0003, puis 0006 (verbes), puis 0007 (axum), puis 0004.
+- **Sécurité exec** : 0003, puis 0006 (verbes), puis 0007 (phase 1 dès la 0006, migration après la 0.2.0), puis 0004.
 - **0005** (kit) : après la 0001 (pnpm) et une release du kit avec la PR de sa phase 0 ; ne bloque pas la 0.2.0.

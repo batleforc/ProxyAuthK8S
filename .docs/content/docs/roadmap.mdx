@@ -26,10 +26,16 @@ import { Callout } from 'fumadocs-ui/components/callout';
       Krew Plugin      : Publication sur Krew Index
       Redesign UI      : Design system BatleHub (RFC 0002)
       Outillage        : Sortie de NX, workspace pnpm (RFC 0001)
-    section v1.0.0 📋
-      Tests & Sécurité : Tests approfondis
-                       : Redis cluster HA
-                       : Secrets externes, OIDC validation
+    section v0.3.0 📋
+      Sécurité         : Contournements des ports (RFC 0003)
+                       : Règles par verbe (RFC 0006)
+    section v0.4.0 📋
+      Serveur          : Migration actix vers axum (RFC 0007)
+    section v0.5.0 📋
+      Sécurité         : Filtrage exec et attach (RFC 0004)
+    section v1.0.0 🚧
+      Production       : Redis cluster HA ✅, bloc sécurité ✅
+                       : Bascules de défauts, tests front
     section v2.0.0 🔮
       Exchange Token   : Federation IdP
       Proxy & Agent    : Mode agent, tunnel
@@ -178,7 +184,43 @@ de la refonte UI). Voir la RFC 0001.
 
 ---
 
-## v1.0.0 — Production Ready {"\uD83D\uDCCB"}
+## v0.3.0 à v0.5.0 — Durcissement du proxy {"\uD83D\uDCCB"}
+
+<Callout>
+  Numéros de version proposés ; l'ordre et les points de synchronisation sont
+  dans le [plan de livraison des RFC](https://github.com/batleforc/ProxyAuthK8S/blob/main/.rfc/PLAN.md).
+</Callout>
+
+<Steps>
+
+<Step>
+### v0.3.0 — Ports et verbes (breaking)
+
+- ⏳ Contournements du filtrage des ports fermés : proxy `pods|services/x:port/proxy`, `nodes/proxy`, règles sans `allowed_ports` (RFC 0003)
+- ⏳ Règles sensibles au verbe Kubernetes (`verbs`), lecture seule implicite sous restriction (RFC 0006)
+- ⏳ Fuzzing des parseurs (workspace `fuzz/`, job nightly)
+
+</Step>
+
+<Step>
+### v0.4.0 — Serveur sur axum
+
+- ⏳ Migration d'actix-web vers axum (hyper 1), iso-fonctionnelle, tunnel d'upgrade sur `hyper::upgrade` (RFC 0007)
+
+</Step>
+
+<Step>
+### v0.5.0 — Exec et attach (breaking)
+
+- ⏳ Liste blanche des commandes, conteneurs et flux pour `exec`/`attach`, filtre de canaux, audit de session (RFC 0004)
+
+</Step>
+
+</Steps>
+
+---
+
+## v1.0.0 — Production Ready {"\uD83D\uDEA7"}
 
 <Callout>
   Objectif : rendre ProxyAuthK8S prêt pour la production avec des garanties de sécurité et de fiabilité.
@@ -189,14 +231,15 @@ de la refonte UI). Voir la RFC 0001.
 <Step>
 ### Tests approfondis
 
-Ajout de tests unitaires et d'intégration pour couvrir l'ensemble des fonctionnalités.
+- ✅ Tests back (unitaires, intégration, envtest) avec un seuil de couverture en CI
+- ⏳ Tests front : accessibilité et end-to-end (RFC 0002)
 
 </Step>
 
 <Step>
 ### Redis Cluster HA
 
-Support du [mode cluster Redis](https://docs.rs/deadpool-redis/latest/deadpool_redis/#example-cluster) pour la haute disponibilité et le stockage d'état.
+- ✅ Support du [mode cluster Redis](https://docs.rs/deadpool-redis/latest/deadpool_redis/#example-cluster) pour la haute disponibilité et le stockage d'état (liste d'URLs ou `REDIS_CLUSTER=true`).
 
 </Step>
 
@@ -216,9 +259,11 @@ Support du [mode cluster Redis](https://docs.rs/deadpool-redis/latest/deadpool_r
 </Step>
 
 <Step>
-### Nettoyage (breaking)
+### Bascules de défauts (breaking)
 
 - ⏳ Supprimer l'orthographe dépréciée `allowed_ressources` une fois les ressources migrées vers `allowed_resources`
+- ⏳ `verbs` absent vaut lecture seule (`get`, `list`, `watch`) pour tous (RFC 0006)
+- ⏳ `exec` absent : exec interdit sauf règle `exec` explicite (RFC 0004)
 
 </Step>
 
@@ -259,6 +304,14 @@ Ajout de la possibilité de passer par un proxy (ex: Netbird) pour les connexion
 ### Mode Agent
 
 Permet de ne pas exposer chaque cluster directement mais d'utiliser un agent qui crée un tunnel entre l'API Server du cluster et ProxyAuthK8S.
+
+</Step>
+
+<Step>
+### Politique fermée par défaut
+
+- Mode `default: deny` quand `allowed_resources` est vide (aujourd'hui : tout est autorisé, risque accepté documenté)
+- Sujets (`users`/`groups`) sur les règles `Path`, pour qu'une restriction ne vise pas tout le cluster
 
 </Step>
 
