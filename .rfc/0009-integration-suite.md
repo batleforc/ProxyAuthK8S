@@ -806,6 +806,16 @@ Phases 1 et 2, 2026-10-17.
   Le `HelmChartConfig` de Traefik est monté en bind mount
   (`.it/traefik-config.yaml`) : le répertoire de données de k3s est un volume
   qui masque un fichier écrit par `files:` de k3d.
+- **Phase 3, 2026-10-18** : `rfc0002.rs`, `rfc0003.rs`, `rfc0006.rs` et
+  `e2e-it/csp.spec.ts` ; les lignes 0002, 0003 et 0006 sont `suite` ou `hors
+  suite` justifiées, et ces RFC sortent de `PENDING`. Écarts de texte notés
+  au §17 des RFC 0003 (point 2) et 0006 (points 5 et 8). Le fixture commun
+  (`src/fixture.rs`) donne `admin` du namespace à `it-readers` dans
+  l'apiserver : un refus observé ne peut venir que du proxy.
+- **Banc et charge** : sous podman, une construction d'image release lancée
+  pendant que le banc tourne a fait redémarrer le nœud k3s ; le load balancer
+  de k3d a alors perdu le serveur (`EOF`). Construire les images avant
+  `it:up` (ce que fait `it:up`), ou relancer le banc.
 - **Pas encore fait** : mesure des durées en CI (§10.3), issue `it-nightly` en
   cas d'échec de nuit, exigence d'un passage vert dans `release-prepare.yml`,
-  phases 3 et 4.
+  phase 4.

@@ -588,3 +588,27 @@ Aucune.
 La phase 1 est utile seule : sans la nouvelle union, filtrer `…:port/proxy` ne
 servirait à rien dès qu'une règle `Crd` `Pod` ou `pods/**` existe, c'est
 pourquoi les deux arrivent ensemble.
+
+---
+
+## 17. Implementation notes
+
+Preuve sur le banc de la RFC 0009 (k3s 1.35, kubectl 1.37, 2026-10-18) :
+`tests/integration/tests/rfc0003.rs`, les sept points verts.
+
+- **Point 2, écart avec le texte.** kubectl 1.37 tunnelle SPDY dans une
+  websocket : le port est dans l'en-tête de chaque flux, et kubectl n'ouvre
+  un flux qu'à la première connexion locale. La session est alors déjà
+  montée (101) ; le proxy ne peut plus répondre 403, il la ferme, et kubectl
+  affiche `error: lost connection to pod`, pas la raison de la politique. Le
+  refus tient (le port n'est jamais atteint) ; le message promis ne s'affiche
+  que pour un refus à l'upgrade (ports dans l'URL, repli SPDY). Le test
+  vérifie ce qui tient : sortie en erreur, port jamais atteint, audit.
+- **Audit corrigé.** Un port refusé en cours de session était consigné
+  `session_closed_by_filter` sans port, comme un trafic illisible. Il l'est
+  maintenant `port_denied` avec le port (`PortForwardFilter::refused_port`) ;
+  `session_closed_by_filter` reste pour ce que le filtre ne sait pas lire.
+- **Point 4** est prouvé avec une règle `Crd` `Service` qui autorise le port
+  80 : `services/web:http/proxy` est refusé (port nommé) et
+  `services/web:80/proxy` passe, ce qui isole la règle du port nommé.
+

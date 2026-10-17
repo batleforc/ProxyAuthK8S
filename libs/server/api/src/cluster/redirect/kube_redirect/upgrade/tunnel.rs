@@ -80,7 +80,15 @@ async fn client_to_upstream(
                 if let Some((filter, audit)) = filter.as_mut() {
                     if let Err(reason) = filter.inspect(&chunk) {
                         warn!(%reason, "closing a port-forward session outside the allowed ports");
-                        audit.emit_port_decision(PortDecision::ClosedByFilter, None);
+                        // A refused port is a `port_denied` with its port;
+                        // only traffic the filter cannot read is reported as
+                        // `session_closed_by_filter`.
+                        match filter.refused_port() {
+                            Some(port) => {
+                                audit.emit_port_decision(PortDecision::Denied, Some(port))
+                            }
+                            None => audit.emit_port_decision(PortDecision::ClosedByFilter, None),
+                        }
                         let _ = close_tx.send(());
                         return;
                     }

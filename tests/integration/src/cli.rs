@@ -164,6 +164,146 @@ impl Session {
         run(self.command(&PathBuf::from("kubectl")).args(args)).await
     }
 
+    /// `kubectl` stopped after `duration` (a watch never ends by itself): what
+    /// it printed until then. `code` is `None` when it had to be killed.
+    pub async fn kubectl_for(&self, duration: Duration, args: &[&str]) -> Output {
+        let mut child = self
+            .command(&PathBuf::from("kubectl"))
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn kubectl");
+        // Read chunk by chunk into buffers outside the timeout: a cancelled
+        // `read_to_string` would lose what it had read.
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let mut out = child.stdout.take().expect("piped stdout");
+        let mut err = child.stderr.take().expect("piped stderr");
+        let code = tokio::time::timeout(duration, async {
+            let (mut out_buf, mut err_buf) = ([0u8; 4096], [0u8; 4096]);
+            let (mut out_open, mut err_open) = (true, true);
+            while out_open || err_open {
+                tokio::select! {
+                    read = out.read(&mut out_buf), if out_open => match read {
+                        Ok(0) | Err(_) => out_open = false,
+                        Ok(n) => stdout.extend_from_slice(&out_buf[..n]),
+                    },
+                    read = err.read(&mut err_buf), if err_open => match read {
+                        Ok(0) | Err(_) => err_open = false,
+                        Ok(n) => stderr.extend_from_slice(&err_buf[..n]),
+                    },
+                }
+            }
+            child.wait().await.ok().and_then(|s| s.code())
+        })
+        .await
+        .ok()
+        .flatten();
+        let (stdout, stderr) = (
+            String::from_utf8_lossy(&stdout).into_owned(),
+            String::from_utf8_lossy(&stderr).into_owned(),
+        );
+        Output {
+            code,
+            stdout,
+            stderr,
+        }
+    }
+
+    /// `kubectl port-forward -n <ns> <target> <local>:<remote>`, once kubectl
+    /// says it is forwarding; `Err` with what it printed when it exits first.
+    pub async fn port_forward(
+        &self,
+        ns: &str,
+        target: &str,
+        remote: u16,
+    ) -> Result<PortForward, Output> {
+        let local = std::net::TcpListener::bind(("127.0.0.1", 0))
+            .and_then(|l| l.local_addr())
+            .expect("free local port")
+            .port();
+        let mut child = self
+            .command(&PathBuf::from("kubectl"))
+            .args([
+                "port-forward",
+                "-n",
+                ns,
+                target,
+                &format!("{local}:{remote}"),
+                "--address",
+                "127.0.0.1",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn kubectl port-forward");
+        let mut lines = BufReader::new(child.stdout.take().expect("piped stdout")).lines();
+        let ready = tokio::time::timeout(Duration::from_secs(30), async {
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line.starts_with("Forwarding from") {
+                    return true;
+                }
+            }
+            false
+        })
+        .await
+        .unwrap_or(false);
+        if ready {
+            return Ok(PortForward {
+                local,
+                _child: child,
+                _stdout: lines,
+            });
+        }
+        let _ = child.start_kill();
+        let mut stderr = String::new();
+        if let Some(mut err) = child.stderr.take() {
+            let _ =
+                tokio::time::timeout(Duration::from_secs(5), err.read_to_string(&mut stderr)).await;
+        }
+        let code = child.wait().await.ok().and_then(|s| s.code());
+        Err(Output {
+            code,
+            stdout: String::new(),
+            stderr,
+        })
+    }
+
+    /// The cluster token `get-token` hands kubectl, for raw requests.
+    pub async fn cluster_token(&self, ns: &str, cluster: &str) -> String {
+        let bench = Bench::get();
+        // What kubectl passes an exec plugin.
+        let exec_info = serde_json::json!({
+            "apiVersion": "client.authentication.k8s.io/v1",
+            "kind": "ExecCredential",
+            "spec": {
+                "interactive": false,
+                "cluster": { "server": format!("{}/clusters/{ns}/{cluster}", bench.base_url()) },
+            },
+        });
+        let out = run(self
+            .command(&cli_binary())
+            .args([
+                "get-token",
+                &format!("--namespace={ns}"),
+                &format!("--server-url={}", bench.base_url()),
+                cluster,
+            ])
+            .env("KUBERNETES_EXEC_INFO", exec_info.to_string()))
+        .await;
+        assert!(out.success(), "get-token: {out:?}");
+        let credential: serde_json::Value =
+            serde_json::from_str(&out.stdout).expect("ExecCredential JSON");
+        credential["status"]["token"]
+            .as_str()
+            .expect("status.token")
+            .to_string()
+    }
+
     fn command(&self, program: &PathBuf) -> Command {
         let mut command = Command::new(program);
         let path = std::env::var("PATH").unwrap_or_default();
@@ -174,6 +314,41 @@ impl Session {
             .env_remove("DBUS_SESSION_BUS_ADDRESS")
             .env("NO_COLOR", "1");
         command
+    }
+}
+
+/// A running `kubectl port-forward`, stopped on drop.
+pub struct PortForward {
+    /// The local port it listens on (127.0.0.1).
+    pub local: u16,
+    _child: tokio::process::Child,
+    // Kept open so kubectl never blocks writing to a closed pipe.
+    _stdout: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+}
+
+impl PortForward {
+    /// Wait up to `timeout` for kubectl to exit on its own (a refused stream
+    /// ends the session), and return what it printed on stderr. `code` is
+    /// `None` when it was still running and had to be killed.
+    pub async fn exit(mut self, timeout: Duration) -> Output {
+        let code = tokio::time::timeout(timeout, self._child.wait())
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .and_then(|s| s.code());
+        if code.is_none() {
+            let _ = self._child.kill().await;
+        }
+        let mut stderr = String::new();
+        if let Some(mut err) = self._child.stderr.take() {
+            let _ =
+                tokio::time::timeout(Duration::from_secs(5), err.read_to_string(&mut stderr)).await;
+        }
+        Output {
+            code,
+            stdout: String::new(),
+            stderr,
+        }
     }
 }
 

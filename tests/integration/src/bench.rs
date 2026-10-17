@@ -75,6 +75,24 @@ impl Bench {
             .expect("http client")
     }
 
+    /// A request to `path` of a proxied cluster, as a raw client would send
+    /// it (for what kubectl cannot produce), with the user's cluster token.
+    pub fn proxied(
+        &self,
+        method: reqwest::Method,
+        ns: &str,
+        cluster: &str,
+        path: &str,
+        token: &str,
+    ) -> reqwest::RequestBuilder {
+        self.http()
+            .request(
+                method,
+                format!("{}/clusters/{ns}/{cluster}{path}", self.base_url()),
+            )
+            .bearer_auth(token)
+    }
+
     /// `kubectl` as the cluster admin: setup and checks only.
     pub fn admin(&self, args: &[&str]) -> std::process::Output {
         self.admin_with_stdin(args, None)

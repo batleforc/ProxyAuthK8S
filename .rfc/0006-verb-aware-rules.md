@@ -608,3 +608,16 @@ implicite, puisque c'est elle qui ouvre T8.
   l'upgrade websocket (ici pod `Pending`), kubectl retente en SPDY et
   n'affiche que « SPDY is not supported » ; la vraie raison n'apparaît que
   dans l'audit. À traiter avec la RFC 0007 (réponse au repli SPDY).
+- **Preuve sur le banc de la RFC 0009** (k3s 1.35 avec kubelet, kubectl
+  1.37, 2026-10-18) : `tests/integration/tests/rfc0006.rs`, points 1 à 9
+  verts ; exec, `get -w` et `debug` passent ou sont refusés sur un vrai pod.
+  Deux écarts avec le texte du §6.P :
+  - **Point 5** : la règle `exec` de la RFC 0004 n'existe pas encore ; le
+    test accorde `create` sur `pods/*/exec` explicitement. Le `create`
+    implicite se prouvera avec la 0004.
+  - **Point 8** : le proxy ne route que GET, POST, PUT, PATCH et DELETE ; un
+    `OPTIONS` reçoit 404 avant le contrôle des verbes, et n'est jamais
+    relayé. Le refus tient, avec un autre code que le 403 écrit au §6.P.
+  - Point 9 : le test prouve le `create` refusé ; que l'upstream ne voie
+    jamais l'en-tête reste prouvé par `tests/proxy_security.rs` (boîte noire
+    oblige).

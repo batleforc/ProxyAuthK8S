@@ -28,22 +28,22 @@ Statuts :
 | 0001 | 8     | hors suite  | NX retiré (RFC 0001 PR2) ; `grep` à la main |
 | 0001 | 9     | hors suite  | aucun hoisting (`pnpm-workspace.yaml`), refus vérifié à la main |
 | 0001 | 10    | hors suite  | job back-dep-audit (`task audit`) |
-| 0002 | 1     | à écrire    | |
+| 0002 | 1     | suite       | `e2e-it/csp.spec.ts › fonts come from the front only` |
 | 0002 | 2     | suite       | `e2e-it/login.spec.ts › full login` |
 | 0002 | 3     | hors suite  | `apps/front/e2e/views.spec.ts` (thème avant la première peinture), indépendant du backend |
-| 0002 | 4     | à écrire    | |
+| 0002 | 4     | hors suite  | `apps/front/e2e/views.spec.ts` (clavier jusqu'à « Copier », annonce), indépendant du backend |
 | 0002 | 5     | hors suite  | `apps/front/e2e/views.spec.ts` (360px sur chaque vue) |
 | 0002 | 6     | hors suite  | `apps/front/e2e/views.spec.ts` (garde de `/cli`) |
 | 0002 | 7     | hors suite  | `apps/front/e2e/views.spec.ts` (axe par vue et par thème) |
-| 0002 | 8     | à écrire    | |
-| 0002 | 9     | à écrire    | |
-| 0003 | 1     | à écrire    | |
-| 0003 | 2     | à écrire    | |
-| 0003 | 3     | à écrire    | |
-| 0003 | 4     | à écrire    | |
-| 0003 | 5     | à écrire    | |
-| 0003 | 6     | à écrire    | |
-| 0003 | 7     | à écrire    | |
+| 0002 | 8     | suite       | `rfc0002::p8_the_front_image_serves_its_security_headers` |
+| 0002 | 9     | suite       | `e2e-it/csp.spec.ts › an injected inline script is refused` |
+| 0003 | 1     | suite       | `rfc0003::p1_port_forward_on_an_allowed_port_connects` |
+| 0003 | 2     | suite       | `rfc0003::p2_port_forward_on_another_port_is_refused` |
+| 0003 | 3     | suite       | `rfc0003::p3_pod_proxy_on_a_port_is_refused` |
+| 0003 | 4     | suite       | `rfc0003::p4_service_proxy_on_a_named_port_is_refused` |
+| 0003 | 5     | suite       | `rfc0003::p5_nodes_proxy_is_refused_under_restriction` |
+| 0003 | 6     | suite       | `rfc0003::p6_an_explicit_nodes_proxy_rule_lets_it_through` |
+| 0003 | 7     | suite       | `rfc0003::p7_without_restriction_everything_passes` |
 | 0004 | 1     | à écrire    | |
 | 0004 | 2     | à écrire    | |
 | 0004 | 3     | à écrire    | |
@@ -67,15 +67,15 @@ Statuts :
 | 0005 | 8     | hors suite  | `task audit`, refus vérifié à la main |
 | 0005 | 9     | hors suite  | 0005 phases 2-5 (`task kit:sync`), pas encore livrées |
 | 0005 | 10    | hors suite  | `grep` à la main ; npm absent des Taskfiles et workflows |
-| 0006 | 1     | à écrire    | |
-| 0006 | 2     | à écrire    | |
-| 0006 | 3     | à écrire    | |
-| 0006 | 4     | à écrire    | |
-| 0006 | 5     | à écrire    | |
-| 0006 | 6     | à écrire    | |
-| 0006 | 7     | à écrire    | |
-| 0006 | 8     | à écrire    | |
-| 0006 | 9     | à écrire    | |
+| 0006 | 1     | suite       | `rfc0006::p1_reads_and_watches_pass` |
+| 0006 | 2     | suite       | `rfc0006::p2_delete_is_refused_with_its_verb` |
+| 0006 | 3     | suite       | `rfc0006::p3_debug_is_refused` |
+| 0006 | 4     | suite       | `rfc0006::p4_run_is_refused` |
+| 0006 | 5     | suite       | `rfc0006::p5_exec_passes_on_its_rule` |
+| 0006 | 6     | suite       | `rfc0006::p6_a_rule_without_verbs_is_read_only` |
+| 0006 | 7     | suite       | `rfc0006::p7_kubelet_exec_through_nodes_proxy_is_refused` |
+| 0006 | 8     | suite       | `rfc0006::p8_options_is_refused` |
+| 0006 | 9     | suite       | `rfc0006::p9_method_override_does_not_change_the_verb` |
 | 0006 | 10    | hors suite  | job back-cargo-test (`tests/proxy_security.rs` et voisins, inchangés) |
 | 0007 | 1     | hors suite  | job back-cargo-test (`libs/server/api/tests/http_contract.rs`) |
 | 0007 | 2     | hors suite  | `task gen:swagger-file` puis `git diff --exit-code swagger.json`, dans la PR de la migration |

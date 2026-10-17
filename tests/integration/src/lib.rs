@@ -7,9 +7,10 @@
 
 pub mod bench;
 pub mod cli;
+pub mod fixture;
 pub mod observe;
 pub mod personas;
 
 pub use bench::{Bench, Namespace};
-pub use cli::{Output, Session};
+pub use cli::{Output, PortForward, Session};
 pub use personas::Persona;

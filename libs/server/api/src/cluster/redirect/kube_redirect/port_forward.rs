@@ -197,6 +197,12 @@ impl PortForwardFilter {
     pub(super) fn take_opened(&mut self) -> Vec<u16> {
         std::mem::take(&mut self.spdy.opened)
     }
+
+    /// After an [`inspect`](Self::inspect) error: the port a stream named and
+    /// the policy refused, or `None` when the traffic could not be read.
+    pub(super) fn refused_port(&self) -> Option<u16> {
+        self.spdy.refused
+    }
 }
 
 /// Client-to-server websocket frame decoder (RFC 6455 §5.2): yields the
@@ -337,6 +343,8 @@ struct SpdyInspector {
     /// opens a data and an error stream per port, both naming it.
     opened: Vec<u16>,
     reported: Vec<u16>,
+    /// The port a stream named when the policy refused it, for the audit.
+    refused: Option<u16>,
     header: Vec<u8>,
     state: SpdyState,
     decompress: Decompress,
@@ -360,6 +368,7 @@ impl SpdyInspector {
             policy,
             opened: Vec::new(),
             reported: Vec::new(),
+            refused: None,
             header: Vec::with_capacity(8),
             state: SpdyState::Header,
             decompress: Decompress::new(true),
@@ -441,7 +450,9 @@ impl SpdyInspector {
         // shared zlib context in step with the upstream's.
         let headers = self.inflate(block)?;
         for value in port_header_values(&headers)? {
-            let port = check_port(value, &self.policy)?;
+            let port = check_port(value, &self.policy).inspect_err(|_| {
+                self.refused = parse_port(value);
+            })?;
             if !self.reported.contains(&port) {
                 self.reported.push(port);
                 self.opened.push(port);
@@ -763,6 +774,7 @@ mod tests {
         let denied = syn_stream(&mut compressor, 3, "22");
         let err = filter.inspect(&binary(&denied)).unwrap_err();
         assert!(err.contains("22"), "{err}");
+        assert_eq!(filter.refused_port(), Some(22));
     }
 
     /// Each opened port is reported once, though kubectl names it on both its
@@ -858,11 +870,10 @@ mod tests {
         );
         // A header block that is not zlib.
         let garbage = control_frame(SPDY_SYN_STREAM, &[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 2, 3]);
-        assert!(
-            PortForwardFilter::new(policy)
-                .inspect(&binary(&garbage))
-                .is_err()
-        );
+        let mut filter = PortForwardFilter::new(policy);
+        assert!(filter.inspect(&binary(&garbage)).is_err());
+        // Unreadable, not refused: the audit has no port to report.
+        assert_eq!(filter.refused_port(), None);
     }
 
     #[test]
