@@ -10,7 +10,7 @@
 | Created     | 2026-10-17                                                             |
 | Supersedes  | —                                                                      |
 | Issue       | — (à créer)                                                            |
-| Depends on  | RFC 0003 (`status.warnings`, `nodes/proxy`), RFC 0006 (règles sensibles au verbe), RFC 0007 (migration vers axum/hyper) |
+| Depends on  | RFC 0003 (`status.warnings`, `nodes/proxy`, politiques avant le contrôle websocket), RFC 0006 (règles sensibles au verbe), RFC 0007 (migration vers axum/hyper) |
 | Touches     | `libs/server/crd/src/security/*` (nouveau `exec_policy.rs`), `libs/server/api/src/cluster/redirect/kube_redirect/{upgrade.rs,upgrade/tunnel.rs,port_forward.rs}`, nouveaux `kube_redirect/{exec.rs,websocket.rs}`, `…/redirect/audit.rs`, CRD générée, `.docs/content/docs/{security,crds}.mdx` |
 | Risk        | high                                                                   |
 
@@ -61,6 +61,10 @@ allowed_resources:
         containers: ["app"]
         stdin: false
         tty: false
+  - Path:
+      path: "/api/v1/namespaces/dev/pods/*/attach"   # attach a son propre chemin
+      parametised: true
+      exec: { containers: ["app"], attach: true }
 ```
 
 ```text
@@ -74,6 +78,7 @@ kubectl exec web -c app -- ls /tmp              -> 101, audit {argv:[ls,/tmp]}
 kubectl exec -it web -c app -- sh               -> 403 "command [sh] is not allowed" (et tty refusé)
 kubectl exec web -c sidecar -- env              -> 403 "container sidecar is not allowed"
 kubectl cp ./f web:/tmp/f -c app                -> 403 (exec "tar -xmf -" + stdin : refusé)
+kubectl exec -n prod api -- sh                  -> 403 (restreint : aucune règle exec ne couvre prod)
 ```
 
 ```mermaid
@@ -117,7 +122,9 @@ pour que le repli SPDY de kubectl reçoive aussi le 403 avec sa raison.
    (`upgrade.rs:135-139`) : l'utilisateur voit « SPDY is not supported », jamais
    la raison du refus. C'est vrai aujourd'hui pour le port-forward restreint.
 5. **Le même angle mort existe via le kubelet.** `nodes/{node}/proxy/exec/…`
-   atteint l'exec du kubelet sans passer par `pods/exec` (RFC 0003, T4).
+   atteint l'exec du kubelet sans passer par `pods/exec` (RFC 0003, T4). La RFC
+   0003 (R4) le refuse sous restriction de ports ; cette RFC étend la condition
+   à `restricts_exec`.
 
 ---
 
@@ -153,6 +160,9 @@ pour que le repli SPDY de kubectl reçoive aussi le 403 avec sa raison.
   première barrière.
 - **Relayer SPDY** : SPDY reste refusé, y compris après la RFC 0007.
 - **Motifs en regex** : exclus (lisibilité, ReDoS).
+- **Sujets (`users`/`groups`) sur les règles `Path`** : une règle `Path` vaut
+  pour tous les utilisateurs, donc une règle `exec` restreint tout le cluster
+  (§4.2). Exempter un groupe relève d'une future RFC.
 
 ---
 
@@ -161,7 +171,8 @@ pour que le repli SPDY de kubectl reçoive aussi le 403 avec sa raison.
 ### 4.1 Configuration
 
 Nouveau champ `exec: Option<ExecPolicyConfiguration>` sur
-`AllowedPathConfiguration` **et** `AllowedCrdConfiguration` (même schéma) :
+`AllowedPathConfiguration` **et** `AllowedCrdConfiguration` (même schéma ; sur
+une `Crd`, seulement `kind: Pod`) :
 
 ```yaml
 exec:
@@ -171,15 +182,22 @@ exec:
   stdin: false         # bool, défaut false
   tty: false           # bool, défaut false
   attach: false        # bool, défaut false (pods/{name}/attach)
-  mask_secrets: false  # bool, défaut false : masque -p…/--password=… dans l'audit
 ```
 
-- **`exec` absent sur toutes les règles qui correspondent** : la requête n'est
-  pas restreinte (compatibilité, comme `allowed_ports` absent). Ce n'est pas le
-  côté sûr ; il bascule en v1.0.0 (§13).
-- **`exec` présent sur au moins une règle qui correspond** : seules les règles
-  qui déclarent `exec` décident pour cette requête (§4.2, « la règle déclarée
-  l'emporte »).
+Et un champ global :
+
+```yaml
+security_config:
+  mask_exec_secrets: false   # bool, défaut false : masque -p…/--password=… dans l'audit
+```
+
+- **Aucune règle visible par l'utilisateur ne déclare `exec`** : l'utilisateur
+  n'est pas restreint (compatibilité, comme `allowed_ports` absent). Ce n'est
+  pas le côté sûr ; il bascule en v1.0.0 (§13).
+- **Au moins une règle visible déclare `exec`** : l'utilisateur est restreint.
+  Seules les règles qui correspondent au chemin **et** déclarent `exec`
+  peuvent accepter un exec ou un attach (§4.2), comme pour `allowed_ports`
+  (RFC 0003, R2).
 - **`exec: {}`** : exec reste possible, mais **sans aucune commande
   autorisée** (`commands` absent dans un `exec` présent vaut `[]`), sans stdin,
   sans tty et sans attach. Dès qu'il est déclaré, le défaut est fermé.
@@ -194,11 +212,29 @@ exec:
   flux ensemble. Les champs de règles différentes ne se combinent jamais : une
   règle A (`ls` dans `app`) et une règle B (`env` dans `sidecar`)
   n'autorisent ni `env` dans `app`, ni `ls` dans `sidecar`.
-- **La règle déclarée l'emporte.** Parmi les règles qui correspondent au
-  chemin, si au moins une déclare `exec`, les règles sans `exec` sont ignorées
-  pour cette requête. Une règle large (`…/pods/**`, `Crd` `Pod`) ne lève donc
-  plus en silence la politique d'une règle `exec` voisine. Sans aucune règle
-  `exec`, rien ne change.
+- **Restriction par utilisateur.** `restricts_exec(user, groups)` est vrai dès
+  qu'une règle dont le sujet concerne l'utilisateur déclare `exec`, quel que
+  soit son chemin (même définition que `restricts_ports`, RFC 0003 R3). Une
+  règle `Path` n'a pas de sujet : une seule règle `Path` avec `exec` restreint
+  donc **tous** les utilisateurs du cluster, y compris ceux qui passent par une
+  règle `**`. Pour exempter un utilisateur, il faut aujourd'hui une règle `Crd`
+  avec des sujets de namespace (sujets sur `Path` : non-goal, §3).
+- **Seules les règles `exec` accordent.** Sous restriction, les règles qui
+  correspondent au chemin sans déclarer `exec` n'accordent ni exec ni attach.
+  Une règle large (`…/pods/**`, `/api/v1/namespaces/**`, `Crd` `Pod`) ne lève
+  donc plus en silence la politique d'une règle `exec`, même dans un autre
+  namespace. Sans aucune règle `exec`, rien ne change.
+- **Attach.** Sous restriction, `pods/{name}/attach` n'est accepté que par une
+  règle qui couvre ce chemin, déclare `exec` **et** a `attach: true` ;
+  `commands` y est ignoré, `containers`, `stdin` et `tty` s'appliquent. Une
+  règle `…/pods/*/exec` ne couvre pas `attach` : `path_matcher` n'a pas
+  d'alternative (`{exec,attach}`), il faut deux règles, ou `Crd` `Pod`.
+  `…/pods/*/*` est déconseillé, car il ouvre aussi `log`, `portforward`, etc.
+- **`nodes/proxy`.** Le refus de la RFC 0003 (R4, R5) s'applique sous
+  `restricts_ports || restricts_exec || restricts_verbs` (RFC 0006) : sous
+  restriction d'exec,
+  `nodes/{n}/proxy/**` (donc `/exec/…` et `/run/…` du kubelet) est refusé sauf
+  règle `Path` qui vise explicitement `nodes/*/proxy`.
 - **Correspondance des commandes** : l'`argv` reçu (tous les paramètres
   `command`, dans l'ordre, comme l'apiserver : `zz_generated.conversion.go:6479`)
   est comparé élément par élément au motif. `*` couvre un élément entier ou une
@@ -228,11 +264,11 @@ exec:
 - **Paramètres dupliqués** (`container`, `stdin`, `tty`, `stdout`, `stderr`
   deux fois) : **refusés** (400). L'apiserver prendrait la première valeur ;
   refuser est plus strict et supprime toute ambiguïté.
-- **Ordre des contrôles** : la politique `exec` (et la politique de ports
-  existante) est évaluée **avant** le contrôle « websocket seulement ». La
-  requête SPDY de repli de kubectl reçoit donc le même 403 avec la raison ;
-  seule une requête **conforme** en SPDY reçoit le 400 « SPDY is not
-  supported ».
+- **Ordre des contrôles** : la politique `exec` est évaluée **avant** le
+  contrôle « websocket seulement », dans l'ordre que la RFC 0003 (phase 1)
+  introduit pour la politique de ports. La requête SPDY de repli de kubectl
+  reçoit donc le même 403 avec la raison ; seule une requête **conforme** en
+  SPDY reçoit le 400 « SPDY is not supported ».
 - **Cas inintéressant** : sans aucune règle `exec`, ou avec
   `security_config.enabled: false`, aucune décision ne change. La trace de
   session est quand même émise (§10.1).
@@ -246,6 +282,7 @@ Refusé à l'admission (CEL) et à la réconciliation (`validate()`) :
 | `commands[i]` vide | Une commande vide ne correspond à rien : erreur de saisie |
 | `**` ailleurs qu'en dernier élément | Sémantique ambiguë |
 | `tty: true` et `stdin: false` | Un tty sans stdin n'a pas de sens pour kubectl et masque une erreur |
+| `exec` sur une règle `Crd` dont le `kind` n'est pas `Pod` | Sans effet : on refuse plutôt que d'induire en erreur (comme `allowed_ports`, RFC 0003 R7) |
 | plus de 64 commandes, 32 éléments, 32 conteneurs, élément > 512 octets | Bornes du coût CEL et de la correspondance |
 
 Avertissements :
@@ -254,7 +291,8 @@ Avertissements :
 | --- | --- | --- |
 | motif qui commence par un interpréteur **et** contient un joker | accepté | `status.warnings` du `ProxyKubeApi` (introduit par la RFC 0003) + log de réconciliation |
 | `stdin: true` avec une commande qui lit stdin (`tar`, `sh`…) | accepté | idem |
-| règle `exec` restrictive, mais une règle autorise la création de pods ou `ephemeralcontainers` (verbe `create`/`patch`, RFC 0006) ou `nodes/proxy` | accepté | idem (« exec restriction can be bypassed by … ») |
+| règle `exec` restrictive, mais une règle autorise la création de pods ou `ephemeralcontainers` (verbe `create`/`patch`, RFC 0006), ou une règle `Path` vise explicitement `nodes/*/proxy` | accepté | idem (« exec restriction can be bypassed by … ») |
+| restriction d'exec et une règle couvre `pods/…/exec` ou `…/attach` sans déclarer `exec` | la règle n'accorde ni exec ni attach | idem |
 
 ---
 
@@ -294,17 +332,17 @@ le repli SPDY.
 
 ```mermaid
 flowchart TD
-    R["règles qui correspondent au chemin"] --> D{"au moins une déclare exec ?"}
+    U["utilisateur"] --> D{"restricts_exec(user, groups) ?"}
     D -->|non| A["non restreint (jusqu'à v1.0.0)"]
-    D -->|oui| F["garder seulement les règles avec exec"]
+    D -->|oui| F["règles qui correspondent au chemin ET déclarent exec"]
     F --> E{"une règle accepte argv ET conteneur ET flux ?"}
     E -->|oui| OK["accepté"]
-    E -->|non| NO["403 : raison de la règle la plus proche"]
+    E -->|non, ou aucune règle| NO["403 : raison de la règle la plus proche"]
 ```
 
-Le diagramme montre les deux corrections du grill : le filtre « déclarée
-l'emporte » avant l'évaluation, puis un OU de règles où chaque règle fait un ET
-de ses champs.
+Le diagramme montre la restriction décidée par utilisateur, puis un OU de
+règles où chaque règle fait un ET de ses champs. Une règle sans `exec` ne
+participe jamais à la décision d'un utilisateur restreint.
 
 ### 5.3 Format des flux
 
@@ -341,11 +379,17 @@ conteneur ou flux refusé ne peut atteindre le kubelet par ce chemin.
 
 - Nouveau `security/exec_policy.rs` : `ExecPolicyConfiguration` (schéma de
   §4.1, bornes `schemars` et règles CEL) et `CommandPattern(Vec<String>)`.
+- `SecurityConfiguration::restricts_exec(username, groups) -> bool` (même forme
+  que `restricts_ports`, RFC 0003).
 - `SecurityConfiguration::exec_rules(path, username, groups) -> ExecRules`,
-  qui renvoie `Unrestricted` (aucune règle `exec` parmi celles qui
-  correspondent) ou `Restricted(Vec<&ExecPolicyConfiguration>)` (« déclarée
-  l'emporte »). Contrairement à `port_forward_policy` (`mod.rs:175-189`), il ne
-  fusionne pas les champs.
+  qui renvoie `Unrestricted` (`!restricts_exec`) ou
+  `Restricted(Vec<&ExecPolicyConfiguration>)` (règles qui correspondent au
+  chemin et déclarent `exec`, éventuellement vide). Contrairement à
+  `port_policy` (RFC 0003), il ne fusionne pas les champs.
+- Le refus de `nodes/proxy` (RFC 0003) teste `restricts_ports ||
+  restricts_exec`.
+- `SecurityConfiguration.mask_exec_secrets: bool` (défaut `false`).
+- Règle CEL `!has(self.exec) || self.kind == 'Pod'` sur `AllowedCrdConfiguration`.
 - `ExecPolicyConfiguration::accepts(&ExecRequest) -> Result<(), Denial>` : ET
   des champs dans une règle. `ExecRules::check` fait le OU et renvoie la raison
   de la règle la plus proche (même conteneur, sinon la première).
@@ -369,8 +413,9 @@ de décision sont pures et indépendantes du framework.
     -> SessionSummary; }`.
 - `kube_redirect/websocket.rs` : `WebsocketDecoder` extrait de
   `port_forward.rs`, trame bornée à 1 MiB.
-- `upgrade.rs` : `check_handshake` évalue **d'abord** les politiques (ports,
-  exec), **puis** le contrôle websocket et le refus de corps. Nouvelle variante
+- `upgrade.rs` : `check_handshake` évalue déjà les politiques avant le contrôle
+  websocket et le refus de corps (RFC 0003, phase 1) ; la politique exec s'y
+  ajoute après celle des ports. Nouvelle variante
   `UpgradeRefusal::ExecOutsidePolicy(String)` (403, audit `exec_denied`).
   Après le `101`, sélection du filtre selon le protocole accepté (refus des
   protocoles non binaires sous restriction).
@@ -378,7 +423,8 @@ de décision sont pures et indépendantes du framework.
   upstream → client **uniquement** pour compter les octets, sans jamais
   bloquer ; à la fin des deux moitiés, `audit.emit_session_end(summary)`.
 - `audit.rs` : `AuditContext` gagne `exec: Option<ExecAudit { argv,
-  container, stdin, tty }>` et `emit_session_end`. Avec `mask_secrets`, les
+  container, stdin, tty }>` et `emit_session_end`. Avec `mask_exec_secrets`
+  (global, donc aussi pour les refus et les utilisateurs non restreints), les
   éléments `-p<x>`, `--password=<x>`, `--token=<x>` et l'élément qui suit
   `-p`/`--password`/`--token` sont remplacés par `***`.
 
@@ -425,18 +471,24 @@ un cluster k3d (`task kube3d:*`) pour la preuve de bout en bout.
    pour l'apiserver) avec `stdin: false` donne 403.
 9. **Refus, produit croisé** : règles A (`ls` dans `app`) et B (`env` dans
    `sidecar`) ; `env` dans `app` donne 403.
-10. **Refus, règle large** : une règle `/api/v1/namespaces/dev/**` sans
-    `exec` plus une règle `exec` restrictive ; `sh` donne 403.
+10. **Refus, règle large** : une règle `/api/v1/namespaces/**` sans `exec`
+    plus une règle `exec` restrictive sur `dev` ; `sh` donne 403 dans `dev`
+    **et** dans `prod`.
 11. `kubectl attach web -c app` avec `attach: false` donne 403 ; avec
-    `attach: true`, le flux s'affiche.
-12. Non-régression : sans règle `exec`, les points 1 à 5 passent comme
+    `attach: true` sur une règle qui couvre `…/pods/*/attach`, le flux
+    s'affiche. Une règle `…/pods/*/exec` seule n'accorde pas l'attach.
+12. **Refus, kubelet** : sous restriction d'exec seulement (aucun
+    `allowed_ports`), `curl …/api/v1/nodes/n1/proxy/exec/dev/web/app?command=sh`
+    donne 403 ; l'upstream n'a reçu aucune connexion.
+13. Non-régression : sans règle `exec`, les points 1 à 5 passent comme
     aujourd'hui, et `exec_open` / `exec_closed` sont émis.
 
 **Deliberately untouched**, so reviewers do not go looking :
 
 - La logique SPDY de `PortForwardFilter` : seules l'extraction de
   `WebsocketDecoder` et le trait la touchent.
-- Le refus de SPDY nu : il reste, mais passe après les politiques.
+- Le refus de SPDY nu : il reste, après les politiques ; l'ordre est déjà posé
+  par la RFC 0003.
 - `standard_redirect` : exec et attach passent toujours par l'upgrade.
 
 ---
@@ -462,20 +514,20 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | T1 | Elevation : commande hors liste | B1, query | `ExecRules::check` avant toute connexion | aucun si aucun interpréteur à joker n'est listé |
 | T2 | Elevation : commande listée qui exécute autre chose (`find -exec`, `env sh`, `sh -c *`) | motifs | avertissement interpréteur + joker (§4.3) ; doc « pas d'interpréteur » | **accepté par l'opérateur** qui le liste |
-| T3 | Tampering : différence de parsing entre le proxy et l'apiserver (encodage, `+`, `;`, doublons, casse, booléens) | `parse_exec_query` | même décodage que Go (`+` donne espace, un seul décodage) ; `;` et doublons refusés ; booléens lus avec la règle exacte de l'apiserver ; table de référence générée depuis Go et `cargo fuzz` (§14) | faible |
+| T3 | Tampering : différence de parsing entre le proxy et l'apiserver (encodage, `+`, `;`, doublons, casse, booléens) | `parse_exec_query` | même décodage que Go (`+` donne espace, un seul décodage) ; `;` et doublons refusés ; booléens lus avec la règle exacte de l'apiserver ; table de référence générée depuis Go et cibles de fuzz (§14) | faible |
 | T4 | Elevation : données stdin malgré `stdin=false` | B1, flux | `ExecChannelFilter` ferme sur le canal 0 | aucun |
 | T5 | Elevation : protocole non lisible (base64, sans sous-protocole, extension deflate) qui cache les canaux | handshake | refus sous restriction | aucun |
 | T6 | Elevation : conteneur par défaut non maîtrisé | query | `container=` exigé sous restriction (kubectl l'envoie toujours) | aucun |
-| T7 | Elevation : contournement par création de pod, conteneur éphémère ou `nodes/proxy/exec` | autres chemins | RFC 0006 (verbes) et RFC 0003 T4, **prérequis** ; avertissement de validation | faible une fois les prérequis livrés |
-| T8 | Elevation : combinaison de règles (produit croisé, règle large sans `exec`) | évaluation | OU de règles, ET des champs ; « déclarée l'emporte » | aucun |
-| T9 | Info disclosure : secrets dans l'argv (`mysql -pXXX`) | audit | doc explicite ; `mask_secrets` opt-in | **accepté par l'opérateur** (argv intégral par défaut) |
+| T7 | Elevation : contournement par création de pod, conteneur éphémère ou `nodes/proxy/exec` | autres chemins | RFC 0006 (verbes) **prérequis** ; `nodes/proxy` refusé sous `restricts_exec` (RFC 0003 R4 étendu) ; avertissement de validation | faible une fois les prérequis livrés |
+| T8 | Elevation : combinaison de règles (produit croisé, règle large sans `exec`, autre namespace) | évaluation | restriction par utilisateur ; seules les règles `exec` accordent ; OU de règles, ET des champs | aucun |
+| T9 | Info disclosure : secrets dans l'argv (`mysql -pXXX`) | audit | doc explicite ; `mask_exec_secrets` global opt-in ; changement annoncé au CHANGELOG | **accepté par l'opérateur** (argv intégral par défaut) |
 | T10 | Repudiation : session sans trace | audit | `exec_open` et `exec_closed` toujours émis | aucun |
 | T11 | DoS : trames énormes ou fragmentées pour épuiser le décodeur | flux | trame bornée à 1 MiB, aucun buffer au-delà d'une trame | faible |
 
-Tests négatifs : T1 → §6.P point 2 ; T3 → points 7 et 8, fuzz ; T4 → point 6 ;
-T5 → handshake `v4.base64.channel.k8s.io` refusé ; T6 → point 4 ; T7 → tests
-de la RFC 0006 ; T8 → points 9 et 10 ; T9 → test `mask_secrets` ; T10 →
-point 12 ; T11 → trame de 2 MiB refusée.
+Tests négatifs : T1 → §6.P point 2 ; T3 → points 7 et 8, table Go ; T4 →
+point 6 ; T5 → handshake `v4.base64.channel.k8s.io` refusé ; T6 → point 4 ; T7
+→ point 12 et tests de la RFC 0006 ; T8 → points 9 et 10 ; T9 → test
+`mask_exec_secrets` ; T10 → point 13 ; T11 → trame de 2 MiB refusée.
 
 ### 7.2 Authentication and authorisation
 
@@ -494,12 +546,14 @@ revient à l'état actuel : exec complet autorisé par le RBAC du cluster.
 - Booléens : règle de l'apiserver (§4.2), sans exception.
 - Trames websocket bornées à 1 MiB (le kubelet découpe en 32 KiB) ; trames de
   contrôle gérées selon la RFC 6455.
-- `parse_exec_query` et le décodeur ont une cible `cargo fuzz`.
+- `parse_exec_query` et le décodeur ont chacun une cible de fuzz (workspace
+  `fuzz/` de la RFC 0003, modèle batlehub) : toute entrée invalide donne 400
+  ou 403, jamais de panic.
 
 ### 7.4 Secrets and cryptography
 
 Aucun nouveau secret. L'argv peut contenir un secret tapé en argument ; la doc
-le signale et propose `mask_secrets`.
+le signale et propose `mask_exec_secrets`.
 
 ### 7.5 Abuse and resource exhaustion
 
@@ -519,10 +573,13 @@ websocket sous restriction ; garde anti-traversée ; mTLS ; RBAC cible.
 | Dependency / image / tool | Version | Why this one | Licence | Known CVEs (`task audit`) | Maintenance |
 | --- | --- | --- | --- | --- | --- |
 | aucune dépendance runtime | — | décodeur websocket déjà écrit (`WebsocketDecoder`) ; motifs réutilisant `path_matcher` | — | — | — |
-| `cargo-fuzz` (dev) | dernière (mise) | fuzz `parse_exec_query` et du décodeur | MIT/Apache-2.0 | à vérifier | actif |
 
 - **Build et release** : la CRD générée change. Pas de nouvelle image. La table
   de référence Go est générée hors CI et versionnée : pas de toolchain Go en CI.
+- **Fuzz** : cibles ajoutées au workspace `fuzz/` créé par la RFC 0003
+  (`libfuzzer-sys` 0.4.13, `arbitrary` 1.5.0), compilées à chaque PR en stable
+  (`task fuzz:check`) et lancées par le job nightly. Aucune dépendance runtime.
+  La table Go reste l'oracle de compatibilité contre T3.
 
 ---
 
@@ -535,7 +592,12 @@ websocket sous restriction ; garde anti-traversée ; mTLS ; RBAC cible.
 | `user`, `groups` (existants) | oui | idem | idem | idem | idem |
 
 Le contenu de stdin et stdout n'est **jamais** stocké. L'argv intégral est un
-choix de traçabilité ; `mask_secrets` en réduit l'exposition.
+choix de traçabilité ; `mask_exec_secrets` en réduit l'exposition.
+
+**Changement pour tous les déploiements** : la trace de session est émise même
+sans règle `exec`, donc l'argv de chaque `kubectl exec` entre dans les logs
+d'audit dès la mise à jour, y compris là où aucune politique n'est configurée.
+C'est annoncé dans le CHANGELOG (§13), avec `mask_exec_secrets`.
 
 ---
 
@@ -544,7 +606,9 @@ choix de traçabilité ; `mask_secrets` en réduit l'exposition.
 ### 10.1 Observability
 
 - **Metrics** :
-  - `proxyauth_exec_sessions_total{cluster, kind=exec|attach, decision}` ;
+  - compteur partagé `proxyauth_policy_decisions_total{cluster,
+    policy="exec", decision}` (créé par la RFC 0003), `decision` parmi
+    `allowed`, `denied`, `closed_by_filter` ;
   - `proxyauth_exec_session_seconds{cluster, kind}` (histogramme) ;
   - aucune commande ni aucun utilisateur en label.
 - **Logs and audit trail** : `exec_denied` (avec la raison), `exec_open` et
@@ -581,7 +645,7 @@ Sans restriction, le seul surcoût est le comptage d'octets.
 - **Licensing** : inchangé.
 - **Documentation** : section « exec et attach » de `security.mdx` : tableau
   « garanti / non garanti », liste des interpréteurs, évaluation par règle et
-  « déclarée l'emporte », recettes `kubectl cp` (et le piège `--retries`),
+  « seules les règles `exec` accordent » et la portée d'une règle `Path` (tout le cluster), recettes `kubectl cp` (et le piège `--retries`),
   argv dans l'audit, complément **Kyverno** (politique d'admission sur
   `PodExecOptions` pour les accès qui ne passent pas par le proxy). Plus
   `crds.mdx` régénéré.
@@ -596,6 +660,10 @@ Sans restriction, le seul surcoût est le comptage d'octets.
 | Liste noire sur `argv` | Un motif refusé se contourne par un chemin absolu, un lien ou un interpréteur. La liste blanche est le seul modèle sûr |
 | Union des champs de toutes les règles (brouillon) | Produit croisé : autorise des combinaisons qu'aucune règle n'a voulues (T8) |
 | Une règle sans `exec` lève toute restriction (brouillon) | Une règle large annule en silence une règle `exec` voisine (T8) |
+| « La règle déclarée l'emporte » par chemin (premier grill) | `restricts_exec` indéfinissable, donc `nodes/proxy/exec` jamais restreint ; une règle large reste sans restriction dans les namespaces qu'aucune règle `exec` ne couvre. Aligné sur la RFC 0003 (R2, R3) |
+| `mask_secrets` par règle | Aucune règle ne porte le réglage pour un refus ou un utilisateur non restreint, alors que l'audit est émis dans les deux cas |
+| Tests aux limites sans fuzz (second grill) | Abandonné au grill de la RFC 0006 : le modèle batlehub lève l'objection nightly/CI, et des propriétés vérifiées par fuzz couvrent mieux un décodeur de trames qu'une table |
+| Métrique propre (`proxyauth_exec_sessions_total`) | Un compteur partagé par politique (RFC 0003 R15) suffit et garde un seul tableau de bord |
 | Enregistrement de stdin et stdout (`record: io`, brouillon) | Capture des secrets, donnée sensible, non demandé |
 | Avertissement sur tout interpréteur | Signale aussi des commandes exactes sûres ; habitue à ignorer l'avertissement |
 | Masquage des secrets dans l'argv par défaut | Heuristique incomplète présentée comme une protection ; réduit la traçabilité |
@@ -610,12 +678,15 @@ Sans restriction, le seul surcoût est le comptage d'octets.
 ## 13. Rollout and compatibility
 
 - **Default behaviour** : sans `exec`, aucun changement de décision. Seuls les
-  événements d'audit `exec_open` et `exec_closed` sont nouveaux. Le refus d'un
-  port-forward restreint affiche désormais sa raison au lieu de « SPDY is not
-  supported ».
+  événements d'audit `exec_open` et `exec_closed` sont nouveaux, **et ils
+  contiennent l'argv** (§9) : annoncé dans le CHANGELOG avec
+  `mask_exec_secrets`.
+- **Changement de comportement** dès qu'une règle `exec` existe : elle
+  restreint tous les utilisateurs du cluster (règle `Path`), et les règles
+  sans `exec` n'accordent plus exec ni attach (`feat!:`).
 - **v1.0.0** : `exec` absent bascule vers « exec interdit sauf règle `exec`
-  explicite », avec le nettoyage `allowed_ressources` et la bascule de la RFC
-  0003 Q1. Annoncé dans le CHANGELOG dès cette RFC.
+  explicite », avec le nettoyage `allowed_ressources` (la RFC 0003 a déjà
+  basculé les règles sans `allowed_ports`, R2). Annoncé dans le CHANGELOG dès cette RFC.
 - **Migration** : champ additif dans la CRD.
 - **Operator prerequisites** : CRD mise à jour avant le serveur ; RFC 0003,
   0006 et 0007 livrées. Pour les clients, kubectl ≥ 1.30 (déjà requis).
@@ -628,21 +699,27 @@ Sans restriction, le seul surcoût est le comptage d'octets.
 ## 14. Test plan
 
 - **Unit** (`crd/src/security/exec_policy.rs`) : évaluation par règle (OU/ET),
-  « déclarée l'emporte », défauts (absent, `{}`, `[]`), alignement CEL/Rust,
+  `restricts_exec` (règle `Path` sans sujet, règle `Crd` avec sujets), règles
+  sans `exec` qui n'accordent rien sous restriction, `attach` (chemin et
+  drapeau), défauts (absent, `{}`, `[]`), CEL `kind: Pod`, alignement CEL/Rust,
   avertissement interpréteur seulement avec joker.
 - **Unit** (`api/.../exec.rs`) : table `parse_exec_query` (encodages, `+`, `;`,
   doublons, booléens, valeur vide), correspondance `argv`/motifs (`*`, `**`),
-  `mask_secrets`.
+  `mask_exec_secrets`.
+- **Fuzz** : cibles `fuzz_exec_query` (déterminisme ; un `ExecRequest` accepté
+  a exactement l'`argv` que la table Go produirait pour les paires lues ; aucun
+  doublon accepté) et `fuzz_websocket_decoder` (aucune panic, aucun buffer
+  au-delà d'une trame de 1 MiB, une trame sur un canal interdit ferme
+  toujours).
 - **Table de référence Go** : un petit programme hors CI (`url.Query()` +
   `runtime.Convert_Slice_string_To_bool` + conversion `PodExecOptions`)
   génère `tests/fixtures/exec_query_reference.json` ; le test Rust la rejoue.
   Régénérée à chaque montée de version Kubernetes ciblée.
-- **Integration** (`api/tests/proxy_upgrade.rs`) : §6.P points 1 à 12 avec
+- **Integration** (`api/tests/proxy_upgrade.rs`) : §6.P points 1 à 13 avec
   l'upstream enregistreur et un harnais de trames v5, y compris la requête
   SPDY de repli.
 - **Proof** : §6.P, puis k3d avec kubectl 1.34.
-- **Security** : un test négatif par ligne T1 à T11 (§7.1) ; `cargo fuzz` sur
-  `parse_exec_query` et le décodeur.
+- **Security** : un test négatif par ligne T1 à T11 (§7.1).
 - **Audit** : `task audit` vert.
 - **Existing suites** : tests de port-forward inchangés après l'extraction de
   `WebsocketDecoder`.
@@ -656,22 +733,28 @@ Sans restriction, le seul surcoût est le comptage d'octets.
 | # | Question | Decision |
 | --- | --- | --- |
 | 0 | Filtrer le contenu de stdin et du tty ? | **Non, pas comme barrière** (§12). Les flux sont autorisés ou interdits en bloc. |
-| 1 | Défaut de `exec` absent | **Non restreint maintenant, bascule en v1.0.0** vers « exec interdit sauf règle `exec` », avec le nettoyage `allowed_ressources` et la RFC 0003 Q1. |
-| 2 | argv dans l'audit | **Intégral par défaut**, masquage opt-in (`mask_secrets`), doc explicite. |
+| 1 | Défaut de `exec` absent | **Utilisateur non restreint maintenant (aucune règle `exec` visible), bascule en v1.0.0** vers « exec interdit sauf règle `exec` », avec le nettoyage `allowed_ressources`. |
+| 2 | argv dans l'audit | **Intégral par défaut**, masquage opt-in (`mask_exec_secrets`, global, voir 18), doc explicite. |
 | 3 | Protocoles base64 | **Refusés sous restriction.** Il n'existe pas de `base64.v5` ; seuls `v5`/`v4` binaires sont acceptés. |
 | 4 | Booléens de l'apiserver | **Vérifié** (`conversion.go:83-95`) : première valeur ; faux si absent, `0` ou `false` (casse ignorée) ; tout le reste vrai, y compris la valeur vide. Le proxy applique cette règle et refuse les doublons. |
 | 5 | Filtrage par verbe (T7) | **Prérequis** : RFC 0006. |
 | 6 | Kyverno | **Recommandé dans la doc** en complément. |
 | 7 | Regex | **Exclues.** |
 | 8 | Union des règles | **Évaluation par règle** : OU des règles, ET des champs. Corrige le produit croisé du brouillon. |
-| 9 | Règle sans `exec` | **« La règle déclarée l'emporte »** : dès qu'une règle correspondante déclare `exec`, les autres sont ignorées pour la requête. |
+| 9 | Règle sans `exec` | **Remplacée par 17** : sous restriction, une règle sans `exec` n'accorde ni exec ni attach (« déclarée l'emporte » par chemin abandonné). |
 | 10 | Avertissement interpréteur | **Seulement avec un joker.** |
 | 11 | `record: io` | **Sorti du périmètre.** |
-| 12 | Ordre par rapport à la RFC 0003 | **0003 d'abord** (`status.warnings`, `nodes/proxy`). |
-| 13 | Oracle Go | **Table de référence générée hors CI**, versionnée, plus `cargo fuzz`. |
+| 12 | Ordre par rapport à la RFC 0003 | **0003 d'abord** (`status.warnings`, `nodes/proxy`, politiques avant le contrôle websocket). |
+| 13 | Oracle Go | **Table de référence générée hors CI**, versionnée, plus **fuzz sur le modèle batlehub** (révisé au grill de la RFC 0006, comme RFC 0003 R12). |
 | 14 | Framework | **RFC 0007 (axum/hyper) avant celle-ci.** Ordre : 0003, 0006, 0007, 0004. |
-| 15 | Repli SPDY de kubectl | **Politiques évaluées avant le contrôle websocket** : le repli reçoit le même 403 avec la raison. Corrige aussi le port-forward existant. |
+| 15 | Repli SPDY de kubectl | **Politiques évaluées avant le contrôle websocket** : le repli reçoit le même 403 avec la raison. **Livré par la RFC 0003** (phase 1), qui en a besoin pour ses propres refus ; cette RFC y ajoute la politique exec. |
 | 16 | Conteneur absent | **Refusé sous restriction** : vérifié, kubectl envoie toujours `container=`. |
+| 17 | Modèle de restriction (second grill) | **Aligné sur la RFC 0003** : `restricts_exec(user, groups)` vrai dès qu'une règle visible déclare `exec` ; sous restriction, seules les règles qui correspondent au chemin et déclarent `exec` accordent ; `nodes/proxy` refusé sous `restricts_ports \|\| restricts_exec`. |
+| 18 | Portée de `mask_secrets` | **Champ global plat** `security_config.mask_exec_secrets`, défaut `false` ; l'argv dans l'audit de tous les déploiements est annoncé au CHANGELOG. |
+| 19 | `exec` sur `Crd` | **`kind: Pod` seulement** (CEL + `validate()`). |
+| 20 | Règle `Path` et sujets | **Une règle `Path` avec `exec` restreint tous les utilisateurs**, documenté ; sujets sur `Path` : future RFC. |
+| 21 | `attach` | **Règle qui couvre `…/attach`, déclare `exec` et `attach: true`** ; `commands` ignoré ; pas d'alternative dans `path_matcher`, donc deux règles ou `Crd` `Pod`. |
+| 22 | Métrique (grill de la RFC 0006) | **Compteur partagé** `proxyauth_policy_decisions_total{policy="exec"}` ; l'histogramme de durée de session reste propre à cette RFC. |
 
 ### Still open
 
@@ -684,10 +767,9 @@ Aucune.
 | Phase | Content |
 | --- | --- |
 | 0 | Prérequis : RFC 0003, 0006 et 0007 livrées |
-| 1 | Politiques avant le contrôle websocket (corrige aussi le port-forward) ; audit `exec_open` / `exec_closed` sans politique ; extraction de `WebsocketDecoder` et du trait `UpgradeFilter` |
-| 2 | CRD `exec` + `exec_rules()` + `parse_exec_query` + `check` avant connexion (commandes, conteneurs, flux, attach) + avertissements + `ExecChannelFilter` (canaux interdits, refus des protocoles non binaires) + table de référence Go + fuzz |
-| 3 | `mask_secrets` |
-| 4 | Docs (`security.mdx` garanti/non garanti, recettes `kubectl cp`, Kyverno), CHANGELOG (annonce de la bascule v1.0.0) |
+| 1 | Audit `exec_open` / `exec_closed` sans politique, avec `mask_exec_secrets` dès cette phase (l'argv entre dans les logs) ; extraction de `WebsocketDecoder` et du trait `UpgradeFilter` |
+| 2 | CRD `exec` (CEL `kind: Pod`) + `restricts_exec` + `exec_rules()` + `parse_exec_query` + `check` avant connexion (commandes, conteneurs, flux, attach) + `nodes/proxy` sous `restricts_exec` + avertissements + `ExecChannelFilter` (canaux interdits, refus des protocoles non binaires) + table de référence Go + cibles de fuzz |
+| 3 | Docs (`security.mdx` garanti/non garanti, portée d'une règle `Path`, attach, recettes `kubectl cp`, Kyverno), CHANGELOG (argv dans l'audit, `feat!:`, annonce de la bascule v1.0.0) |
 
 Le filtre de canaux est dans la même phase que la politique : le champ `stdin:
 false` ne doit pas exister dans une version où seule la query est vérifiée. Un

@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Draft                                                                  |
+| Status      | In review                                                                  |
 | Short       | actix-web vers axum                                                    |
 | Settles     | Le serveur (API, OAuth, proxy, upgrades) passe d'actix-web 4 à axum 0.8 sur hyper 1, à comportement constant, et le tunnel d'upgrade utilise `hyper::upgrade` au lieu de HTTP écrit à la main |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -10,8 +10,9 @@
 | Created     | 2026-10-17                                                             |
 | Supersedes  | —                                                                      |
 | Issue       | — (à créer)                                                            |
+| Depends on  | RFC 0003 et RFC 0006 livrées (leurs comportements entrent dans le contrat `http_contract.rs`) |
 | Blocks      | RFC 0004 (le contrôle de flux s'écrit sur le tunnel hyper)             |
-| Touches     | `apps/server`, `libs/server/api/**` (57 fichiers), `libs/server/api/tests/**` (23 fichiers, 110 tests), `Cargo.toml`, `apps/server/Cargo.toml`, `libs/server/api/Cargo.toml`, docs développeur |
+| Touches     | `apps/server`, `libs/server/api/**` (57 fichiers), `libs/server/api/tests/**` (23 fichiers, 114 tests au 2026-10-17), `Cargo.toml`, `apps/server/Cargo.toml`, `libs/server/api/Cargo.toml`, docs développeur |
 | Risk        | high                                                                   |
 
 ---
@@ -41,7 +42,7 @@ middlewares : wrap_fn request-id, TracingLogger (tracing-actix-web),
 OpenAPI     : utoipa-actix-web + utoipa-scalar (feature actix-web)
 upgrade     : TcpStream + TLS + requête écrite à la main + 101 relu à la main + mpsc
 proxy std   : Payload -> mpsc -> reqwest::Body ; réponse re-parsée en types actix
-tests       : 110 #[actix_web::test], init_service ; proxy_upgrade = vrai HttpServer
+tests       : 114 #[actix_web::test], init_service ; proxy_upgrade = vrai HttpServer
 
 # avec cette RFC
 axum::Router + axum-server (tls-rustls)        comme weebo-kit-runtime
@@ -104,7 +105,7 @@ brute, qui est la partie la plus exposée au smuggling.
   métriques.
 - Le tunnel d'upgrade utilise `hyper::upgrade` des deux côtés ; plus de
   sérialisation HTTP à la main.
-- Les 110 tests existants sont portés et passent, plus une suite de
+- Les tests existants (114 au 2026-10-17) sont portés et passent, plus une suite de
   non-régression HTTP indépendante du framework écrite **avant** la
   migration.
 
@@ -142,8 +143,30 @@ gardent leur sens.
   | `actix-cors` (:82-92) | `tower_http::cors::CorsLayer`, mêmes origines, `max_age` 3600 |
 
 - **Routes** : `/{ns}/{cluster}/{path:.*}` devient `/{ns}/{cluster}/{*path}`.
-  Le chemin capturé doit être le **même texte brut** qu'aujourd'hui (pas de
-  décodage supplémentaire), parce que les matchers décodent une fois eux-mêmes.
+  Le chemin transmis aux matchers doit être le **même texte brut**
+  qu'aujourd'hui, parce que les matchers décodent une fois eux-mêmes
+  (`percent_decode_once`). L'extracteur `Path` d'axum **percent-décode** : il
+  n'est donc **jamais** utilisé pour `{*path}`. Le proxy lit `OriginalUri`
+  (`req.uri().path()`) et retire lui-même le préfixe `/clusters/{ns}/{cluster}`.
+  `%2F`, `%252e` et `..` arrivent aux matchers avec le texte d'aujourd'hui
+  (contrat, T3).
+- **CORS `SameOriginOnly`** : `CorsLayer` n'a pas ce mode ; il devient un
+  `AllowOrigin::predicate` qui porte la logique actuelle (`main.rs:82-92`)
+  telle quelle, y compris le traitement de `X-Forwarded-Host` et du schéma.
+  Les trois modes (`SameOriginOnly`, `Any`, `List`) sont couverts par le
+  contrat, en preflight et en requête simple.
+- **ALPN entrant** : `h2` et `http/1.1` restent annoncés, comme
+  `bind_rustls_0_23` aujourd'hui ; axum-server garde le serveur auto de
+  hyper-util (h1 et h2). Une requête normale de kubectl passe en h2, un
+  upgrade en http/1.1 (contrat, T7).
+- **Limites HTTP** : le code ne configure aucune limite (ni `PayloadConfig`, ni
+  `JsonConfig`, ni en-têtes) ; ce sont les défauts d'actix qui s'appliquent, et
+  ils diffèrent de ceux d'hyper et d'axum (96 en-têtes pour actix-http, 100
+  pour hyper ; `DefaultBodyLimit` 2 MiB). Le contrat **mesure et fige** les
+  limites réelles d'actix (nombre d'en-têtes, taille d'un en-tête, ligne de
+  requête, corps JSON et formulaire) ; hyper et axum sont réglés dessus. Un
+  écart impossible à combler est écrit ici et dans le CHANGELOG, pas présenté
+  comme iso.
 - **Extracteurs** : `PeerAddr` et `req.peer_addr()` deviennent
   `ConnectInfo<SocketAddr>` ; `web::Data<State>` devient `State<AppState>` ;
   `impl FromRequest for User` (`model/user.rs:130`) devient `FromRequestParts`.
@@ -157,7 +180,7 @@ gardent leur sens.
 
 | Condition | Rationale |
 | --- | --- |
-| `swagger.json` généré diffère | la règle Weebo veut l'OpenAPI comme contrat ; tout écart est un bug |
+| `swagger.json` généré diffère | la règle Weebo veut l'OpenAPI comme contrat, et le front génère son client HeyApi depuis ce fichier ; **diff strictement vide**, chaque écart (`{path}` contre `{path:.*}`, `operationId`, ordre) est corrigé par un `#[utoipa::path(path = …, operation_id = …)]` explicite, jamais accepté comme cosmétique |
 | la suite de non-régression HTTP (§6.1) diffère | iso-fonctionnel |
 | un test existant est supprimé au lieu d'être porté | la couverture ne doit pas baisser pendant la migration |
 
@@ -201,17 +224,30 @@ upgradé, aucune donnée de session n'atteint l'apiserver sans passer par lui.
 
 ### 6.1 Avant de migrer : figer le comportement
 
-- Nouvelle suite `libs/server/api/tests/http_contract.rs` qui lance le
-  **vrai binaire serveur** sur un port éphémère (comme `proxy_upgrade.rs`) et
-  ne parle qu'en HTTP (reqwest, client websocket) : statuts, en-têtes, corps
-  pour chaque route, CORS (preflight et origines), compression, `x-request-id`,
-  `traceparent`, métriques `/management/metrics`, refus d'upgrade.
+- Nouveau point d'entrée `pub async fn serve(listener: TcpListener, state:
+  AppState)`, à signature indépendante du framework : écrit sur actix en
+  phase 1, réécrit sur axum ensuite, appelé par `main.rs` et par les tests.
+- Nouvelle suite `libs/server/api/tests/http_contract.rs` qui démarre le
+  serveur **en processus** via `serve` sur un port éphémère et ne parle qu'en
+  HTTP (reqwest, client websocket). Lancer le binaire imposerait Redis, OIDC et
+  l'environnement complet, pour rien. Elle couvre :
+  - statuts, en-têtes et corps pour chaque route ; CORS (trois modes,
+    preflight et simple) ; compression ; `x-request-id` ; `traceparent` ;
+    métriques `/management/metrics` ;
+  - ALPN négocié (h2 pour une requête normale, http/1.1 pour un upgrade) ;
+  - les limites HTTP mesurées (§4.2) ;
+  - le texte brut du chemin transmis aux matchers (`%2F`, `%252e`, `..`) ;
+  - ce que les RFC 0003 et 0006, livrées avant, ont apporté : messages exacts
+    des 403 (ports, verbes, `nodes/proxy`), raison du refus renvoyée au repli
+    SPDY, en-têtes retirés (`impersonate-*`, `x-http-method-override`),
+    compteur `proxyauth_policy_decisions_total`.
 - Elle passe sur actix **avant** toute migration ; elle est la preuve de §6.P.
 
 ### 6.2 Serveur
 
-- `apps/server/src/main.rs` : `axum::Router`, état partagé, couches tower,
-  `axum_server::bind_rustls` (même `rustls::ServerConfig` que
+- `apps/server/src/main.rs` : appelle `serve` ; `axum::Router`, état partagé,
+  couches tower, `axum_server::bind_rustls` (feature
+  `tls-rustls-no-provider`, même `rustls::ServerConfig` que
   `server_config.rs:42-61`) ou `axum::serve` sans TLS. Arrêt gracieux avec le
   même délai (`main.rs:132`) via `axum_server::Handle`.
 - Le `tokio::select!` avec le contrôleur (`main.rs:149-158`) reste.
@@ -230,13 +266,18 @@ upgradé, aucune donnée de session n'atteint l'apiserver sans passer par lui.
 
 ### 6.4 Upgrade
 
-- `upgrade/connect.rs` et `upgrade/response.rs` sont remplacés par un client
-  hyper (`hyper_util::client::legacy` ou `hyper::client::conn::http1` sur la
-  connexion TLS existante de `tls.rs`) ; `serialize_upgrade_request` disparaît.
+- `upgrade/connect.rs` et `upgrade/response.rs` sont remplacés par
+  `hyper::client::conn::http1` sur la connexion TLS existante de `tls.rs` (pas
+  de pool : une session exec ou port-forward occupe sa connexion des heures ;
+  le certificat client sortant reste où il est) ; `serialize_upgrade_request`
+  disparaît. Les en-têtes retirés restent décidés par `is_proxy_owned_header`
+  et `is_upstream_auth_header` (`forwarded.rs`), déjà indépendants du
+  framework.
 - `upgrade/tunnel.rs` : `hyper::upgrade::on` des deux côtés, puis
   `tokio::io::copy_bidirectional` avec un `AsyncRead` enveloppé par le filtre
   (`PortForwardFilter`, puis `ExecChannelFilter` de la RFC 0004).
-- SPDY : toujours refusé, mais **après** les politiques (RFC 0004 Q15).
+- SPDY : toujours refusé, **après** les politiques. Cet ordre est déjà livré
+  par la RFC 0003 (R13) ; la migration le conserve (contrat).
 
 ### 6.5 Tests
 
@@ -297,10 +338,11 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | T1 | Tampering : smuggling vers l'apiserver sur le chemin d'upgrade | handshake upstream | hyper sérialise la requête ; refus de corps conservé ; §6.P point 5 | faible (bibliothèque) |
 | T2 | Elevation : un middleware de sécurité oublié (CORS, throttle) | `Router` | suite `http_contract.rs` écrite avant ; CORS testé (point 7) | faible |
-| T3 | Elevation : chemin capturé décodé différemment (`{*path}`) | routage | test : le chemin brut transmis aux matchers est identique (encodages, `%2F`, `..`) | faible |
+| T3 | Elevation : chemin capturé décodé différemment (`{*path}`) | routage | jamais d'extracteur `Path` pour `{*path}`, lecture de `OriginalUri` ; contrat : le chemin brut transmis aux matchers est identique (`%2F`, `%252e`, `..`) | faible |
 | T4 | Info disclosure : en-têtes hop-by-hop ou d'authentification relayés | proxy standard et upgrade | filtrage existant (`forwarded.rs`) porté tel quel, testé | aucun |
-| T5 | DoS : limites de taille (en-têtes, corps) différentes | hyper / axum | `DefaultBodyLimit` et limites d'en-têtes hyper réglées sur les valeurs actix actuelles, testées | faible |
+| T5 | DoS : limites de taille (en-têtes, corps) différentes | hyper / axum | limites actix réelles mesurées par le contrat ; hyper et axum réglés dessus ; écart documenté | faible |
 | T6 | Spoofing : IP client mal lue (throttle, `X-Forwarded-For`) | `ConnectInfo` | `forwarded::throttle_client_ip` porté, test sur `ConnectInfo` | aucun |
+| T7 | Tampering : ALPN différent (h2 retiré, ou upgrade accepté en h2) qui change le comportement de kubectl | TLS serveur | serveur auto hyper-util, ALPN figé par le contrat | aucun |
 
 ### 7.2 Authentication and authorisation
 
@@ -364,7 +406,9 @@ champ n'est collecté.
 
 ### 10.1 Observability
 
-- **Metrics** : mêmes noms et mêmes labels (`http.route` via `MatchedPath`).
+- **Metrics** : mêmes noms et mêmes labels (`http.route` via `MatchedPath`),
+  y compris le compteur `proxyauth_policy_decisions_total` des RFC 0003, 0004
+  et 0006.
 - **Logs and audit trail** : mêmes événements ; le span racine lit toujours
   `traceparent`.
 - **Alerts** : aucune nouvelle.
@@ -413,8 +457,10 @@ Performances équivalentes attendues ; le tunnel perd un saut `mpsc` et deux
 - **Migration** : aucune pour les opérateurs ni les clients.
 - **Operator prerequisites** : aucun.
 - **Rollback** : image précédente.
-- **Feature flag** : non. Une seule release porte la migration, après une
-  période de test sur k3d et sur un cluster de recette.
+- **Feature flag** : non. Une seule release, **après la 0.2.0** (RFC 0001 et
+  0002), porte la migration.
+- **Critère de livraison** : le §6.P passe entièrement sur le cluster de
+  recette, **puis** 7 jours sans hausse des 4xx/5xx ni des erreurs de tunnel.
 
 ---
 
@@ -424,7 +470,7 @@ Performances équivalentes attendues ; le tunnel perd un saut `mpsc` et deux
   migration, inchangé après.
 - **Unit et intégration** : les 110 tests portés ; aucun supprimé.
 - **Proof** : §6.P.
-- **Security** : un test négatif par ligne T1 à T6.
+- **Security** : un test négatif par ligne T1 à T7.
 - **Audit** : `task audit` vert, `cargo machete` sans dépendance actix
   restante.
 - **OpenAPI** : diff vide de `swagger.json`.
@@ -438,25 +484,24 @@ Performances équivalentes attendues ; le tunnel perd un saut `mpsc` et deux
 | # | Question | Decision |
 | --- | --- | --- |
 | 0 | Migrer, et vers quoi ? | **axum sur hyper 1**, avant la RFC 0004 (grill de la RFC 0004, Q12). |
-| 1 | SPDY | **Toujours refusé**, après les politiques. |
+| 1 | SPDY | **Toujours refusé**, après les politiques (ordre livré par la RFC 0003, R13). |
+| 2 | Client hyper pour l'upgrade | **`hyper::client::conn::http1`** sur la connexion TLS de `tls.rs` ; pas de pool. |
+| 3 | TLS serveur | **`axum-server`** (`tls-rustls-no-provider`), comme le kit ; arrêt via `Handle`. |
+| 4 | Ordre avec la RFC 0006 | **0006 avant** (RFC 0006, décision 9) : 0003, 0006, 0007, 0004. |
+| 5 | Découpage des PRs | **Phase 1 seule sur `main`** ; phases 2 à 6 dans **une seule PR, un commit par phase**, CI verte sur le dernier commit (les états intermédiaires ne compilent pas). |
+| 6 | Période de recette | **§6.P complet sur la recette, puis 7 jours** sans hausse des 4xx/5xx ni des erreurs de tunnel. |
+| 7 | Release | **Après la 0.2.0**. |
+| 8 | Forme du contrat | **En processus**, via `serve(listener, state)` indépendant du framework ; pas de lancement du binaire. |
+| 9 | Périmètre du contrat | Inclut les apports des RFC 0003 et 0006 (403, repli SPDY, en-têtes retirés, compteur). |
+| 10 | Limites HTTP | **Mesurées et figées** par le contrat sur actix, reproduites sous hyper/axum ; écart documenté. |
+| 11 | ALPN | **`h2` et `http/1.1` figés** par le contrat (T7). |
+| 12 | `{*path}` | **Lu dans l'URI brute**, jamais via `Path` (qui percent-décode). |
+| 13 | CORS `SameOriginOnly` | **`AllowOrigin::predicate`** avec la logique actuelle ; trois modes testés. |
+| 14 | `swagger.json` | **Diff strictement vide** ; `path`/`operation_id` explicites au besoin. |
 
 ### Still open
 
-1. **Client hyper pour l'upgrade** : `hyper_util::client::legacy` (pool,
-   plus simple) ou `hyper::client::conn::http1` sur la connexion TLS de
-   `tls.rs` (contrôle fin, pas de pool pour des sessions longues) ?
-   Recommandation : `conn::http1`.
-2. **TLS serveur** : `axum-server` (comme le kit) ou accepteur
-   `tokio-rustls` maison ? Recommandation : `axum-server`.
-3. **Ordre avec la RFC 0006** : 0006 avant (indépendante du framework, ferme
-   T7 plus tôt) ou après ? Recommandation : avant.
-4. **Découpage des PRs** : une PR par couche (contrat, serveur et
-   middlewares, proxy standard, upgrade, tests) sur une branche d'intégration,
-   ou une seule PR ? Le binaire ne peut pas mélanger les deux frameworks.
-5. **Période de recette** : combien de temps sur un cluster de recette avant
-   la release ?
-6. **Release** : dans la 0.2.0 (avec les RFC 0001 et 0002) ou dans la
-   suivante ? Recommandation : la suivante, pour ne pas cumuler deux refontes.
+Aucune.
 
 ---
 
@@ -464,12 +509,13 @@ Performances équivalentes attendues ; le tunnel perd un saut `mpsc` et deux
 
 | Phase | Content |
 | --- | --- |
-| 1 | `http_contract.rs` sur actix (aucun changement de code serveur) |
+| 1 | `serve(listener, state)` extrait sur actix, puis `http_contract.rs` (aucun changement de comportement) |
 | 2 | Helpers de test et extracteurs portés ; `Send` corrigé là où il manque |
 | 3 | Serveur, middlewares tower, OpenAPI (`swagger.json` identique) |
 | 4 | Proxy standard et watch |
 | 5 | Upgrade sur `hyper::upgrade`, suppression de `connect.rs` et `response.rs` |
 | 6 | Retrait d'actix, `cargo machete`, docs |
 
-Les phases 2 à 6 vivent sur une branche d'intégration : le binaire ne peut pas
-servir les deux frameworks à la fois. La phase 1 est mergée seule sur `main`.
+La phase 1 est mergée seule sur `main`. Les phases 2 à 6 forment une seule PR,
+un commit par phase pour la relecture : le binaire ne peut pas servir les deux
+frameworks à la fois, donc les états intermédiaires ne compilent pas.
