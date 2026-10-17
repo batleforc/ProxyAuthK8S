@@ -4,6 +4,8 @@
 /.talos
 /.tasks
 /.tls
+# The integration bench (RFC 0009): its run directory holds the test CA key.
+/.it
 dist
 node_modules
 **/node_modules

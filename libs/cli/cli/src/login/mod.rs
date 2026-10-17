@@ -814,7 +814,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut ctx = CliCtx::for_test_in(dir.path());
         ctx.server_url = tagged_url(&server, "write-failure");
-        ctx.config_path = dir.path().join("missing/config.yaml");
+        ctx.config_path = crate::helper::unwritable_path(dir.path(), "config.yaml");
 
         assert!(matches!(
             ctx.handle_login_servers(Some("srv-tok".to_string()), None)
@@ -1001,7 +1001,7 @@ mod tests {
             "store-example".to_string(),
             "https://store.example".to_string(),
         );
-        ctx.kubeconfig_path = dir.path().join("missing/kubeconfig");
+        ctx.kubeconfig_path = crate::helper::unwritable_path(dir.path(), "kubeconfig");
         assert!(matches!(
             ctx.store_cluster_login("store-example", "ns", "c", "t".to_string()),
             Err(ProxyAuthK8sError::KubeconfigReadError(_))
@@ -1009,7 +1009,7 @@ mod tests {
         // The token and config were persisted before the kubeconfig step.
         assert!(ctx.config_path.exists());
 
-        ctx.config_path = dir.path().join("missing/config.yaml");
+        ctx.config_path = crate::helper::unwritable_path(dir.path(), "config.yaml");
         assert!(matches!(
             ctx.store_cluster_login("store-example", "ns", "c", "t".to_string()),
             Err(ProxyAuthK8sError::KubeconfigWriteError(_))

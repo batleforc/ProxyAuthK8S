@@ -96,6 +96,11 @@ async fn existing_auth_login_callback_flow_succeeds_with_a_real_signed_id_token(
         .to_request();
     let login_resp = test::call_service(&app, login_req).await;
     assert_eq!(login_resp.status(), StatusCode::OK);
+    // The CLI's generated client refuses a body it cannot read as text.
+    assert_eq!(
+        login_resp.headers().get("content-type").unwrap(),
+        "text/plain; charset=utf-8"
+    );
     let auth_url_raw = String::from_utf8(test::read_body(login_resp).await.to_vec())
         .expect("auth_url body should be UTF-8");
     let auth_url = Url::parse(&auth_url_raw).expect("auth_url should be a valid URL");

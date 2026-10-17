@@ -17,6 +17,7 @@ members = [
   'libs/cli/cli_trace',
   'libs/cli/client_api',
   'libs/cli/cli',
+  'tests/integration',
 ]
 
 [workspace.dependencies]

@@ -103,6 +103,58 @@ pub(crate) async fn throttle_oauth_as(
     None
 }
 
+/// Where the provider must send the user back, from the `x-front-callback`
+/// and `x-kubectl-callback` headers: `(front, Some(kubectl loopback URL))`.
+///
+/// An empty value counts as absent: the generated clients send every declared
+/// header, empty when unset, so the kubectl plugin's request carried an empty
+/// `x-front-callback` and was redirected to the dashboard instead of its
+/// loopback listener.
+pub(crate) fn callback_target(req: &HttpRequest) -> (bool, Option<String>) {
+    let value = |name: &str| {
+        req.headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_string)
+    };
+    (
+        value("x-front-callback").is_some(),
+        value("x-kubectl-callback"),
+    )
+}
+
+#[cfg(test)]
+mod callback_target_tests {
+    use actix_web::test::TestRequest;
+
+    use super::callback_target;
+
+    #[test]
+    fn empty_headers_count_as_absent() {
+        let req = TestRequest::default()
+            .insert_header(("x-front-callback", ""))
+            .insert_header(("x-kubectl-callback", "http://localhost:18000/"))
+            .to_http_request();
+        assert_eq!(
+            callback_target(&req),
+            (false, Some("http://localhost:18000/".to_string()))
+        );
+
+        let req = TestRequest::default()
+            .insert_header(("x-front-callback", "true"))
+            .insert_header(("x-kubectl-callback", ""))
+            .to_http_request();
+        assert_eq!(callback_target(&req), (true, None));
+
+        assert_eq!(
+            callback_target(&TestRequest::default().to_http_request()),
+            (false, None)
+        );
+    }
+}
+
 #[cfg(test)]
 mod discovery_gate_tests {
     use actix_web::http::StatusCode;

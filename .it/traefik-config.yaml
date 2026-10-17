@@ -1,0 +1,16 @@
+# Traefik of the bench (k3s' bundled chart), mounted by .it/k3d.yaml.tpl.
+# websecure on 8443 inside the cluster too, so every URL carries the port the
+# host publishes; a pinned ClusterIP so hostAliases can name it beforehand.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    ports:
+      websecure:
+        exposedPort: 8443
+    service:
+      spec:
+        clusterIP: 10.43.0.200

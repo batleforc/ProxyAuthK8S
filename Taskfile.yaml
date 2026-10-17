@@ -19,6 +19,7 @@ includes:
   front: .tasks/front.yaml
   docs: .tasks/docs.yaml
   ui: .tasks/ui.yaml
+  it: .tasks/integration.yaml
   # weebo-operator-kit's shared tasks, pinned to a kit release and to their
   # sha256 (Task refuses a file whose hash differs). `task --offline` runs
   # from Task's cache. RFC 0005.
@@ -142,6 +143,7 @@ tasks:
       - lint:helm
       - js:lint
       - fuzz:check
+      - it:matrix
 
   cli:
     desc: "Run kubectl_proxyauth with args"

@@ -120,11 +120,7 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Res
             return HttpResponse::Unauthorized().finish();
         }
     };
-    let redirect_front = req.headers().contains_key("x-front-callback");
-    let redirect_kubectl = req
-        .headers()
-        .get("x-kubectl-callback")
-        .map(|v| v.to_str().unwrap_or_default().to_string());
+    let (redirect_front, redirect_kubectl) = super::callback_target(&req);
     let oidc_conf = match proxy
         .get_oidc_conf(data.clone().into_inner(), redirect_front, redirect_kubectl)
         .await
@@ -199,5 +195,9 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Res
         return HttpResponse::InternalServerError().finish();
     }
 
-    HttpResponse::Ok().body(auth_url.to_string())
+    // The documented `text/plain`: without it the generated clients fall back
+    // to `application/octet-stream` and refuse the body.
+    HttpResponse::Ok()
+        .content_type("text/plain; charset=utf-8")
+        .body(auth_url.to_string())
 }

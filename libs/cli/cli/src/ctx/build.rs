@@ -325,10 +325,10 @@ mod tests {
             Err(ProxyAuthK8sError::KubeconfigReadError(_))
         ));
 
-        // Kubeconfig that cannot be created (parent directory missing).
+        // Kubeconfig that cannot be created (its parent is a regular file).
         assert!(matches!(
             CliCtx::try_from(cli_with_paths(
-                dir.path().join("missing/kubeconfig"),
+                crate::helper::unwritable_path(dir.path(), "kubeconfig"),
                 dir.path().join("cfg2.yaml"),
             )),
             Err(ProxyAuthK8sError::KubeconfigWriteError(_))
@@ -338,7 +338,7 @@ mod tests {
         assert!(matches!(
             CliCtx::try_from(cli_with_paths(
                 kubeconfig,
-                dir.path().join("missing/cfg.yaml")
+                crate::helper::unwritable_path(dir.path(), "cfg.yaml")
             )),
             Err(ProxyAuthK8sError::KubeconfigWriteError(_))
         ));

@@ -86,12 +86,7 @@ pub async fn callback_login(
     if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
         return response;
     }
-    let redirect_front = req.headers().contains_key("x-front-callback");
-    let redirect_kubectl = req
-        .headers()
-        .get("x-kubectl-callback")
-        .and_then(|v| v.to_str().ok())
-        .map(std::string::ToString::to_string);
+    let (redirect_front, redirect_kubectl) = super::callback_target(&req);
     let oidc_conf = match proxy
         .get_oidc_conf(data.clone().into_inner(), redirect_front, redirect_kubectl)
         .await

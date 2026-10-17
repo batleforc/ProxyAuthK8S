@@ -18,8 +18,9 @@ rules:
       - list
       - watch
   # Permissions to reconcile ProxyKubeAPI custom resources. The controller only
-  # reads them and writes status/finalizers (via patch on the object); the CRs
-  # are authored by admins, so it needs neither `create` nor `delete`.
+  # reads them and writes finalizers (patch on the object) and status (the
+  # status subresource, a separate resource for RBAC); the CRs are authored by
+  # admins, so it needs neither `create` nor `delete`.
   - apiGroups:
       - "weebo.si.rs"
     resources:
@@ -28,6 +29,14 @@ rules:
       - get
       - list
       - watch
+      - update
+      - patch
+  - apiGroups:
+      - "weebo.si.rs"
+    resources:
+      - "proxykubeapis/status"
+    verbs:
+      - get
       - update
       - patch
 {{- if not .Values.rbac.referencedNamespaces }}

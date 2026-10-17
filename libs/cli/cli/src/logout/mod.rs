@@ -169,7 +169,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let mut ctx = ctx_logged_in(dir.path(), "https://logout-fail.example");
-        ctx.config_path = dir.path().join("missing/config.yaml");
+        ctx.config_path = crate::helper::unwritable_path(dir.path(), "config.yaml");
         assert!(matches!(
             ctx.handle_logout(None),
             Err(ProxyAuthK8sError::KubeconfigWriteError(_))
@@ -188,7 +188,7 @@ mod tests {
         let written = CliConfig::read_from_file(ctx.config_path.clone()).unwrap();
         assert!(written.servers.is_empty());
 
-        ctx.config_path = dir.path().join("missing/config.yaml");
+        ctx.config_path = crate::helper::unwritable_path(dir.path(), "config.yaml");
         assert!(matches!(
             ctx.handle_cache_clear(),
             Err(ProxyAuthK8sError::KubeconfigWriteError(_))

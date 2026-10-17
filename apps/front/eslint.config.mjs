@@ -35,6 +35,26 @@ export default [
     files: ['src/components/ui/**/*.vue'],
     rules: { 'vue/require-default-prop': 'off' },
   },
+  {
+    // The suite on the real stack (RFC 0009 §6.4) intercepts nothing: a
+    // mocked route there would prove the mock, not the product.
+    files: ['e2e-it/**/*.ts'],
+    rules: {
+      'no-restricted-properties': [
+        'error',
+        {
+          object: 'page',
+          property: 'route',
+          message: 'e2e-it runs on the real stack: no page.route.',
+        },
+        {
+          object: 'context',
+          property: 'route',
+          message: 'e2e-it runs on the real stack: no route.',
+        },
+      ],
+    },
+  },
   // Prettier owns the format (create-vue's shape).
   skipFormatting,
   ...oxlint.buildFromOxlintConfigFile(

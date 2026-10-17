@@ -27,9 +27,9 @@ ENV NGINX_ENVSUBST_FILTER=PROXYAUTHK8S_
 COPY ./deploy/build/front/nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=build /app/csp-theme-hash /etc/nginx/csp-theme-hash
 COPY --chmod=755 ./deploy/build/front/15-csp.envsh /docker-entrypoint.d/15-csp.envsh
-# Owned by the nginx user: env.sh rewrites the markers in place at startup
-# (*.js and *.css only, never index.html, so the theme hash stays valid).
-COPY --chown=101:101 --from=build /app/dist/apps/front .
+# env.sh copies it to /tmp/app at startup and fills the markers there (*.js
+# and *.css only, never index.html, so the theme hash stays valid).
+COPY --from=build /app/dist/apps/front .
 COPY --chmod=755 ./deploy/build/front/env.sh /docker-entrypoint.d/99-env.sh
 
 EXPOSE 4200

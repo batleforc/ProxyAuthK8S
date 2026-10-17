@@ -1,7 +1,7 @@
 ProxyAuthK8S {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
 
-Dashboard: {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}
-API reference: {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}/api/docs
+Dashboard: {{ include "proxyauthk8s.publicUrl" . }}
+API reference: {{ include "proxyauthk8s.publicUrl" . }}/api/docs
 {{- if eq .Values.oidc.source "env" }}
 
 WARNING: oidc.source=env puts the OIDC client secret in clear text in the

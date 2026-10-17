@@ -11,7 +11,8 @@
     "lint": "oxlint -c ../../.oxlintrc.json . && eslint . && prettier --check .",
     "format": "prettier --write .",
     "i18n:check": "node scripts/i18n-check.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:it": "playwright test -c playwright.it.config.ts"
   },
   "dependencies": {
     "@lucide/vue": "~1.58.0",

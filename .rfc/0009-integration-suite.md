@@ -12,7 +12,7 @@
 | Issue       | — (à créer)                                                            |
 | Depends on  | RFC 0001 (pnpm), 0002 (front et image nginx), 0005 phase 1 (`mise.toml`, workflows sur `task`) |
 | Blocks      | tag 0.2.0 ; les étapes 10, 11, 12b, 12c et 12 du PLAN livrent leurs lignes de matrice |
-| Touches     | `tests/integration/` (nouveau), `apps/front/e2e-it/` (nouveau), `.tasks/integration.yaml`, `.it/` (nouveau, versionné en partie), `Taskfile.yaml`, `Cargo.toml` (membre de workspace), `mise.toml`, `.github/workflows/integration.yaml`, `.gitignore`, `.gitleaks.toml`, `.docs/content/docs/developper-guide/`, `.rfc/PLAN.md` |
+| Touches     | `tests/integration/` (nouveau), `apps/front/e2e-it/` (nouveau), `.tasks/integration.yaml`, `.it/` (nouveau, versionné en partie), `Taskfile.yaml`, `Cargo.toml` (membre de workspace), `.config/nextest.toml` (nouveau), `mise.toml`, `deploy/chart` (`ingress.publicUrl`, `back.extraVolumes`, §17), `apps/front/eslint.config.mjs`, `.github/workflows/integration.yaml`, `.gitignore`, `.docs/content/docs/developper-guide/`, `.rfc/PLAN.md` |
 | Risk        | medium                                                                 |
 
 > Document de référence (environ 6 000 mots) : §1 à §4 suffisent pour en
@@ -191,7 +191,8 @@ tasks:
   cluster, `hostAliases` de k3d fait pointer les deux noms sur Traefik
   (le mécanisme existant de `.k3d/k3d.cluster.yaml.tpl`).
 - **Métriques** : lues par `services/proxy` de l'apiserver sur le service back
-  (`/metrics`), avec l'admin. Une assertion porte sur l'écart avant et après
+  (`/management/metrics`, `metrics.prometheus.enabled` dans les valeurs du
+  banc), avec l'admin. Une assertion porte sur l'écart avant et après
   l'action, jamais sur une valeur absolue.
 - **Audit (0008)** : lu dans `pods/log` du pod back, lignes JSON
   `audit_schema: 1` filtrées par le `x-request-id` que le test envoie.
@@ -419,9 +420,13 @@ depuis l'arbre, Chromium de Playwright et Dex, sur k3s 1.35.
    sort en `0`, `kubectl get pods -n it-smoke` renvoie le pod `web`, et le log
    de l'apiserver montre l'utilisateur `reader@it.local` (le jeton Dex a été
    validé par l'apiserver, pas seulement par le proxy).
-3. Refus : `nogroup` lance `kubectl get pods -n it-smoke` — kubectl sort en
-   `1` avec le message de refus du proxy, et `metric_delta` de
-   `proxyauth_policy_decisions_total{decision="deny"}` vaut `1`.
+3. Refus : `reader` lance `kubectl delete pod web -n it-smoke` — kubectl sort
+   en `1` avec le `Forbidden` du proxy (politique de verbes), le pod existe
+   toujours, et `metric_delta` de
+   `proxyauth_policy_decisions_total{policy="verb",decision="denied"}` vaut
+   `1`. `nogroup` ne peut pas se connecter au cluster (`proxy_group`) : le
+   proxy répond 404 au login, la CLI sort en erreur. Le refus par groupe ne
+   passe pas par ce compteur (§17).
 4. Refus non contournable par le banc : un test qui appellerait l'apiserver
    en direct avec le jeton de `nogroup` est **refusé par la revue**, pas par
    le code ; `it:matrix` vérifie seulement l'absence de dépendance de chemin
@@ -719,3 +724,88 @@ Aucune.
 | 3 | Tests des RFC déjà codées : 0002 (UI, CSP de l'image), 0003, 0006, 0007 phase 1 ; lignes 0001 et 0005 en hors suite |
 | 4 | Plus aucune ligne `à écrire` pour ce qui est codé ; check requis après trois passages verts ; page de doc |
 | — | Ensuite, hors de cette RFC : 0008, 0007 phases 2 à 6 et 0004 livrent leurs lignes avec leur code ; le statut `à écrire` est refusé par `it:matrix` à partir de la phase 4 |
+
+---
+
+## 17. Implementation notes
+
+Phases 1 et 2, 2026-10-17.
+
+- **Un seul port, 8443, partout.** podman rootless ne publie pas 443
+  (`ip_unprivileged_port_start = 1024`). Plutôt que deux URL (443 dans le
+  cluster, 8443 sur l'hôte) pour un émetteur OIDC qui doit être identique au
+  caractère près, Traefik expose `websecure` sur 8443 dans le cluster aussi
+  (`HelmChartConfig` de `.it/k3d.yaml.tpl`), et l'émetteur Dex est
+  `https://dex.k8s.localhost:8443`.
+- **ClusterIP de Traefik épinglé** (`10.43.0.200`). Les `hostAliases` de k3d
+  écrivent la même IP dans `/etc/hosts` du nœud (l'apiserver valide les jetons
+  Dex) et dans les `NodeHosts` de CoreDNS (le back appelle Dex) ; une IP
+  connue avant la création du cluster évite tout correctif après coup.
+- **Deux ajouts au chart**, utiles hors du banc : `ingress.publicUrl` (l'URL
+  publique quand elle n'est pas `<schéma>://<host>`, ici à cause du port) et
+  `back.extraVolumes` / `back.extraVolumeMounts` (la CA d'un IdP interne, montée
+  et désignée par `SSL_CERT_FILE` : le client HTTP par défaut du back ne fait
+  confiance qu'au magasin système). Le §6.P « Deliberately untouched » ne
+  citait pas le chart ; il ne change pas de comportement sans ces valeurs.
+- **Point 3 réécrit.** Le refus par `proxy_group` n'incrémente pas
+  `proxyauth_policy_decisions_total` (seules les politiques de port et de
+  verbe le font), et le label vaut `denied`, pas `deny`. Le point prouve donc
+  le compteur sur un refus de verbe, et le refus par groupe au login.
+- **Jeton du tableau de bord** : la suite l'obtient de Dex par le grant
+  `password` (`passwordConnector: local`, banc seulement), comme le jeton
+  qu'un humain copie depuis le tableau de bord. La connexion au cluster, elle,
+  passe par le vrai flux d'autorisation (§5.2).
+- **Noms résolus par le système** pour la CLI et kubectl : `*.localhost`
+  pointe sur la boucle locale (RFC 6761, nss-myhostname / systemd-resolved),
+  donc ni `tls-server-name` ni réécriture du kubeconfig ne sont nécessaires.
+- **`it:matrix` lit les sources** (`fn pN_…` des fichiers de
+  `tests/integration/tests`, titres `test('…')` de `e2e-it`) au lieu de
+  `cargo nextest list` et `playwright --list` : il tourne dans `task lint` sans
+  compiler ni banc. Les points 5 et 6 sont prouvés par `--self-test`.
+- **`task test` ne lance pas la suite** : `default-filter` du profil nextest
+  `default` n'en garde que les tests unitaires ; le profil `it` la lance seule.
+- **podman rootless** exige la délégation du contrôleur `cpuset` (comme la RFC
+  0006 §17) ; `it:up` le vérifie et affiche la configuration systemd à poser.
+  La CI (Docker) n'est pas concernée.
+- **Le banc a tourné pour la première fois le 2026-10-17** (podman rootless,
+  `cpuset` délégué) : points 1, 2, 3 et 7 verts. Il a trouvé, avant tout test
+  de RFC, six défauts du produit ou de son outillage, corrigés dans la même
+  PR :
+  1. l'image back ne se construisait plus : le `[[test]] http_contract` de
+     `libs/server/api/Cargo.toml` (étape 6) manquait à l'étage de cache du
+     `Containerfile` ;
+  2. le front plantait en boucle sous le chart : `readOnlyRootFilesystem`
+     interdisait à l'entrypoint nginx d'écrire `conf.d` et à `env.sh` de
+     réécrire `/app` (RFC 0002). `conf.d` a un `emptyDir`, et `env.sh` remplit
+     une copie dans `/tmp/app`, servie par nginx ;
+  3. le rôle de l'opérateur n'avait pas `proxykubeapis/status` : aucun statut
+     n'était jamais écrit hors du kubeconfig admin du développement ;
+  4. `kubectl proxyauth login` échouait sur un compte sans `~/.kube`
+     (`secure_write` crée maintenant le dossier parent, en `0700`) ;
+  5. `/auth/login` répondait sans `Content-Type` : le client généré de la CLI
+     refusait le corps (`application/octet-stream`) ; il envoie maintenant le
+     `text/plain` documenté ;
+  6. le client généré envoie tous les en-têtes déclarés, vides s'ils ne sont
+     pas fixés : l'`x-front-callback` vide de la CLI faisait rediriger son
+     login vers le tableau de bord au lieu de son listener local. Un en-tête
+     vide compte désormais comme absent (`callback_target`).
+- **`kube_login` est un client public dans Dex**, sans `client_secret` dans la
+  `ProxyKubeApi` (PKCE seul) : la redirection de la CLI est
+  `http://localhost:<port>/auth/callback/<ns>/<cluster>`, une par namespace de
+  test, et Dex compare exactement celles d'un client confidentiel. Un
+  opérateur qui garde un client confidentiel doit donc enregistrer une URL par
+  cluster et par port (constat, hors de cette RFC).
+- **Rotation des clés de l'IdP** : le JWKS vient du document de découverte,
+  gardé 5 minutes (`DISCOVERY_TTL`). Après un redémarrage de Dex (stockage en
+  mémoire) ou une rotation (6 h par défaut chez Dex), la vérification de
+  l'ID token échoue jusqu'à l'expiration du cache. Le banc redémarre le back
+  après Dex ; pour le produit, relire le JWKS sur un `kid` inconnu est une
+  évolution à part (constat, non corrigé ici).
+- **Import des images** : sous podman, `k3d image import` échoue sur son
+  propre `docker save` ; `it:up` passe par une archive (`podman save -m`).
+  Le `HelmChartConfig` de Traefik est monté en bind mount
+  (`.it/traefik-config.yaml`) : le répertoire de données de k3s est un volume
+  qui masque un fichier écrit par `files:` de k3d.
+- **Pas encore fait** : mesure des durées en CI (§10.3), issue `it-nightly` en
+  cas d'échec de nuit, exigence d'un passage vert dans `release-prepare.yml`,
+  phases 3 et 4.

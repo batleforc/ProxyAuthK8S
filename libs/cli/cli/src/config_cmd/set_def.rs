@@ -167,7 +167,7 @@ mod tests {
     fn set_def_reports_a_config_write_failure() {
         let dir = tempfile::tempdir().unwrap();
         let mut ctx = ctx_with_two_servers(dir.path());
-        ctx.config_path = dir.path().join("missing/config.yaml");
+        ctx.config_path = crate::helper::unwritable_path(dir.path(), "config.yaml");
 
         assert!(matches!(
             ctx.handle_set_def(None, None, Some(&URL_B.to_string())),

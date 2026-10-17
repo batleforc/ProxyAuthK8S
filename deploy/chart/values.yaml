@@ -56,6 +56,9 @@ ingress:
   className: ""
   annotations: {}
   host: proxyauthk8s.local
+  # Base URL clients use, when it is not https://<host> (non-default port,
+  # another proxy in front). Empty: derived from tls.enabled and host.
+  publicUrl: ""
   tls:
     enabled: true
     secretName: proxyauthk8s-tls
@@ -98,6 +101,10 @@ back:
       # cluster that installs it. Set this, or switch source to "secret".
       url: ""
   env: []
+  # Extra volumes and mounts for the back container, e.g. a CA bundle for an
+  # internal IdP (mount it and point SSL_CERT_FILE at it through back.env).
+  extraVolumes: []
+  extraVolumeMounts: []
   resources:
     limits:
       # A streaming reverse proxy (watch, exec, logs -f, TLS both ways): 100m

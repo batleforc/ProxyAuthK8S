@@ -45,3 +45,12 @@ credential, and silently starting with no Redis is worse than not installing.
 {{- required "back.redis.value.url is required when back.redis.source is \"env\". Set it, or switch to back.redis.source=\"secret\" and provide back.redis.secretName." .Values.back.redis.value.url -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The public base URL of the dashboard and API: ingress.publicUrl, else the
+scheme and ingress.host. Set publicUrl when clients reach the ingress on a
+non-default port or through another proxy.
+*/}}
+{{- define "proxyauthk8s.publicUrl" -}}
+{{- .Values.ingress.publicUrl | default (printf "%s://%s" (ternary "https" "http" .Values.ingress.tls.enabled) .Values.ingress.host) | trimSuffix "/" -}}
+{{- end -}}

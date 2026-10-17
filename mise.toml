@@ -3,6 +3,8 @@ bun = "latest"
 helm = "latest"
 java = "temurin"
 k3d = "latest"
+# Same minor as the k3s of .it/images.lock: the client of the RFC 0009 suite.
+kubectl = "1.35"
 "aqua:kubernetes-sigs/krew" = "latest"
 mkcert = "latest"
 node = "lts"

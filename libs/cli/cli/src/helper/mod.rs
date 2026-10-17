@@ -9,6 +9,10 @@ use std::path::Path;
 /// otherwise typically yield `0644`). On non-Unix platforms this falls back to a
 /// plain write.
 pub fn secure_write<P: AsRef<Path>>(path: P, contents: &str) -> io::Result<()> {
+    // A first login on a fresh account has no `~/.kube` yet.
+    if let Some(parent) = path.as_ref().parent().filter(|p| !p.as_os_str().is_empty()) {
+        create_private_dir(parent)?;
+    }
     #[cfg(unix)]
     {
         use std::io::Write;
@@ -29,6 +33,28 @@ pub fn secure_write<P: AsRef<Path>>(path: P, contents: &str) -> io::Result<()> {
     {
         std::fs::write(path, contents)
     }
+}
+
+/// `create_dir_all`, with the directories it creates owner-only (`0700`) on
+/// Unix; existing ones are left as they are.
+fn create_private_dir(dir: &Path) -> io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(dir)
+}
+
+/// A path no file can be written to, for the tests of write failures: its
+/// parent is a regular file, which no directory can be created under.
+#[cfg(test)]
+pub(crate) fn unwritable_path(dir: &Path, name: &str) -> std::path::PathBuf {
+    let blocker = dir.join("not-a-directory");
+    std::fs::write(&blocker, "").expect("the scratch file is writable");
+    blocker.join(name)
 }
 
 #[cfg(test)]
@@ -104,6 +130,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn creates_the_missing_parent_directories() {
+        let dir = TempDir::new();
+        let path = dir.join(".kube/nested/config");
+
+        secure_write(&path, "apiVersion: v1\n").expect("the write succeeds");
+
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("the file is readable"),
+            "apiVersion: v1\n"
+        );
+        #[cfg(unix)]
+        assert_eq!(mode_of(&dir.join(".kube")), 0o700);
+    }
+
     #[cfg(unix)]
     #[test]
     fn creates_the_file_owner_readable_only() {
@@ -138,8 +179,9 @@ mod tests {
     #[test]
     fn reports_an_error_when_the_path_is_not_writable() {
         let dir = TempDir::new();
-        // The parent directory does not exist, so the open fails.
-        let path = dir.join("missing").join("config.yaml");
+        // The parent is a regular file: no directory can be created there.
+        std::fs::write(dir.join("a-file"), "").expect("the scratch file is writable");
+        let path = dir.join("a-file").join("config.yaml");
 
         assert!(secure_write(&path, "anything").is_err());
     }

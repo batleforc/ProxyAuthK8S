@@ -79,3 +79,5 @@ graphify-out/
 # Local working notes, never committed (public plan: .docs/content/docs/roadmap.mdx)
 todo.md
 
+# Integration bench run state (RFC 0009): CA, kubeconfigs, logs
+.it/run

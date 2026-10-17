@@ -1,0 +1,63 @@
+# A cluster entry restricted to `it-readers`, read-only plus `create` (for
+# `kubectl auth whoami`), proxying the bench's own apiserver; the `web` pod;
+# and the apiserver RBAC that lets `it-readers` read the namespace.
+# __NS__ is the test's namespace, __BUSYBOX__ the image of .it/images.lock.
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+metadata:
+  name: smoke
+  namespace: __NS__
+spec:
+  cert:
+    ConfigMap:
+      name: kube-root-ca.crt
+      key: ca.crt
+  service:
+    KubernetesService:
+      name: kubernetes
+      namespace: default
+      port: 443
+  expose_via_dashboard: true
+  dashboard_group: it-readers
+  proxy_group: it-readers
+  auth_config:
+    oidc_provider:
+      enabled: true
+      issuer_url: https://dex.k8s.localhost:8443
+      client_id: kube_login
+      extra_scope: openid profile email groups
+  security_config:
+    enabled: true
+    allowed_resources:
+      - Path:
+          path: /**
+          parametised: true
+          verbs: [get, list, watch, create]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: web
+  namespace: __NS__
+spec:
+  containers:
+    - name: app
+      image: __BUSYBOX__
+      command: ["httpd", "-f", "-p", "8080"]
+    - name: sidecar
+      image: __BUSYBOX__
+      command: ["httpd", "-f", "-p", "9090"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: it-readers-view
+  namespace: __NS__
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: it-readers
