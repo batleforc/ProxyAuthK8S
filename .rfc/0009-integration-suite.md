@@ -816,6 +816,15 @@ Phases 1 et 2, 2026-10-17.
   pendant que le banc tourne a fait redémarrer le nœud k3s ; le load balancer
   de k3d a alors perdu le serveur (`EOF`). Construire les images avant
   `it:up` (ce que fait `it:up`), ou relancer le banc.
-- **Pas encore fait** : mesure des durées en CI (§10.3), issue `it-nightly` en
-  cas d'échec de nuit, exigence d'un passage vert dans `release-prepare.yml`,
-  phase 4.
+- **Phase 4, 2026-10-18** : page `developper-guide/integration-tests.mdx`
+  (renvoyée par `tasks.mdx`), paragraphe « RFC proofs » de `CLAUDE.md`, job
+  `nightly-alert` (issue `it-nightly` ouverte ou commentée sur un échec de
+  nuit, seul job avec `issues: write`), et `release-prepare.yml` qui refuse un
+  tag sans passage vert d'`integration.yaml` sur son commit. Pour qu'un commit
+  de `main` en ait un, le workflow tourne aussi sur `push` vers `main` (mêmes
+  filtres de chemins) ; un tag hors de ces chemins se débloque par
+  `gh workflow run integration.yaml --ref <tag>`, que l'erreur indique.
+- **Reste, hors du dépôt** : ajouter `integration` aux checks requis de `main`
+  après trois passages verts consécutifs (§13), et reporter ici la durée
+  mesurée en CI (§10.3 ; en local, `it:up` 342 s avec le cache d'images,
+  `it:test` 25 s).

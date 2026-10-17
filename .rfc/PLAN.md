@@ -66,7 +66,7 @@ mergée.
 | 6 | **0007 phase 1** | B | 5 | `serve(listener, state)` sur actix, `http_contract.rs` | contrat vert sur actix, mergé seul sur `main` | fait |
 | 7 | **0002** (phases 1-6) | A | 4 | refonte UI, CSP | §6.P de la 0002 | fait |
 | 9 | **0005 phase 1** | C | 1, 2, 3 (G1, G2) | includes `rust.yaml`/`repo.yaml`, `deny.toml`, outils dans `mise.toml`, workflows sur `task rust:*` | `task lint`, `task audit`, `coverage:ci` verts | fait |
-| 0 | **0009** (phases 1-4) | — | 6, 7, 9 | banc k3d + Dex + chart, `tests/integration`, `e2e-it`, `MATRIX.md`, `it:matrix`, workflow requis | lignes de 0001, 0002, 0003, 0005, 0006 et 0007 phase 1 vertes ou hors suite justifiées | phases 1-3 faites, suite verte en local (0009 §17) ; phase 4 à faire |
+| 0 | **0009** (phases 1-4) | — | 6, 7, 9 | banc k3d + Dex + chart, `tests/integration`, `e2e-it`, `MATRIX.md`, `it:matrix`, workflow requis | lignes de 0001, 0002, 0003, 0005, 0006 et 0007 phase 1 vertes ou hors suite justifiées | fait ; reste le check requis sur `main` après trois passages verts en CI (réglage GitHub, 0009 §17) |
 | 10 | **0007 phases 2-6** | B | 0, 6 | migration axum, une PR, un commit par phase | contrat identique, diff `swagger.json` vide, lignes 0007 vertes sur le banc | à faire |
 | 12b | **0008** (phases 1-3) | B | 0, 5 | schéma d'audit v1, couche audit insensible à `RUST_LOG`, évènements d'authentification et OAuth, `client_banned`, indice SPDY | lignes 0008 points 1 à 7 vertes ; peut avancer en parallèle de l'étape 10 | à faire |
 | 12c | **0008** (phase 4) | B | 10, 12b | `session_closed` sur le tunnel hyper | ligne 0008 point 8 verte | à faire |

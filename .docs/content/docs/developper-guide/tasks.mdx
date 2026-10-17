@@ -61,6 +61,9 @@ lancez `task init`.
 Le Redis de test se règle avec `TEST_REDIS_URL` (défaut `redis://127.0.0.1:6379`) ;
 `REQUIRE_TEST_REDIS=1` transforme un Redis absent en échec plutôt qu'en test sauté.
 
+Contre un vrai cluster (k3d, Dex, chart, images construites depuis l'arbre) : `task it:up`
+puis `task it:test`, voir [Suite d'intégration](/docs/developper-guide/integration-tests).
+
 ## Génération
 
 | Tâche                     | Effet                                                                  |

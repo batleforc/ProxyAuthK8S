@@ -3,8 +3,21 @@ name: 🧪 Integration suite
 # The k3d bench and the black-box suite of RFC 0009: k3s, Dex, Redis, the
 # chart and the images built from this commit, driven by the real kubectl,
 # kubectl-proxyauth and Chromium. A failure here blocks the merge, and the
-# 0.2.0 tag needs a green run on its commit.
+# 0.2.0 tag needs a green run on its commit (release-prepare.yml checks it).
 on:
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/**"
+      - "libs/**"
+      - "deploy/**"
+      - "tests/integration/**"
+      - ".it/**"
+      - ".tasks/integration.yaml"
+      - ".config/nextest.toml"
+      - "Cargo.lock"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/integration.yaml"
   pull_request:
     branches: ["main"]
     paths:
@@ -101,3 +114,27 @@ jobs:
       - name: Delete the bench
         if: always()
         run: mise exec -- task it:down || true
+
+  # The nightly run on main is the only signal nobody is waiting on: a
+  # failure opens the `it-nightly` issue, or comments on the open one.
+  nightly-alert:
+    needs: integration
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or comment the it-nightly issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body="The nightly integration run failed on $GITHUB_SHA: $RUN_URL"
+          issue=$(gh issue list --label it-nightly --state open --json number --jq '.[0].number')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh label create it-nightly --color B60205 --description "Nightly integration suite failure" 2>/dev/null || true
+            gh issue create --title "Nightly integration suite failing" --label it-nightly --body "$body"
+          fi

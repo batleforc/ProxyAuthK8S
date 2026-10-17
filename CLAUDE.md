@@ -95,6 +95,10 @@ As much as possible, use a multi-staged build in order to reduce the final image
 <!-- /WeeboDevEnv Dedicated instruction --->
 
 <!-- rtk-instructions v2 -->
+## RFC proofs (RFC 0009)
+
+Every numbered point of an RFC's `§6.P` needs a row in `tests/integration/MATRIX.md`; `task lint` runs `task it:matrix` and fails otherwise. An RFC ships its tests in the PR of its code: `tests/integration/tests/rfcNNNN.rs` (one `pN_subject` test per point, through the proxy, never the admin kubeconfig for the action under test) or a spec in `apps/front/e2e-it/` (no `page.route`), its personas in `.it/personas.yaml`, and removes itself from `PENDING` in `.it/matrix.py`. Run them with `task it:up` then `task it:test` (see `.docs/content/docs/developper-guide/integration-tests.mdx`).
+
 # Command output
 
 Command output here is condensed to save tokens, keeping every signal and

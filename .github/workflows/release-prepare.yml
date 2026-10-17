@@ -29,6 +29,9 @@ permissions:
 jobs:
   gather-facts:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     outputs:
       version: ${{ steps.set-version.outputs.version }}
       prerelease: ${{ steps.set-version.outputs.prerelease }}
@@ -45,6 +48,18 @@ jobs:
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+      # RFC 0009: nothing is released without a green integration suite on
+      # the tagged commit itself.
+      - name: Require a green integration run on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          runs=$(gh api "repos/$GH_REPO/actions/workflows/integration.yaml/runs?head_sha=$GITHUB_SHA&status=success" --jq '.total_count')
+          if [ "$runs" -eq 0 ]; then
+            echo "::error::no successful integration.yaml run on $GITHUB_SHA. Run it on the tag (gh workflow run integration.yaml --ref ${GITHUB_REF#refs/tags/}), then re-run this workflow."
+            exit 1
           fi
       - name: Set name
         id: set-name
