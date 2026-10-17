@@ -10,7 +10,7 @@ vi.mock('@proxy-auth-k8s/front-api', () => api);
 vi.mock('./auth.ts', () => ({
   useAuthStore: () => ({ user: { access_token: 'front-token' } }),
 }));
-vi.mock('maz-ui/composables/useToast', () => ({ useToast: () => makeToast() }));
+vi.mock('../composables/useToast.ts', () => ({ useToast: () => makeToast() }));
 
 import { useClustersStore } from './clusters';
 
@@ -27,7 +27,10 @@ describe('clusters store', () => {
 
   it('stores the clusters and sends the front token', async () => {
     const clusters = [{ name: 'prod', namespace: 'team-a' }];
-    api.getAllVisibleCluster.mockResolvedValue({ status: 200, data: { clusters } });
+    api.getAllVisibleCluster.mockResolvedValue({
+      status: 200,
+      data: { clusters },
+    });
     const store = useClustersStore();
     const toast = makeToast();
 
@@ -42,7 +45,10 @@ describe('clusters store', () => {
   });
 
   it('empties the list and warns when the body is missing', async () => {
-    api.getAllVisibleCluster.mockResolvedValue({ status: 200, data: undefined });
+    api.getAllVisibleCluster.mockResolvedValue({
+      status: 200,
+      data: undefined,
+    });
     const store = useClustersStore();
     const toast = makeToast();
 
@@ -86,7 +92,10 @@ describe('clusters store', () => {
     });
 
     it('navigates to a valid http(s) login URL', async () => {
-      api.clusterLogin.mockResolvedValue({ status: 200, data: 'https://idp.example.com/auth?x=1' });
+      api.clusterLogin.mockResolvedValue({
+        status: 200,
+        data: 'https://idp.example.com/auth?x=1',
+      });
       await useClustersStore().redirectToLogin('team-a', 'prod');
       expect(location.href).toBe('https://idp.example.com/auth?x=1');
       expect(api.clusterLogin).toHaveBeenCalledWith(
@@ -95,7 +104,10 @@ describe('clusters store', () => {
     });
 
     it('refuses a javascript: URL from the API', async () => {
-      api.clusterLogin.mockResolvedValue({ status: 200, data: 'javascript:alert(1)' });
+      api.clusterLogin.mockResolvedValue({
+        status: 200,
+        data: 'javascript:alert(1)',
+      });
       await useClustersStore().redirectToLogin('team-a', 'prod');
       expect(location.href).toBe('http://front.example.com/');
     });

@@ -519,3 +519,34 @@ Aucune.
 La phase 1 est mergée seule sur `main`. Les phases 2 à 6 forment une seule PR,
 un commit par phase pour la relecture : le binaire ne peut pas servir les deux
 frameworks à la fois, donc les états intermédiaires ne compilent pas.
+
+---
+
+## 17. Implementation notes
+
+Phase 1 (2026-10-17) :
+
+- `api::server::{AppState, serve}` porte le serveur actix (routes, CORS,
+  compression, métriques, `x-request-id`, root span `traceparent`, Scalar) ;
+  `main.rs` ne fait plus que lier le listener et appeler `serve`.
+  `root_span.rs` et `res/scalar.html` ont suivi dans `libs/server/api`.
+  `swagger.json` régénéré : identique octet pour octet.
+- `libs/server/api/tests/http_contract.rs`, mesuré sur actix :
+  - limites : 96 lignes d'en-tête (97 → `431`), en-tête de requête de
+    128 Kio (au-delà → `431`), URI de 65 534 octets (borne de la crate
+    `http`, au-delà → `400`), formulaire de 16 Kio (`413`) ;
+    `measure_limits` (ignoré) refait la mesure ;
+  - CORS : `SameOriginOnly` refuse toute origine (preflight `400`, aucun
+    `Access-Control-Allow-Origin`). **Écart avec §4.2** : il n'y a aujourd'hui
+    aucune logique `X-Forwarded-Host` ; c'est un `actix-cors` à liste vide, et
+    le contrat fige ce comportement. `Any` renvoie l'origine en écho (jamais
+    `*`), `max_age` 3600 ;
+  - ALPN : `h2` et `http/1.1` annoncés par le listener que construit
+    `ServerConfig::rustls_config` ;
+  - messages exacts des refus des RFC 0003 et 0006, raison du refus au repli
+    SPDY, `400` du SPDY conforme, texte brut des chemins (`%2F`, `..`, `%252e`),
+    en-têtes retirés, compteur `proxyauth_policy_decisions_total`.
+- `traceparent` reste couvert par les tests de `root_span.rs` : le contrat ne
+  voit pas l'identifiant de trace en HTTP.
+- `h2` 0.3 (actix-http) porte RUSTSEC-2026-0258 (DoS, low), sans correctif sur
+  cette branche : la migration vers axum (hyper 1, h2 0.4) le retire.

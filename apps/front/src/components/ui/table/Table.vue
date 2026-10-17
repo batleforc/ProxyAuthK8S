@@ -1,0 +1,48 @@
+<!-- Ported from batlehub/ui/src/components/ui/table/Table.vue (batlehub commit 3f18ab70,
+     Apache-2.0). radix-vue imports moved to reka-ui; `task ui:diff-batlehub`
+     compares this file to its source. -->
+<script setup lang="ts">
+import { type HTMLAttributes } from "vue";
+import { useI18n } from "vue-i18n";
+import { cn } from "@/lib/utils";
+
+const props = defineProps<{ class?: HTMLAttributes["class"]; label?: string }>();
+
+const { t } = useI18n();
+</script>
+
+<template>
+  <!--
+    The scroll container is focusable, and has to be. A region that scrolls but
+    cannot be reached by keyboard is unreachable content for anyone not using a
+    pointer — axe reports it as `scrollable-region-focusable`, and RFC 0003
+    §4.7 makes tables keyboard-operable explicitly. `tabindex="0"` puts it in
+    the tab order so arrow keys can scroll it; `role="region"` plus a name is
+    what makes it announce as something worth stopping on rather than as an
+    anonymous focus stop.
+
+    This is also the Own-Container Overflow Rule's container: wide content
+    scrolls here so the body never scrolls sideways.
+
+    SonarCloud flags the `tabindex` here ("should only be declared on
+    interactive elements") and is wrong: its rule has no exception for scroll
+    containers, and removing the attribute trades a heuristic finding for a real
+    WCAG 2.1.1 failure that axe catches. Web:S6845 is ignored for this one file
+    in sonar-project.properties, with the reasoning there — a per-issue
+    resolution in the UI does not survive the next branch that touches this file,
+    which is how the finding came back. See
+    docs/internal/sonar-triage-2026-08-30.md. Do not "fix" it.
+  -->
+  <!-- `<section>`, not `<div role="region">`: a named section carries the role
+       natively, and the native element is the one assistive technology has the
+       fewest ways to get wrong. -->
+  <section
+    class="relative w-full overflow-auto"
+    tabindex="0"
+    :aria-label="label ?? t('a11y.tableScroll')"
+  >
+    <table :class="cn('w-full border-collapse text-sm', props.class)">
+      <slot />
+    </table>
+  </section>
+</template>

@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
 import { userManager } from '../oidc/config.ts';
 import { User } from 'oidc-client-ts';
-import { useToast } from 'maz-ui/composables/useToast';
+import { useToast } from '../composables/useToast.ts';
+import { i18n } from '../i18n';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -41,7 +42,7 @@ export const useAuthStore = defineStore('auth', {
         ) {
           // Never log the `user` object: it contains access/id/refresh tokens.
           console.log('User is logged in');
-          toast.success('Successfully logged in');
+          toast.success(i18n.global.t('toast.loggedIn'));
           return user;
         } else if (
           user &&
@@ -63,7 +64,7 @@ export const useAuthStore = defineStore('auth', {
           window.location.pathname !== '/auth/callback' &&
           this.router.currentRoute.value.meta.requiresAuth
         ) {
-          toast.info('Please log in to access this page');
+          toast.info(i18n.global.t('toast.loginRequired'));
           this.logIn();
           return null;
         } else if (window.location.pathname === '/auth/callback') {
@@ -72,14 +73,14 @@ export const useAuthStore = defineStore('auth', {
             .then((user) => {
               this.router.push('/');
               console.log('User logged in after callback');
-              toast.success('Successfully logged in');
+              toast.success(i18n.global.t('toast.loggedIn'));
               return user;
             })
             .catch((err) => {
-              toast.error('Error during login callback. Please try again.');
+              toast.error(i18n.global.t('toast.loginCallbackFailed'));
               console.error(
                 'Error handling callback (you should not be here):',
-                err
+                err,
               );
               this.router.push('/');
               return null;
@@ -95,7 +96,7 @@ export const useAuthStore = defineStore('auth', {
       this.router.beforeEach(async (to) => {
         if (to.meta.requiresAuth && (!this.user || this.user.expired)) {
           console.log('Route requires auth, redirecting to login');
-          toast.info('Please log in to access this page');
+          toast.info(i18n.global.t('toast.loginRequired'));
           this.logIn();
           // Cancel the navigation so the protected view does not mount (and
           // render user data) for the split second before the redirect fires.

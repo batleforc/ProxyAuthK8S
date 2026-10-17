@@ -2,6 +2,7 @@
 name = "crdgen"
 version = "0.1.9"
 edition = "2024"
+license = "MIT"
 
 
 [dependencies]

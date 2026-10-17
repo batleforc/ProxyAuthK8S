@@ -1,22 +1,23 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import 'highlight.js/styles/atom-one-dark.css';
-import MazIcon from 'maz-ui/components/MazIcon';
-import { LazyMazCommandLine as MazCommandLine } from '@maz-ui/icons';
+import { useI18n } from 'vue-i18n';
 import { useAuthStore } from '../store/auth';
-import QuickStartCard from '../component/cli/QuickStartCard.vue';
-import InstallationCard from '../component/cli/InstallationCard.vue';
-import UsageGuideCard from '../component/cli/UsageGuideCard.vue';
-import WorkflowCard from '../component/cli/WorkflowCard.vue';
-import ResourcesCard from '../component/cli/ResourcesCard.vue';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
+import { CodeBlock } from '@/components/ui/code-block';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useCopyToClipboard } from '../composables/useCopyToClipboard.ts';
 import {
   backendUrlToName,
   buildUsageExamples,
+  buildInstallationCommands,
   buildWorkflowExample,
   resolveBackendUrl,
 } from '../utils/cliCommands.ts';
 
+const { t } = useI18n();
 const authStore = useAuthStore();
+const copyToClipboard = useCopyToClipboard();
 
 const backendUrl = computed(() => {
   const envUrl = import.meta.env.VITE_API_BASE_URL;
@@ -27,148 +28,221 @@ const backendUrlName = computed(() => {
   try {
     return backendUrlToName(backendUrl.value);
   } catch (error) {
-    console.error("Error parsing backend URL:", error);
+    console.error('Error parsing backend URL:', error);
     return backendUrl.value;
   }
 });
 
-// Built once at setup (not reactive), like the original inline definitions.
-const usageExamples = buildUsageExamples(backendUrl.value, backendUrlName.value);
-const workflowExample = buildWorkflowExample(backendUrl.value, backendUrlName.value, authStore.getToken);
+// Computed: `t` follows the locale, so the content follows a language switch.
+const workflowExample = computed(() =>
+  buildWorkflowExample(
+    backendUrl.value,
+    backendUrlName.value,
+    authStore.getToken,
+    t,
+  ),
+);
+
+const installTabs = computed(() => {
+  const commands = buildInstallationCommands(t);
+  return (['krew', 'manual', 'homebrew'] as const).map((key) => ({
+    key,
+    method: commands[key],
+    code: commands[key].commands.join('\n'),
+  }));
+});
+const usageSections = computed(() => {
+  const examples = buildUsageExamples(
+    backendUrl.value,
+    backendUrlName.value,
+    t,
+  );
+  return (['config', 'auth', 'clusters', 'contexts'] as const).map(
+    (key) => examples[key],
+  );
+});
+const resources = [
+  {
+    key: 'readme',
+    url: 'https://github.com/batleforc/proxyauthk8s/tree/main/apps/kubectl_proxyauth',
+  },
+  {
+    key: 'releases',
+    url: 'https://github.com/batleforc/proxyauthk8s/releases',
+  },
+  { key: 'krew', url: 'https://krew.sigs.k8s.io/plugins/' },
+] as const;
 </script>
 
 <template>
-  <div class="cli-view-container">
-    <!-- Header Section -->
-    <section class="header-section">
-      <div class="header-content">
-        <h1 class="page-title">
-          <MazIcon
-            :icon="MazCommandLine"
-            size="xl"
-            class="title-icon"
-          />
-          Plugin kubectl-proxyauth
-        </h1>
-        <p class="page-description">
-          Guide complet d'installation et d'utilisation du plugin kubectl pour ProxyAuthK8s.
-          Gérez facilement vos authentifications Kubernetes multi-clusters.
+  <section class="border-b border-rule-soft px-4 pb-5 pt-10 sm:px-6">
+    <PageHeader
+      variant="poster"
+      :title="t('cli.title')"
+      :description="t('cli.description')"
+    />
+  </section>
+
+  <ol class="m-0 list-none p-0">
+    <li class="border-b border-rule-soft px-4 py-6 sm:px-6">
+      <h2
+        class="mb-4 mt-0 flex items-baseline gap-3 text-base font-normal text-foreground"
+      >
+        <span class="font-display text-sub text-muted-foreground">1</span
+        >{{ t('cli.quickStart') }}
+      </h2>
+      <ol class="m-0 max-w-[68ch] pl-6 text-sm text-muted-foreground">
+        <li
+          v-for="step in ['install', 'configure', 'use']"
+          :key="step"
+          class="py-1"
+        >
+          {{ t(`cli.steps.${step}`) }}
+        </li>
+      </ol>
+    </li>
+
+    <li class="border-b border-rule-soft px-4 py-6 sm:px-6">
+      <h2
+        class="mb-4 mt-0 flex items-baseline gap-3 text-base font-normal text-foreground"
+      >
+        <span class="font-display text-sub text-muted-foreground">2</span
+        >{{ t('cli.installation') }}
+      </h2>
+      <Tabs default-value="krew">
+        <TabsList :aria-label="t('cli.installation')">
+          <TabsTrigger
+            v-for="tab in installTabs"
+            :key="tab.key"
+            :value="tab.key"
+          >
+            {{ tab.method.title }}
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent
+          v-for="tab in installTabs"
+          :key="tab.key"
+          :value="tab.key"
+        >
+          <p class="mb-4 mt-0 max-w-[64ch] text-sm text-muted-foreground">
+            <span
+              class="mr-2 border border-border px-2 py-1 text-xs uppercase tracking-[0.1em] text-foreground"
+              >{{ tab.method.badge }}</span
+            >
+            {{ tab.method.description }}
+          </p>
+          <CodeBlock
+            :code="tab.code"
+            lang="bash"
+            :label="tab.method.title"
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              @click="copyToClipboard(tab.code, tab.method.title)"
+            >
+              {{ t('common.copy') }}
+            </Button>
+          </CodeBlock>
+        </TabsContent>
+      </Tabs>
+    </li>
+
+    <li class="border-b border-rule-soft px-4 py-6 sm:px-6">
+      <h2
+        class="mb-4 mt-0 flex items-baseline gap-3 text-base font-normal text-foreground"
+      >
+        <span class="font-display text-sub text-muted-foreground">3</span
+        >{{ t('cli.usage') }}
+      </h2>
+      <details
+        v-for="section in usageSections"
+        :key="section.title"
+        class="border-b border-dashed border-rule-soft py-3"
+      >
+        <summary class="cursor-pointer text-base text-foreground">
+          {{ section.title }}
+        </summary>
+        <p class="mb-4 mt-2 max-w-[64ch] text-sm text-muted-foreground">
+          {{ section.description }}
         </p>
-      </div>
-    </section>
+        <div
+          v-for="example in section.examples"
+          :key="example.title"
+          class="mb-5"
+        >
+          <h3 class="m-0 text-sm font-normal text-foreground">
+            {{ example.title }}
+          </h3>
+          <p class="mb-2 mt-0 max-w-[64ch] text-sm text-muted-foreground">
+            {{ example.description }}
+          </p>
+          <CodeBlock
+            :code="example.command"
+            lang="bash"
+            :label="example.title"
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              @click="copyToClipboard(example.command, example.title)"
+            >
+              {{ t('common.copy') }}
+            </Button>
+          </CodeBlock>
+        </div>
+      </details>
+    </li>
 
-    <!-- Main Content -->
-    <section class="main-section">
-      <div class="main-container">
-        <QuickStartCard />
-        <InstallationCard />
-        <UsageGuideCard :usage-examples="usageExamples" />
-        <WorkflowCard :workflow-example="workflowExample" />
-        <ResourcesCard />
-      </div>
-    </section>
-  </div>
+    <li class="border-b border-rule-soft px-4 py-6 sm:px-6">
+      <h2
+        class="mb-4 mt-0 flex items-baseline gap-3 text-base font-normal text-foreground"
+      >
+        <span class="font-display text-sub text-muted-foreground">4</span
+        >{{ t('cli.workflow') }}
+      </h2>
+      <p class="mb-4 mt-0 max-w-[64ch] text-sm text-muted-foreground">
+        {{ t('cli.workflowText') }}
+      </p>
+      <CodeBlock
+        :code="workflowExample"
+        lang="bash"
+        :label="t('cli.workflow')"
+      >
+        <Button @click="copyToClipboard(workflowExample, t('cli.workflow'))">
+          {{ t('cli.copyWorkflow') }}
+        </Button>
+      </CodeBlock>
+    </li>
+  </ol>
+
+  <section
+    class="px-4 py-6 sm:px-6"
+    aria-labelledby="cli-resources"
+  >
+    <h2
+      id="cli-resources"
+      class="mb-4 mt-0 text-xs font-normal uppercase tracking-[0.16em] text-muted-foreground"
+    >
+      {{ t('cli.resources') }}
+    </h2>
+    <ul class="m-0 list-none p-0">
+      <li
+        v-for="resource in resources"
+        :key="resource.key"
+        class="flex flex-wrap gap-x-4 border-b border-dashed border-rule-soft py-3"
+      >
+        <a
+          :href="resource.url"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-base"
+          >{{ t(`cli.links.${resource.key}.label`) }}</a
+        >
+        <span class="text-sm text-muted-foreground">{{
+          t(`cli.links.${resource.key}.text`)
+        }}</span>
+      </li>
+    </ul>
+  </section>
 </template>
-
-<style scoped>
-.cli-view-container {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  font-family: var(--font-family-sans, 'Inter', sans-serif);
-}
-
-/* Header Section */
-.header-section {
-  background: linear-gradient(135deg, #1e40af 0%, #7c3aed 100%);
-  color: white;
-  padding: 2rem 2rem 1.5rem;
-  position: relative;
-  overflow: hidden;
-}
-
-.header-section::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background:
-    radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.4) 0%, transparent 50%),
-    radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.15) 0%, transparent 50%);
-  pointer-events: none;
-}
-
-.header-content {
-  max-width: 1200px;
-  margin: 0 auto;
-  position: relative;
-  z-index: 1;
-  text-align: center;
-}
-
-.page-title {
-  font-size: 2.5rem;
-  font-weight: 700;
-  margin: 0 0 1rem 0;
-  letter-spacing: -0.025em;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-}
-
-.title-icon {
-  color: #34d399;
-}
-
-.page-description {
-  font-size: 1.25rem;
-  color: rgba(255, 255, 255, 0.9);
-  margin: 0;
-  max-width: 800px;
-  margin-left: auto;
-  margin-right: auto;
-  line-height: 1.6;
-}
-
-/* Main Section */
-.main-section {
-  padding: 3rem 2rem;
-}
-
-.main-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
-  .page-title {
-    font-size: 2rem;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-}
-
-@media (max-width: 480px) {
-  .main-section {
-    padding: 2rem 1rem;
-  }
-
-  .header-section {
-    padding: 1.5rem 1rem 1rem;
-  }
-
-  .page-title {
-    font-size: 1.75rem;
-  }
-
-  .page-description {
-    font-size: 1rem;
-  }
-}
-</style>

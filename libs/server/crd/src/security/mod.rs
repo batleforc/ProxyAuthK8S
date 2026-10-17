@@ -313,7 +313,7 @@ impl SecurityConfiguration {
                                 rest.contains(&"**") || rest.len() >= 2
                             });
                     (
-                        core_wide || segments.iter().any(|s| *s == "pods" || *s == "services"),
+                        covers_port_paths(config),
                         core_wide || pod_subresources,
                         (core_wide || segments.contains(&"nodes"))
                             && !names_node_proxy(&config.path),
@@ -356,6 +356,43 @@ impl SecurityConfiguration {
         }
         warnings
     }
+}
+
+/// Whether a `Path` rule can match a port-bearing subresource
+/// (`pods/{name}/portforward`, `pods|services/{name}:{port}/proxy`).
+///
+/// A parametised rule is tried, with the real matcher, against probe paths
+/// in the namespace it names (or any): `*` and `**` count wherever they sit.
+/// A literal rule matches one path, so that path itself is classified.
+fn covers_port_paths(config: &AllowedPathConfiguration) -> bool {
+    if !config.parametised {
+        let segments: Vec<&str> = config.path.split('/').filter(|s| !s.is_empty()).collect();
+        return matches!(segments.as_slice(), [.., "pods", _, "portforward"])
+            || segments
+                .windows(3)
+                .any(|w| matches!(w[0], "pods" | "services") && w[2] == "proxy");
+    }
+    // Placeholders stand for one safe segment: any probe value will do.
+    let pattern = config
+        .path
+        .replace("{{username}}", "probe")
+        .replace("{{group}}", "probe");
+    let segments: Vec<&str> = pattern.split('/').filter(|s| !s.is_empty()).collect();
+    // The namespace and object name the pattern spells out, if any.
+    let literal = |at: usize| segments.get(at).filter(|s| !s.contains('*')).copied();
+    let namespace = match segments.get(2) {
+        Some(&"namespaces") => literal(3).unwrap_or("probe"),
+        _ => "probe",
+    };
+    let name = literal(5);
+    let (forward, proxied) = (name.unwrap_or("probe"), name.unwrap_or("probe:1"));
+    [
+        format!("/api/v1/namespaces/{namespace}/pods/{forward}/portforward"),
+        format!("/api/v1/namespaces/{namespace}/pods/{proxied}/proxy"),
+        format!("/api/v1/namespaces/{namespace}/services/{proxied}/proxy"),
+    ]
+    .iter()
+    .any(|probe| path_matcher::path_matches_pattern(&pattern, probe))
 }
 
 /// Whether a `Path` pattern names `/api/{version}/nodes/{node}/proxy`.
@@ -791,6 +828,40 @@ mod tests {
             };
             assert!(config.get_allowed(NODE, "alice", &[]), "{broad}");
             assert!(!config.get_node_proxy(NODE, "alice", &[]), "{broad}");
+        }
+    }
+
+    #[test]
+    fn only_port_bearing_paths_are_flagged() {
+        let rule = |path: &str, parametised: bool| AllowedPathConfiguration {
+            path: path.to_string(),
+            parametised,
+            allowed_ports: None,
+            verbs: None,
+        };
+        for (pattern, parametised, covers) in [
+            ("/api/v1/namespaces/dev/pods/**", true, true),
+            ("/api/v1/namespaces/dev/pods/*/portforward", true, true),
+            ("/api/v1/namespaces/dev/services/*/proxy/**", true, true),
+            ("/api/v1/namespaces/dev/pods/web/*", true, true),
+            // A wildcard before the resource reaches pods too.
+            ("/api/v1/namespaces/dev/**", true, true),
+            ("/api/v1/namespaces/*/*/*/portforward", true, true),
+            ("/api/**", true, true),
+            ("/api/v1/namespaces/{{username}}/pods/**", true, true),
+            ("/api/v1/namespaces/dev/pods/web/portforward", false, true),
+            ("/api/v1/namespaces/dev/pods/*/exec", true, false),
+            ("/api/v1/namespaces/dev/pods/*/log", true, false),
+            ("/api/v1/namespaces/dev/pods", true, false),
+            ("/api/v1/namespaces/dev/configmaps/**", true, false),
+            ("/apis/apps/v1/**", true, false),
+            ("/api/v1/namespaces/dev/pods/web/exec", false, false),
+        ] {
+            assert_eq!(
+                covers_port_paths(&rule(pattern, parametised)),
+                covers,
+                "{pattern} (parametised: {parametised})"
+            );
         }
     }
 

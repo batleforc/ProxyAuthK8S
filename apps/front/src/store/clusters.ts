@@ -7,7 +7,8 @@ import {
   VisibleCluster,
 } from '@proxy-auth-k8s/front-api';
 import { useAuthStore } from './auth.ts';
-import { useToast } from 'maz-ui/composables/useToast';
+import { useToast } from '../composables/useToast.ts';
+import { i18n } from '../i18n';
 import { safeRedirectTarget } from '../utils/redirect.ts';
 
 export const useClustersStore = defineStore('clusters', {
@@ -41,12 +42,12 @@ export const useClustersStore = defineStore('clusters', {
         } else if (response.status === 200 && response.data === undefined) {
           this.clusters = [];
           console.error('No cluster data received');
-          toast.error('No cluster data received from server', {
+          toast.error(i18n.global.t('toast.noClusterData'), {
             timeout: 5000,
           });
         } else if (response.status === 401) {
           console.error('Unauthorized access when fetching clusters');
-          toast.error('Unauthorized access. Please log in again.', {
+          toast.error(i18n.global.t('toast.unauthorized'), {
             timeout: 2000,
           });
           setTimeout(() => {
@@ -54,9 +55,14 @@ export const useClustersStore = defineStore('clusters', {
           }, 2000);
           this.clusters = [];
         } else {
-          toast.warning(`Unexpected response: ${response.status}`, {
-            timeout: 5000,
-          });
+          toast.warning(
+            i18n.global.t('toast.unexpectedResponse', {
+              status: response.status,
+            }),
+            {
+              timeout: 5000,
+            },
+          );
           console.error(`Unexpected response status: ${response.status}`);
           this.clusters = [];
         }
@@ -82,7 +88,7 @@ export const useClustersStore = defineStore('clusters', {
           }
         } else if (response.status === 401) {
           console.error(
-            'Unauthorized access when redirecting to cluster login'
+            'Unauthorized access when redirecting to cluster login',
           );
         }
       });
@@ -94,8 +100,10 @@ export const useClustersStore = defineStore('clusters', {
       const code = this.router.currentRoute.value.query.code as string;
       const state = this.router.currentRoute.value.query.state as string;
       if (!ns || !cluster || !code || !state) {
-        toast.error('Missing parameters in callback URL', { timeout: 5000 });
-        console.error('Missing parameters in callback URL');
+        toast.error(i18n.global.t('toast.callbackMissingParams'), {
+          timeout: 5000,
+        });
+        console.error(i18n.global.t('toast.callbackMissingParams'));
         setTimeout(() => {
           this.router.push({ name: 'home' });
         }, 2000);
@@ -120,23 +128,28 @@ export const useClustersStore = defineStore('clusters', {
         .then((response) => {
           if (response.status === 200 && response.data) {
             this.callBack.retour = response.data;
-            toast.success('Successfully authenticated with the cluster', {
+            toast.success(i18n.global.t('toast.clusterAuthenticated'), {
               timeout: 3000,
             });
           } else if (response.status === 401) {
-            toast.error('Unauthorized access during callback login', {
+            toast.error(i18n.global.t('toast.clusterCallbackUnauthorized'), {
               timeout: 5000,
             });
-            console.error('Unauthorized access during callback login');
+            console.error(i18n.global.t('toast.clusterCallbackUnauthorized'));
             setTimeout(() => {
               this.router.push({ name: 'home' });
             }, 2000);
           }
         })
         .catch((error) => {
-          toast.error(`Error during callback login: ${error}`, {
-            timeout: 5000,
-          });
+          toast.error(
+            i18n.global.t('toast.clusterCallbackFailed', {
+              error: String(error),
+            }),
+            {
+              timeout: 5000,
+            },
+          );
           console.error('Error during callback login:', error);
           setTimeout(() => {
             this.router.push({ name: 'home' });

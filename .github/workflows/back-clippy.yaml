@@ -62,3 +62,14 @@ jobs:
           sarif_file: rust-clippy-results.sarif
           wait-for-processing: true
         # 🔒 Upload analysis results to GitHub Security tab for visibility
+
+      - name: 🛠️ Install mise
+        uses: ./.github/actions/setup-mise
+      - name: 🛠️ Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      - name: 🚦 Gate on fmt and clippy (all targets)
+        # The report above never fails; this does (kit's rust:lint). Tools
+        # come from the runner's toolchain, not a full `mise install`.
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: task rust:lint

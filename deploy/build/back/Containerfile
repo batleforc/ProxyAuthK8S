@@ -4,6 +4,9 @@ WORKDIR /app
 # Set before the dependency build so both cargo invocations share one
 # fingerprint: a flag that differs between them recompiles every dependency.
 ENV RUSTFLAGS="-C target-feature=-crt-static"
+# Alpine packages are not pinned: the base is the floating alpine:3 and its
+# repositories drop old versions, so a pin would break the next build.
+# hadolint ignore=DL3018
 RUN apk add --no-cache clang lld musl-dev git openssl-dev libcrypto3 perl dbus-dev pkgconf
 
 
@@ -88,6 +91,7 @@ RUN find apps libs -path '*/src/*.rs' -exec touch {} + && \
 # Final stage
 FROM registry.hub.docker.com/library/alpine:3
 
+# hadolint ignore=DL3018
 RUN apk add --no-cache libgcc && apk upgrade --no-cache && \
   addgroup -S -g 1000 app && adduser -S -D -H -u 1000 -G app app
 

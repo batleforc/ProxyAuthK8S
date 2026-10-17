@@ -5,3 +5,15 @@
 /swagger.yaml
 /deploy/chart/*
 /deploy/chart-crd/*
+/libs/front/front-api/src/lib
+/libs/cli/client_api
+/deploy/crds.yaml
+/pnpm-lock.yaml
+/apps/front/public/fonts
+/apps/front/src/components/ui/button
+/apps/front/src/components/ui/empty-state
+/apps/front/src/components/ui/page-header
+/apps/front/src/components/ui/resolution
+/apps/front/src/components/ui/skeleton
+/apps/front/src/components/ui/table
+/apps/front/src/components/ui/tabs

@@ -1,0 +1,45 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "vue", "vitest", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
+  "env": {
+    "browser": true,
+    "node": true
+  },
+  "rules": {
+    "typescript/no-explicit-any": "warn",
+    "typescript/no-non-null-assertion": "warn",
+    "typescript/no-empty-function": "error",
+    "typescript/no-inferrable-types": "error",
+    "typescript/adjacent-overload-signatures": "error",
+    "no-unused-vars": [
+      "warn",
+      {
+        "varsIgnorePattern": "^_",
+        "argsIgnorePattern": "^_"
+      }
+    ],
+    "vitest/require-mock-type-parameters": "off"
+  },
+  "ignorePatterns": [
+    "**/dist",
+    "**/out-tsc",
+    "**/vite.config.*.timestamp*",
+    ".docs/**",
+    "**/playwright-report",
+    "**/test-results"
+  ],
+  "overrides": [
+    {
+      "files": ["libs/front/front-api/**/*.ts"],
+      "rules": {
+        "typescript/ban-ts-comment": "off",
+        "typescript/no-non-null-assertion": "off",
+        "typescript/no-explicit-any": "off",
+        "typescript/no-inferrable-types": "off"
+      }
+    }
+  ]
+}

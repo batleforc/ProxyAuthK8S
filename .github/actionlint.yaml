@@ -1,0 +1,7 @@
+# actionlint configuration (task repo:lint, from weebo-operator-kit).
+paths:
+  # Retired workflows kept for reference: GitHub never runs files in a
+  # subdirectory of .github/workflows.
+  .github/workflows/.bck/**:
+    ignore:
+      - ".*"

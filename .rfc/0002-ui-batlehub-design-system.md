@@ -476,7 +476,7 @@ flowchart LR
 | T4 | Tampering : paquet npm compromis (nouvelles dépendances) | build | §8 ; primitives **copiées** (code relu) ; `allowBuilds` et `minimumReleaseAge` (RFC 0001) | faible |
 | T5 | Spoofing : préférences `localStorage` manipulées | `pak.theme`, `pak.locale` | Valeurs validées contre une liste fermée ; toute autre valeur donne le défaut | aucun |
 | T6 | Elevation : clickjacking de la page qui affiche le kubeconfig | toutes les vues | `frame-ancestors 'none'` | aucun |
-| T7 | Tampering : CSP élargie par une variable d'environnement mal formée | entrypoint `envsubst` | variables absentes donnent `'self'` seul ; la valeur doit être une URL `https://` (vérifiée par l'entrypoint, sinon le conteneur refuse de démarrer) | faible |
+| T7 | Tampering : CSP élargie par une variable d'environnement mal formée | entrypoint `envsubst` | variables absentes donnent `'self'` seul ; la valeur doit être une URL `http(s)://` au format strict (vérifiée par l'entrypoint, sinon le conteneur refuse de démarrer) ; `http://` est admis avec un avertissement (ingress sans TLS) | faible |
 
 Tests négatifs : T1 → §6.P point 1 ; T2 → `vue/no-v-html` et §6.P point 9 ;
 T5 → spec `ThemeToggle` ; T6 → `curl -sI` (point 8) ; T7 → démarrage du
@@ -723,3 +723,78 @@ Chaque phase garde la CI verte. La phase 2 est utile seule : elle supprime le
 bug de thème et la duplication du shell. La CSP (phase 5) arrive avec le
 retrait du dernier usage de maz-ui, qui pourrait injecter du style ou du script
 inline ; la protéger plus tôt casserait les vues encore en maz-ui.
+
+---
+
+## 17. Implementation notes
+
+Écarts constatés à l'implémentation (2026-10-17), chacun au plus près de la
+RFC :
+
+- **Les stores appelaient bien des toasts.** `store/auth.ts` et
+  `store/clusters.ts` importent `useToast` de maz-ui (contrairement au §5.3).
+  Retirer maz-ui imposait de toucher leur import : une ligne chacun, vers
+  `composables/useToast.ts`, qui garde la même API
+  (`success|info|warning|error(message, { timeout })`) et affiche dans
+  `app/Notices.vue` (deux régions live, `role="alert"` et `role="status"`).
+  Aucune logique de store ne change ; `clusters.spec.ts` ne change que le
+  chemin de son `vi.mock`.
+- **Pas de shiki.** `code-block` rend le texte en encre sur `--ground-sunk`,
+  sans coloration : la coloration ajoute des teintes que la One Synthetic Rule
+  refuse, et le HTML de shiki demande `v-html` et des attributs `style` que
+  `style-src 'self'` bloque. Résultat : aucun `v-html` dans le front
+  (`vue/no-v-html` en erreur partout), pas de dépendance shiki.
+- **Pas de popover headless.** Le menu Réglages est écrit à la main (Escape,
+  retour du focus, clic extérieur, focus sur la première cellule) : celui de
+  reka-ui chargeait floating-ui et `@vueuse/core` dès la première page.
+  reka-ui reste pour les onglets (vues chargées à la demande).
+- **Budget de bundle** (§10.3) : JS + CSS initiaux 132 Kio gzip contre
+  135 Kio avant (maz-ui), assets totaux 506 Kio contre 587 Kio. Les deux
+  variantes de l'accueil sont chargées à la demande.
+- **Titre poster sous 640px** : 24px au lieu de `--t-display` (56px).
+  « ProxyAuthK8S » à 56px débordait de 264px à 360px de large (Silkscreen ne
+  se coupe pas) ; 24px reste un multiple de 8.
+- **Garde de `/cli`** (§6.P point 6) : arrivé déconnecté sur `/cli`, la vue
+  s'affiche un instant, parce que `store/auth.ts` n'installe
+  `router.beforeEach` qu'après la première navigation. C'était déjà le cas ;
+  le store n'est pas modifié. Le test vérifie la redirection vers l'IdP et
+  l'absence de tout appel SDK. À traiter dans le store, hors de cette RFC.
+- **`/auth/callback` sans session** : le store finit le callback pendant
+  l'initialisation puis renvoie à l'accueil, la vue n'apparaît jamais seule ;
+  elle n'est pas dans la boucle axe.
+- **CSP** : `frame-src` reçoit aussi l'origine de l'IdP (renouvellement
+  silencieux d'`oidc-client-ts` par iframe). Les URLs sont réduites à leur
+  origine. Le template garde le nom `nginx.conf` (copié vers
+  `templates/default.conf.template`) ; `15-csp.envsh` est la seule entrée
+  ajoutée à `.dockerignore`.
+- **Prettier** est appliqué à `apps/front` et aux configs de lint racine, pas
+  à tout le dépôt (d'autres chantiers modifiaient le reste en parallèle). Son
+  `--check` passe par le script `lint` du front, donc par `task js:lint`.
+- **Primitives portées** : `button`, `empty-state`, `page-header`,
+  `resolution`, `skeleton`, `table`, `tabs`, `lib/utils.ts`. Exclues de
+  Prettier pour que `task ui:diff-batlehub` ne montre que les vrais écarts.
+  Non portées car inutilisées : `badge`, `alert`, `separator`, `announcer`
+  (remplacé par `Notices`), `async-state`, `copy-button`, `dialog`.
+- **Règle oxlint coupée** : `vitest/require-mock-type-parameters`, qui
+  imposait de réécrire les specs existantes des stores et des utils.
+- **Contenu des utils** : les textes de `utils/cliCommands.ts` (titres et
+  descriptions des méthodes d'installation, exemples) restent en français
+  dans les deux langues, les utils étant hors périmètre.
+- **Non faits** : captures et GIF du README (§6, `.docs/public` hors
+  périmètre de ce lot), déplacement du contenu d'`ArchitectureDiagram` dans
+  `architecture.mdx` (le composant est retiré, À propos pointe vers la page),
+  contrôle Firefox local.
+- **T7 et `http://`** (décision du mainteneur, 2026-10-17) : l'entrypoint
+  accepte `http://` en plus de `https://`, avec un avertissement dans les logs.
+  Le chart pose `http://` quand `ingress.tls.enabled` est faux ; un refus
+  aurait empêché ces déploiements de démarrer. La validation stricte du
+  format, qui empêche d'élargir la CSP, reste le contrôle de T7.
+- **Firefox** : la suite Playwright tourne aussi sous Firefox (projet
+  `firefox`, 17 tests + le test CSP sur l'image). Aucun défaut de l'application ;
+  trois ajustements du banc de test : `goto('/cli', { waitUntil: 'commit' })`
+  (la page part vers l'IdP refusé avant son `load` sous Firefox), permissions
+  du presse-papiers accordées sous Chromium seulement (Firefox n'en a pas), et
+  détection des violations CSP qui accepte aussi l'orthographe de Firefox
+  (`Content-Security-Policy`).
+- **Captures** : `task ui:screenshots` régénère `.docs/public/screenshots/`
+  (8 PNG, les deux thèmes, et `flow.gif` du README), API simulée, Chromium.

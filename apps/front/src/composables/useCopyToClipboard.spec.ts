@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
-vi.mock('maz-ui/composables/useToast', () => ({ useToast: () => toast }));
+vi.mock('./useToast', () => ({ useToast: () => toast }));
 
+import { i18n } from '../i18n';
 import { useCopyToClipboard } from './useCopyToClipboard';
 
 describe('useCopyToClipboard', () => {
@@ -10,7 +11,11 @@ describe('useCopyToClipboard', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    i18n.global.locale.value = 'fr';
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
   });
 
   it('writes the text and confirms with the label', async () => {
@@ -18,7 +23,9 @@ describe('useCopyToClipboard', () => {
     await useCopyToClipboard()('secret', 'Access Token');
 
     expect(writeText).toHaveBeenCalledWith('secret');
-    expect(toast.success).toHaveBeenCalledWith('Access Token copié dans le presse-papiers !');
+    expect(toast.success).toHaveBeenCalledWith(
+      'Access Token copié dans le presse-papiers.',
+    );
     expect(toast.error).not.toHaveBeenCalled();
   });
 
@@ -27,7 +34,18 @@ describe('useCopyToClipboard', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     await useCopyToClipboard()('secret', 'Kubeconfig');
 
-    expect(toast.error).toHaveBeenCalledWith('Échec de la copie du kubeconfig.');
+    expect(toast.error).toHaveBeenCalledWith(
+      'Échec de la copie du kubeconfig.',
+    );
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it('speaks English when the locale is English', async () => {
+    i18n.global.locale.value = 'en';
+    writeText.mockResolvedValue(undefined);
+    await useCopyToClipboard()('secret', 'Kubeconfig');
+    expect(toast.success).toHaveBeenCalledWith(
+      'Kubeconfig copied to the clipboard.',
+    );
   });
 });

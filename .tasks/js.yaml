@@ -28,3 +28,7 @@ tasks:
       - task: typecheck
       - task: test
       - task: build
+  fmt:
+    desc: "Format every JS package that has a format script (prettier --write)"
+    cmds:
+      - pnpm -r --if-present run format

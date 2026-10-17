@@ -2,8 +2,14 @@
 name = "api"
 version = "0.1.9"
 edition = "2024"
+license = "MIT"
 
 [features]
+default = ["server"]
+# `api::server::serve` and its middlewares. Off for the consumers that only
+# need the handlers or the OpenAPI document (fuzz/, swaggergen), so they do
+# not build the OTLP and CORS stacks.
+server = ["dep:trace", "dep:tracing-opentelemetry", "dep:utoipa-scalar", "dep:actix-cors", "dep:tracing-actix-web", "dep:socket2"]
 # Opt-in tier that needs a real kube-apiserver and etcd (see `task envtest:setup`).
 envtest = []
 
@@ -31,15 +37,26 @@ sha2 = "0.11"
 subtle = "2"
 opentelemetry = { workspace = true }
 prometheus = { version = "0.14", default-features = false }
+tracing-opentelemetry = { workspace = true, optional = true }
+utoipa-scalar = { version = "0.4", features = ["actix-web"], optional = true }
+actix-cors = { version = "0.7", optional = true }
+# No `opentelemetry_0_x` feature: trace-context propagation lives in
+# src/root_span.rs, so it follows the workspace `opentelemetry` version.
+tracing-actix-web = { version = "0.7", optional = true }
+# Already in the tree (actix-server, tokio); binds the listener with actix's
+# backlog, which a std TcpListener does not let us set.
+socket2 = { version = "0.6", optional = true }
 
 common = { path = "../common", version = "0.1.9" }
 crd = { path = "../crd", version = "0.1.9" }
 jwt_validator = { path = "../jwt_validator", version = "0.1.9" }
 crd_runtime = { path = "../crd_runtime", version = "0.1.9" }
 virtual_api = { path = "../virtual_api", version = "0.1.9" }
+trace = { path = "../trace", version = "0.1.9", optional = true }
 
 [dev-dependencies]
 opentelemetry_sdk = { workspace = true }
+tracing-subscriber = { workspace = true }
 opentelemetry-prometheus = "0.33"
 # `test-util` unlocks `State::from_parts`; dev-dependencies are not part of a
 # normal build so the feature stays off outside `cargo test`.
@@ -47,6 +64,8 @@ common = { path = "../common", version = "0.1.9", features = ["test-util"] }
 actix-web = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 wiremock = "0.6"
+# Already in the tree (kube's dev graph); the http_contract suite's TLS cert.
+rcgen = "0.14"
 deadpool-redis = { workspace = true }
 serde_yaml_ng = { workspace = true }
 secrecy = "0.10.3"
@@ -60,3 +79,7 @@ jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[test]]
+name = "http_contract"
+required-features = ["server"]

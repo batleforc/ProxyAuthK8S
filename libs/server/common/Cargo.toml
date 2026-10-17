@@ -2,6 +2,7 @@
 name = "common"
 version = "0.1.9"
 edition = "2024"
+license = "MIT"
 
 [features]
 # Exposes constructors that bypass the real Kubernetes/Redis/OIDC discovery a

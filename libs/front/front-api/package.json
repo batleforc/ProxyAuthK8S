@@ -8,7 +8,7 @@
   "scripts": {
     "generate": "openapi-ts",
     "typecheck": "tsc --noEmit -p tsconfig.lib.json",
-    "lint": "eslint ."
+    "lint": "oxlint -c ../../../.oxlintrc.json . && eslint ."
   },
   "dependencies": {
     "axios": "^1.20.0"

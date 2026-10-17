@@ -2,6 +2,7 @@
 name = "kubectl_proxyauth"
 version = "0.1.9"
 edition = "2024"
+license = "MIT"
 
 
 [dependencies]

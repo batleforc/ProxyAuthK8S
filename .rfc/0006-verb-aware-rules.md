@@ -596,3 +596,15 @@ implicite, puisque c'est elle qui ouvre T8.
   or verbs are restricted`.
 - **Audit** : évènement `verb policy decision` (`decision: verb_denied`,
   `k8s_verb`) ; `SecurityConfiguration::port_warnings` devient `warnings`.
+- **Preuve kubectl (§6.P)** : kubectl 1.37 via le serveur proxy réel (TLS)
+  devant un kube-apiserver 1.31 (binaires envtest, sans kubelet : k3d ne
+  démarre pas sous podman rootless sans délégation cgroup `cpuset`). Passent :
+  `get pods`, `get pod web`, `get pods -w`, `get configmap`. Refusés par le
+  proxy, message exact affiché par kubectl : `delete pod`, `delete
+  configmap`, `run` (`create`), `debug` (`patch …/ephemeralcontainers`),
+  `label` (`patch`) ; `nodes/proxy/exec` (curl). Non prouvables sans kubelet :
+  exec et port-forward réussis (kubectl exige un pod `Running`).
+- **Repli SPDY qui masque un refus amont** : quand l'apiserver refuse
+  l'upgrade websocket (ici pod `Pending`), kubectl retente en SPDY et
+  n'affiche que « SPDY is not supported » ; la vraie raison n'apparaît que
+  dans l'audit. À traiter avec la RFC 0007 (réponse au repli SPDY).

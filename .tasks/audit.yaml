@@ -2,21 +2,19 @@ version: "3"
 
 tasks:
   default:
-    desc: "Run every CVE audit (Rust deps, JS deps, Containerfiles)"
+    desc: "Run every CVE and policy audit: Rust deps (cargo deny + trivy, kit), the fuzz workspace, JS deps (pnpm audit), Containerfiles (trivy config, kit)"
     silent: true
     cmds:
-      - task: rust
+      - task: :rust:audit
+      - task: fuzz
       - task: js
-      - task: container
+      - task: :repo:audit
 
-  rust:
-    desc: "Audit Rust dependencies for known CVEs (cargo audit)"
+  fuzz:
+    desc: "Audit the separate fuzz/ workspace with the root deny.toml (rust:audit only sees the main workspace)"
     silent: true
     cmds:
-      - echo "Auditing Rust dependencies with cargo audit"
-      - cargo audit
-      # The fuzz workspace has its own lockfile, invisible to the root audit.
-      - cargo audit -f fuzz/Cargo.lock
+      - mise exec -- cargo deny --manifest-path fuzz/Cargo.toml check
 
   js:
     desc: "Audit JS/TS dependencies of every workspace package for known CVEs (pnpm audit)"
@@ -26,17 +24,3 @@ tasks:
       # One lockfile covers front, front-api and .docs. Accepted advisories
       # live in pnpm-workspace.yaml (auditConfig.ignoreGhsas).
       - pnpm audit
-
-  container:
-    desc: "Scan the back/front Containerfiles for CVEs (trivy)"
-    silent: true
-    cmds:
-      - |
-        if ! command -v trivy >/dev/null 2>&1; then
-          echo "trivy not found — install it with 'mise use trivy' to enable container scanning."
-          exit 0
-        fi
-        echo "Scanning deploy/build/back/Containerfile"
-        trivy config deploy/build/back/Containerfile
-        echo "Scanning deploy/build/front/Containerfile"
-        trivy config deploy/build/front/Containerfile

@@ -2,34 +2,19 @@
 name = "server"
 version = "0.1.9"
 edition = "2024"
+license = "MIT"
 
 
 [dependencies]
-actix-web = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
-utoipa = { workspace = true }
 rustls = { workspace = true }
 opentelemetry = { workspace = true }
-tracing-opentelemetry = { workspace = true }
-
-utoipa-actix-web = { workspace = true }
-
-
-utoipa-scalar = { version = "0.4", features = ["actix-web"] }
-actix-cors = { version = "0.7" }
-# No `opentelemetry_0_x` feature: trace-context propagation lives in
-# src/root_span.rs, so it follows the workspace `opentelemetry` version.
-tracing-actix-web = { version = "0.7" }
 
 api = { path = "../../libs/server/api", version = "0.1.9" }
 trace = { path = "../../libs/server/trace", version = "0.1.9" }
 common = { path = "../../libs/server/common", version = "0.1.9" }
 controller = { path = "../../libs/server/controller", version = "0.1.9" }
-
-[dev-dependencies]
-opentelemetry_sdk = { workspace = true }
-tracing-subscriber = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

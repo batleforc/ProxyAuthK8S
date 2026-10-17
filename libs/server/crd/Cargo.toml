@@ -2,6 +2,7 @@
 name = "crd"
 version = "0.1.9"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 k8s-openapi = { workspace = true }

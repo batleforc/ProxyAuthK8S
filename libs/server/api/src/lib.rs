@@ -22,6 +22,10 @@ pub mod duration;
 pub mod helper;
 pub mod metrics;
 pub mod model;
+#[cfg(feature = "server")]
+mod root_span;
+#[cfg(feature = "server")]
+pub mod server;
 pub mod visible_clusters;
 
 pub fn init_base_api() -> impl FnOnce(&mut ServiceConfig) {

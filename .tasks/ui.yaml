@@ -1,0 +1,63 @@
+version: "3"
+
+# The front's design-system tasks (RFC 0002). The primitives under
+# apps/front/src/components/ui are copied from batlehub, not depended on.
+
+vars:
+  BATLEHUB_DIR: '{{.BATLEHUB_DIR | default "../batlehub"}}'
+
+tasks:
+  diff-batlehub:
+    desc: "Diff each primitive ported from batlehub against its source (BATLEHUB_DIR, default ../batlehub, at its current commit)"
+    silent: true
+    cmds:
+      - |
+        set -eu
+        src="$(realpath "{{.BATLEHUB_DIR}}")/ui/src"
+        [ -d "$src" ] || { echo "no batlehub checkout at {{.BATLEHUB_DIR}} (BATLEHUB_DIR=<path>)" >&2; exit 1; }
+        echo "batlehub at $(git -C "{{.BATLEHUB_DIR}}" rev-parse --short HEAD)"
+        cd apps/front/src
+        # The header names the source; it is dropped before comparing.
+        grep -rl "Ported from batlehub/ui/src/" components lib | sort | while read -r file; do
+          origin=$(grep -o "batlehub/ui/src/[A-Za-z0-9/._-]*" "$file" | head -n 1 | sed 's#^batlehub/ui/src/##')
+          case "$file" in
+            *.vue) sed '1,/-->/d' "$file" ;;
+            *) sed '1d' "$file" ;;
+          esac | diff -u --label "batlehub/$origin" --label "$file" "$src/$origin" - || true
+        done
+
+  e2e:
+    desc: "Run the front's browser suite (Playwright, Chromium and Firefox): axe in both themes, 360px overflow, fonts, theme flash, route guard"
+    dir: apps/front
+    cmds:
+      - pnpm exec playwright install chromium firefox
+      - pnpm exec playwright test
+
+  csp:
+    desc: "Build the front image, run it and check its CSP and security headers in Chromium and Firefox (podman or docker)"
+    vars:
+      ENGINE:
+        sh: command -v podman || command -v docker
+    cmds:
+      - "{{.ENGINE}} build -f deploy/build/front/Containerfile -t proxyauthk8s-front:csp ."
+      - "{{.ENGINE}} rm -f proxyauthk8s-front-csp >/dev/null 2>&1 || true"
+      - "{{.ENGINE}} run -d --name proxyauthk8s-front-csp -p 14201:4200 -e PROXYAUTHK8S_FRONT_API_BASE_URL=https://proxy.example.com -e PROXYAUTHK8S_FRONT_OIDC_ISSUER_URL=https://idp.example.com proxyauthk8s-front:csp"
+      - defer: "{{.ENGINE}} rm -f proxyauthk8s-front-csp"
+      - cd apps/front && FRONT_IMAGE_URL=http://127.0.0.1:14201 pnpm exec playwright test csp
+
+  screenshots:
+    desc: "Regenerate the docs' screenshots (.docs/public/screenshots, both themes) and the README's flow GIF, from the front with a mocked API (Playwright, Chromium, ffmpeg, ImageMagick)"
+    vars:
+      OUT: '{{.ROOT_DIR}}/.docs/public/screenshots'
+    cmds:
+      - mkdir -p "{{.OUT}}"
+      - cd apps/front && pnpm exec playwright install chromium && SCREENSHOTS_DIR="{{.OUT}}" pnpm exec playwright test screenshots --project=chromium
+      # Lossless recompression, metadata stripped.
+      - for f in "{{.OUT}}"/*.png; do magick "$f" -strip -define png:compression-level=9 "$f"; done
+      # Two-pass palette: a readable GIF at a fraction of a naive encode.
+      - >-
+        ffmpeg -y -loglevel error -i "{{.OUT}}/flow.webm"
+        -vf "fps=10,scale=800:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=96[p];[b][p]paletteuse=dither=none"
+        "{{.OUT}}/flow.gif"
+      - rm -rf "{{.OUT}}/flow.webm" "{{.OUT}}/video"
+      - du -h "{{.OUT}}"/*

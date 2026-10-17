@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { downloadTextFile } from './download';
 
 describe('downloadTextFile', () => {
-  const { createObjectURL: originalCreate, revokeObjectURL: originalRevoke } = URL;
+  const { createObjectURL: originalCreate, revokeObjectURL: originalRevoke } =
+    URL;
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -15,11 +16,13 @@ describe('downloadTextFile', () => {
     const revokeObjectURL = vi.fn();
     URL.createObjectURL = createObjectURL;
     URL.revokeObjectURL = revokeObjectURL;
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
-      expect(this.download).toBe('kubeconfig.yaml');
-      expect(this.href).toBe('blob:fake');
-      expect(document.body.contains(this)).toBe(true);
-    });
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        expect(this.download).toBe('kubeconfig.yaml');
+        expect(this.href).toBe('blob:fake');
+        expect(document.body.contains(this)).toBe(true);
+      });
 
     downloadTextFile('apiVersion: v1', 'kubeconfig.yaml');
 

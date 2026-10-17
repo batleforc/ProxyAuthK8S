@@ -378,6 +378,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 name = "api"
 version = "0.1.9"
 dependencies = [
+ "actix-cors",
  "actix-web",
  "base64 0.23.1",
  "common",
@@ -396,6 +397,7 @@ dependencies = [
  "opentelemetry-prometheus",
  "opentelemetry_sdk",
  "prometheus",
+ "rcgen",
  "reqwest",
  "rustls",
  "rustls-platform-verifier",
@@ -404,14 +406,20 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "sha2 0.11.1",
+ "socket2",
  "subtle",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
+ "trace",
  "tracing",
+ "tracing-actix-web",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
  "utoipa",
  "utoipa-actix-web",
+ "utoipa-scalar",
  "virtual_api",
  "wiremock",
 ]
@@ -2574,9 +2582,9 @@ dependencies = [
 
 [[package]]
 name = "inout"
-version = "0.2.3"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8c0d789294fb457b791f7797a04478704788f30b407e5d0b01deaa846572d9f"
+checksum = "3ce983bb6fb399067d101fbfc9e74174e07e9f29a2bc679efefeb8c645819c3f"
 dependencies = [
  "block-padding",
  "hybrid-array",
@@ -2787,7 +2795,7 @@ dependencies = [
  "base64 0.22.1",
  "getrandom 0.2.17",
  "js-sys",
- "pem",
+ "pem 3.0.6",
  "serde",
  "serde_json",
  "signature",
@@ -2880,7 +2888,7 @@ dependencies = [
  "jsonpath-rust",
  "k8s-openapi",
  "kube-core",
- "pem",
+ "pem 3.0.6",
  "rustls",
  "rustls-platform-verifier",
  "secrecy",
@@ -3608,6 +3616,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pem"
+version = "4.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d354a98a3d1251555de99e8fdd8afda05573c31b82f59063a7b0a29b5527f120"
+dependencies = [
+ "base64 0.23.1",
+ "serde_core",
+]
+
+[[package]]
 name = "pem-rfc7468"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4043,6 +4061,7 @@ version = "0.14.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8774e05a7d0de114588e6a28fe7e71694b82614ed569d86d8b389dfbc98b8ad8"
 dependencies = [
+ "pem 4.0.0",
  "ring",
  "rustls-pki-types",
  "time",
@@ -4667,24 +4686,15 @@ dependencies = [
 name = "server"
 version = "0.1.9"
 dependencies = [
- "actix-cors",
- "actix-web",
  "anyhow",
  "api",
  "common",
  "controller",
  "opentelemetry",
- "opentelemetry_sdk",
  "rustls",
  "tokio",
  "trace",
  "tracing",
- "tracing-actix-web",
- "tracing-opentelemetry",
- "tracing-subscriber",
- "utoipa",
- "utoipa-actix-web",
- "utoipa-scalar",
 ]
 
 [[package]]

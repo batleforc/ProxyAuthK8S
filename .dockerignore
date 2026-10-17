@@ -26,3 +26,4 @@ tmp
 # Only the runtime files the front image copies from /deploy.
 !/deploy/build/front/nginx.conf
 !/deploy/build/front/env.sh
+!/deploy/build/front/15-csp.envsh

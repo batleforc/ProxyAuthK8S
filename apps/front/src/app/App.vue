@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { RouterView } from 'vue-router';
-import { useAuthStore } from '../store/auth.ts';
-import Nav from '../component/nav/nav.vue';
 import { onMounted, ref } from 'vue';
-import MazSpinner from 'maz-ui/components/MazSpinner';
+import { RouterView } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import { useAuthStore } from '../store/auth.ts';
+import AppLayout from '../layouts/AppLayout.vue';
+import { Skeleton } from '@/components/ui/skeleton';
 
+const { t } = useI18n();
 const authStore = useAuthStore();
 const isInitializing = ref(true);
 
@@ -17,45 +19,18 @@ onMounted(async () => {
 </script>
 
 <template>
-  <Nav />
-
-  <!-- Loading state while auth is initializing -->
-  <div
-    v-if="isInitializing"
-    class="app-loading"
-  >
-    <div class="loading-content">
-      <MazSpinner
-        size="3rem"
-        color="primary"
-      />
-      <p class="loading-text">
-        Initialisation en cours...
+  <AppLayout>
+    <section
+      v-if="isInitializing"
+      class="px-4 py-10 sm:px-6"
+      :aria-label="t('app.initializing')"
+      aria-busy="true"
+    >
+      <p class="mb-4 text-xs uppercase tracking-[0.1em] text-muted-foreground">
+        {{ t('app.initializing') }}
       </p>
-    </div>
-  </div>
-
-  <!-- Main app content -->
-  <RouterView v-else />
+      <Skeleton :lines="3" />
+    </section>
+    <RouterView v-else />
+  </AppLayout>
 </template>
-
-<style scoped>
-.app-loading {
-  min-height: calc(100vh - 80px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-}
-
-.loading-content {
-  text-align: center;
-  color: #f1f5f9;
-}
-
-.loading-text {
-  margin-top: 1rem;
-  font-size: 1.125rem;
-  color: #94a3b8;
-}
-</style>

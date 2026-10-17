@@ -10,9 +10,20 @@ Le dashboard sert à **découvrir** les clusters auxquels vous avez accès et à
 quoi vous y connecter (jetons, kubeconfig, commandes du plugin kubectl). Il ne remplace pas
 `kubectl` : les appels à l'API Kubernetes passent ensuite directement par le proxy.
 
+![Choisir un cluster, changer de thème, copier son URL](/screenshots/flow.gif)
+
+| Vue | Sombre | Clair |
+| --- | --- | --- |
+| Accueil | ![Accueil, thème sombre](/screenshots/home-dark.png) | ![Accueil, thème clair](/screenshots/home-light.png) |
+| Clusters | ![Clusters, thème sombre](/screenshots/clusters-dark.png) | ![Clusters, thème clair](/screenshots/clusters-light.png) |
+| CLI | ![CLI, thème sombre](/screenshots/cli-dark.png) | ![CLI, thème clair](/screenshots/cli-light.png) |
+| Connexion à un cluster | ![Callback, thème sombre](/screenshots/callback-dark.png) | ![Callback, thème clair](/screenshots/callback-light.png) |
+
+Les captures sont régénérées par `task ui:screenshots` (API simulée, Chromium).
+
 ## Se connecter
 
-Sur la page d'accueil, **Commencer maintenant** redirige vers le provider OIDC configuré pour le
+Sur la page d'accueil, **Se connecter** redirige vers le provider OIDC configuré pour le
 dashboard. Au retour (`/auth/callback`), la session est conservée dans le `sessionStorage` du
 navigateur : elle est propre à l'onglet et disparaît à sa fermeture.
 
@@ -26,17 +37,22 @@ Une fois connecté, la page d'accueil liste les clusters visibles. Un cluster ap
 Si la liste est vide alors que vous attendiez un cluster, c'est l'une de ces deux conditions qui
 manque : voyez avec l'administrateur.
 
-Chaque carte affiche le nom, le namespace, l'URL du cluster via le proxy
-(`https://<dashboard>/clusters/<namespace>/<nom>`, copiable) et un statut :
+Les clusters forment un tableau : statut, nom, namespace et SSO. **Sélectionner** affiche sous
+le tableau le détail du cluster choisi : son URL via le proxy
+(`https://<dashboard>/clusters/<namespace>/<nom>`, copiable) et l'action **Se connecter au
+cluster**, la seule action pleine de la page.
 
-| Statut           | Signification                                                     |
-| ---------------- | ----------------------------------------------------------------- |
-| **Disponible**   | Le controller a joint l'apiserver                                 |
-| **Injoignable**  | Le controller n'arrive pas à joindre l'apiserver                  |
-| **Désactivé**    | `enabled: false` sur le `ProxyKubeApi`                            |
-| **État inconnu** | Le controller n'a pas encore évalué le cluster                    |
+Le statut se lit de trois façons à la fois, motif, mot et teinte : il reste lisible en niveaux
+de gris comme au lecteur d'écran.
 
-Le bouton **Accéder au cluster** est désactivé pour un cluster injoignable ou désactivé.
+| Statut           | Motif                         | Teinte    | Signification                                    |
+| ---------------- | ----------------------------- | --------- | ------------------------------------------------ |
+| **Disponible**   | trame fine 3×3                | encre     | Le controller a joint l'apiserver                |
+| **Injoignable**  | trame grossière 2×2           | cramoisi  | Le controller n'arrive pas à joindre l'apiserver |
+| **Désactivé**    | aucun motif, filet pointillé  | encre atténuée | `enabled: false` sur le `ProxyKubeApi`      |
+| **État inconnu** | trame grossière 2×2, 3 sur 4  | cuivre    | Le controller n'a pas encore évalué le cluster   |
+
+**Se connecter au cluster** est désactivé pour un cluster injoignable ou désactivé.
 
 ## Accéder à un cluster SSO
 
@@ -44,17 +60,18 @@ Pour un cluster dont `auth_config.oidc_provider` est activé, **Accéder au clus
 login OIDC propre à ce cluster (son propre client OIDC), puis revient sur
 `/auth/callback/<namespace>/<nom>`. La page affiche alors :
 
-- **Informations du Cluster** : nom, namespace, URL ;
-- **Tokens d'Authentification** : `access_token`, `id_token` et, s'il existe, `refresh_token`,
+- **Cluster** : nom, namespace, URL, utilisateur et statut ;
+- **Tokens** : `access_token`, `id_token` et, s'il existe, `refresh_token`,
   chacun copiable ;
-- **Configuration Kubernetes** : deux kubeconfigs à télécharger ou copier.
+- **Configuration Kubernetes**, en trois onglets : deux kubeconfigs à télécharger ou copier,
+  puis les commandes du plugin.
   - le **kubeconfig** simple, qui embarque l'`id_token` : prêt à l'emploi, mais valable
     seulement jusqu'à l'expiration du jeton ;
   - le **kubeconfig plugin**, dont l'utilisateur appelle `kubectl proxyauth get-token` : le
     jeton est lu à chaque appel dans le trousseau du plugin. C'est ce qu'écrit aussi
     `kubectl proxyauth login`, qui reste la solution recommandée.
-- les étapes pour installer et configurer le [plugin kubectl](/docs/kubectl-plugin) avec ces
-  jetons.
+- l'onglet **Plugin CLI** : les étapes pour installer et configurer le
+  [plugin kubectl](/docs/kubectl-plugin) avec ces jetons.
 
 <Callout type="warn">
 Ces jetons donnent accès au cluster : ne les collez pas dans un ticket ou un chat. Pour les
@@ -82,6 +99,51 @@ L'entrée **CLI** du menu (`/cli`) rassemble le guide d'installation et d'usage 
 
 ## La page À propos
 
-`/about` est publique (accessible sans être connecté, c'est la cible des boutons « En savoir
-plus » de l'accueil). Elle présente le projet et renvoie vers cette documentation, la page du
-plugin kubectl, la référence interactive de l'API du serveur (`/api/docs`) et le dépôt GitHub.
+`/about` est publique (accessible sans être connecté, c'est la cible du lien de l'accueil). Elle
+présente le projet et renvoie vers cette documentation, la page du plugin kubectl, la page
+[architecture](/docs/architecture), la référence interactive de l'API du serveur (`/api/docs`) et
+le dépôt GitHub.
+
+## Apparence et langue
+
+Le bouton **Réglages** de l'en-tête ouvre deux choix à trois états :
+
+| Réglage | Valeurs | Défaut |
+| ------- | ------- | ------ |
+| Thème   | Système, Clair, Sombre | Système : suit l'appareil |
+| Langue  | Système, English, Français | Système : suit le navigateur, sinon l'anglais |
+
+Le navigateur retient la **préférence** (`localStorage`, clés `pak.theme` et `pak.locale`), pas
+la valeur résolue : « Système » suit encore l'appareil si celui-ci change. Le thème est appliqué
+avant le premier affichage, sans flash. En navigation privée, les réglages valent pour l'onglet.
+
+L'interface suit le design system BatleHub (« The Proof Sheet ») : polices servies par le
+dashboard lui-même (aucune requête vers un tiers), contraste WCAG 2.2 AA vérifié par axe dans
+les deux thèmes, navigation complète au clavier avec un anneau de focus ambre, et les messages
+(copie, erreurs) lus par les lecteurs d'écran. Le détail propre à ProxyAuthK8S est dans
+`apps/front/DESIGN.md`.
+
+## Déploiement : en-têtes et CSP
+
+L'image du dashboard sert ces en-têtes sur chaque réponse :
+
+- `Content-Security-Policy` : `default-src 'self'`, un seul script inline autorisé par son hash
+  (le choix du thème), `style-src 'self'`, polices et images locales,
+  `frame-ancestors 'none'`, `base-uri 'none'` ;
+- `X-Content-Type-Options: nosniff` et `Referrer-Policy: no-referrer`.
+
+`connect-src` et `frame-src` sont construits **au démarrage** à partir des variables déjà
+utilisées par l'image : l'origine de `PROXYAUTHK8S_FRONT_API_BASE_URL` (API) et celle de
+`PROXYAUTHK8S_FRONT_OIDC_ISSUER_URL` (IdP, aussi pour le renouvellement silencieux). Le chart
+Helm les remplit.
+
+<Callout type="warn">
+Chaque valeur doit être une URL `http(s)://` au format strict, ou un chemin de même origine
+comme `/api` (le défaut documenté), qui n'ajoute rien à `'self'`. Une valeur malformée **empêche
+le conteneur de démarrer** : elle ne peut pas élargir la politique. `http://` est accepté (le
+chart le pose quand l'ingress n'a pas de TLS), avec un avertissement dans les logs : les
+tokens circulent alors en clair. Une variable absente laisse la
+directive à `'self'`, et les appels vers cette origine sont alors bloqués par le navigateur
+(visible dans sa console) : renseignez l'URL de l'API et de l'IdP si le dashboard ne les sert
+pas lui-même.
+</Callout>

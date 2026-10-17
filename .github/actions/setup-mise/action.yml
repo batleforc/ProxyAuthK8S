@@ -1,0 +1,33 @@
+name: Install mise
+description: >-
+  Installs the mise CLI itself and puts it on PATH. Every job that needs
+  mise-managed tooling (rust, go, task, helm, kind, cocogitto, ...) runs
+  this first, then its own `mise install` for the tools mise.toml actually
+  declares — kept as one composite action so the bootstrap step doesn't
+  drift across the CI/E2E/release/publish workflows.
+runs:
+  using: composite
+  steps:
+    # A pinned release, checked against its published SHA-256 (from the
+    # release's SHASUMS256.txt): never `curl | sh` of a moving installer.
+    - name: Install mise
+      shell: bash
+      env:
+        MISE_VERSION: v2026.10.3
+        MISE_SHA256_X64: 04147c68e946902f5226dfdcd54d19907aed3cf54d95b2f27d2b9c778bb26f9e
+        MISE_SHA256_ARM64: e79866e32624b346f6854d93ca8a24294516cd7c0b48ce0e80af508fb7c3d8b8
+      run: |
+        set -euo pipefail
+        case "$(uname -m)" in
+          x86_64) arch=x64; sum="$MISE_SHA256_X64" ;;
+          aarch64 | arm64) arch=arm64; sum="$MISE_SHA256_ARM64" ;;
+          *) echo "::error::unsupported runner architecture $(uname -m)" >&2; exit 1 ;;
+        esac
+        tarball="$RUNNER_TEMP/mise.tar.gz"
+        curl -fsSLo "$tarball" \
+          "https://github.com/jdx/mise/releases/download/${MISE_VERSION}/mise-${MISE_VERSION}-linux-${arch}.tar.gz"
+        echo "${sum}  ${tarball}" | sha256sum -c -
+        mkdir -p "$HOME/.local/bin"
+        tar -xzf "$tarball" -C "$RUNNER_TEMP" mise/bin/mise
+        install -m 0755 "$RUNNER_TEMP/mise/bin/mise" "$HOME/.local/bin/mise"
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"

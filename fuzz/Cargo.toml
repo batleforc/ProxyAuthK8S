@@ -8,6 +8,7 @@ name = "proxyauthk8s-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
+license = "MIT"
 
 [package.metadata]
 cargo-fuzz = true
@@ -15,7 +16,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4.13"
 arbitrary = { version = "1.5.0", features = ["derive"] }
-api = { path = "../libs/server/api" }
+api = { path = "../libs/server/api", default-features = false }
 crd = { path = "../libs/server/crd" }
 
 [[bin]]

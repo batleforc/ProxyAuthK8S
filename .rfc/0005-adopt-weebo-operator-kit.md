@@ -661,3 +661,35 @@ Aucune.
 Chaque phase laisse la CI verte. Le contrôle T1 (checksum) arrive en phase 1,
 avec le premier include distant qu'il protège ; le contrôle T8 (outils
 obligatoires) arrive dans la même phase que les tâches qui les appellent.
+
+---
+
+## 17. Implementation notes
+
+Phase 1 (2026-10-17) :
+
+- Includes épinglés sur **v0.17.0**, pas sur la release de la phase 0 :
+  `tasks/rust.yaml` et `tasks/repo.yaml` sont identiques entre v0.17.0 et la
+  PR de la phase 0 (mêmes sha256), et un tag qui n'existe pas encore ferait
+  échouer le chargement de tout le Taskfile. `kit:sync` (phase 4) ne
+  déplacera que le tag.
+- `deny.toml` reprend les deux exceptions de `.cargo/audit.toml` (supprimé avec
+  `cargo-audit`) : RUSTSEC-2023-0071 (`rsa`) et RUSTSEC-2026-0258 (`h2` 0.3
+  d'actix, retiré par la RFC 0007). `unmaintained = "workspace"` : les crates
+  non maintenus transitifs (`unsafe-libyaml`, `zvariant`, `zbus_names`) sont
+  signalés sans bloquer, comme `cargo audit` le faisait. `inout` yanked :
+  `cargo update -p inout`. Les crates du dépôt déclarent `license = "MIT"`
+  (le dépôt l'est déjà). `libfuzzer-sys` (NCSA) en exception, workspace
+  `fuzz/` seulement.
+- `clippy --workspace --all-targets -D warnings` était déjà propre.
+- hadolint : DL3018 (versions `apk` non épinglées) ignoré en ligne sur l'image
+  back, la base `alpine:3` étant flottante.
+- actionlint : `.github/actionlint.yaml` exclut `.github/workflows/.bck/`
+  (workflows retirés, jamais exécutés par GitHub), comme le faisait
+  `lint:actions` ; `SHELLCHECK_OPTS=--severity=warning` posé au niveau du
+  Taskfile.
+- CI : `.github/actions/setup-mise` (repris de weebo-forgejo, mise épinglé et
+  vérifié par sha256) ; `back-clippy` garde son rapport SARIF et gagne un pas
+  bloquant `task rust:lint` ; `back-dep-audit` lance `task rust:audit
+  audit:fuzz` ; nouveau `repo-checks.yaml` pour `repo:lint` et `repo:audit`.
+  Chaque job n'installe que ses outils (`MISE_EXEC_AUTO_INSTALL=false`).

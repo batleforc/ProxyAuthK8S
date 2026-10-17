@@ -13,6 +13,11 @@ and makes it easy to share kubeconfig files between users and teams.
 
 ![ProxyAuthK8s Demo](.docs/public/demo-1.gif)
 
+![The dashboard: pick a cluster, switch the theme, copy its proxy URL](.docs/public/screenshots/flow.gif)
+
+More screenshots, in both themes, on the
+[Dashboard page](https://batleforc.github.io/ProxyAuthK8S/docs/ui) of the documentation.
+
 ## Features
 
 - **One entry point for many clusters**: each target cluster is a `ProxyKubeApi`
@@ -26,7 +31,9 @@ and makes it easy to share kubeconfig files between users and teams.
   limiting, fail2login and an audit event per proxied request.
 - **Virtual APIs**, such as OpenShift project discovery
   ([virtual APIs](https://batleforc.github.io/ProxyAuthK8S/docs/virtual-apis)).
-- **Web UI** listing the clusters you can reach and their kubeconfig.
+- **Web UI** listing the clusters you can reach and their kubeconfig, on the BatleHub
+  design system: light and dark themes, English and French, WCAG 2.2 AA, and a strict
+  Content-Security-Policy built at container start.
 
 ## Install
 
