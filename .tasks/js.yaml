@@ -1,0 +1,30 @@
+version: "3"
+
+# Every JS package of the pnpm workspace exposes the same script names (dev,
+# build, typecheck, test, lint). These tasks aggregate them with
+# `pnpm -r --if-present`: a package without the script is skipped, and a new
+# package listed in pnpm-workspace.yaml is covered without editing this file.
+
+tasks:
+  lint:
+    desc: "Lint every JS package of the workspace (pnpm -r run lint)"
+    cmds:
+      - pnpm -r --if-present run lint
+  typecheck:
+    desc: "Type-check every JS package of the workspace (pnpm -r run typecheck)"
+    cmds:
+      - pnpm -r --if-present run typecheck
+  test:
+    desc: "Run the tests of every JS package of the workspace (pnpm -r run test)"
+    cmds:
+      - pnpm -r --if-present run test
+  build:
+    desc: "Build every JS package of the workspace (pnpm -r run build)"
+    cmds:
+      - pnpm -r --if-present run build
+  ci:
+    desc: "What the JS CI gates on: typecheck, test, then build every package"
+    cmds:
+      - task: typecheck
+      - task: test
+      - task: build

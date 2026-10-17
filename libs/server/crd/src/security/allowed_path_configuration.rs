@@ -8,6 +8,7 @@ use crate::security::path_matcher::{
     expand_parametised_patterns, path_equals, path_matches_pattern,
 };
 use crate::security::port_range::{PortPolicy, PortSpec};
+use crate::security::verb::{VERBS_RULE, Verb, validate_verbs};
 
 /// Mustache-like parameters (`{{username}}`, `{{group}}`) inside a configured path.
 /// Compiled once: the pattern is a literal, so it cannot fail to compile.
@@ -81,22 +82,43 @@ pub struct AllowedPathConfiguration {
     #[serde(default = "default_disabled")]
     pub parametised: bool,
 
-    /// Ports a port-forward session matched by this rule may open, as single
+    /// Ports this rule grants on the port-bearing paths it matches, as single
     /// ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
     ///
-    /// Only used for `.../pods/{name}/portforward` paths. When omitted, the rule
-    /// does not restrict ports. When several rules match a port-forward, their
-    /// ports are combined, and one rule without `allowed_ports` lifts the
-    /// restriction. An empty list allows no port at all.
+    /// Port-bearing paths are `.../pods/{name}/portforward`,
+    /// `.../pods/{name}:{port}/proxy` and `.../services/{name}:{port}/proxy`
+    /// (a Service port). Once any rule lists ports, every caller is restricted:
+    /// the ports of the matching rules that list some are combined, and a rule
+    /// without `allowed_ports` grants none. An empty list grants no port.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(length(max = 64))]
     pub allowed_ports: Option<Vec<PortSpec>>,
+
+    /// Kubernetes verbs this rule allows, computed as the apiserver does
+    /// (`get`, `list`, `watch`, `create`, `update`, `patch`, `delete`,
+    /// `deletecollection`, or `*` alone)
+    ///
+    /// Once any rule a caller is subject to lists verbs, a rule without
+    /// `verbs` only grants `get`, `list` and `watch`. `exec`, `attach` and
+    /// `portforward` are `create`; `allowed_ports` implies `create` on
+    /// `portforward`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(min = 1, max = 9), extend("x-kubernetes-validations" = [
+        serde_json::json!({
+            "rule": VERBS_RULE,
+            "message": "\"*\" already allows every verb and must stand alone",
+        }),
+    ]))]
+    pub verbs: Option<Vec<Verb>>,
 }
 
 impl AllowedPathConfiguration {
     pub fn validate(&self) -> Result<(), String> {
         for port in self.allowed_ports.iter().flatten() {
             port.range()?;
+        }
+        if let Some(verbs) = &self.verbs {
+            validate_verbs(verbs)?;
         }
         if self.parametised {
             // detect any mustache-like parameters
@@ -140,17 +162,14 @@ impl AllowedPathConfiguration {
         self.path.contains('*')
     }
 
-    /// The ports a port-forward matched by this rule may open.
+    /// The ports this rule grants, `None` when it lists none.
     ///
-    /// Invalid entries (refused by [`Self::validate`]) allow nothing.
+    /// Invalid entries (refused by [`Self::validate`]) grant nothing.
     #[must_use]
-    pub fn port_policy(&self) -> PortPolicy {
-        match &self.allowed_ports {
-            None => PortPolicy::Any,
-            Some(ports) => {
-                PortPolicy::Only(ports.iter().filter_map(|port| port.range().ok()).collect())
-            }
-        }
+    pub fn port_policy(&self) -> Option<PortPolicy> {
+        self.allowed_ports.as_ref().map(|ports| {
+            PortPolicy::Only(ports.iter().filter_map(|port| port.range().ok()).collect())
+        })
     }
 
     /// Check whether an upstream request path is allowed by this rule.
@@ -181,6 +200,7 @@ mod tests {
             path: path.to_string(),
             parametised,
             allowed_ports: None,
+            verbs: None,
         }
     }
 
@@ -298,6 +318,28 @@ mod tests {
                 cel_accepts, validate_accepts,
                 "CEL and validate() disagree on {path}"
             );
+        }
+    }
+
+    /// The CEL verb rules and `validate()` must agree.
+    #[test]
+    fn verbs_are_validated_like_admission() {
+        let schema = serde_json::to_value(schemars::schema_for!(AllowedPathConfiguration)).unwrap();
+        let verbs = &schema["properties"]["verbs"];
+        assert_eq!(verbs["minItems"], 1);
+        assert_eq!(verbs["maxItems"], 9);
+        assert_eq!(verbs["x-kubernetes-validations"][0]["rule"], VERBS_RULE);
+        for (verbs, ok) in [
+            (vec![Verb::Get], true),
+            (vec![Verb::All], true),
+            (vec![], false),
+            (vec![Verb::All, Verb::Delete], false),
+        ] {
+            let rule = AllowedPathConfiguration {
+                verbs: Some(verbs.clone()),
+                ..rule("/api/v1/pods", false)
+            };
+            assert_eq!(rule.validate().is_ok(), ok, "{verbs:?}");
         }
     }
 

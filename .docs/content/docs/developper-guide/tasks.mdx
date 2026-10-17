@@ -7,16 +7,32 @@ icon: SquareTerminal
 Toutes les commandes passent par [Task](https://taskfile.dev). `task --list` affiche la liste
 complète avec leur description ; cette page regroupe les plus utiles.
 
+## Workspace JS
+
+Le front, son client d'API et ce site forment un workspace pnpm de trois paquets
+(`pnpm-workspace.yaml`) : `@proxy-auth-k8s/front` (`apps/front`), `@proxy-auth-k8s/front-api`
+(`libs/front/front-api`, consommé en source) et `@proxy-auth-k8s/docs` (`.docs`). Un seul
+`pnpm install` à la racine installe les trois, avec un seul lockfile. Chaque paquet expose les
+mêmes noms de scripts (`dev`, `build`, `typecheck`, `test`, `lint`) ; les tâches `js:*` les
+lancent partout avec `pnpm -r --if-present`. Rien n'est hoisté : un paquet doit déclarer ce
+qu'il importe.
+
+Une version doit être publiée depuis 25 heures pour être installée (`minimumReleaseAge`), et
+seuls les paquets listés dans `allowBuilds` exécutent leurs scripts d'installation.
+
+Après la migration depuis Yarn et NX : supprimez `node_modules` et `.docs/node_modules`, puis
+lancez `task init`.
+
 ## Lancer le projet
 
 | Tâche          | Effet                                                              |
 | -------------- | ------------------------------------------------------------------ |
-| `task init`    | Prépare le projet (outils mise, plugins Claude, cargo-set-version, cargo-machete, `yarn install`) |
+| `task init`    | Prépare le projet (outils mise, plugins Claude, cargo-set-version, cargo-machete, `pnpm install`) |
 | `task service` | Démarre les services de dev en compose (Redis, Authelia/Keycloak, Traefik, OTel...) via Docker ou Podman ; `init:service` génère leurs clés |
 | `task back`    | Lance le serveur (`back:tls` derrière un terminateur TLS)          |
-| `task front`   | Lance le dashboard en mode dev (`front:tls` avec TLS)              |
+| `task front:dev` | Lance le dashboard en mode dev (`front:dev:tls` avec TLS)        |
 | `task aio`     | Back + front ensemble                                              |
-| `task docs`    | Lance ce site de documentation en local                            |
+| `task docs:dev` | Lance ce site de documentation en local (`docs:build` le construit) |
 | `task cli -- <args>` | Lance le plugin kubectl (`cli:login`, `cli:get-token`)       |
 | `task tmux:dev` | Session tmux avec tous les logs de dev (`tmux:kill` pour l'arrêter) |
 
@@ -53,19 +69,20 @@ Le Redis de test se règle avec `TEST_REDIS_URL` (défaut `redis://127.0.0.1:637
 | `task gen:crds-file`      | Régénère `deploy/crds.yaml` et le chart des CRD                         |
 | `task gen:swagger-file`   | Régénère `swagger.json` (et sa copie dans `.docs`)                      |
 | `task gen:client`         | Régénère les clients API : TypeScript (`front-api`) et Rust (`client_api`) |
-| `task gen:docs:api`       | Régénère les pages de [référence API](/docs/api) depuis `swagger.json`  |
+| `task docs:api`           | Régénère les pages de [référence API](/docs/api) depuis `swagger.json`  |
 | `task gen:docs:crd`       | Régénère la page [CRDs](/docs/crds)                                     |
 | `task gen:api-lint`       | Lint du spec OpenAPI avec Spectral                                     |
 | `task gen:tls*`           | Certificats auto-signés de dev (mkcert)                                |
 
-Après une modification d'API : `task gen:swagger-file && task gen:client && task gen:docs:api`.
+Après une modification d'API : `task gen:swagger-file && task gen:client && task docs:api`.
 
 ## Qualité, sécurité, dépendances
 
 | Tâche                | Effet                                                                 |
 | -------------------- | --------------------------------------------------------------------- |
-| `task lint`          | Tous les linters (`lint:rust`, `lint:all` pour nx, `lint:helm`)        |
-| `task audit`         | Audit CVE : `cargo audit`, `yarn npm audit`, `trivy` sur les images    |
+| `task lint`          | Tous les linters (`lint:rust`, `lint:helm`, `lint:actions`, `js:lint`, `fuzz:check`) |
+| `task js:ci`         | Typecheck, tests et build de tous les paquets JS (`js:lint`, `js:test`…) |
+| `task audit`         | Audit CVE : `cargo audit` (racine et `fuzz/`), `pnpm audit`, `trivy` sur les images |
 | `task tool:upgrade`  | Met à jour les dépendances dans les majeures actuelles (Rust, front, docs) |
 | `task bump`          | Incrémente la version (voir [Préparer une version](/docs/developper-guide/release)) |
 | `task template:*`    | Synchronise le projet avec son template (`diff`, `fetch`, `sync`)      |

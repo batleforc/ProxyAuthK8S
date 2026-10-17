@@ -8,6 +8,10 @@ pub struct ProxyKubeApiStatus {
     pub exposed: bool,
     pub path: Option<String>,
     pub error: Option<String>,
+    /// Rules whose meaning a port or verb restriction changes (see
+    /// `SecurityConfiguration::warnings`). They are still applied.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 impl ProxyKubeApiStatus {
@@ -17,6 +21,7 @@ impl ProxyKubeApiStatus {
             exposed,
             path,
             error,
+            warnings: Vec::new(),
         }
     }
     #[must_use]
@@ -29,6 +34,9 @@ impl ProxyKubeApiStatus {
     }
     #[must_use]
     pub fn equal(&self, other: &ProxyKubeApiStatus) -> bool {
-        self.exposed == other.exposed && self.path == other.path && self.error == other.error
+        self.exposed == other.exposed
+            && self.path == other.path
+            && self.error == other.error
+            && self.warnings == other.warnings
     }
 }

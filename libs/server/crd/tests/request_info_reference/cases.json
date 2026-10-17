@@ -1,0 +1,1447 @@
+[
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web/exec",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web/attach",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web/portforward",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web:80/proxy/x",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web/ephemeralcontainers",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web/eviction",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web/log",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/pods",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/status",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/finalize",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/apis/apps/v1/deployments",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/apis/apps/v1/namespaces/dev/deployments",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/apis/apps/v1/namespaces/dev/deployments/web/scale",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/nodes/n1/proxy/exec/dev/web/app",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/nodes/n1",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/watch/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/watch/pods/web",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/proxy/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/version",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/apis",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/apis/apps",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/apis/apps/v1",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/openapi/v3",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/healthz",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web/exe%63",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods%2Fweb",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/services/http:web:80/proxy",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/pods/web/exec",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/pods/web/attach",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/pods/web/portforward",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/pods/web:80/proxy/x",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/pods/web/ephemeralcontainers",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/pods/web/eviction",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/pods/web/log",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/pods",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/status",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/finalize",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/apis/apps/v1/deployments",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/apis/apps/v1/namespaces/dev/deployments",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/apis/apps/v1/namespaces/dev/deployments/web/scale",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/nodes/n1/proxy/exec/dev/web/app",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/nodes/n1",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/watch/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/watch/pods/web",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/proxy/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/version",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/apis",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/apis/apps",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/apis/apps/v1",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/openapi/v3",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/healthz",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/pods/web/exe%63",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/pods%2Fweb",
+  "query": ""
+ },
+ {
+  "method": "HEAD",
+  "path": "/api/v1/namespaces/dev/services/http:web:80/proxy",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/pods/web/exec",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/pods/web/attach",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/pods/web/portforward",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/pods/web:80/proxy/x",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/pods/web/ephemeralcontainers",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/pods/web/eviction",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/pods/web/log",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/pods",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/status",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/finalize",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/apis/apps/v1/deployments",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/apis/apps/v1/namespaces/dev/deployments",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/apis/apps/v1/namespaces/dev/deployments/web/scale",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/nodes/n1/proxy/exec/dev/web/app",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/nodes/n1",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/watch/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/watch/pods/web",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/proxy/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/version",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/apis",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/apis/apps",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/apis/apps/v1",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/openapi/v3",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/healthz",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/pods/web/exe%63",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/pods%2Fweb",
+  "query": ""
+ },
+ {
+  "method": "POST",
+  "path": "/api/v1/namespaces/dev/services/http:web:80/proxy",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/pods/web/exec",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/pods/web/attach",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/pods/web/portforward",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/pods/web:80/proxy/x",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/pods/web/ephemeralcontainers",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/pods/web/eviction",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/pods/web/log",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/pods",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/status",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/finalize",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/apis/apps/v1/deployments",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/apis/apps/v1/namespaces/dev/deployments",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/apis/apps/v1/namespaces/dev/deployments/web/scale",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/nodes/n1/proxy/exec/dev/web/app",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/nodes/n1",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/watch/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/watch/pods/web",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/proxy/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/version",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/apis",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/apis/apps",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/apis/apps/v1",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/openapi/v3",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/healthz",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/pods/web/exe%63",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/pods%2Fweb",
+  "query": ""
+ },
+ {
+  "method": "PUT",
+  "path": "/api/v1/namespaces/dev/services/http:web:80/proxy",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/pods/web/exec",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/pods/web/attach",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/pods/web/portforward",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/pods/web:80/proxy/x",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/pods/web/ephemeralcontainers",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/pods/web/eviction",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/pods/web/log",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/pods",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/status",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/finalize",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/apis/apps/v1/deployments",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/apis/apps/v1/namespaces/dev/deployments",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/apis/apps/v1/namespaces/dev/deployments/web/scale",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/nodes/n1/proxy/exec/dev/web/app",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/nodes/n1",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/watch/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/watch/pods/web",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/proxy/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/version",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/apis",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/apis/apps",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/apis/apps/v1",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/openapi/v3",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/healthz",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/pods/web/exe%63",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/pods%2Fweb",
+  "query": ""
+ },
+ {
+  "method": "PATCH",
+  "path": "/api/v1/namespaces/dev/services/http:web:80/proxy",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/pods/web/exec",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/pods/web/attach",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/pods/web/portforward",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/pods/web:80/proxy/x",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/pods/web/ephemeralcontainers",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/pods/web/eviction",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/pods/web/log",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/pods",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/status",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/finalize",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/apis/apps/v1/deployments",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/apis/apps/v1/namespaces/dev/deployments",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/apis/apps/v1/namespaces/dev/deployments/web/scale",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/nodes/n1/proxy/exec/dev/web/app",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/nodes/n1",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/watch/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/watch/pods/web",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/proxy/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/version",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/apis",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/apis/apps",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/apis/apps/v1",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/openapi/v3",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/healthz",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/pods/web/exe%63",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/pods%2Fweb",
+  "query": ""
+ },
+ {
+  "method": "DELETE",
+  "path": "/api/v1/namespaces/dev/services/http:web:80/proxy",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/pods/web/exec",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/pods/web/attach",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/pods/web/portforward",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/pods/web:80/proxy/x",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/pods/web/ephemeralcontainers",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/pods/web/eviction",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/pods/web/log",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/pods",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/status",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/finalize",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/apis/apps/v1/deployments",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/apis/apps/v1/namespaces/dev/deployments",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/apis/apps/v1/namespaces/dev/deployments/web/scale",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/nodes/n1/proxy/exec/dev/web/app",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/nodes/n1",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/watch/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/watch/pods/web",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/proxy/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/version",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/apis",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/apis/apps",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/apis/apps/v1",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/openapi/v3",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/healthz",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/pods/web/exe%63",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/pods%2Fweb",
+  "query": ""
+ },
+ {
+  "method": "OPTIONS",
+  "path": "/api/v1/namespaces/dev/services/http:web:80/proxy",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/pods/web/exec",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/pods/web/attach",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/pods/web/portforward",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/pods/web:80/proxy/x",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/pods/web/ephemeralcontainers",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/pods/web/eviction",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/pods/web/log",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/pods",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/status",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/finalize",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/apis/apps/v1/deployments",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/apis/apps/v1/namespaces/dev/deployments",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/apis/apps/v1/namespaces/dev/deployments/web/scale",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/nodes/n1/proxy/exec/dev/web/app",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/nodes/n1",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/watch/namespaces/dev/pods",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/watch/pods/web",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/proxy/namespaces/dev/pods/web",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/version",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/apis",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/apis/apps",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/apis/apps/v1",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/openapi/v3",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/healthz",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/pods/web/exe%63",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/pods%2Fweb",
+  "query": ""
+ },
+ {
+  "method": "TRACE",
+  "path": "/api/v1/namespaces/dev/services/http:web:80/proxy",
+  "query": ""
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "watch=true"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "watch=true"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "watch=TRUE"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "watch=TRUE"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "watch=1"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "watch=1"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "watch="
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "watch="
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "watch=yes&watch=0"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "watch=yes&watch=0"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "watch=false"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "watch=false"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "watch=0"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "watch=0"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "watch"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "watch"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "%77atch=1"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "%77atch=1"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "watch=False"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "watch=False"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "labelSelector=a%3Db&watch=1"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "labelSelector=a%3Db&watch=1"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods",
+  "query": "watch=true&resourceVersion=abc"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web",
+  "query": "watch=true&resourceVersion=abc"
+ },
+ {
+  "method": "GET",
+  "path": "/api/v1/namespaces/dev/pods/web/exec",
+  "query": "command=sh"
+ }
+]

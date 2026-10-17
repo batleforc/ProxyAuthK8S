@@ -1,4 +1,7 @@
-//! Port filtering for `pods/{name}/portforward` sessions.
+//! Port filtering for the paths that open a container, Service or node port.
+//!
+//! [`port_target`] classifies every upstream path once; then, for
+//! `pods/{name}/portforward` sessions:
 //!
 //! Where the ports travel depends on the websocket subprotocol the upstream
 //! accepts:
@@ -36,27 +39,74 @@ const SPDY_VERSION: u16 = 3;
 const SPDY_SYN_STREAM: u16 = 1;
 const SPDY_HEADERS: u16 = 8;
 
-/// Whether `path` (the upstream path, without query) is a pod port-forward.
+/// Which port, if any, a request to an upstream path opens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PortTarget {
+    /// The path opens no port.
+    None,
+    /// `pods/{name}/portforward`: ports in the query or the SPDY headers.
+    PortForward,
+    /// `pods/[scheme:]{name}:{port}/proxy[/...]` (a container port) or
+    /// `services/[scheme:]{name}:{port}/proxy[/...]` (a Service port).
+    ProxyPort(u16),
+    /// A `proxy` subresource whose port is named, absent or unreadable: the
+    /// proxy cannot tell which port it reaches.
+    ProxyNamedOrMissing,
+    /// `nodes/{node}[:{port}]/proxy[/...]`: the kubelet API itself.
+    NodeProxy,
+}
+
+/// Classify `path` (the upstream path, without query).
 ///
-/// Segments are decoded the way the apiserver decodes them, so an encoded
-/// `portforwar%64` is still recognised.
-pub(super) fn is_port_forward_path(path: &str) -> bool {
-    let segments: Vec<String> = path
+/// Segments are decoded once, the way the apiserver decodes them, so an
+/// encoded `portforwar%64` or `web%3A5432` is still recognised, while a
+/// doubly encoded `web%253A5432` reaches it as a name without a port.
+pub fn port_target(path: &str) -> PortTarget {
+    let decoded: Vec<String> = path
         .split('/')
         .filter(|segment| !segment.is_empty())
         .map(percent_decode_once)
         .collect();
-    matches!(
-        segments.as_slice(),
-        [.., pods, _, portforward] if pods == "pods" && portforward == "portforward"
-    )
+    let segments: Vec<&str> = decoded.iter().map(String::as_str).collect();
+    match segments.as_slice() {
+        [
+            "api",
+            _,
+            "namespaces",
+            _,
+            "pods" | "services",
+            name,
+            "proxy",
+            ..,
+        ] => proxy_port(name),
+        ["api", _, "nodes", _, "proxy", ..] => PortTarget::NodeProxy,
+        [.., "pods", _, "portforward"] => PortTarget::PortForward,
+        _ => PortTarget::None,
+    }
 }
 
-/// Check the ports a port-forward asks for in its query string.
+/// The port of a `[scheme:]name[:port]` proxy segment, as the apiserver splits
+/// it: two parts are `name:port`, three are `scheme:name:port`.
+fn proxy_port(segment: &str) -> PortTarget {
+    let port = match segment.split(':').collect::<Vec<_>>().as_slice() {
+        [_, port] | [_, _, port] => *port,
+        _ => return PortTarget::ProxyNamedOrMissing,
+    };
+    parse_port(port).map_or(PortTarget::ProxyNamedOrMissing, PortTarget::ProxyPort)
+}
+
+/// Whether `path` (the upstream path, without query) is a pod port-forward.
+pub(super) fn is_port_forward_path(path: &str) -> bool {
+    port_target(path) == PortTarget::PortForward
+}
+
+/// Check the ports a port-forward asks for in its query string, returning
+/// them when they are all allowed.
 ///
 /// The apiserver reads `ports`, the kubelet `port`; both are checked, each
 /// value may be a comma-separated list, as the kubelet accepts.
-pub(super) fn check_query_ports(query: &str, policy: &PortPolicy) -> Result<(), String> {
+pub(super) fn check_query_ports(query: &str, policy: &PortPolicy) -> Result<Vec<u16>, String> {
+    let mut ports = Vec::new();
     for pair in query.split('&') {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
         let key = percent_decode_once(&key.replace('+', " "));
@@ -65,19 +115,25 @@ pub(super) fn check_query_ports(query: &str, policy: &PortPolicy) -> Result<(), 
         }
         let value = percent_decode_once(&value.replace('+', " "));
         for port in value.split(',') {
-            check_port(port, policy)?;
+            ports.push(check_port(port, policy)?);
         }
     }
-    Ok(())
+    Ok(ports)
 }
 
-fn check_port(value: &str, policy: &PortPolicy) -> Result<(), String> {
-    let port = Some(value)
+/// A port written as ASCII digits that fits a non-zero `u16`; digits only,
+/// since `u16::from_str` would also accept a leading `+`.
+fn parse_port(value: &str) -> Option<u16> {
+    Some(value)
         .filter(|v| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
         .and_then(|v| v.parse::<u16>().ok())
-        .ok_or_else(|| format!("port \"{value}\" is not a valid port"))?;
+        .filter(|port| *port > 0)
+}
+
+fn check_port(value: &str, policy: &PortPolicy) -> Result<u16, String> {
+    let port = parse_port(value).ok_or_else(|| format!("port \"{value}\" is not a valid port"))?;
     if policy.allows(port) {
-        Ok(())
+        Ok(port)
     } else {
         Err(format!("port {port} is not allowed on this cluster"))
     }
@@ -135,6 +191,11 @@ impl PortForwardFilter {
     pub(super) fn inspect(&mut self, chunk: &[u8]) -> Result<(), String> {
         let spdy = &mut self.spdy;
         self.websocket.decode(chunk, |payload| spdy.feed(payload))
+    }
+
+    /// Ports opened since the last call, each reported once per session.
+    pub(super) fn take_opened(&mut self) -> Vec<u16> {
+        std::mem::take(&mut self.spdy.opened)
     }
 }
 
@@ -272,6 +333,10 @@ fn header_len(second: u8) -> usize {
 /// SPDY/3 frame reader over the tunnelled byte stream (draft 3, §2.2).
 struct SpdyInspector {
     policy: PortPolicy,
+    /// Allowed ports not yet reported, and every port reported so far: kubectl
+    /// opens a data and an error stream per port, both naming it.
+    opened: Vec<u16>,
+    reported: Vec<u16>,
     header: Vec<u8>,
     state: SpdyState,
     decompress: Decompress,
@@ -293,6 +358,8 @@ impl SpdyInspector {
     fn new(policy: PortPolicy) -> Self {
         Self {
             policy,
+            opened: Vec::new(),
+            reported: Vec::new(),
             header: Vec::with_capacity(8),
             state: SpdyState::Header,
             decompress: Decompress::new(true),
@@ -374,7 +441,11 @@ impl SpdyInspector {
         // shared zlib context in step with the upstream's.
         let headers = self.inflate(block)?;
         for value in port_header_values(&headers)? {
-            check_port(value, &self.policy)?;
+            let port = check_port(value, &self.policy)?;
+            if !self.reported.contains(&port) {
+                self.reported.push(port);
+                self.opened.push(port);
+            }
         }
         Ok(())
     }
@@ -580,11 +651,67 @@ mod tests {
     }
 
     #[test]
+    fn port_target_classifies_every_port_bearing_path() {
+        use PortTarget::{NodeProxy, None as NoPort, PortForward, ProxyNamedOrMissing, ProxyPort};
+        const NS: &str = "/api/v1/namespaces/dev";
+        let cases = [
+            (format!("{NS}/pods/web/portforward"), PortForward),
+            (format!("{NS}/pods/web:8080/proxy"), ProxyPort(8080)),
+            (
+                format!("{NS}/pods/web:8080/proxy/metrics/x"),
+                ProxyPort(8080),
+            ),
+            (format!("{NS}/pods/https:web:8443/proxy/"), ProxyPort(8443)),
+            (format!("{NS}/services/web:80/proxy"), ProxyPort(80)),
+            (format!("{NS}/services/http:web:80/proxy/a"), ProxyPort(80)),
+            // Decoded once, like the apiserver.
+            (format!("{NS}/pods/web%3A5432/proxy"), ProxyPort(5432)),
+            (format!("{NS}/pods/web%3a5432/prox%79"), ProxyPort(5432)),
+            // Doubly encoded: the apiserver sees a name without a port.
+            (format!("{NS}/pods/web%253A5432/proxy"), ProxyNamedOrMissing),
+            // Named, missing, empty, too many parts, out of range, not ASCII.
+            (format!("{NS}/services/web:http/proxy"), ProxyNamedOrMissing),
+            (format!("{NS}/pods/web/proxy"), ProxyNamedOrMissing),
+            (format!("{NS}/pods/web:/proxy"), ProxyNamedOrMissing),
+            (format!("{NS}/pods/a:b:c:80/proxy"), ProxyNamedOrMissing),
+            (format!("{NS}/pods/web:0/proxy"), ProxyNamedOrMissing),
+            (format!("{NS}/pods/web:65536/proxy"), ProxyNamedOrMissing),
+            (format!("{NS}/pods/web:+80/proxy"), ProxyNamedOrMissing),
+            (format!("{NS}/pods/web:８０/proxy"), ProxyNamedOrMissing),
+            (
+                "/api/v1/nodes/n1/proxy/portForward/dev/web".to_string(),
+                NodeProxy,
+            ),
+            (
+                "/api/v1/nodes/n1:10250/proxy/exec/dev/web/c".to_string(),
+                NodeProxy,
+            ),
+            ("/api/v1/nodes/n1/prox%79".to_string(), NodeProxy),
+            // Not port-bearing.
+            (format!("{NS}/pods/web"), NoPort),
+            (format!("{NS}/pods/web/log"), NoPort),
+            (format!("{NS}/pods/web/exec"), NoPort),
+            (format!("{NS}/configmaps/web:80/proxy"), NoPort),
+            ("/api/v1/nodes/n1".to_string(), NoPort),
+            (
+                "/apis/apps/v1/namespaces/dev/deployments/web".to_string(),
+                NoPort,
+            ),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(port_target(&path), expected, "{path}");
+        }
+    }
+
+    #[test]
     fn query_ports_are_checked_in_both_spellings() {
         let policy = only(&[8080, 9090]);
-        assert!(check_query_ports("ports=8080&ports=9090", &policy).is_ok());
+        assert_eq!(
+            check_query_ports("ports=8080&ports=9090", &policy),
+            Ok(vec![8080, 9090])
+        );
         assert!(check_query_ports("ports=8080,9090", &policy).is_ok());
-        assert!(check_query_ports("timeout=5s", &policy).is_ok());
+        assert_eq!(check_query_ports("timeout=5s", &policy), Ok(vec![]));
         assert!(check_query_ports("ports=8080&ports=22", &policy).is_err());
         assert!(check_query_ports("port=22", &policy).is_err());
         assert!(check_query_ports("port%73=22", &policy).is_err());
@@ -636,6 +763,21 @@ mod tests {
         let denied = syn_stream(&mut compressor, 3, "22");
         let err = filter.inspect(&binary(&denied)).unwrap_err();
         assert!(err.contains("22"), "{err}");
+    }
+
+    /// Each opened port is reported once, though kubectl names it on both its
+    /// data and error streams.
+    #[test]
+    fn opened_ports_are_reported_once() {
+        let mut compressor = HeaderCompressor::new();
+        let mut filter = PortForwardFilter::new(only(&[8080, 9090]));
+        for (stream_id, port) in [(1, "8080"), (3, "8080"), (5, "9090")] {
+            filter
+                .inspect(&binary(&syn_stream(&mut compressor, stream_id, port)))
+                .unwrap();
+        }
+        assert_eq!(filter.take_opened(), vec![8080, 9090]);
+        assert!(filter.take_opened().is_empty());
     }
 
     #[test]

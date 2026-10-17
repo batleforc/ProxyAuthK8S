@@ -149,3 +149,55 @@ async fn an_allow_list_covering_both_paths_lets_the_request_through() {
 
     delete_proxy(&pool, &ns, &cluster).await;
 }
+
+/// RFC 0006 T5: the verb is checked on the rewritten request too. Every verb
+/// on projects does not open a `DELETE` on the namespace it maps to when
+/// namespaces are read-only.
+#[actix_web::test]
+async fn the_verb_is_checked_on_the_mapped_request_too() {
+    use crd::security::{AllowedPathConfiguration, AllowedPathConfigurationEnum, Verb};
+    let pool = redis_or_skip!();
+    let upstream = MockServer::start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .mount(&upstream)
+        .await;
+
+    let rule = |path: &str, verbs: &[Verb]| {
+        AllowedPathConfigurationEnum::Path(AllowedPathConfiguration {
+            path: path.to_string(),
+            parametised: true,
+            allowed_ports: None,
+            verbs: Some(verbs.to_vec()),
+        })
+    };
+    let (ns, cluster) = unique_cluster();
+    let mut proxy = proxy_fixture(&ns, &cluster, &upstream.uri());
+    with_virtual_api(&mut proxy, VirtualApiKind::OpenShiftProject);
+    let mut config = security_config(vec![]);
+    config.allowed_resources = vec![
+        rule("/apis/project.openshift.io/v1/projects/**", &[Verb::All]),
+        rule("/api/v1/namespaces/**", &Verb::READ),
+    ];
+    proxy.spec.security_config = Some(config);
+    seed_proxy(&pool, &proxy).await;
+
+    let app = proxy_app!(test_state(upstream.uri()));
+    let req = test::TestRequest::delete()
+        .uri(&format!(
+            "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects/team-a"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert!(
+        upstream
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty(),
+        "the namespace delete reached the cluster"
+    );
+    delete_proxy(&pool, &ns, &cluster).await;
+}

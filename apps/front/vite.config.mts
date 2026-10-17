@@ -15,6 +15,9 @@ if (process.env.VITE_TLS_ENABLE === 'true') {
 
 export default defineConfig(() => ({
   root: import.meta.dirname,
+  // The repository's .env files (dev values, .env.production placeholders that
+  // env.sh fills at startup), which nx used to load for every task.
+  envDir: '../../',
   cacheDir: '../../node_modules/.vite/apps/front',
   server: {
     port: 4200,
@@ -32,14 +35,6 @@ export default defineConfig(() => ({
     host: 'localhost',
   },
   plugins: [vue()],
-  // Mirrors the `paths` of tsconfig.base.json; replaces the deprecated
-  // `nxViteTsPaths` plugin. An explicit alias rather than Vite's
-  // `resolve.tsconfigPaths`, which `vi.mock` of the package does not follow.
-  resolve: {
-    alias: {
-      '@proxy-auth-k8s/front-api': `${import.meta.dirname}/../../libs/front/front-api/src/index.ts`,
-    },
-  },
   test: {
     name: 'front',
     environment: 'jsdom',

@@ -468,9 +468,10 @@ Migration : renommez le champ dans vos `ProxyKubeApi`, le champ déprécié disp
 prochaine version majeure.
 </Callout>
 
-### Ports autorisés pour le port-forward
+### Ports autorisés
 
-Une règle `Path` peut limiter les ports qu'un `kubectl port-forward` est autorisé à ouvrir :
+`allowed_ports` limite les ports qu'un utilisateur peut ouvrir, sur une règle `Path` ou sur une
+règle `Crd` de kind `Pod` ou `Service` :
 
 ```yaml
 security_config:
@@ -480,35 +481,161 @@ security_config:
         path: /api/v1/namespaces/dev/pods/*/portforward
         parametised: true
         allowed_ports: ["8080", "9000-9100"]
+    - Crd:
+        group: ""
+        version: v1
+        kind: Service
+        plural: services
+        namespace: { enabled: true, rule_kind: { AllowedNamespaces: ["dev"] } }
+        allowed_ports: ["80"]
 ```
 
-- `allowed_ports` accepte des ports seuls (`"8080"`) ou des plages inclusives (`"9000-9100"`),
-  entre 1 et 65535. Il n'est lu que pour les chemins `.../pods/{nom}/portforward`.
-  L'admission refuse un port hors bornes (`"0"`, `"70000"`) ou une plage inversée
-  (`"200-100"`) ; une telle entrée déjà stockée est signalée dans le statut et n'autorise
-  aucun port.
-- Sans `allowed_ports`, la règle ne restreint pas les ports. Quand plusieurs règles
-  correspondent, leurs ports s'additionnent, et **une seule règle sans `allowed_ports` lève la
-  restriction** (y compris une règle `Crd` ou un `**` plus large) : gardez les règles larges
-  hors des chemins de port-forward si vous voulez restreindre.
-- Une liste vide (`allowed_ports: []`) n'autorise aucun port.
+La politique s'applique à **tous les chemins qui ouvrent un port** :
 
-**Où le proxy lit les ports.** `kubectl` ne met pas les ports dans l'URL : il ouvre un flux
-SPDY par port, tunnelé dans la websocket (sous-protocole `SPDY/3.1+portforward.k8s.io`), et le
-port est un en-tête compressé de chaque flux. Le proxy décode donc le trafic client de la
-session et vérifie chaque nouveau flux avant de le transmettre. Avec les protocoles websocket
-« canal » (`v4.channel.k8s.io`), les ports sont dans le paramètre `ports` de l'URL et sont
-vérifiés avant de contacter le cluster (`403` sinon).
+| Chemin | Port contrôlé |
+| --- | --- |
+| `.../pods/{nom}/portforward` | ports de la query (`ports`, `port`) ou de chaque flux SPDY |
+| `.../pods/[scheme:]{nom}:{port}/proxy[/...]` | `{port}`, un port de conteneur |
+| `.../services/[scheme:]{nom}:{port}/proxy[/...]` | `{port}`, un **port du Service** |
+| `/api/v1/nodes/{nœud}[:{port}]/proxy[/...]` | refusé, sauf règle explicite (voir plus bas) |
+
+- `allowed_ports` accepte des ports seuls (`"8080"`) ou des plages inclusives (`"9000-9100"`),
+  entre 1 et 65535. L'admission refuse un port hors bornes (`"0"`, `"70000"`), une plage
+  inversée (`"200-100"`) ou `allowed_ports` sur une règle `Crd` d'un autre kind que `Pod` et
+  `Service`. Une entrée invalide déjà stockée est signalée et n'autorise aucun port.
+- **Restriction.** Dès qu'une règle qui concerne l'utilisateur porte `allowed_ports`, quel que
+  soit son chemin, ses ports sont restreints. Une règle `Path` n'a pas de sujet : une seule
+  règle `Path` avec `allowed_ports` restreint **tous** les utilisateurs du cluster. Une règle
+  `Crd` dont la règle de namespace paramétrée ne donne aucun candidat pour l'utilisateur (un
+  `{{group}}` sans groupe) ne le restreint pas.
+- **Ports accordés.** Sous restriction, ce sont ceux des règles qui correspondent au chemin
+  **et** portent `allowed_ports`. Une règle sans `allowed_ports` (une `Crd` `Pod`, un
+  `.../pods/**`) **n'accorde aucun port**, mais continue d'autoriser ses autres chemins
+  (`get pods`, `logs`…). Une liste vide (`allowed_ports: []`) n'accorde aucun port.
+- **Sans aucune règle `allowed_ports`**, ou avec `security_config.enabled: false`, rien n'est
+  restreint, `nodes/proxy` compris.
+
+<Callout type="warn">
+**Changement de comportement.** Avant, une règle sans `allowed_ports` qui couvrait le
+chemin levait la restriction, et le sous-ressource `proxy` n'était pas filtré. Une
+configuration qui mélange une règle avec `allowed_ports` et une règle sans est désormais
+restreinte. Chaque règle concernée apparaît dans `status.warnings` du `ProxyKubeApi` (et dans
+le log du contrôleur) : ajoutez-lui `allowed_ports` si elle doit accorder des ports.
+</Callout>
+
+**Ports nommés ou absents.** `pods/web:http/proxy`, `services/web/proxy` ou un port illisible
+sont refusés sous restriction (`403 "named or missing port is not allowed on this cluster"`) :
+le proxy ne peut pas résoudre un nom sans lire l'objet, et un nom est choisi par qui écrit le
+pod. Le segment est décodé une fois, comme le fait l'apiserver : `web%3A5432` vaut
+`web:5432`, et `web%253A5432` est un nom sans port, donc refusé.
+
+**Ports d'un Service.** Sur `services/{nom}:{port}/proxy`, `{port}` est un port du Service, pas
+son `targetPort`, et seule une règle qui couvre `services/...` peut l'accorder (une règle
+`pods` n'accorde jamais rien sur un Service). Qui peut modifier un Service choisit son
+`targetPort` : limitez l'écriture des `services` par le RBAC du cluster cible.
+
+**`nodes/proxy`.** Ce chemin atteint l'API du kubelet (`/portForward`, `/exec`) sans passer par
+les contrôles de l'apiserver. Sous restriction de ports ou de [verbes](#verbes-autorisés), il est
+refusé
+(`403 "nodes/proxy is not allowed while ports or verbs are restricted"`), sauf si une règle `Path` qui
+autorise le chemin le **vise explicitement**, avec `nodes` et `proxy` en segments littéraux :
+
+```yaml
+    - Path:
+        path: /api/v1/nodes/*/proxy/**
+        parametised: true
+```
+
+Une règle `Crd` `Node` ou un `Path` `/api/v1/nodes/**` ne comptent pas, et sont signalés dans
+`status.warnings`.
+
+**Où le proxy lit les ports d'un port-forward.** `kubectl` ne met pas les ports dans l'URL :
+il ouvre un flux SPDY par port, tunnelé dans la websocket (sous-protocole
+`SPDY/3.1+portforward.k8s.io`), et le port est un en-tête compressé de chaque flux. Le proxy
+décode donc le trafic client de la session et vérifie chaque nouveau flux avant de le
+transmettre. Avec les protocoles websocket « canal » (`v4.channel.k8s.io`), les ports sont dans
+le paramètre `ports` de l'URL et sont vérifiés avant de contacter le cluster (`403` sinon).
+Les politiques sont vérifiées **avant** le contrôle « websocket seulement » : le repli SPDY de
+kubectl reçoit le même `403` et sa raison, et non « SPDY is not supported ».
 
 **Au premier port refusé, toute la session est fermée** ; le flux refusé n'atteint jamais le
 cluster. Tout ce que le proxy ne sait pas lire (extension websocket comme
 `permessage-deflate`, sous-protocole inconnu, trame SPDY invalide) ferme aussi la session : un
 port illisible est traité comme un port refusé.
 
+**Traçabilité.** Chaque décision émet un événement `port policy decision` sur la cible `audit`
+(`decision` parmi `port_allowed`, `port_denied`, `node_proxy_denied`,
+`session_closed_by_filter`, et `port` quand il est lisible), et incrémente
+`proxyauth_policy_decisions_total{cluster, policy="port", decision}` sur l'endpoint Prometheus
+(`decision` parmi `allowed`, `denied`, `node_proxy_denied`, `closed_by_filter`).
+
+### Verbes autorisés
+
+`verbs` limite les verbes Kubernetes qu'une règle `Path` ou `Crd` autorise :
+
+```yaml
+allowed_resources:
+  - Path:
+      path: /api/v1/namespaces/dev/pods/**
+      parametised: true
+      verbs: [get, list, watch]          # lecture seule
+  - Crd:
+      group: ""
+      version: v1
+      kind: ConfigMap
+      plural: configmaps
+      namespace: { enabled: true, rule_kind: { AllowedNamespaces: ["dev"] } }
+      verbs: ["*"]                        # tous les verbes, explicitement
+```
+
+Valeurs : `get`, `list`, `watch`, `create`, `update`, `patch`, `delete`, `deletecollection`, ou
+`*` seul. L'admission refuse une liste vide, une valeur inconnue et `*` accompagné d'autres
+verbes.
+
+**Le verbe est calculé comme le fait l'apiserver**, pas à partir de la seule méthode HTTP :
+
+| Requête | Verbe |
+| --- | --- |
+| `GET`/`HEAD` sur un objet nommé | `get` |
+| `GET`/`HEAD` sur une collection | `list`, ou `watch` si `watch` est vrai (toute valeur sauf `0`/`false`) ou sous `/api/v1/watch/…` |
+| `POST` sur une collection | `create` |
+| `PUT` / `PATCH` | `update` / `patch` |
+| `DELETE` sur un objet nommé / une collection | `delete` / `deletecollection` |
+| `exec`, `attach`, `portforward` (**toute méthode**) | `create` |
+| sous-ressource `proxy`, `status`, `log`, `scale`, `ephemeralcontainers`, `eviction`… | verbe de la méthode (`PATCH …/ephemeralcontainers` = `patch`) |
+| chemin non ressource (`/version`, `/healthz`, `/openapi/*`, découverte) | `get` pour un `GET` |
+
+<Callout type="warn">
+Depuis kubectl 1.30, `exec`, `attach` et `port-forward` passent par un **`GET` websocket**, que
+l'apiserver autorise avec le verbe `create`. Le proxy fait de même : une règle en lecture seule
+n'ouvre jamais un shell.
+</Callout>
+
+- **Restriction.** Dès qu'une règle qui concerne l'utilisateur déclare `verbs`, ses verbes sont
+  restreints (même définition que pour les ports : une règle `Path` restreint tout le cluster).
+  Une règle **sans** `verbs` ne lui accorde alors que `get`, `list` et `watch`.
+- **`create` implicite.** `allowed_ports` accorde `create` sur `…/portforward` (pas sur
+  `…/proxy`, qui reste soumis aux `verbs`).
+- **Refus.** Sous restriction, un verbe qu'aucune règle n'accepte donne
+  `403 verb "delete" is not allowed on "<chemin>"`. Un verbe indéterminable (méthode
+  inconnue, ancien préfixe `/proxy/`, méthode autre que `GET` sur un chemin non ressource) est
+  refusé. Les politiques de ports ne regardent que les règles qui ont accepté chemin **et** verbe.
+- **Règles `Crd`.** Leurs `verbs` couvrent toutes les sous-ressources : une `Crd` `Pod` avec
+  `patch` ou `update` autorise aussi `PATCH …/ephemeralcontainers`, donc `kubectl debug`, et
+  `status.warnings` le signale. Une règle qui couvre `exec`/`attach`/`portforward` sans `create`
+  est signalée aussi.
+- **`nodes/proxy`.** Un `GET` sur `nodes/{n}/proxy/exec/…` vaut `get` : sous restriction de
+  verbes, il est refusé comme sous restriction de ports, sauf règle `Path` explicite
+  `nodes/*/proxy`.
+- **API virtuelles.** Le verbe est vérifié sur la requête d'origine **et** sur la requête
+  réécrite : `delete` sur un `Project` virtuel n'ouvre pas un `delete` sur le namespace.
+- L'en-tête `X-HTTP-Method-Override` est retiré de la requête relayée ; le verbe est toujours
+  calculé sur la méthode réelle.
+- Sans aucune règle `verbs`, rien ne change.
+
 <Callout type="info">
-Les ports d'un pod restent joignables par d'autres chemins, notamment le sous-ressource
-`proxy` (`/api/v1/namespaces/x/pods/web:22/proxy/`). `allowed_ports` ne les couvre pas :
-n'autorisez pas `.../pods/*/proxy` si vous comptez sur la restriction de ports.
+**v1.0.0.** `verbs` absent vaudra `[get, list, watch]` pour **tous** les utilisateurs. Déclarez
+dès maintenant les verbes d'écriture dont vos règles ont besoin.
 </Callout>
 
 ## 5. Quotas
@@ -569,6 +696,11 @@ pipeline OpenTelemetry existant :
 | `path`            | le chemin transmis à l'apiserver           |
 | `response_status` | le code renvoyé                            |
 | `latency_ms`      | le temps jusqu'à la réponse amont          |
+
+Les décisions de la politique de ports émettent en plus un évènement `port policy decision`,
+avec les mêmes champs d'identité, `decision` et `port` (voir [Ports autorisés](#ports-autorisés)).
+Un refus de verbe émet un évènement `verb policy decision` (`decision: verb_denied`,
+`k8s_verb`), voir [Verbes autorisés](#verbes-autorisés).
 
 L'évènement est émis dès que l'amont répond, pas à la fin du flux : un `watch` reste ouvert
 plusieurs minutes et attendre sa fin retarderait l'enregistrement d'autant.

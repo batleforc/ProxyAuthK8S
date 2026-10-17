@@ -122,7 +122,7 @@ que pnpm, Taskfile ou Cargo n'offrent pas déjà.
 - Parité : dev front (avec et sans TLS), dev docs, lint, la CI front (SARIF,
   typecheck, test, build), le déploiement docs et l'image front produisent le
   même résultat qu'avant.
-- Installation durcie : délai de publication de 7 jours et allowlist des
+- Installation durcie : délai de publication de 25 heures et allowlist des
   scripts de build.
 - `task audit` couvre les trois paquets avec `pnpm audit`.
 
@@ -156,9 +156,9 @@ packages:
   - libs/front/front-api
   - .docs
 
-# Une version doit être publiée depuis 7 jours pour être installée
+# Une version doit être publiée depuis 25 heures pour être installée
 # (défaut pnpm ≥ 11 : 1440, soit 1 jour).
-minimumReleaseAge: 10080
+minimumReleaseAge: 1500
 
 # Seuls ces paquets exécutent leurs scripts d'installation. Liste établie
 # après la première installation (`pnpm ignored-builds`) ; strictDepBuilds
@@ -197,7 +197,7 @@ et uniquement l'outillage transverse : `prettier`, `@stoplight/spectral-cli`,
 `@microsoft/eslint-formatter-sarif`, et la config ESLint partagée
 (`eslint`, `@eslint/js`, `typescript-eslint`, `eslint-plugin-vue`).
 
-- `minimumReleaseAge` absent vaut 1 jour avec pnpm ≥ 11 ; on le fixe à 7 jours.
+- `minimumReleaseAge` absent vaut 1 jour avec pnpm ≥ 11 ; on le fixe à 25 heures : une heure de plus que le défaut, sans bloquer les correctifs CVE que Dependabot propose dans la journée.
   Défaut de sécurité : le côté sûr.
 - `allowBuilds` absent ou vide : aucun script d'installation de dépendance ne
   s'exécute, et `strictDepBuilds` fait échouer l'installation. C'est le côté
@@ -430,7 +430,7 @@ mise), GitHub Actions (`front-lint.yaml`, `docs-deploy.yml`, `build.yaml`),
    `ERR_PNPM_IGNORED_BUILDS`, et le script n'a pas tourné (aucun fichier qu'il
    aurait écrit n'existe).
 7. **Refus, délai de publication** : `pnpm add <paquet>@<version publiée il y
-   a moins de 7 jours>` est refusé par `minimumReleaseAge`, et aucune tarball
+   a moins de 25 heures>` est refusé par `minimumReleaseAge`, et aucune tarball
    de cette version n'est dans le store.
 8. **Refus, NX** : `pnpm nx --version` échoue (`Command "nx" not found`) et
    `grep -rn "nx \|yarn" .github .tasks Taskfile.yaml deploy` ne renvoie rien.
@@ -468,7 +468,7 @@ flowchart LR
 | # | Threat (STRIDE) | Where | Mitigation | Residual risk |
 | --- | --- | --- | --- | --- |
 | T1 | Tampering : paquet npm compromis exécuté au build (postinstall) | `pnpm install` | `allowBuilds` (allowlist) et `strictDepBuilds: true` ; 13 paquets directs en moins | un paquet de l'allowlist compromis exécute encore son script. Accepté par le mainteneur |
-| T2 | Tampering : version malveillante fraîchement publiée | `pnpm install`, Dependabot | `minimumReleaseAge: 10080` | une compromission découverte après 7 jours. Accepté |
+| T2 | Tampering : version malveillante fraîchement publiée | `pnpm install`, Dependabot | `minimumReleaseAge: 1500` | une compromission découverte après 25 heures. Accepté |
 | T3 | Tampering : lockfile modifié en CI | `front-lint.yaml`, `api-lint.yaml` | outils en devDependencies, `--frozen-lockfile` partout, contrôle `git diff --exit-code pnpm-lock.yaml` | aucun |
 | T4 | Elevation : règle de lint de sécurité perdue au changement de config ESLint | `eslint.config.mjs` | diff `--print-config` (§4.3) | faible : règles de qualité seulement |
 | T5 | Tampering : dépendance fantôme résolue par hoisting vers une version non voulue | résolution `node_modules` | isolation pnpm par défaut, aucun `shamefully-hoist` | aucun |
@@ -546,7 +546,7 @@ pas de télémétrie.
 | Failure | Detected by | Behaviour | Recovery |
 | --- | --- | --- | --- |
 | Paquet non revu avec un postinstall | `pnpm install` | échec (fermé) | relire le script, l'ajouter à `allowBuilds` ou le refuser |
-| Dependabot propose une version de moins de 7 jours | `pnpm install` dans la PR | échec (fermé) | attendre ; Dependabot rebase |
+| Dependabot propose une version de moins de 25 heures | `pnpm install` dans la PR | échec (fermé) | attendre ; Dependabot rebase |
 | Dépendance non déclarée dans un paquet | `typecheck` / `build` | échec (fermé) | la déclarer dans le bon `package.json` |
 | SARIF au mauvais chemin | étape `upload-sarif` | rien n'apparaît dans Security | vérifier §6.P point 5 |
 | `postmortem` ne lit pas `pnpm-lock.yaml` | job `postmortem-scan` | échec ou cible ignorée | retirer la cible, noter en §17 |
@@ -629,7 +629,7 @@ front n'installe plus que le sous-graphe du front.
 | 7 | Structure du monorepo JS | **Workspace pnpm de trois paquets autonomes** (`front`, `front-api`, `docs`), un lockfile, sans hoisting. Séparés pour que la doc migre vers le kit (RFC 0005) en ne touchant que son paquet. |
 | 8 | `front-api` | **Vrai paquet consommé en source** (`exports: ./src/index.ts`, `workspace:*`) ; alias Vite et `paths` retirés. Son `package.json` n'est plus supprimé, il est réécrit. |
 | 9 | Génération du client | **Dans `front-api`** : `openapi-ts.config.ts` et `@hey-api/openapi-ts` y passent, script `generate`. |
-| 10 | Durcissement | **`minimumReleaseAge: 10080`** et une allowlist de builds. Le grill parlait d'`onlyBuiltDependencies` ; pnpm ≥ 11 l'a remplacé par `allowBuilds`, c'est donc ce réglage qui est utilisé. |
+| 10 | Durcissement | **`minimumReleaseAge: 1500`** (25 heures ; 7 jours bloquait les versions déjà verrouillées et les correctifs CVE récents) et une allowlist de builds. Le grill parlait d'`onlyBuiltDependencies` ; pnpm ≥ 11 l'a remplacé par `allowBuilds`, c'est donc ce réglage qui est utilisé. |
 | 11 | Installation de pnpm | **`packageManager`** ; mise en local, `pnpm/action-setup` épinglé par SHA en CI, corepack dans le Containerfile avec un `shortcut:`. |
 | 12 | Image front | **`pnpm fetch` puis `install --offline --filter …front...`.** |
 | 13 | Orchestration | **Contrat de scripts commun et `pnpm -r --if-present`** derrière `task js:*`, plus des tâches par paquet dans `.tasks/`. Le build de la doc entre dans le gate. |
@@ -671,3 +671,38 @@ existante prouve la parité) :
 Chaque phase laisse la CI verte. Les contrôles de sécurité (`allowBuilds`,
 `minimumReleaseAge`) arrivent dans la phase 1, avec la première installation
 pnpm qu'ils protègent.
+
+---
+
+## 17. Implementation notes
+
+Écarts constatés à l'implémentation (2026-10-17) :
+
+- **Parité de l'image front, dérogation volontaire.** L'image construite par NX
+  ne contenait aucun marqueur `PROXYAUTHK8S_FRONT_*` : `.env` est exclu du
+  contexte (`.dockerignore`) et NX ne chargeait pas `.env.production`, donc
+  `env.sh` et les variables du chart n'avaient aucun effet, contrairement à
+  `configuration.mdx`. `vite.config.mts` lit désormais les `.env` de la racine
+  (`envDir: '../../'`) : l'image retrouve les marqueurs, et ses hashes diffèrent
+  de ceux de NX. Corrigés au passage, sinon les marqueurs restaient en clair :
+  `env.sh` réécrit `/app` (que nginx sert) et non `/usr/share/nginx/html`, les
+  fichiers appartiennent à l'utilisateur nginx (`COPY --chown=101:101`), et une
+  variable absente devient vide (le front retombe sur `/api`). Le build local
+  NX de la PR1, lui, était identique hashes compris (69 fichiers).
+- **`minimumReleaseAge: 1500`** (25 heures) au lieu de 10080 : 7 jours
+  refusaient une soixantaine de versions déjà verrouillées, dont des correctifs
+  CVE. Les versions de moins de 25 heures présentes à la migration sont dans
+  `minimumReleaseAgeExclude`, liste temporaire marquée `shortcut:`.
+- **Dépendances fantômes déclarées** : la doc importait `unist-util-visit`,
+  `zod`, `class-variance-authority` et deux paquets Radix sans les déclarer ;
+  `tslib` reste en devDependency du front et de front-api (`importHelpers`).
+- **`allowBuilds`** n'autorise qu'`esbuild` ; `@parcel/watcher`,
+  `@scarf/scarf` (télémétrie), `unrs-resolver` et `vue-demi` sont refusés
+  explicitement.
+- **ESLint** : le diff `--print-config` ne perd que
+  `@nx/enforce-module-boundaries`. Les sévérités que les configs NX posaient
+  (`no-explicit-any` et `no-unused-vars` en warn, cinq règles en plus) sont
+  reprises explicitement ; `no-undef` est coupé sur les `.vue`, que vue-tsc
+  vérifie.
+- **CI** : `go-task/setup-task` (nouveau nom d'`arduino/setup-task`, déjà
+  épinglé dans le dépôt) ; `postmortem` lit `pnpm-lock.yaml`.

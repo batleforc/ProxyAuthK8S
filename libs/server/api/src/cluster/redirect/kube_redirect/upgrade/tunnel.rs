@@ -12,6 +12,7 @@ use tracing::{error, warn};
 use super::super::port_forward::PortForwardFilter;
 use super::connect::BoxedAsyncIo;
 use super::response::{UpstreamHead, copy_upstream_headers};
+use crate::cluster::redirect::audit::{AuditContext, PortDecision};
 
 /// In-flight chunks buffered between the upgraded upstream connection and the
 /// client. Bounded to keep exec/attach/port-forward sessions from growing
@@ -21,13 +22,14 @@ const UPGRADE_CHANNEL_CAPACITY: usize = 32;
 /// Answer the client with the upstream's `101` and pipe both directions.
 ///
 /// `filter`, when set, inspects every client chunk of a restricted
-/// port-forward and ends the session on a port outside the policy.
+/// port-forward and ends the session on a port outside the policy; each port
+/// it opens, and the closing, are recorded on the audit context with it.
 pub(super) async fn tunnel(
     upstream: BoxedAsyncIo,
     head: UpstreamHead,
     upgrade_protocol: String,
     payload: web::Payload,
-    filter: Option<PortForwardFilter>,
+    filter: Option<(PortForwardFilter, AuditContext)>,
 ) -> HttpResponse {
     let UpstreamHead {
         status,
@@ -68,19 +70,23 @@ pub(super) async fn tunnel(
 async fn client_to_upstream(
     payload: web::Payload,
     mut upstream_writer: WriteHalf<BoxedAsyncIo>,
-    mut filter: Option<PortForwardFilter>,
+    mut filter: Option<(PortForwardFilter, AuditContext)>,
     close_tx: oneshot::Sender<()>,
 ) {
     let mut client_payload = payload.into_inner();
     while let Some(item) = client_payload.next().await {
         match item {
             Ok(chunk) => {
-                if let Some(filter) = filter.as_mut()
-                    && let Err(reason) = filter.inspect(&chunk)
-                {
-                    warn!(%reason, "closing a port-forward session outside the allowed ports");
-                    let _ = close_tx.send(());
-                    return;
+                if let Some((filter, audit)) = filter.as_mut() {
+                    if let Err(reason) = filter.inspect(&chunk) {
+                        warn!(%reason, "closing a port-forward session outside the allowed ports");
+                        audit.emit_port_decision(PortDecision::ClosedByFilter, None);
+                        let _ = close_tx.send(());
+                        return;
+                    }
+                    for port in filter.take_opened() {
+                        audit.emit_port_decision(PortDecision::Allowed, Some(port));
+                    }
                 }
                 if upstream_writer.write_all(&chunk).await.is_err() {
                     break;

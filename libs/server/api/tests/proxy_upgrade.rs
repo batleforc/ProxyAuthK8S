@@ -338,6 +338,7 @@ fn port_forward_proxy(
                         .map(|port| PortSpec((*port).to_string()))
                         .collect(),
                 ),
+                verbs: None,
             },
         )],
         ..SecurityConfiguration::default()
@@ -381,6 +382,66 @@ async fn a_port_forward_query_outside_the_allowed_ports_is_refused() {
 
     server.stop(false).await;
     delete_proxy(&pool, &ns, &cluster).await;
+}
+
+/// RFC 0003 §6.P point 2: with a `Crd` `Pod` rule without ports next to the
+/// restricted one, port 5432 is refused with its reason in websocket and in
+/// kubectl's SPDY fallback alike (not "SPDY is not supported"), and the
+/// cluster never sees a connection.
+#[actix_web::test]
+async fn a_rule_without_ports_does_not_lift_the_restriction() {
+    use crd::security::{
+        AllowedCrdConfiguration, NamespacedAccessConfiguration, NamespacedAccessRuleKind,
+    };
+    let pool = redis_or_skip!();
+    for upgrade in ["websocket", "SPDY/3.1"] {
+        let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
+        let (ns, cluster) = unique_cluster();
+        let mut proxy = port_forward_proxy(&ns, &cluster, &upstream_url, &["8080"]);
+        let config = proxy.spec.security_config.as_mut().unwrap();
+        config
+            .allowed_resources
+            .push(AllowedPathConfigurationEnum::Crd(AllowedCrdConfiguration {
+                group: String::new(),
+                version: "v1".to_string(),
+                kind: "Pod".to_string(),
+                plural: Some("pods".to_string()),
+                namespace: NamespacedAccessConfiguration {
+                    enabled: false,
+                    rule_kind: NamespacedAccessRuleKind::AllowedNamespaces(vec![]),
+                },
+                namespaced: true,
+                allowed_ports: None,
+                verbs: None,
+            }));
+        seed_proxy(&pool, &proxy).await;
+        let (addr, server) = start_proxy();
+
+        let handshake = format!(
+            "GET /clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/portforward?ports=5432 HTTP/1.1\r\n\
+             Host: proxy\r\n\
+             Upgrade: {upgrade}\r\n\
+             Connection: Upgrade\r\n\
+             Connection: close\r\n\
+             \r\n"
+        );
+        let response = exchange(addr, handshake.as_bytes()).await;
+        assert!(
+            response.starts_with("HTTP/1.1 403"),
+            "{upgrade}: {response}"
+        );
+        assert!(
+            response.contains("port 5432 is not allowed on this cluster"),
+            "{upgrade}: {response}"
+        );
+        assert!(
+            !contacted.await.unwrap(),
+            "{upgrade}: the cluster was contacted"
+        );
+
+        server.stop(false).await;
+        delete_proxy(&pool, &ns, &cluster).await;
+    }
 }
 
 mod spdy_dictionary {

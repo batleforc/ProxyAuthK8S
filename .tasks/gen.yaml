@@ -44,13 +44,11 @@ tasks:
     cmds:
       - task gen:swagger > swagger.json
       - cp swagger.json .docs/swagger.json
-  docs:api:
-    desc: "Regenerate the API reference pages (.docs/content/docs/api) from .docs/swagger.json"
-    silent: true
-    dir: .docs
+  request-info-reference:
+    desc: "Regenerate the apiserver RequestInfo reference the crd request_info test compares against (needs Go and network; not run in CI)"
+    dir: libs/server/crd/tests/request_info_reference
     cmds:
-      - echo "Generating API reference pages from swagger.json"
-      - bun scripts/generate-docs.ts
+      - go run .
   client:
     desc: "Generate Node and Rust API Clients from OpenAPI specification"
     silent: true
@@ -65,7 +63,7 @@ tasks:
         sh: cat apps/server/Cargo.toml | grep 'version' | head -1 | cut -d '"' -f2
     cmds:
       - echo "Generating backend API client from OpenAPI specification"
-      - npx @openapitools/openapi-generator-cli generate -i ./swagger.json -g rust -o./libs/cli/client_api
+      - pnpm dlx @openapitools/openapi-generator-cli generate -i ./swagger.json -g rust -o./libs/cli/client_api
       - cargo clippy --fix --lib -p client_api --allow-dirty
       - cargo fmt --all
   api-client:
@@ -76,13 +74,13 @@ tasks:
         sh: cat apps/server/Cargo.toml | grep 'version' | head -1 | cut -d '"' -f2
     cmds:
       - echo "Generating API client from OpenAPI specification"
-      - yarn openapi-ts
+      - pnpm --filter @proxy-auth-k8s/front-api generate
   api-lint:
     desc: "Lint the OpenAPI specification with Spectral"
     silent: true
     cmds:
       - echo "Linting the OpenAPI specification with Spectral"
-      - yarn spectral lint -f sarif -o ./spectral-report.sarif ./swagger.json
+      - pnpm exec spectral lint -f sarif -o ./spectral-report.sarif ./swagger.json
   docs:crd:
     desc: "Generate documentation for Custom Resource Definitions"
     silent: true

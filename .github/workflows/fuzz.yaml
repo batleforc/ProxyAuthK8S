@@ -1,0 +1,101 @@
+name: 🦀 Fuzz targets
+
+# Two tiers, batlehub's model (RFC 0003 §8): every push or PR touching Rust pays
+# for the compile, which catches a target drifting from the code it fuzzes;
+# the nightly run pays for the fuzzing, which is what finds bugs.
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/fuzz.yaml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - ".github/workflows/fuzz.yaml"
+  schedule:
+    - cron: "20 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz targets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: "nightly"
+          components: rust-src
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+
+      # The cheap half: a type error in a target is one whether or not
+      # libFuzzer ever links, so `cargo check` rather than `cargo fuzz build`.
+      - name: Every fuzz target still compiles
+        run: task fuzz:check
+
+      # The expensive half, nightly and manual only: a per-PR fuzz run is a
+      # flaky gate. `--target <host>` and `detect_leaks=0` are explained in
+      # .tasks/fuzz.yaml.
+      - uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab # v2.87.13
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        with:
+          tool: cargo-fuzz
+      # One cache entry for every target's corpus, saved under a fresh key each
+      # run and restored from the newest, so a run does not restart from zero.
+      - name: Restore fuzz corpora
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: fuzz-corpus-${{ runner.os }}-
+      - name: Fuzz each target
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        working-directory: fuzz
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: |
+          set -euo pipefail
+          # Listed from the manifest, so a new target is fuzzed by existing.
+          targets=$(cargo fuzz list)
+          host=$(rustc +nightly -vV | sed -n 's/^host: //p')
+          # Every target runs even after a failure, then the step fails once.
+          failed=()
+          for t in $targets; do
+            echo "::group::$t"
+            if ! cargo +nightly fuzz run --target "$host" "$t" -- -max_total_time=60; then
+              failed+=("$t")
+              echo "::error title=fuzz::$t failed — its input is in the fuzz-artifacts upload"
+            else
+              cargo +nightly fuzz cmin --target "$host" "$t" \
+                || echo "::warning title=fuzz::cmin failed for $t; keeping its corpus as is"
+            fi
+            echo "::endgroup::"
+          done
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "failed targets: ${failed[*]}"
+            exit 1
+          fi
+      - name: Save fuzz corpora
+        if: always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus
+          key: fuzz-corpus-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Upload crash artefacts
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

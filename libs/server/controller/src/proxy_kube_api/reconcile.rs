@@ -141,6 +141,12 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
             }
         };
     }
+    if let Some(security_config) = &proxy_cloned.spec.security_config {
+        new_status.warnings = security_config.warnings();
+        for warning in &new_status.warnings {
+            warn!("ProxyKubeApi {}: {}", proxy.to_identifier(), warning);
+        }
+    }
     info!(
         "Updating status of ProxyKubeApi {}: reachable={}, error={:?}",
         proxy.to_identifier(),

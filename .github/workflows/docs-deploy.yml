@@ -6,6 +6,7 @@ on:
     paths:
       - ".docs/**" # Only trigger on changes to documentation files
       - ".github/workflows/docs-deploy.yml" # Trigger if the workflow file itself is changed
+      - "pnpm-lock.yaml" # The docs dependencies are locked in the workspace lockfile
   workflow_dispatch:
 
 concurrency:
@@ -25,23 +26,22 @@ jobs:
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: 🧶 Enable Corepack
-        run: corepack enable
-        # 🔒 Honor the "packageManager" pin in package.json (Yarn Berry) instead
-        # of the runner's preinstalled Yarn Classic. Must run BEFORE setup-node,
-        # since setup-node's cache:"yarn" option shells out to `yarn` itself to
-        # resolve the cache directory.
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        # Reads the "packageManager" pin in package.json.
       - name: 📦 Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
-          cache: "yarn" # 🚀 Speed up builds with yarn cache
+          cache: "pnpm" # 🚀 Speed up builds with the pnpm store cache
       - name: ⚙️ Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: 📂 Install Dependencies
-        run: cd .docs && yarn install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --filter @proxy-auth-k8s/docs
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
       - name: Build with Fumadocs
-        run: cd .docs && yarn build
+        run: task docs:build
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

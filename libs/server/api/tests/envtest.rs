@@ -327,6 +327,124 @@ async fn admission_accepts_valid_ports_and_ranges() {
     let _ = api.delete("good-ports", &DeleteParams::default()).await;
 }
 
+fn crd_ports_spec(kind: &str, ports: &[&str]) -> serde_json::Value {
+    let mut spec = minimal_spec();
+    spec["security_config"] = json!({
+        "enabled": true,
+        "allowed_resources": [
+            { "Crd": {
+                "group": "",
+                "version": "v1",
+                "kind": kind,
+                "namespace": { "enabled": false, "rule_kind": { "AllowedNamespaces": [] } },
+                "allowed_ports": ports,
+            } }
+        ],
+    });
+    spec
+}
+
+/// RFC 0003 §4.3: `allowed_ports` on a `Crd` rule only for `Pod` and
+/// `Service`, with the same port rule as on `Path`.
+#[tokio::test]
+async fn admission_limits_crd_allowed_ports_to_pods_and_services() {
+    let env_test = envtest_or_skip!();
+    let client = env_test.client().expect("client should build");
+    install_crd(client.clone()).await.expect("CRD install");
+    wait_for_crd(client.clone()).await;
+
+    let api = proxies(client);
+    for (name, kind, ports) in [
+        ("crd-ports-node", "Node", vec!["8080"]),
+        ("crd-ports-bad-port", "Pod", vec!["0"]),
+    ] {
+        api.create(
+            &PostParams::default(),
+            &serde_json::from_value(proxy_kube_api(name, crd_ports_spec(kind, &ports)))
+                .expect("resource should deserialize"),
+        )
+        .await
+        .expect_err("admission should reject this rule");
+    }
+    for (name, kind) in [("crd-ports-pod", "Pod"), ("crd-ports-service", "Service")] {
+        api.create(
+            &PostParams::default(),
+            &serde_json::from_value(proxy_kube_api(name, crd_ports_spec(kind, &["8080"])))
+                .expect("resource should deserialize"),
+        )
+        .await
+        .expect("a Pod or Service rule with ports should be accepted");
+        let _ = api.delete(name, &DeleteParams::default()).await;
+    }
+}
+
+fn verbs_spec(verbs: serde_json::Value) -> serde_json::Value {
+    let mut spec = minimal_spec();
+    spec["security_config"] = json!({
+        "enabled": true,
+        "allowed_resources": [
+            { "Path": { "path": "/api/v1/namespaces/dev/pods/**", "parametised": true, "verbs": verbs } },
+            { "Crd": {
+                "group": "", "version": "v1", "kind": "ConfigMap",
+                "namespace": { "enabled": false, "rule_kind": { "AllowedNamespaces": [] } },
+                "verbs": verbs,
+            } },
+        ],
+    });
+    spec
+}
+
+/// RFC 0006 §4.3: `verbs` is a closed, non-empty list where `*` stands alone.
+#[tokio::test]
+async fn admission_checks_verbs() {
+    let env_test = envtest_or_skip!();
+    let client = env_test.client().expect("client should build");
+    install_crd(client.clone()).await.expect("CRD install");
+    wait_for_crd(client.clone()).await;
+
+    let api = proxies(client);
+    for (name, verbs) in [
+        ("verbs-empty", json!([])),
+        ("verbs-star-mixed", json!(["*", "get"])),
+        ("verbs-upper", json!(["GET"])),
+        ("verbs-unknown", json!(["proxy"])),
+    ] {
+        api.create(
+            &PostParams::default(),
+            &serde_json::from_value(proxy_kube_api(name, verbs_spec(verbs.clone())))
+                .expect("resource should deserialize"),
+        )
+        .await
+        .expect_err(&format!("admission should reject verbs {verbs}"));
+    }
+    for (name, verbs) in [
+        ("verbs-read", json!(["get", "list", "watch"])),
+        ("verbs-star", json!(["*"])),
+        (
+            "verbs-all-nine",
+            json!([
+                "get",
+                "list",
+                "watch",
+                "create",
+                "update",
+                "patch",
+                "delete",
+                "deletecollection"
+            ]),
+        ),
+    ] {
+        api.create(
+            &PostParams::default(),
+            &serde_json::from_value(proxy_kube_api(name, verbs_spec(verbs.clone())))
+                .expect("resource should deserialize"),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("verbs {verbs} should be accepted: {err}"));
+        let _ = api.delete(name, &DeleteParams::default()).await;
+    }
+}
+
 #[tokio::test]
 async fn admission_rejects_a_relative_allowed_path() {
     let env_test = envtest_or_skip!();

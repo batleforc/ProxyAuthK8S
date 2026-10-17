@@ -9,6 +9,7 @@
 use std::{
     future::{Ready, ready},
     rc::Rc,
+    sync::LazyLock,
     time::Instant,
 };
 
@@ -23,7 +24,7 @@ use actix_web::{
 use futures_util::future::LocalBoxFuture;
 use opentelemetry::{
     KeyValue,
-    metrics::{Histogram, Meter},
+    metrics::{Counter, Histogram, Meter},
 };
 use prometheus::{Encoder, TextEncoder};
 use tracing::{instrument, warn};
@@ -34,6 +35,32 @@ pub const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=ut
 /// Name of the HTTP server request-duration histogram (OpenTelemetry semantic
 /// conventions; exposed to Prometheus as `http_server_request_duration_seconds`).
 pub const HTTP_SERVER_REQUEST_DURATION: &str = "http.server.request.duration";
+
+/// Name of the counter of access-policy decisions (exposed to Prometheus as
+/// `proxyauth_policy_decisions_total`), shared by the port, verb and exec
+/// policies. Labels: `cluster` (`{ns}/{name}`), `policy`, `decision`; never a
+/// port or a user, to keep the cardinality bounded.
+pub const POLICY_DECISIONS: &str = "proxyauth.policy.decisions";
+
+/// Created on first use, once the server has installed the meter provider.
+static POLICY_DECISIONS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(POLICY_DECISIONS)
+        .with_description("Access-policy decisions taken by the proxy.")
+        .build()
+});
+
+/// Count one policy decision.
+pub fn record_policy_decision(cluster: &str, policy: &'static str, decision: &'static str) {
+    POLICY_DECISIONS_COUNTER.add(
+        1,
+        &[
+            KeyValue::new("cluster", cluster.to_string()),
+            KeyValue::new("policy", policy),
+            KeyValue::new("decision", decision),
+        ],
+    );
+}
 
 /// Bucket boundaries, in seconds, recommended by the HTTP semantic conventions.
 const DURATION_BUCKETS: [f64; 14] = [

@@ -314,6 +314,7 @@ mod tests {
                     path: "/api/v1/namespaces/{{tenant}}/pods".to_string(),
                     parametised: true,
                     allowed_ports: None,
+                    verbs: None,
                 },
             )],
             ..SecurityConfiguration::default()

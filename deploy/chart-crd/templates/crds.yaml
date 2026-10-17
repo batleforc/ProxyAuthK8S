@@ -653,6 +653,31 @@ spec:
                             Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
                             /apis/{group}/{version}/namespaces/{namespace}/{kind}/
                           properties:
+                            allowed_ports:
+                              description: |-
+                                Ports this rule grants on the port-bearing subresources of a `Pod`
+                                (`portforward`, `{name}:{port}/proxy`) or a `Service`
+                                (`{name}:{port}/proxy`, a Service port, not its `targetPort`), as
+                                single ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
+
+                                Same meaning as on a `Path` rule: once any rule a caller is subject to
+                                lists ports, a rule without `allowed_ports` grants no port at all.
+                              items:
+                                description: |-
+                                  A port (`"8080"`) or an inclusive port range (`"9000-9100"`).
+
+                                  Ports must be within 1-65535 and a range must not be reversed. Admission
+                                  refuses an entry breaking that; one stored before the rule existed is
+                                  reported at reconcile time and allows no port.
+                                maxLength: 11
+                                pattern: ^[0-9]{1,5}(-[0-9]{1,5})?$
+                                type: string
+                                x-kubernetes-validations:
+                                - message: ports must be within 1-65535 and a range must not be reversed
+                                  rule: self.split('-').all(p, int(p) >= 1 && int(p) <= 65535) && (!self.contains('-') || int(self.split('-')[0]) <= int(self.split('-')[1]))
+                              maxItems: 64
+                              nullable: true
+                              type: array
                             group:
                               description: The group of the crd
                               type: string
@@ -714,6 +739,35 @@ spec:
                                 instead of       /apis/{group}/{version}/myresource/
                               nullable: true
                               type: string
+                            verbs:
+                              description: |-
+                                Kubernetes verbs this rule allows on the resource and all its
+                                subresources (same values and meaning as on a `Path` rule)
+
+                                A `Pod` rule with `patch` or `update` also allows
+                                `ephemeralcontainers`, that is `kubectl debug`.
+                              items:
+                                description: |-
+                                  A Kubernetes verb, as the apiserver computes it for a request (see
+                                  [`super::request_info`]), or `*` for every verb.
+                                enum:
+                                - get
+                                - list
+                                - watch
+                                - create
+                                - update
+                                - patch
+                                - delete
+                                - deletecollection
+                                - '*'
+                                type: string
+                              maxItems: 9
+                              minItems: 1
+                              nullable: true
+                              type: array
+                              x-kubernetes-validations:
+                              - message: '"*" already allows every verb and must stand alone'
+                                rule: '!self.exists(v, v == ''*'') || size(self) == 1'
                             version:
                               description: The version of the crd
                               type: string
@@ -723,6 +777,9 @@ spec:
                           - namespace
                           - version
                           type: object
+                          x-kubernetes-validations:
+                          - message: allowed_ports only applies to the Pod and Service kinds
+                            rule: '!has(self.allowed_ports) || self.kind in [''Pod'', ''Service'']'
                         Path:
                           description: |-
                             Allowed path configuration, used in conjunction with the `allowed_paths` configuration
@@ -737,13 +794,14 @@ spec:
                           properties:
                             allowed_ports:
                               description: |-
-                                Ports a port-forward session matched by this rule may open, as single
+                                Ports this rule grants on the port-bearing paths it matches, as single
                                 ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
 
-                                Only used for `.../pods/{name}/portforward` paths. When omitted, the rule
-                                does not restrict ports. When several rules match a port-forward, their
-                                ports are combined, and one rule without `allowed_ports` lifts the
-                                restriction. An empty list allows no port at all.
+                                Port-bearing paths are `.../pods/{name}/portforward`,
+                                `.../pods/{name}:{port}/proxy` and `.../services/{name}:{port}/proxy`
+                                (a Service port). Once any rule lists ports, every caller is restricted:
+                                the ports of the matching rules that list some are combined, and a rule
+                                without `allowed_ports` grants none. An empty list grants no port.
                               items:
                                 description: |-
                                   A port (`"8080"`) or an inclusive port range (`"9000-9100"`).
@@ -785,6 +843,38 @@ spec:
                                 unbounded string and refuses the CEL rule above as too expensive.
                               maxLength: 512
                               type: string
+                            verbs:
+                              description: |-
+                                Kubernetes verbs this rule allows, computed as the apiserver does
+                                (`get`, `list`, `watch`, `create`, `update`, `patch`, `delete`,
+                                `deletecollection`, or `*` alone)
+
+                                Once any rule a caller is subject to lists verbs, a rule without
+                                `verbs` only grants `get`, `list` and `watch`. `exec`, `attach` and
+                                `portforward` are `create`; `allowed_ports` implies `create` on
+                                `portforward`.
+                              items:
+                                description: |-
+                                  A Kubernetes verb, as the apiserver computes it for a request (see
+                                  [`super::request_info`]), or `*` for every verb.
+                                enum:
+                                - get
+                                - list
+                                - watch
+                                - create
+                                - update
+                                - patch
+                                - delete
+                                - deletecollection
+                                - '*'
+                                type: string
+                              maxItems: 9
+                              minItems: 1
+                              nullable: true
+                              type: array
+                              x-kubernetes-validations:
+                              - message: '"*" already allows every verb and must stand alone'
+                                rule: '!self.exists(v, v == ''*'') || size(self) == 1'
                           required:
                           - path
                           type: object
@@ -823,6 +913,31 @@ spec:
                             Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
                             /apis/{group}/{version}/namespaces/{namespace}/{kind}/
                           properties:
+                            allowed_ports:
+                              description: |-
+                                Ports this rule grants on the port-bearing subresources of a `Pod`
+                                (`portforward`, `{name}:{port}/proxy`) or a `Service`
+                                (`{name}:{port}/proxy`, a Service port, not its `targetPort`), as
+                                single ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
+
+                                Same meaning as on a `Path` rule: once any rule a caller is subject to
+                                lists ports, a rule without `allowed_ports` grants no port at all.
+                              items:
+                                description: |-
+                                  A port (`"8080"`) or an inclusive port range (`"9000-9100"`).
+
+                                  Ports must be within 1-65535 and a range must not be reversed. Admission
+                                  refuses an entry breaking that; one stored before the rule existed is
+                                  reported at reconcile time and allows no port.
+                                maxLength: 11
+                                pattern: ^[0-9]{1,5}(-[0-9]{1,5})?$
+                                type: string
+                                x-kubernetes-validations:
+                                - message: ports must be within 1-65535 and a range must not be reversed
+                                  rule: self.split('-').all(p, int(p) >= 1 && int(p) <= 65535) && (!self.contains('-') || int(self.split('-')[0]) <= int(self.split('-')[1]))
+                              maxItems: 64
+                              nullable: true
+                              type: array
                             group:
                               description: The group of the crd
                               type: string
@@ -884,6 +999,35 @@ spec:
                                 instead of       /apis/{group}/{version}/myresource/
                               nullable: true
                               type: string
+                            verbs:
+                              description: |-
+                                Kubernetes verbs this rule allows on the resource and all its
+                                subresources (same values and meaning as on a `Path` rule)
+
+                                A `Pod` rule with `patch` or `update` also allows
+                                `ephemeralcontainers`, that is `kubectl debug`.
+                              items:
+                                description: |-
+                                  A Kubernetes verb, as the apiserver computes it for a request (see
+                                  [`super::request_info`]), or `*` for every verb.
+                                enum:
+                                - get
+                                - list
+                                - watch
+                                - create
+                                - update
+                                - patch
+                                - delete
+                                - deletecollection
+                                - '*'
+                                type: string
+                              maxItems: 9
+                              minItems: 1
+                              nullable: true
+                              type: array
+                              x-kubernetes-validations:
+                              - message: '"*" already allows every verb and must stand alone'
+                                rule: '!self.exists(v, v == ''*'') || size(self) == 1'
                             version:
                               description: The version of the crd
                               type: string
@@ -893,6 +1037,9 @@ spec:
                           - namespace
                           - version
                           type: object
+                          x-kubernetes-validations:
+                          - message: allowed_ports only applies to the Pod and Service kinds
+                            rule: '!has(self.allowed_ports) || self.kind in [''Pod'', ''Service'']'
                         Path:
                           description: |-
                             Allowed path configuration, used in conjunction with the `allowed_paths` configuration
@@ -907,13 +1054,14 @@ spec:
                           properties:
                             allowed_ports:
                               description: |-
-                                Ports a port-forward session matched by this rule may open, as single
+                                Ports this rule grants on the port-bearing paths it matches, as single
                                 ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
 
-                                Only used for `.../pods/{name}/portforward` paths. When omitted, the rule
-                                does not restrict ports. When several rules match a port-forward, their
-                                ports are combined, and one rule without `allowed_ports` lifts the
-                                restriction. An empty list allows no port at all.
+                                Port-bearing paths are `.../pods/{name}/portforward`,
+                                `.../pods/{name}:{port}/proxy` and `.../services/{name}:{port}/proxy`
+                                (a Service port). Once any rule lists ports, every caller is restricted:
+                                the ports of the matching rules that list some are combined, and a rule
+                                without `allowed_ports` grants none. An empty list grants no port.
                               items:
                                 description: |-
                                   A port (`"8080"`) or an inclusive port range (`"9000-9100"`).
@@ -955,6 +1103,38 @@ spec:
                                 unbounded string and refuses the CEL rule above as too expensive.
                               maxLength: 512
                               type: string
+                            verbs:
+                              description: |-
+                                Kubernetes verbs this rule allows, computed as the apiserver does
+                                (`get`, `list`, `watch`, `create`, `update`, `patch`, `delete`,
+                                `deletecollection`, or `*` alone)
+
+                                Once any rule a caller is subject to lists verbs, a rule without
+                                `verbs` only grants `get`, `list` and `watch`. `exec`, `attach` and
+                                `portforward` are `create`; `allowed_ports` implies `create` on
+                                `portforward`.
+                              items:
+                                description: |-
+                                  A Kubernetes verb, as the apiserver computes it for a request (see
+                                  [`super::request_info`]), or `*` for every verb.
+                                enum:
+                                - get
+                                - list
+                                - watch
+                                - create
+                                - update
+                                - patch
+                                - delete
+                                - deletecollection
+                                - '*'
+                                type: string
+                              maxItems: 9
+                              minItems: 1
+                              nullable: true
+                              type: array
+                              x-kubernetes-validations:
+                              - message: '"*" already allows every verb and must stand alone'
+                                rule: '!self.exists(v, v == ''*'') || size(self) == 1'
                           required:
                           - path
                           type: object
@@ -1209,6 +1389,13 @@ spec:
               path:
                 nullable: true
                 type: string
+              warnings:
+                description: |-
+                  Rules whose meaning a port or verb restriction changes (see
+                  `SecurityConfiguration::warnings`). They are still applied.
+                items:
+                  type: string
+                type: array
             required:
             - exposed
             type: object

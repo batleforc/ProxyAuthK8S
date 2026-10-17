@@ -46,6 +46,18 @@ impl NamespacedAccessConfiguration {
         }
     }
 
+    /// Whether some namespace can be allowed to this caller: false only for a
+    /// parametised rule that expands to no candidate.
+    #[must_use]
+    pub fn applies_to(&self, username: &str, groups: &[String]) -> bool {
+        match &self.rule_kind {
+            NamespacedAccessRuleKind::ParametisedRule(pattern) if self.enabled => {
+                !expand_parametised_patterns(pattern, username, groups).is_empty()
+            }
+            _ => true,
+        }
+    }
+
     /// Reject a parametised rule that uses an unknown placeholder.
     pub fn validate(&self) -> Result<(), String> {
         if let NamespacedAccessRuleKind::ParametisedRule(pattern) = &self.rule_kind {

@@ -38,10 +38,18 @@ pub fn is_hop_by_hop(name: &str) -> bool {
         .any(|header| name.eq_ignore_ascii_case(header))
 }
 
+/// Headers dropped without replacement: the apiserver ignores a method
+/// override, and the proxy computes the verb on the real method, so relaying
+/// one could only mislead something in between.
+const DROPPED: [&str; 1] = ["x-http-method-override"];
+
+/// Whether the proxy drops `name` from the relayed request (and re-creates it
+/// when it is one of [`PROXY_OWNED`]).
 #[must_use]
 pub fn is_proxy_owned_header(name: &str) -> bool {
     PROXY_OWNED
         .iter()
+        .chain(DROPPED.iter())
         .any(|header| name.eq_ignore_ascii_case(header))
 }
 
@@ -169,6 +177,7 @@ mod tests {
         assert!(is_proxy_owned_header("x-forwarded-user"));
         assert!(is_proxy_owned_header("X-Forwarded-Groups"));
         assert!(!is_proxy_owned_header("x-forwarded-proto"));
+        assert!(is_proxy_owned_header("X-HTTP-Method-Override"));
     }
 
     #[test]

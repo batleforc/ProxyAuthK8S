@@ -1,0 +1,22 @@
+version: "3"
+
+tasks:
+  dev:
+    desc: "Run the documentation site locally"
+    silent: true
+    env:
+      PROXY_AUTH_K8S_VERSION: 0.1.8
+    cmds:
+      - echo "Running the documentation server"
+      - pnpm --filter @proxy-auth-k8s/docs dev
+  build:
+    desc: "Build the documentation site into .docs/out"
+    cmds:
+      - pnpm --filter @proxy-auth-k8s/docs build
+  api:
+    desc: "Regenerate the API reference pages (.docs/content/docs/api) from .docs/swagger.json"
+    silent: true
+    dir: .docs
+    cmds:
+      - echo "Generating API reference pages from swagger.json"
+      - bun scripts/generate-docs.ts

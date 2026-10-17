@@ -7,7 +7,7 @@ on:
       # Rebuild and rescan when an image recipe or a locked dependency changes.
       - "deploy/build/**"
       - "Cargo.lock"
-      - "yarn.lock"
+      - "pnpm-lock.yaml"
   pull_request:
     # The branches below must be a subset of the branches above
     branches: ["main"]
@@ -15,7 +15,7 @@ on:
       # Rebuild and rescan when an image recipe or a locked dependency changes.
       - "deploy/build/**"
       - "Cargo.lock"
-      - "yarn.lock"
+      - "pnpm-lock.yaml"
   workflow_dispatch:
   schedule:
     - cron: "50 23 * * *"

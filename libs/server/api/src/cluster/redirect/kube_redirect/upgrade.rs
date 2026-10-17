@@ -16,7 +16,7 @@ use tokio::io::AsyncWriteExt;
 use tracing::{error, instrument, warn};
 
 use super::port_forward::{self, PortForwardFilter};
-use crate::cluster::redirect::audit::AuditContext;
+use crate::cluster::redirect::audit::{AuditContext, PortDecision};
 use crate::cluster::redirect::status_response::{bad_request, forbidden};
 
 mod connect;
@@ -140,6 +140,7 @@ impl UpgradeRefusal {
             }
             Self::PortOutsidePolicy(reason) => {
                 warn!(%reason, "refusing a port-forward to a port outside the allowed list");
+                audit.emit_port_decision(PortDecision::Denied, None);
                 audit.emit(403);
                 forbidden(&reason)
             }
@@ -190,8 +191,26 @@ fn is_websocket_upgrade(req: &HttpRequest) -> bool {
 }
 
 /// Refuse a handshake the proxy will not tunnel. On success, tells whether the
-/// request is a port-forward restricted by `port_policy`.
-fn check_handshake(req: &HttpRequest, port_policy: &PortPolicy) -> Result<bool, UpgradeRefusal> {
+/// request is a port-forward restricted by `port_policy`, and the ports its
+/// query asks for.
+fn check_handshake(
+    req: &HttpRequest,
+    port_policy: &PortPolicy,
+) -> Result<(bool, Vec<u16>), UpgradeRefusal> {
+    // The policies come first: kubectl falls back to SPDY on any failed
+    // websocket upgrade, a 403 included, and that retry must get the same
+    // refusal and its reason rather than "SPDY is not supported".
+    // The query fixes the ports of the channel protocols, and a SPDY tunnel
+    // must not ask for others either.
+    let is_restricted_port_forward =
+        port_policy.is_restricted() && port_forward::is_port_forward_path(req.path());
+    let query_ports = if is_restricted_port_forward {
+        port_forward::check_query_ports(req.query_string(), port_policy)
+            .map_err(UpgradeRefusal::PortOutsidePolicy)?
+    } else {
+        Vec::new()
+    };
+
     // Only websocket is tunnelled: actix-http hands the bytes that follow the
     // handshake to the handler for `Upgrade: websocket` alone, so a SPDY
     // session would die right after its `101`. Refusing it up front gives the
@@ -200,21 +219,12 @@ fn check_handshake(req: &HttpRequest, port_policy: &PortPolicy) -> Result<bool, 
         return Err(UpgradeRefusal::NotWebsocket);
     }
 
-    // The query fixes the ports of the channel protocols, and a SPDY tunnel
-    // must not ask for others either.
-    let is_restricted_port_forward =
-        port_policy.is_restricted() && port_forward::is_port_forward_path(req.path());
-    if is_restricted_port_forward {
-        port_forward::check_query_ports(req.query_string(), port_policy)
-            .map_err(UpgradeRefusal::PortOutsidePolicy)?;
-    }
-
     // Upgrade handshakes never carry a body; a declared body here is an attempt
     // to smuggle a second request onto the raw upstream socket.
     if upgrade_request_declares_body(req) {
         return Err(UpgradeRefusal::DeclaresBody);
     }
-    Ok(is_restricted_port_forward)
+    Ok((is_restricted_port_forward, query_ports))
 }
 
 /// Connect to the upstream and send it the serialized handshake.
@@ -287,7 +297,7 @@ pub(super) async fn upgrade_redirect(
     } = ctx;
 
     let outcome = async {
-        let is_restricted_port_forward = check_handshake(&req, &port_policy)?;
+        let (is_restricted_port_forward, query_ports) = check_handshake(&req, &port_policy)?;
         let upstream_url = reqwest::Url::parse(&url_to_call)
             .map_err(|err| UpgradeRefusal::InvalidUpstreamUrl(err.to_string()))?;
         let request_bytes =
@@ -312,8 +322,12 @@ pub(super) async fn upgrade_redirect(
         } else {
             None
         };
+        for port in query_ports {
+            audit.emit_port_decision(PortDecision::Allowed, Some(port));
+        }
 
         record_status(&audit, head.status);
+        let filter = filter.map(|filter| (filter, audit.clone()));
         Ok(tunnel::tunnel(upstream, head, upgrade_protocol, payload, filter).await)
     };
 
@@ -386,7 +400,10 @@ mod tests {
     #[test]
     fn port_forward_ports_are_checked_against_the_policy() {
         let allowed = websocket(&format!("{PORT_FORWARD}?ports=8080")).to_http_request();
-        assert!(check_handshake(&allowed, &only_8080()).unwrap());
+        assert_eq!(
+            check_handshake(&allowed, &only_8080()).unwrap(),
+            (true, vec![8080])
+        );
 
         let refused = websocket(&format!("{PORT_FORWARD}?ports=22")).to_http_request();
         assert!(matches!(
@@ -395,7 +412,32 @@ mod tests {
         ));
 
         // Unrestricted policy: never a restricted port-forward.
-        assert!(!check_handshake(&refused, &PortPolicy::Any).unwrap());
+        assert_eq!(
+            check_handshake(&refused, &PortPolicy::Any).unwrap(),
+            (false, vec![])
+        );
+    }
+
+    /// R13: kubectl retries a refused websocket upgrade in SPDY; the retry
+    /// must get the port refusal, not "SPDY is not supported".
+    #[test]
+    fn the_port_policy_is_checked_before_the_websocket_check() {
+        let spdy = TestRequest::get()
+            .uri(&format!("{PORT_FORWARD}?ports=22"))
+            .insert_header(("upgrade", "SPDY/3.1"))
+            .to_http_request();
+        assert!(matches!(
+            check_handshake(&spdy, &only_8080()),
+            Err(UpgradeRefusal::PortOutsidePolicy(_))
+        ));
+        let conforming = TestRequest::get()
+            .uri(&format!("{PORT_FORWARD}?ports=8080"))
+            .insert_header(("upgrade", "SPDY/3.1"))
+            .to_http_request();
+        assert!(matches!(
+            check_handshake(&conforming, &only_8080()),
+            Err(UpgradeRefusal::NotWebsocket)
+        ));
     }
 
     #[test]

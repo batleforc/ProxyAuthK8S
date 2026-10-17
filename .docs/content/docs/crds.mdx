@@ -1611,6 +1611,8 @@ How an allowed resource is described.
         <td>
           Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
 /apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/<br/>
+          <br/>
+            <i>Validations</i>:<li>!has(self.allowed_ports) || self.kind in ['Pod', 'Service']: allowed_ports only applies to the Pod and Service kinds</li>
         </td>
         <td>false</td>
       </tr><tr>
@@ -1680,6 +1682,19 @@ Allowed crd configuration, used in conjunction with the `allowed_paths` configur
         </td>
         <td>true</td>
       </tr><tr>
+        <td><b>allowed_ports</b></td>
+        <td>[]string</td>
+        <td>
+          Ports this rule grants on the port-bearing subresources of a `Pod`
+(`portforward`, `{name}:{port}/proxy`) or a `Service`
+(`{name}:{port}/proxy`, a Service port, not its `targetPort`), as
+single ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
+
+Same meaning as on a `Path` rule: once any rule a caller is subject to
+lists ports, a rule without `allowed_ports` grants no port at all.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
         <td><b>namespaced</b></td>
         <td>boolean</td>
         <td>
@@ -1700,6 +1715,20 @@ instead of       /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresource
 In case of cluster-scoped crd
 the path will be /apis/\{group\}/\{version\}/myresources/
 instead of       /apis/\{group\}/\{version\}/myresource/<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>verbs</b></td>
+        <td>[]enum</td>
+        <td>
+          Kubernetes verbs this rule allows on the resource and all its
+subresources (same values and meaning as on a `Path` rule)
+
+A `Pod` rule with `patch` or `update` also allows
+`ephemeralcontainers`, that is `kubectl debug`.<br/>
+          <br/>
+            <i>Validations</i>:<li>!self.exists(v, v == '*') || size(self) == 1: "*" already allows every verb and must stand alone</li>
+            <i>Enum</i>: get, list, watch, create, update, patch, delete, deletecollection, *<br/>
         </td>
         <td>false</td>
       </tr></tbody>
@@ -1825,13 +1854,14 @@ unbounded string and refuses the CEL rule above as too expensive.<br/>
         <td><b>allowed_ports</b></td>
         <td>[]string</td>
         <td>
-          Ports a port-forward session matched by this rule may open, as single
+          Ports this rule grants on the port-bearing paths it matches, as single
 ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
 
-Only used for `.../pods/{name}/portforward` paths. When omitted, the rule
-does not restrict ports. When several rules match a port-forward, their
-ports are combined, and one rule without `allowed_ports` lifts the
-restriction. An empty list allows no port at all.<br/>
+Port-bearing paths are `.../pods/{name}/portforward`,
+`.../pods/{name}:{port}/proxy` and `.../services/{name}:{port}/proxy`
+(a Service port). Once any rule lists ports, every caller is restricted:
+the ports of the matching rules that list some are combined, and a rule
+without `allowed_ports` grants none. An empty list grants no port.<br/>
         </td>
         <td>false</td>
       </tr><tr>
@@ -1853,6 +1883,23 @@ match any number of remaining segments (needed for subresources such as
 default: false<br/>
           <br/>
             <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>verbs</b></td>
+        <td>[]enum</td>
+        <td>
+          Kubernetes verbs this rule allows, computed as the apiserver does
+(`get`, `list`, `watch`, `create`, `update`, `patch`, `delete`,
+`deletecollection`, or `*` alone)
+
+Once any rule a caller is subject to lists verbs, a rule without
+`verbs` only grants `get`, `list` and `watch`. `exec`, `attach` and
+`portforward` are `create`; `allowed_ports` implies `create` on
+`portforward`.<br/>
+          <br/>
+            <i>Validations</i>:<li>!self.exists(v, v == '*') || size(self) == 1: "*" already allows every verb and must stand alone</li>
+            <i>Enum</i>: get, list, watch, create, update, patch, delete, deletecollection, *<br/>
         </td>
         <td>false</td>
       </tr></tbody>
@@ -1885,6 +1932,8 @@ How an allowed resource is described.
         <td>
           Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
 /apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/<br/>
+          <br/>
+            <i>Validations</i>:<li>!has(self.allowed_ports) || self.kind in ['Pod', 'Service']: allowed_ports only applies to the Pod and Service kinds</li>
         </td>
         <td>false</td>
       </tr><tr>
@@ -1954,6 +2003,19 @@ Allowed crd configuration, used in conjunction with the `allowed_paths` configur
         </td>
         <td>true</td>
       </tr><tr>
+        <td><b>allowed_ports</b></td>
+        <td>[]string</td>
+        <td>
+          Ports this rule grants on the port-bearing subresources of a `Pod`
+(`portforward`, `{name}:{port}/proxy`) or a `Service`
+(`{name}:{port}/proxy`, a Service port, not its `targetPort`), as
+single ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
+
+Same meaning as on a `Path` rule: once any rule a caller is subject to
+lists ports, a rule without `allowed_ports` grants no port at all.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
         <td><b>namespaced</b></td>
         <td>boolean</td>
         <td>
@@ -1974,6 +2036,20 @@ instead of       /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresource
 In case of cluster-scoped crd
 the path will be /apis/\{group\}/\{version\}/myresources/
 instead of       /apis/\{group\}/\{version\}/myresource/<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>verbs</b></td>
+        <td>[]enum</td>
+        <td>
+          Kubernetes verbs this rule allows on the resource and all its
+subresources (same values and meaning as on a `Path` rule)
+
+A `Pod` rule with `patch` or `update` also allows
+`ephemeralcontainers`, that is `kubectl debug`.<br/>
+          <br/>
+            <i>Validations</i>:<li>!self.exists(v, v == '*') || size(self) == 1: "*" already allows every verb and must stand alone</li>
+            <i>Enum</i>: get, list, watch, create, update, patch, delete, deletecollection, *<br/>
         </td>
         <td>false</td>
       </tr></tbody>
@@ -2099,13 +2175,14 @@ unbounded string and refuses the CEL rule above as too expensive.<br/>
         <td><b>allowed_ports</b></td>
         <td>[]string</td>
         <td>
-          Ports a port-forward session matched by this rule may open, as single
+          Ports this rule grants on the port-bearing paths it matches, as single
 ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
 
-Only used for `.../pods/{name}/portforward` paths. When omitted, the rule
-does not restrict ports. When several rules match a port-forward, their
-ports are combined, and one rule without `allowed_ports` lifts the
-restriction. An empty list allows no port at all.<br/>
+Port-bearing paths are `.../pods/{name}/portforward`,
+`.../pods/{name}:{port}/proxy` and `.../services/{name}:{port}/proxy`
+(a Service port). Once any rule lists ports, every caller is restricted:
+the ports of the matching rules that list some are combined, and a rule
+without `allowed_ports` grants none. An empty list grants no port.<br/>
         </td>
         <td>false</td>
       </tr><tr>
@@ -2127,6 +2204,23 @@ match any number of remaining segments (needed for subresources such as
 default: false<br/>
           <br/>
             <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>verbs</b></td>
+        <td>[]enum</td>
+        <td>
+          Kubernetes verbs this rule allows, computed as the apiserver does
+(`get`, `list`, `watch`, `create`, `update`, `patch`, `delete`,
+`deletecollection`, or `*` alone)
+
+Once any rule a caller is subject to lists verbs, a rule without
+`verbs` only grants `get`, `list` and `watch`. `exec`, `attach` and
+`portforward` are `create`; `allowed_ports` implies `create` on
+`portforward`.<br/>
+          <br/>
+            <i>Validations</i>:<li>!self.exists(v, v == '*') || size(self) == 1: "*" already allows every verb and must stand alone</li>
+            <i>Enum</i>: get, list, watch, create, update, patch, delete, deletecollection, *<br/>
         </td>
         <td>false</td>
       </tr></tbody>
@@ -2517,6 +2611,14 @@ Use a cert from a secret
         <td>string</td>
         <td>
           <br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>warnings</b></td>
+        <td>[]string</td>
+        <td>
+          Rules whose meaning a port or verb restriction changes (see
+`SecurityConfiguration::warnings`). They are still applied.<br/>
         </td>
         <td>false</td>
       </tr></tbody>

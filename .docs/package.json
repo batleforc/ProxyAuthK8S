@@ -1,25 +1,21 @@
 {
-  "name": "proxyauthk8s-docs",
+  "name": "@proxy-auth-k8s/docs",
   "version": "0.1.9",
   "private": true,
-  "packageManager": "yarn@4.18.1",
-  "resolutions": {
-    "next/postcss": "8.5.30",
-    "next/sharp": "^0.35.4",
-    "@scalar/json-magic/undici": "^7.30.0",
-    "serve/compression": "^1.8.2"
-  },
   "scripts": {
     "build": "next build",
     "dev": "next dev",
     "start": "serve out",
-    "types:check": "fumadocs-mdx && next typegen && tsc --noEmit",
     "postinstall": "fumadocs-mdx",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "fumadocs-mdx && next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@icons-pack/react-simple-icons": "^13.15.1",
+    "@radix-ui/react-collapsible": "^1.2.1",
+    "@radix-ui/react-popover": "^1.3.1",
     "@takumi-rs/image-response": "2.16.3",
+    "class-variance-authority": "^0.7.1",
     "fumadocs-core": "16.17.5",
     "fumadocs-mdx": "15.4.7",
     "fumadocs-openapi": "12.5.2",
@@ -33,8 +29,10 @@
     "shiki": "^4.5.0",
     "tailwind-merge": "^3.7.0",
     "takumi-js": "^2.16.3",
+    "unist-util-visit": "^5.1.0",
     "yaml": "^2.9.1",
-    "zbsearch": "^4.0.1"
+    "zbsearch": "^4.0.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

@@ -3,10 +3,22 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::namespaced_access_configuration::NamespacedAccessConfiguration;
+use super::port_range::{PortPolicy, PortSpec};
+use super::verb::{VERBS_RULE, Verb, validate_verbs};
+
+/// Kinds whose port-bearing subresources (`portforward`, `{name}:{port}/proxy`)
+/// an `allowed_ports` list can apply to. The CEL rule below mirrors it.
+const PORT_KINDS: [&str; 2] = ["Pod", "Service"];
 
 /// Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
 /// /apis/{group}/{version}/namespaces/{namespace}/{kind}/
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
+#[schemars(extend("x-kubernetes-validations" = [
+    serde_json::json!({
+        "rule": "!has(self.allowed_ports) || self.kind in ['Pod', 'Service']",
+        "message": "allowed_ports only applies to the Pod and Service kinds",
+    }),
+]))]
 pub struct AllowedCrdConfiguration {
     /// The group of the crd
     pub group: String,
@@ -29,6 +41,31 @@ pub struct AllowedCrdConfiguration {
     /// default: true
     #[serde(default = "default_enabled")]
     pub namespaced: bool,
+
+    /// Ports this rule grants on the port-bearing subresources of a `Pod`
+    /// (`portforward`, `{name}:{port}/proxy`) or a `Service`
+    /// (`{name}:{port}/proxy`, a Service port, not its `targetPort`), as
+    /// single ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
+    ///
+    /// Same meaning as on a `Path` rule: once any rule a caller is subject to
+    /// lists ports, a rule without `allowed_ports` grants no port at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(max = 64))]
+    pub allowed_ports: Option<Vec<PortSpec>>,
+
+    /// Kubernetes verbs this rule allows on the resource and all its
+    /// subresources (same values and meaning as on a `Path` rule)
+    ///
+    /// A `Pod` rule with `patch` or `update` also allows
+    /// `ephemeralcontainers`, that is `kubectl debug`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(length(min = 1, max = 9), extend("x-kubernetes-validations" = [
+        serde_json::json!({
+            "rule": VERBS_RULE,
+            "message": "\"*\" already allows every verb and must stand alone",
+        }),
+    ]))]
+    pub verbs: Option<Vec<Verb>>,
 }
 
 impl AllowedCrdConfiguration {
@@ -125,9 +162,41 @@ impl AllowedCrdConfiguration {
         }
     }
 
+    /// The ports this rule grants, `None` when it lists none.
+    ///
+    /// Invalid entries (refused by [`Self::validate`]) grant nothing.
+    #[must_use]
+    pub fn port_policy(&self) -> Option<PortPolicy> {
+        self.allowed_ports.as_ref().map(|ports| {
+            PortPolicy::Only(ports.iter().filter_map(|port| port.range().ok()).collect())
+        })
+    }
+
+    /// Whether this rule can apply to the caller at all: a parametised
+    /// namespace rule that expands to no candidate (a `{{group}}` rule for a
+    /// caller without groups) reaches nothing.
+    #[must_use]
+    pub fn applies_to(&self, username: &str, groups: &[String]) -> bool {
+        self.namespace.applies_to(username, groups)
+    }
+
     /// Reject a configuration whose parametised namespace rule uses an unknown
-    /// placeholder.
+    /// placeholder, or whose ports are invalid or set on a kind without ports.
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(verbs) = &self.verbs {
+            validate_verbs(verbs)?;
+        }
+        if let Some(ports) = &self.allowed_ports {
+            if !PORT_KINDS.contains(&self.kind.as_str()) {
+                return Err(format!(
+                    "allowed_ports only applies to the Pod and Service kinds, not {}",
+                    self.kind
+                ));
+            }
+            for port in ports {
+                port.range()?;
+            }
+        }
         self.namespace.validate()
     }
 }
@@ -160,6 +229,8 @@ mod tests {
             plural: Some("widgets".to_string()),
             namespace,
             namespaced,
+            allowed_ports: None,
+            verbs: None,
         }
     }
 
@@ -299,6 +370,8 @@ mod tests {
             plural: Some("pods".to_string()),
             namespace: open_ns(),
             namespaced: true,
+            allowed_ports: None,
+            verbs: None,
         };
         assert!(pod.matches("/api/v1/namespaces/dev/pods", "alice", &groups()));
         assert!(!pod.matches(
@@ -352,6 +425,38 @@ mod tests {
             "alice",
             &groups()
         ));
+    }
+
+    /// The CEL kind rule and `validate()` must agree on which kinds take ports.
+    #[test]
+    fn allowed_ports_is_limited_to_pods_and_services() {
+        let schema =
+            serde_json::to_string(&schemars::schema_for!(AllowedCrdConfiguration)).unwrap();
+        for kind in PORT_KINDS {
+            assert!(
+                schema.contains(&format!("'{kind}'")),
+                "CEL rule misses {kind}"
+            );
+        }
+        for (kind, ok) in [
+            ("Pod", true),
+            ("Service", true),
+            ("Node", false),
+            ("Widget", false),
+        ] {
+            let rule = AllowedCrdConfiguration {
+                kind: kind.to_string(),
+                allowed_ports: Some(vec![PortSpec("8080".to_string())]),
+                ..widget(open_ns(), true)
+            };
+            assert_eq!(rule.validate().is_ok(), ok, "{kind}");
+        }
+        let invalid = AllowedCrdConfiguration {
+            kind: "Pod".to_string(),
+            allowed_ports: Some(vec![PortSpec("0".to_string())]),
+            ..widget(open_ns(), true)
+        };
+        assert!(invalid.validate().is_err());
     }
 
     #[test]

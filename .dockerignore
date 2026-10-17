@@ -1,12 +1,12 @@
 # Read by docker (and the CI buildx), and by podman/buildah too since there is
 # no .containerignore.
-.nx
 /.compose
 /.talos
 /.tasks
 /.tls
 dist
 node_modules
+**/node_modules
 tmp
 /.github
 /.vscode

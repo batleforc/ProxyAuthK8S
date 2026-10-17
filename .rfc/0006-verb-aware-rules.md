@@ -572,3 +572,27 @@ Aucune.
 Chaque phase laisse la CI verte ; la phase 1 n'a aucun effet observable. Le
 refus de `nodes/proxy` arrive dans la même phase que la lecture seule
 implicite, puisque c'est elle qui ouvre T8.
+
+---
+
+## 17. Implementation notes
+
+Écarts constatés à l'implémentation (2026-10-17) :
+
+- **Table de référence Go** : `libs/server/crd/tests/request_info_reference/`
+  (`k8s.io/apiserver` v0.34.1, `task gen:request-info-reference`) ; 289 cas,
+  verbe et découpage identiques à `RequestInfoFactory`. Les seuls écarts sont
+  des refus, listés en tête du test : connexions en `create`, verbe vide
+  (méthode inconnue), ancien préfixe `/proxy/`, non-ressource autre que
+  `GET`, séparateur encodé.
+- **`/watch/` hors lecture** : l'apiserver donne `watch` à un `POST
+  /api/v1/watch/…` ; la cible de fuzz l'a signalé (un non-`GET` classé
+  lecture). Le proxy le refuse sous restriction (l'apiserver ne sert ce
+  préfixe qu'en lecture).
+- **`OPTIONS` (§6.P point 8)** : aucune route actix ne sert `OPTIONS` ni
+  `HEAD`, la requête reçoit `404` avant la logique du proxy, sans contacter le
+  cluster.
+- **`nodes/proxy`** : message unique `nodes/proxy is not allowed while ports
+  or verbs are restricted`.
+- **Audit** : évènement `verb policy decision` (`decision: verb_denied`,
+  `k8s_verb`) ; `SecurityConfiguration::port_warnings` devient `warnings`.

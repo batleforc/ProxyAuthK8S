@@ -60,6 +60,10 @@ Commits follow the Conventional Commits format, enforced by [Cocogitto](https://
 
 You don't have the right to commit directly has all commit should be signed and signed-off by the user, if you want to provide a commit message, do so by creating a file and providing the command to validate if the commit message is okay for the user. if you do so, always add that you are a co-owner.
 
+## JS workspace
+
+The JS side is a pnpm workspace (`pnpm-workspace.yaml`) of standalone packages: `apps/front`, `libs/front/front-api` (consumed from source) and `.docs`. Each package exposes the same script names when it has the use (`dev`, `build`, `typecheck`, `test`, `lint`); Taskfile aggregates them with `pnpm -r --if-present run <script>` (`.tasks/js.yaml`), so a new package needs no Taskfile change. Nothing is hoisted: declare every import in the package's own `package.json`. A new install script must be reviewed into `allowBuilds`. There is no NX: Cargo is the only Rust build graph.
+
 ## Skills
 
 Weebo Dev skills exist and can be found [here](https://github.com/batleforc/weebo-skillsagent). The most important one if you work on UI is the `batlehub-design` skill, which is the design system (tokens, typography, Named Rules). RFCs follow the `batlehub-rfc` skill, and plans are challenged with `grill-me`.

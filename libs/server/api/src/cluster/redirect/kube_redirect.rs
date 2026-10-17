@@ -4,7 +4,7 @@ use crd::ProxyKubeApi;
 use crd::security::PortPolicy;
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::cluster::redirect::audit::AuditContext;
+use crate::cluster::redirect::audit::{AuditContext, PortDecision};
 use crate::cluster::redirect::status_response::{forbidden, too_many_requests, unauthorized};
 use crate::cluster::redirect::throttle;
 use crate::helper::{extract_authorization_header, extract_ns_cluster};
@@ -21,6 +21,8 @@ mod upstream;
 mod virtual_redirect;
 
 use context::RedirectContext;
+// Public for the `fuzz_port_target` fuzz target.
+pub use port_forward::{PortTarget, port_target};
 use standard::standard_redirect;
 use upgrade::{is_upgrade_request, upgrade_redirect};
 use virtual_api::MapperRegistry;
@@ -214,38 +216,100 @@ pub async fn redirect(
     };
     let virtual_plan = virtual_redirect::plan(&registry, &upstream_path, method.as_str());
 
-    // Resource allow-list. An empty or disabled configuration allows everything.
+    // Resource allow-list, on the path and the Kubernetes verb (computed as the
+    // apiserver does). An empty or disabled configuration allows everything.
     // When a virtual API rewrites the request, the path that is really reached
     // on the cluster is checked too: allowing a virtual path must not become a
     // way around the allow-list on the API it maps to.
+    let request_info =
+        crd::security::request_info(method.as_str(), &upstream_path, req.query_string()).ok();
     if let Some(security_config) = &proxy.spec.security_config {
         let username = user.as_ref().map_or("", |u| u.username.as_str());
         let groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
 
-        let mut checked_paths = vec![upstream_path.as_str()];
+        let mut checked = vec![(upstream_path.as_str(), request_info.clone())];
         if let Some(mapped) = virtual_plan.as_ref().and_then(|plan| plan.upstream_path()) {
-            checked_paths.push(mapped);
+            let info =
+                crd::security::request_info(method.as_str(), mapped, req.query_string()).ok();
+            checked.push((mapped, info));
         }
 
-        for path in checked_paths {
-            if !security_config.is_path_allowed(path, username, groups) {
-                warn!(%path, "request path is not in the allowed resources");
+        for (path, info) in checked {
+            if security_config.is_request_allowed(path, info.as_ref(), username, groups) {
+                continue;
+            }
+            if security_config.matches_path(path, username, groups) {
+                let verb = info
+                    .as_ref()
+                    .map_or(method.as_str(), |info| info.verb.as_str());
+                warn!(%path, %verb, "request verb is not in the allowed resources");
+                audit.emit_verb_denied(verb);
                 audited!(
                     audit,
-                    forbidden(&format!("path \"{path}\" is not allowed on this cluster"))
+                    forbidden(&format!("verb \"{verb}\" is not allowed on \"{path}\""))
                 );
             }
+            warn!(%path, "request path is not in the allowed resources");
+            audited!(
+                audit,
+                forbidden(&format!("path \"{path}\" is not allowed on this cluster"))
+            );
         }
     }
 
-    // Ports a port-forward may open, from the rules that allowed the path.
+    // Port policy, evaluated before any relay whatever the transport: every
+    // path that names a port goes through `port_target` once. A port-forward
+    // takes the policy along (its ports are in the query or the SPDY frames).
+    // `nodes/proxy` reaches the kubelet's own exec and port-forward as a `get`,
+    // so a port or a verb restriction closes it.
     let port_policy = match &proxy.spec.security_config {
-        Some(security_config) if port_forward::is_port_forward_path(&upstream_path) => {
+        Some(security_config) => {
             let username = user.as_ref().map_or("", |u| u.username.as_str());
             let groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
-            security_config.port_forward_policy(&upstream_path, username, groups)
+            let info = request_info.as_ref();
+            let target = port_forward::port_target(&upstream_path);
+            if target == PortTarget::NodeProxy
+                && security_config.restricts_node_proxy(username, groups)
+                && !security_config.node_proxy_explicitly_allowed(
+                    &upstream_path,
+                    info,
+                    username,
+                    groups,
+                )
+            {
+                let reason = "nodes/proxy is not allowed while ports or verbs are restricted";
+                warn!(path = %upstream_path, %reason, "refusing a request outside the port policy");
+                audit.emit_port_decision(PortDecision::NodeProxyDenied, None);
+                audited!(audit, forbidden(reason));
+            }
+            if security_config.restricts_ports(username, groups) {
+                let policy = security_config.port_policy(&upstream_path, info, username, groups);
+                let refusal = match target {
+                    PortTarget::ProxyPort(port) if policy.allows(port) => {
+                        audit.emit_port_decision(PortDecision::Allowed, Some(port));
+                        None
+                    }
+                    PortTarget::ProxyPort(port) => Some((
+                        Some(port),
+                        format!("port {port} is not allowed on this cluster"),
+                    )),
+                    PortTarget::ProxyNamedOrMissing => Some((
+                        None,
+                        "named or missing port is not allowed on this cluster".to_string(),
+                    )),
+                    PortTarget::NodeProxy | PortTarget::PortForward | PortTarget::None => None,
+                };
+                if let Some((port, reason)) = refusal {
+                    warn!(path = %upstream_path, %reason, "refusing a request outside the port policy");
+                    audit.emit_port_decision(PortDecision::Denied, port);
+                    audited!(audit, forbidden(&reason));
+                }
+                policy
+            } else {
+                PortPolicy::Any
+            }
         }
-        _ => PortPolicy::Any,
+        None => PortPolicy::Any,
     };
 
     // A `KubernetesService` without an explicit namespace lives next to the

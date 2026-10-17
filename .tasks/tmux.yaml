@@ -22,7 +22,7 @@ tasks:
 
         # Split for frontend (bottom-left)
         tmux split-window -v -t {{ .SESSION }}:compose.0 \
-          'echo "=== Frontend ===" && task front:tls'
+          'echo "=== Frontend ===" && task front:dev:tls'
 
         # Split for k9s (bottom-right) only if K9S=true
         if [ "{{ .K9S }}" = "true" ]; then

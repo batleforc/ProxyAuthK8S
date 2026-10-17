@@ -1,0 +1,59 @@
+packages:
+  - apps/front
+  - libs/front/front-api
+  - .docs
+
+# A version must have been published for 25 hours before it is installed
+# (pnpm >= 11 default: 1440, i.e. 1 day).
+minimumReleaseAge: 1500
+
+# shortcut: versions already in yarn.lock, published 2026-10-16 15:00-17:00
+# UTC. Remove this list on 2026-10-18, once they are all older than 25 hours.
+minimumReleaseAgeExclude:
+  - "@fumadocs/json-schema@0.3.2"
+  - "fumadocs-openapi@12.5.2"
+  - "@fumari/stf@1.1.2"
+  - "takumi-js@2.16.3"
+  - "@takumi-rs/core@2.16.3"
+  - "@takumi-rs/core-darwin-arm64@2.16.3"
+  - "@takumi-rs/core-darwin-x64@2.16.3"
+  - "@takumi-rs/core-linux-arm64-gnu@2.16.3"
+  - "@takumi-rs/core-linux-arm64-musl@2.16.3"
+  - "@takumi-rs/core-linux-x64-gnu@2.16.3"
+  - "@takumi-rs/core-linux-x64-musl@2.16.3"
+  - "@takumi-rs/core-win32-arm64-msvc@2.16.3"
+  - "@takumi-rs/core-win32-x64-msvc@2.16.3"
+  - "@takumi-rs/helpers@2.16.3"
+  - "@takumi-rs/image-response@2.16.3"
+  - "@takumi-rs/wasm@2.16.3"
+
+# Only these packages run their install scripts. List built from the first
+# install (`pnpm ignored-builds`); strictDepBuilds (default true) fails the
+# install on any package not reviewed here.
+allowBuilds:
+  esbuild: true
+  # Reviewed and refused: each ships its binary through optionalDependencies
+  # or works without its script; @scarf/scarf is install telemetry.
+  "@parcel/watcher": false
+  "@scarf/scarf": false
+  unrs-resolver: false
+  vue-demi: false
+
+overrides:
+  "@hey-api/json-schema-ref-parser>js-yaml": "^4.3.2"
+  "next>postcss": "8.5.30"
+  "next>sharp": "^0.35.4"
+  "@scalar/json-magic>undici": "^7.30.0"
+  "serve>compression": "^1.8.2"
+
+# `task audit:js` accepted advisories, same model as `.cargo/audit.toml`: each
+# entry is dated, explains why it is not reachable/fixable here, and says what
+# retires it. Anything not listed still fails the audit.
+auditConfig:
+  ignoreGhsas:
+    # braces <=3.0.3: stack exhaustion on deeply nested brace patterns.
+    # 3.0.3 is the latest release, so there is no fixed version yet. Reached
+    # only through micromatch in build/lint tooling, which expands patterns we
+    # write, never user input. Accepted 2026-10-10; RETIRE when braces ships a
+    # fix (re-check on every `pnpm up -r`).
+    - GHSA-vfj7-8cjw-p6xm

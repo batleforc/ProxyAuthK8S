@@ -1,0 +1,30 @@
+version: "3"
+
+# `fuzz/` is its own workspace (own Cargo.lock): `cargo check --workspace` and
+# clippy never see it, so a target that stops compiling would still read like
+# a guard. `check` runs on stable in `task lint`; `run` needs nightly and is
+# what the nightly `fuzz` workflow calls for every target.
+
+tasks:
+  check:
+    desc: "Check that every fuzz target still compiles (stable toolchain, gated by task lint)"
+    silent: true
+    cmds:
+      - echo "Checking the fuzz targets compile"
+      - cargo check --manifest-path fuzz/Cargo.toml --bins --all-targets
+
+  run:
+    desc: "Fuzz one target for MAX_TIME seconds (default 60) with cargo-fuzz on nightly, e.g. task fuzz:run TARGET=fuzz_port_target"
+    dir: fuzz
+    vars:
+      TARGET: '{{.TARGET | default "fuzz_port_target"}}'
+      MAX_TIME: '{{.MAX_TIME | default "60"}}'
+    cmds:
+      # `--target <host>`: a prebuilt cargo-fuzz defaults to its own (musl)
+      # triple, which cannot carry AddressSanitizer. `detect_leaks=0`:
+      # LeakSanitizer does not start under a restricted `ptrace_scope` and
+      # leaves an empty artefact that looks like a crash.
+      - >-
+        ASAN_OPTIONS=detect_leaks=0
+        cargo +nightly fuzz run --target "$(rustc +nightly -vV | sed -n 's/^host: //p')"
+        {{.TARGET}} -- -max_total_time={{.MAX_TIME}}

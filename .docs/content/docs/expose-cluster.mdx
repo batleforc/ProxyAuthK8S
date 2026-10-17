@@ -131,7 +131,8 @@ renvoyés par le `SelfSubjectReview` en mode `Kubernetes`. Détails :
 ## 5. Durcir l'accès (optionnel)
 
 `security_config` ajoute bannissement après échecs de login, liste blanche de chemins ou de
-ressources (y compris par namespace et ports de port-forward) et quotas. Tout est décrit dans
+ressources (y compris par namespace et par port : port-forward, sous-ressource `proxy`,
+`nodes/proxy`) et quotas. Tout est décrit dans
 [Sécurité du proxy](/docs/security). `virtual_apis` permet d'émuler des API absentes du
 cluster (ex. les `Projects` OpenShift) : voir [API virtuelles](/docs/virtual-apis).
 
@@ -148,6 +149,7 @@ kubectl get proxykubeapi -n team-a my-cluster -o jsonpath='{.status}'
 | `error: Failed to validate proxy configuration: …`             | `auth_config` ou `security_config` incohérent                        |
 | `error: Failed to check if target service is reachable: …`     | Échec avant même l'appel (ex. `cert` introuvable, namespace refusé)  |
 | `error: Target service is not reachable`                       | L'apiserver ne répond pas (URL, réseau, NetworkPolicy, CA)            |
+| `warnings: ["rule N covers …"]`                                | Une règle que la restriction de ports prive de ports ou de `nodes/proxy` (appliquée quand même) |
 
 Le controller réessaie régulièrement : corrigez la ressource ou le réseau, le statut se met à
 jour seul. Avec la NetworkPolicy de la chart activée, pensez à autoriser l'egress vers
@@ -183,6 +185,19 @@ spec:
       enabled: true
       max_failed_logins: 5
       ban_duration: 300
+    allowed_resources:
+      # Lire et suivre les pods de team-a…
+      - Crd:
+          group: ""
+          version: v1
+          kind: Pod
+          plural: pods
+          namespace: { enabled: true, rule_kind: { AllowedNamespaces: ["team-a"] } }
+          # …et n'ouvrir que leur port 8080 (port-forward et pods/x:8080/proxy).
+          allowed_ports: ["8080"]
 ```
+
+Avec `allowed_ports`, une règle qui n'en porte pas n'accorde aucun port, et `nodes/proxy` est
+refusé : voir [Ports autorisés](/docs/security#ports-autorisés).
 
 D'autres exemples sont disponibles dans `deploy/example/`.
