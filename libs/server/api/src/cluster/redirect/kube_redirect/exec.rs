@@ -8,6 +8,11 @@
 //! value included, is true). A duplicated parameter or a `;` is refused: the
 //! proxy never reads a request differently from the apiserver.
 
+use std::collections::BTreeMap;
+
+use crd::security::ExecRequest;
+
+use super::websocket::WebsocketDecoder;
 use crd::security::path_matcher::percent_decode_once;
 
 /// At most this many `command` parameters.
@@ -15,18 +20,6 @@ const MAX_COMMAND_ELEMENTS: usize = 32;
 
 /// At most this many bytes in one `command` element.
 const MAX_COMMAND_ELEMENT_BYTES: usize = 4 * 1024;
-
-/// What an exec or attach query asks for.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(super) struct ExecRequest {
-    /// Every `command`, in order (empty for an attach).
-    pub argv: Vec<String>,
-    pub container: Option<String>,
-    pub stdin: bool,
-    pub stdout: bool,
-    pub stderr: bool,
-    pub tty: bool,
-}
 
 /// The decoded segments of an upstream path.
 fn segments(path: &str) -> Vec<String> {
@@ -47,6 +40,11 @@ fn pod_subresource(path: &str) -> Option<String> {
 /// Whether `path` is `pods/{name}/exec` or `pods/{name}/attach`.
 pub(super) fn is_exec_or_attach_path(path: &str) -> bool {
     matches!(pod_subresource(path).as_deref(), Some("exec" | "attach"))
+}
+
+/// Whether `path` is `pods/{name}/attach`.
+pub(super) fn is_attach_path(path: &str) -> bool {
+    pod_subresource(path).as_deref() == Some("attach")
 }
 
 /// The `kind` label of the session duration histogram for a tunnelled path.
@@ -72,7 +70,7 @@ fn query_bool(value: &str) -> bool {
 /// A message for the client when the query has a `;`, a duplicated
 /// `container` or boolean, more than [`MAX_COMMAND_ELEMENTS`] commands, or a
 /// command element longer than [`MAX_COMMAND_ELEMENT_BYTES`].
-pub(super) fn parse_exec_query(query: &str) -> Result<ExecRequest, String> {
+pub fn parse_exec_query(query: &str) -> Result<ExecRequest, String> {
     if query.contains(';') {
         return Err("a ';' in the exec query is not accepted".to_string());
     }
@@ -111,6 +109,157 @@ pub(super) fn parse_exec_query(query: &str) -> Result<ExecRequest, String> {
         }
     }
     Ok(request)
+}
+
+/// The channel protocols an exec under restriction may use (RFC 0004 §5.3):
+/// binary, so the channel of every message can be read.
+const READABLE_PROTOCOLS: [&str; 2] = ["v5.channel.k8s.io", "v4.channel.k8s.io"];
+
+/// Stdin, resize and close: the channels a client may write on.
+const STDIN_CHANNEL: u8 = 0;
+const RESIZE_CHANNEL: u8 = 4;
+const CLOSE_CHANNEL: u8 = 255;
+
+/// Whether the protocol the upstream accepted lets the filter read the
+/// channels: `v5`/`v4` binary, no websocket extension.
+///
+/// # Errors
+///
+/// The reason, for the client's `403`.
+pub(super) fn check_exec_protocol(
+    protocol: Option<&str>,
+    extensions: Option<&str>,
+) -> Result<(), String> {
+    if extensions.is_some_and(|e| !e.trim().is_empty()) {
+        return Err("a websocket extension hides the exec channels".to_string());
+    }
+    match protocol.map(str::trim) {
+        Some(protocol) if READABLE_PROTOCOLS.contains(&protocol) => Ok(()),
+        Some(protocol) => Err(format!(
+            "exec protocol {protocol} is not readable while exec is restricted; use v5.channel.k8s.io"
+        )),
+        None => Err(
+            "an exec without a channel protocol is not readable while exec is restricted"
+                .to_string(),
+        ),
+    }
+}
+
+/// The client half of the exec channel filter: refuses a message on a
+/// channel the policy does not allow (stdin without `stdin`, resize without
+/// `tty`, anything unknown), and counts the bytes of each channel.
+pub struct ExecChannelFilter {
+    decoder: WebsocketDecoder,
+    stdin: bool,
+    tty: bool,
+    channel: Option<u8>,
+    bytes: BTreeMap<u8, u64>,
+    refused: Option<u8>,
+}
+
+impl ExecChannelFilter {
+    #[must_use]
+    pub fn new(stdin: bool, tty: bool) -> Self {
+        Self {
+            decoder: WebsocketDecoder::client(),
+            stdin,
+            tty,
+            channel: None,
+            bytes: BTreeMap::new(),
+            refused: None,
+        }
+    }
+
+    /// Read a chunk the client sends.
+    ///
+    /// # Errors
+    ///
+    /// The reason when the chunk opens a forbidden channel or is not a
+    /// readable frame: the session must end without forwarding it.
+    pub fn inspect(&mut self, chunk: &[u8]) -> Result<(), String> {
+        let (stdin, tty) = (self.stdin, self.tty);
+        let (channel, bytes, refused) = (&mut self.channel, &mut self.bytes, &mut self.refused);
+        self.decoder.decode_messages(chunk, |data, start| {
+            let payload = if start {
+                let opened = data[0];
+                let allowed = match opened {
+                    STDIN_CHANNEL => stdin,
+                    RESIZE_CHANNEL => tty,
+                    CLOSE_CHANNEL => true,
+                    _ => false,
+                };
+                if !allowed {
+                    *refused = Some(opened);
+                    return Err(format!("channel {opened} is not allowed on this exec"));
+                }
+                *channel = Some(opened);
+                &data[1..]
+            } else {
+                data
+            };
+            if let Some(channel) = *channel {
+                *bytes.entry(channel).or_default() += payload.len() as u64;
+            }
+            Ok(())
+        })
+    }
+
+    /// The channel whose message ended the session, if one did.
+    #[must_use]
+    pub fn refused_channel(&self) -> Option<u8> {
+        self.refused
+    }
+
+    /// The bytes the client sent on each channel.
+    pub(super) fn bytes(&self) -> &BTreeMap<u8, u64> {
+        &self.bytes
+    }
+}
+
+/// The upstream half: counts the bytes of each channel the upstream sends,
+/// and never blocks — a frame it cannot read only stops the counting.
+pub(super) struct ExecChannelCounter {
+    decoder: WebsocketDecoder,
+    channel: Option<u8>,
+    bytes: BTreeMap<u8, u64>,
+    broken: bool,
+}
+
+impl ExecChannelCounter {
+    pub(super) fn new() -> Self {
+        Self {
+            decoder: WebsocketDecoder::server(),
+            channel: None,
+            bytes: BTreeMap::new(),
+            broken: false,
+        }
+    }
+
+    /// Count a chunk the upstream sends.
+    pub(super) fn count(&mut self, chunk: &[u8]) {
+        if self.broken {
+            return;
+        }
+        let (channel, bytes) = (&mut self.channel, &mut self.bytes);
+        let read = self.decoder.decode_messages(chunk, |data, start| {
+            let payload = if start {
+                *channel = Some(data[0]);
+                &data[1..]
+            } else {
+                data
+            };
+            if let Some(channel) = *channel {
+                *bytes.entry(channel).or_default() += payload.len() as u64;
+            }
+            Ok(())
+        });
+        self.broken = read.is_err();
+    }
+
+    /// The bytes the upstream sent on each channel.
+    pub(super) fn bytes(&self) -> &BTreeMap<u8, u64> {
+        &self.bytes
+    }
 }
 
 /// `argv` with what looks like a secret replaced by `***`: `-p<x>`,
@@ -228,6 +377,130 @@ mod tests {
         assert!(parse_exec_query(&many).is_err());
         let long = format!("command={}", "x".repeat(MAX_COMMAND_ELEMENT_BYTES + 1));
         assert!(parse_exec_query(&long).is_err());
+    }
+
+    fn client_message(channel: u8, payload: &[u8]) -> Vec<u8> {
+        let mask = [9, 8, 7, 6];
+        let mut body = vec![channel];
+        body.extend_from_slice(payload);
+        let mut frame = vec![0x82, 0x80 | body.len() as u8];
+        frame.extend_from_slice(&mask);
+        frame.extend(body.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
+        frame
+    }
+
+    /// T4: stdin data while stdin is not allowed ends the session.
+    #[test]
+    fn a_forbidden_channel_is_refused() {
+        let mut filter = ExecChannelFilter::new(false, false);
+        assert!(
+            filter
+                .inspect(&client_message(STDIN_CHANNEL, b"rm -rf /"))
+                .is_err()
+        );
+        assert_eq!(filter.refused_channel(), Some(STDIN_CHANNEL));
+        let mut filter = ExecChannelFilter::new(true, false);
+        assert!(
+            filter
+                .inspect(&client_message(STDIN_CHANNEL, b"ls"))
+                .is_ok()
+        );
+        assert!(
+            filter
+                .inspect(&client_message(RESIZE_CHANNEL, b"{}"))
+                .is_err()
+        );
+        // Close is always allowed; stdout from a client is not.
+        assert!(
+            ExecChannelFilter::new(false, false)
+                .inspect(&client_message(CLOSE_CHANNEL, &[0]))
+                .is_ok()
+        );
+        assert!(
+            ExecChannelFilter::new(true, true)
+                .inspect(&client_message(1, b"x"))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn channels_are_counted_each_way() {
+        let mut filter = ExecChannelFilter::new(true, false);
+        filter
+            .inspect(&client_message(STDIN_CHANNEL, b"abc"))
+            .unwrap();
+        assert_eq!(filter.bytes().get(&STDIN_CHANNEL), Some(&3));
+        let mut counter = ExecChannelCounter::new();
+        counter.count(&[0x82, 4, 1, b'o', b'u', b't']);
+        counter.count(&[0x82, 3, 2, b'e', b'r']);
+        assert_eq!(counter.bytes().get(&1), Some(&3));
+        assert_eq!(counter.bytes().get(&2), Some(&2));
+    }
+
+    /// T5: under restriction, only binary channel protocols without
+    /// extension are readable.
+    #[test]
+    fn only_readable_protocols_are_accepted() {
+        assert!(check_exec_protocol(Some("v5.channel.k8s.io"), None).is_ok());
+        assert!(check_exec_protocol(Some("v4.channel.k8s.io"), Some("")).is_ok());
+        assert!(check_exec_protocol(Some("v4.base64.channel.k8s.io"), None).is_err());
+        assert!(check_exec_protocol(None, None).is_err());
+        assert!(
+            check_exec_protocol(Some("v5.channel.k8s.io"), Some("permessage-deflate")).is_err()
+        );
+    }
+
+    /// T3: what the apiserver reads from a query (table generated from its
+    /// own conversion helpers, `task gen:request-info-reference`) is what
+    /// the proxy reads, or the proxy refuses the query outright (a `;` or a
+    /// repeated parameter, where the apiserver would keep the first value).
+    #[test]
+    fn the_query_is_read_like_the_reference() {
+        let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../../crd/tests/exec_query_reference.json"
+        ))
+        .unwrap();
+        assert!(cases.len() > 30);
+        for case in cases {
+            let query = case["query"].as_str().unwrap();
+            match parse_exec_query(query) {
+                Ok(request) => {
+                    let expected: Vec<String> = case["command"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.as_str().unwrap().to_string())
+                        .collect();
+                    assert_eq!(request.argv, expected, "{query}");
+                    let container = case["container"].as_str().unwrap();
+                    assert_eq!(
+                        request.container.as_deref().unwrap_or_default(),
+                        container,
+                        "{query}"
+                    );
+                    for (field, ours) in [
+                        ("stdin", request.stdin),
+                        ("stdout", request.stdout),
+                        ("stderr", request.stderr),
+                        ("tty", request.tty),
+                    ] {
+                        assert_eq!(ours, case[field].as_bool().unwrap(), "{field} in {query}");
+                    }
+                }
+                Err(_) => {
+                    let repeated = ["container", "stdin", "stdout", "stderr", "tty"]
+                        .iter()
+                        .any(|key| {
+                            query
+                                .split('&')
+                                .filter(|pair| pair.split('=').next() == Some(*key))
+                                .count()
+                                > 1
+                        });
+                    assert!(query.contains(';') || repeated, "refused: {query}");
+                }
+            }
+        }
     }
 
     #[test]

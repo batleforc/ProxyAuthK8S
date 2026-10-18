@@ -678,6 +678,74 @@ spec:
                               maxItems: 64
                               nullable: true
                               type: array
+                            exec:
+                              description: |-
+                                Commands, containers and streams this `Pod` rule allows on exec and
+                                attach (same meaning as on a `Path` rule; RFC 0004)
+                              nullable: true
+                              properties:
+                                attach:
+                                  default: false
+                                  description: |-
+                                    Whether this rule allows `pods/{name}/attach` (its `commands` are
+                                    ignored there)
+                                    default: false
+                                  type: boolean
+                                commands:
+                                  description: |-
+                                    Commands this rule allows, element by element (`["ls", "**"]`);
+                                    absent or empty: none
+
+                                    A pattern starting with a shell or an interpreter and holding a
+                                    wildcard allows anything, and is reported in `status.warnings`.
+                                  items:
+                                    description: |-
+                                      A command line, element by element: `*` covers a whole element or part of
+                                      one, `**` (last only) covers zero or more elements. No path normalisation:
+                                      `ls` and `/bin/ls` are two commands.
+                                    items:
+                                      description: One element of a command pattern.
+                                      maxLength: 512
+                                      type: string
+                                    maxItems: 32
+                                    minItems: 1
+                                    type: array
+                                    x-kubernetes-validations:
+                                    - message: '"**" may only be the last element of a command'
+                                      rule: self.all(e, e != '**') || (self[size(self) - 1] == '**' && self.filter(e, e == '**').size() == 1)
+                                  maxItems: 64
+                                  nullable: true
+                                  type: array
+                                containers:
+                                  description: |-
+                                    Containers this rule allows (`*` allowed in a pattern); absent: all,
+                                    empty: none
+
+                                    Under a container restriction, a request must name its container
+                                    (`kubectl exec -c`); kubectl always does.
+                                  items:
+                                    description: One element of a command pattern.
+                                    maxLength: 512
+                                    type: string
+                                  maxItems: 32
+                                  nullable: true
+                                  type: array
+                                stdin:
+                                  default: false
+                                  description: |-
+                                    Whether stdin may be attached
+                                    default: false
+                                  type: boolean
+                                tty:
+                                  default: false
+                                  description: |-
+                                    Whether a tty may be allocated (needs `stdin`)
+                                    default: false
+                                  type: boolean
+                              type: object
+                              x-kubernetes-validations:
+                              - message: tty needs stdin
+                                rule: '!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin)'
                             group:
                               description: The group of the crd
                               type: string
@@ -780,6 +848,8 @@ spec:
                           x-kubernetes-validations:
                           - message: allowed_ports only applies to the Pod and Service kinds
                             rule: '!has(self.allowed_ports) || self.kind in [''Pod'', ''Service'']'
+                          - message: exec only applies to the Pod kind
+                            rule: '!has(self.exec) || self.kind == ''Pod'''
                         Path:
                           description: |-
                             Allowed path configuration, used in conjunction with the `allowed_paths` configuration
@@ -818,6 +888,79 @@ spec:
                               maxItems: 64
                               nullable: true
                               type: array
+                            exec:
+                              description: |-
+                                Commands, containers and streams this rule allows on the
+                                `pods/{name}/exec` and `/attach` paths it matches (RFC 0004)
+
+                                Once any rule a caller is subject to declares `exec`, only the rules
+                                that match the path and declare `exec` allow exec or attach, and a
+                                request is accepted when one of them accepts it entirely. A `Path`
+                                rule has no subject: one with `exec` restricts every caller.
+                              nullable: true
+                              properties:
+                                attach:
+                                  default: false
+                                  description: |-
+                                    Whether this rule allows `pods/{name}/attach` (its `commands` are
+                                    ignored there)
+                                    default: false
+                                  type: boolean
+                                commands:
+                                  description: |-
+                                    Commands this rule allows, element by element (`["ls", "**"]`);
+                                    absent or empty: none
+
+                                    A pattern starting with a shell or an interpreter and holding a
+                                    wildcard allows anything, and is reported in `status.warnings`.
+                                  items:
+                                    description: |-
+                                      A command line, element by element: `*` covers a whole element or part of
+                                      one, `**` (last only) covers zero or more elements. No path normalisation:
+                                      `ls` and `/bin/ls` are two commands.
+                                    items:
+                                      description: One element of a command pattern.
+                                      maxLength: 512
+                                      type: string
+                                    maxItems: 32
+                                    minItems: 1
+                                    type: array
+                                    x-kubernetes-validations:
+                                    - message: '"**" may only be the last element of a command'
+                                      rule: self.all(e, e != '**') || (self[size(self) - 1] == '**' && self.filter(e, e == '**').size() == 1)
+                                  maxItems: 64
+                                  nullable: true
+                                  type: array
+                                containers:
+                                  description: |-
+                                    Containers this rule allows (`*` allowed in a pattern); absent: all,
+                                    empty: none
+
+                                    Under a container restriction, a request must name its container
+                                    (`kubectl exec -c`); kubectl always does.
+                                  items:
+                                    description: One element of a command pattern.
+                                    maxLength: 512
+                                    type: string
+                                  maxItems: 32
+                                  nullable: true
+                                  type: array
+                                stdin:
+                                  default: false
+                                  description: |-
+                                    Whether stdin may be attached
+                                    default: false
+                                  type: boolean
+                                tty:
+                                  default: false
+                                  description: |-
+                                    Whether a tty may be allocated (needs `stdin`)
+                                    default: false
+                                  type: boolean
+                              type: object
+                              x-kubernetes-validations:
+                              - message: tty needs stdin
+                                rule: '!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin)'
                             parametised:
                               default: false
                               description: |-
@@ -938,6 +1081,74 @@ spec:
                               maxItems: 64
                               nullable: true
                               type: array
+                            exec:
+                              description: |-
+                                Commands, containers and streams this `Pod` rule allows on exec and
+                                attach (same meaning as on a `Path` rule; RFC 0004)
+                              nullable: true
+                              properties:
+                                attach:
+                                  default: false
+                                  description: |-
+                                    Whether this rule allows `pods/{name}/attach` (its `commands` are
+                                    ignored there)
+                                    default: false
+                                  type: boolean
+                                commands:
+                                  description: |-
+                                    Commands this rule allows, element by element (`["ls", "**"]`);
+                                    absent or empty: none
+
+                                    A pattern starting with a shell or an interpreter and holding a
+                                    wildcard allows anything, and is reported in `status.warnings`.
+                                  items:
+                                    description: |-
+                                      A command line, element by element: `*` covers a whole element or part of
+                                      one, `**` (last only) covers zero or more elements. No path normalisation:
+                                      `ls` and `/bin/ls` are two commands.
+                                    items:
+                                      description: One element of a command pattern.
+                                      maxLength: 512
+                                      type: string
+                                    maxItems: 32
+                                    minItems: 1
+                                    type: array
+                                    x-kubernetes-validations:
+                                    - message: '"**" may only be the last element of a command'
+                                      rule: self.all(e, e != '**') || (self[size(self) - 1] == '**' && self.filter(e, e == '**').size() == 1)
+                                  maxItems: 64
+                                  nullable: true
+                                  type: array
+                                containers:
+                                  description: |-
+                                    Containers this rule allows (`*` allowed in a pattern); absent: all,
+                                    empty: none
+
+                                    Under a container restriction, a request must name its container
+                                    (`kubectl exec -c`); kubectl always does.
+                                  items:
+                                    description: One element of a command pattern.
+                                    maxLength: 512
+                                    type: string
+                                  maxItems: 32
+                                  nullable: true
+                                  type: array
+                                stdin:
+                                  default: false
+                                  description: |-
+                                    Whether stdin may be attached
+                                    default: false
+                                  type: boolean
+                                tty:
+                                  default: false
+                                  description: |-
+                                    Whether a tty may be allocated (needs `stdin`)
+                                    default: false
+                                  type: boolean
+                              type: object
+                              x-kubernetes-validations:
+                              - message: tty needs stdin
+                                rule: '!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin)'
                             group:
                               description: The group of the crd
                               type: string
@@ -1040,6 +1251,8 @@ spec:
                           x-kubernetes-validations:
                           - message: allowed_ports only applies to the Pod and Service kinds
                             rule: '!has(self.allowed_ports) || self.kind in [''Pod'', ''Service'']'
+                          - message: exec only applies to the Pod kind
+                            rule: '!has(self.exec) || self.kind == ''Pod'''
                         Path:
                           description: |-
                             Allowed path configuration, used in conjunction with the `allowed_paths` configuration
@@ -1078,6 +1291,79 @@ spec:
                               maxItems: 64
                               nullable: true
                               type: array
+                            exec:
+                              description: |-
+                                Commands, containers and streams this rule allows on the
+                                `pods/{name}/exec` and `/attach` paths it matches (RFC 0004)
+
+                                Once any rule a caller is subject to declares `exec`, only the rules
+                                that match the path and declare `exec` allow exec or attach, and a
+                                request is accepted when one of them accepts it entirely. A `Path`
+                                rule has no subject: one with `exec` restricts every caller.
+                              nullable: true
+                              properties:
+                                attach:
+                                  default: false
+                                  description: |-
+                                    Whether this rule allows `pods/{name}/attach` (its `commands` are
+                                    ignored there)
+                                    default: false
+                                  type: boolean
+                                commands:
+                                  description: |-
+                                    Commands this rule allows, element by element (`["ls", "**"]`);
+                                    absent or empty: none
+
+                                    A pattern starting with a shell or an interpreter and holding a
+                                    wildcard allows anything, and is reported in `status.warnings`.
+                                  items:
+                                    description: |-
+                                      A command line, element by element: `*` covers a whole element or part of
+                                      one, `**` (last only) covers zero or more elements. No path normalisation:
+                                      `ls` and `/bin/ls` are two commands.
+                                    items:
+                                      description: One element of a command pattern.
+                                      maxLength: 512
+                                      type: string
+                                    maxItems: 32
+                                    minItems: 1
+                                    type: array
+                                    x-kubernetes-validations:
+                                    - message: '"**" may only be the last element of a command'
+                                      rule: self.all(e, e != '**') || (self[size(self) - 1] == '**' && self.filter(e, e == '**').size() == 1)
+                                  maxItems: 64
+                                  nullable: true
+                                  type: array
+                                containers:
+                                  description: |-
+                                    Containers this rule allows (`*` allowed in a pattern); absent: all,
+                                    empty: none
+
+                                    Under a container restriction, a request must name its container
+                                    (`kubectl exec -c`); kubectl always does.
+                                  items:
+                                    description: One element of a command pattern.
+                                    maxLength: 512
+                                    type: string
+                                  maxItems: 32
+                                  nullable: true
+                                  type: array
+                                stdin:
+                                  default: false
+                                  description: |-
+                                    Whether stdin may be attached
+                                    default: false
+                                  type: boolean
+                                tty:
+                                  default: false
+                                  description: |-
+                                    Whether a tty may be allocated (needs `stdin`)
+                                    default: false
+                                  type: boolean
+                              type: object
+                              x-kubernetes-validations:
+                              - message: tty needs stdin
+                                rule: '!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin)'
                             parametised:
                               default: false
                               description: |-

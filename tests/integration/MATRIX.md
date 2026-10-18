@@ -44,19 +44,19 @@ Statuts :
 | 0003 | 5     | suite       | `rfc0003::p5_nodes_proxy_is_refused_under_restriction` |
 | 0003 | 6     | suite       | `rfc0003::p6_an_explicit_nodes_proxy_rule_lets_it_through` |
 | 0003 | 7     | suite       | `rfc0003::p7_without_restriction_everything_passes` |
-| 0004 | 1     | à écrire    | |
-| 0004 | 2     | à écrire    | |
-| 0004 | 3     | à écrire    | |
-| 0004 | 4     | à écrire    | |
-| 0004 | 5     | à écrire    | |
-| 0004 | 6     | à écrire    | |
-| 0004 | 7     | à écrire    | |
-| 0004 | 8     | à écrire    | |
-| 0004 | 9     | à écrire    | |
-| 0004 | 10    | à écrire    | |
-| 0004 | 11    | à écrire    | |
-| 0004 | 12    | à écrire    | |
-| 0004 | 13    | à écrire    | |
+| 0004 | 1     | suite       | `rfc0004::p1_an_allowed_command_runs` |
+| 0004 | 2     | suite       | `rfc0004::p2_a_command_outside_the_list_is_refused` |
+| 0004 | 3     | suite       | `rfc0004::p3_a_tty_is_refused` |
+| 0004 | 4     | suite       | `rfc0004::p4_an_unnamed_container_is_refused` |
+| 0004 | 5     | suite       | `rfc0004::p5_cp_to_the_pod_is_refused` |
+| 0004 | 6     | suite       | `rfc0004::p6_a_forbidden_channel_closes_the_session` |
+| 0004 | 7     | suite       | `rfc0004::p7_a_repeated_parameter_is_refused` |
+| 0004 | 8     | suite       | `rfc0004::p8_an_empty_boolean_is_true` |
+| 0004 | 9     | suite       | `rfc0004::p9_rules_never_combine` |
+| 0004 | 10    | suite       | `rfc0004::p10_a_broad_rule_grants_no_exec` |
+| 0004 | 11    | suite       | `rfc0004::p11_attach_needs_its_own_rule` |
+| 0004 | 12    | suite       | `rfc0004::p12_the_kubelet_exec_is_refused` |
+| 0004 | 13    | suite       | `rfc0004::p13_without_an_exec_rule_nothing_changes` |
 | 0005 | 1     | hors suite  | job repo-checks (includes distants de `Taskfile.yaml`) |
 | 0005 | 2     | hors suite  | jobs repo-checks, back-clippy, back-dep-audit et back-cargo-test `coverage` |
 | 0005 | 3     | hors suite  | 0005 phases 2-5 (`task docs:crds`), pas encore livrées |

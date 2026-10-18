@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Accepted                                                               |
+| Status      | Implemented (2026-10-18)                                               |
 | Short       | Filtrage exec / attach                                                 |
 | Settles     | Ce que le proxy peut garantir sur `pods/{name}/exec` et `/attach` : commandes autorisées, conteneurs, flux, et une trace de session |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -804,3 +804,50 @@ Aucune.
 Le filtre de canaux est dans la même phase que la politique : le champ `stdin:
 false` ne doit pas exister dans une version où seule la query est vérifiée. Un
 contrôle n'arrive jamais après la surface qu'il protège.
+
+---
+
+## 17. Revision against the tree (2026-10-18)
+
+Les phases 1 à 3 sont livrées ensemble (étape 12 du PLAN). Ce qui diffère du
+texte, et pourquoi :
+
+- **Pas de trait `UpgradeFilter`.** Le tunnel prend une énumération
+  `SessionFilter { Port, Exec }` : deux variantes connues, un `match` dans
+  `pipe_filtered`. Un trait n'apportait rien de plus pour deux implémentations
+  qui n'exposent pas les mêmes informations (ports ouverts d'un côté, canaux et
+  octets de l'autre).
+- **Le filtre d'exec est coupé en deux moitiés** : `ExecChannelFilter` (sens
+  client, seul à pouvoir refuser) et `ExecChannelCounter` (sens upstream,
+  compte et ne bloque jamais). Chaque sens du tunnel emprunte sa moitié.
+- **La raison d'un refus dans l'audit est un mot fixe** (`reason` parmi
+  `command`, `container`, `stdin`, `tty`, `attach`, `no_rule`) ; le message,
+  qui contient la commande, ne va qu'au client. Sinon la ligne
+  `policy_decision` contournerait `mask_exec_secrets`.
+- **La politique est évaluée dans `redirect()`**, après la politique de ports,
+  et non dans `check_handshake` : elle passe ainsi avant le contrôle
+  « websocket seulement » pour le repli SPDY, et couvre aussi un exec qui ne
+  demande pas d'upgrade.
+- **`exec` implique `create`** sur `exec` et `attach` sous restriction de
+  verbes, comme `allowed_ports` sur `portforward`.
+- **La table de référence Go** (`crd/tests/exec_query_reference.json`) appelle
+  les helpers de `k8s.io/apimachinery` (`Convert_Slice_string_To_bool`,
+  `Convert_Slice_string_To_string`) comme le fait la conversion générée de
+  l'apiserver : le codec de paramètres ne sait pas convertir `PodExecOptions`
+  sans `k8s.io/kubernetes`. Elle confirme que les clés sont sensibles à la
+  casse et qu'une valeur vide ou `%20true` vaut « vrai ».
+- **Le message de refus de `nodes/proxy`** devient « while ports, verbs or exec
+  are restricted » (contrat HTTP et doc mis à jour).
+- **Le décodeur websocket** gagne les trames serveur (non masquées), le début
+  de message (le canal est le premier octet d'un message, pas d'une trame) et
+  la borne de 1 Mio (T11), aussi appliquée au port-forward.
+
+Preuves : `rfc0004::p1` à `p13` verts sur le banc (kubectl 1.37.1 côté poste,
+1.35 épinglé en CI), avec le reste de la suite (50 tests Rust, 3 Playwright) ;
+`proxy_upgrade.rs` (refus avant connexion et repli SPDY, canal stdin coupé) ;
+tests unitaires de `exec_policy.rs`, `exec.rs` (dont la table Go) et
+`websocket.rs` ; cibles de fuzz `fuzz_exec_query` (634 538 exécutions) et
+`fuzz_exec_channels` (2 275 655), 46 s chacune sans échec. La CRD générée passe
+l'admission du kube-apiserver du banc (coût CEL). §8 : aucune dépendance
+runtime nouvelle.
+

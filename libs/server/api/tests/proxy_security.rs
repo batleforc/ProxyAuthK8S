@@ -410,6 +410,7 @@ fn port_restricted_config(extra: Vec<(&str, bool)>) -> crd::security::SecurityCo
                 parametised: true,
                 allowed_ports: Some(vec![PortSpec("8080".to_string())]),
                 verbs: None,
+                exec: None,
             },
         ));
     for (kind, plural) in [("Pod", "pods"), ("Service", "services")] {
@@ -426,6 +427,7 @@ fn port_restricted_config(extra: Vec<(&str, bool)>) -> crd::security::SecurityCo
                 },
                 namespaced: true,
                 allowed_ports: None,
+                exec: None,
                 verbs: None,
             }));
     }
@@ -502,6 +504,7 @@ async fn a_rule_with_the_port_grants_the_proxy_subresource() {
                 parametised: true,
                 allowed_ports: Some(vec![PortSpec("80".to_string())]),
                 verbs: None,
+                exec: None,
             },
         ));
     let Some((statuses, reached)) = get_through(
@@ -598,6 +601,7 @@ fn verb_restricted_config(extra: Vec<(&str, bool)>) -> crd::security::SecurityCo
                 path: "/api/v1/namespaces/dev/pods/**".to_string(),
                 parametised: true,
                 allowed_ports: None,
+                exec: None,
                 verbs: Some(Verb::READ.to_vec()),
             },
         ));
@@ -614,6 +618,7 @@ fn verb_restricted_config(extra: Vec<(&str, bool)>) -> crd::security::SecurityCo
             },
             namespaced: true,
             allowed_ports: None,
+            exec: None,
             verbs: None,
         }));
     config

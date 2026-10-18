@@ -25,9 +25,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MATRIX = ROOT / "tests/integration/MATRIX.md"
-# RFCs whose rows may still say `à écrire`: 0004 and 0010, whose code is not
-# written yet; each leaves this set in the PR that lands its code and tests.
-PENDING = {"0004", "0010"}
+# RFCs whose rows may still say `à écrire`: 0010, whose code is not written
+# yet; each leaves this set in the PR that lands its code and tests.
+PENDING = {"0010"}
 STATUSES = {"suite", "hors suite", "quarantaine", "à écrire"}
 
 
@@ -140,7 +140,7 @@ def self_test() -> None:
     assert ok == [] and warnings == ["1 row(s) in quarantine"]
     todo = good.replace("| suite | `rfc0003::p1_ok` |", "| à écrire | |")
     assert check({"0001": [1, 2]}, todo.replace("0003", "0001"), tests, [])[0]
-    assert check({"0004": [1, 2]}, todo.replace("0003", "0004"), tests, [])[0] == []
+    assert check({"0010": [1, 2]}, todo.replace("0003", "0010"), tests, [])[0] == []
     assert check({"0003": [1, 2]}, good, tests, ["api"])[0]
     pw = good.replace("`rfc0003::p1_ok`", "`e2e-it/login.spec.ts › full login`")
     assert check({"0003": [1, 2]}, pw, tests, [])[0] == []

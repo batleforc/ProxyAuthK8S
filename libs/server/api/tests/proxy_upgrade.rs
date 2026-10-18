@@ -392,6 +392,7 @@ fn port_forward_proxy(
                         .collect(),
                 ),
                 verbs: None,
+                exec: None,
             },
         )],
         ..SecurityConfiguration::default()
@@ -465,6 +466,7 @@ async fn a_rule_without_ports_does_not_lift_the_restriction() {
                 },
                 namespaced: true,
                 allowed_ports: None,
+                exec: None,
                 verbs: None,
             }));
         seed_proxy(&pool, &proxy).await;
@@ -639,6 +641,179 @@ async fn a_tunnelled_spdy_port_forward_is_filtered_per_stream() {
         .await
         .expect("a session_closed line");
     assert_eq!(closed["close_reason"], "filter", "{closed}");
+
+    server.stop(false).await;
+    delete_proxy(&pool, &ns, &cluster).await;
+}
+
+/// A proxy whose only exec rule allows `ls` (any arguments) in `app`, without
+/// stdin or tty (RFC 0004).
+fn exec_proxy(ns: &str, cluster: &str, upstream_url: &str) -> crd::ProxyKubeApi {
+    use crd::security::{CommandElement, CommandPattern, ExecPolicyConfiguration};
+    let mut proxy = proxy_fixture(ns, cluster, upstream_url);
+    proxy.spec.security_config = Some(SecurityConfiguration {
+        enabled: true,
+        allowed_resources: vec![AllowedPathConfigurationEnum::Path(
+            AllowedPathConfiguration {
+                path: "/api/v1/namespaces/dev/pods/*/exec".to_string(),
+                parametised: true,
+                allowed_ports: None,
+                verbs: None,
+                exec: Some(ExecPolicyConfiguration {
+                    commands: Some(vec![CommandPattern(vec![
+                        CommandElement("ls".into()),
+                        CommandElement("**".into()),
+                    ])]),
+                    containers: Some(vec![CommandElement("app".into())]),
+                    ..ExecPolicyConfiguration::default()
+                }),
+            },
+        )],
+        ..SecurityConfiguration::default()
+    });
+    proxy
+}
+
+/// Send `handshake` and read the whole answer (the client closes its side).
+async fn answer_to(addr: std::net::SocketAddr, handshake: &str) -> String {
+    let mut client = TcpStream::connect(addr).await.unwrap();
+    client.write_all(handshake.as_bytes()).await.unwrap();
+    client.shutdown().await.unwrap();
+    let mut response = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response)).await;
+    String::from_utf8_lossy(&response).into_owned()
+}
+
+/// RFC 0004 §6.P points 2 and 4, T1: an exec outside the policy is refused
+/// with its reason before any connection, and kubectl's SPDY fallback gets
+/// the same refusal, not "SPDY is not supported".
+#[tokio::test]
+async fn an_exec_outside_the_policy_never_reaches_the_cluster() {
+    let pool = redis_or_skip!();
+    let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
+    let (ns, cluster) = unique_cluster();
+    seed_proxy(&pool, &exec_proxy(&ns, &cluster, &upstream_url)).await;
+    let (addr, server) = start_proxy();
+
+    let path = format!("/clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/exec");
+    let websocket = answer_to(
+        addr,
+        &format!(
+            "GET {path}?command=sh&command=-c&command=id&container=app&stdout=true HTTP/1.1\r\n\
+             Host: proxy\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+             Sec-WebSocket-Protocol: v5.channel.k8s.io\r\n\r\n"
+        ),
+    )
+    .await;
+    assert!(websocket.starts_with("HTTP/1.1 403"), "got: {websocket}");
+    assert!(websocket.contains("command [sh -c id]"), "got: {websocket}");
+
+    let spdy = answer_to(
+        addr,
+        &format!(
+            "POST {path}?command=sh&command=-c&command=id&container=app&stdout=true HTTP/1.1\r\n\
+             Host: proxy\r\nUpgrade: SPDY/3.1\r\nConnection: Upgrade\r\n\r\n"
+        ),
+    )
+    .await;
+    assert!(spdy.starts_with("HTTP/1.1 403"), "got: {spdy}");
+    assert!(spdy.contains("command [sh -c id]"), "got: {spdy}");
+
+    // No container named while containers are restricted.
+    let unnamed = answer_to(
+        addr,
+        &format!(
+            "GET {path}?command=ls&stdout=true HTTP/1.1\r\n\
+             Host: proxy\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"
+        ),
+    )
+    .await;
+    assert!(unnamed.contains("specify -c"), "got: {unnamed}");
+
+    assert!(!contacted.await.unwrap(), "the cluster was contacted");
+    server.stop(false).await;
+    delete_proxy(&pool, &ns, &cluster).await;
+}
+
+/// RFC 0004 §6.P point 6, T4: an exec accepted without stdin that then sends
+/// a message on the stdin channel is closed, and that message never reaches
+/// the cluster.
+#[tokio::test]
+async fn stdin_on_an_exec_without_stdin_closes_the_session() {
+    api::cluster::redirect::audit::capture::start();
+    let pool = redis_or_skip!();
+    let (upstream_url, received) = start_upstream(
+        b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+          Sec-WebSocket-Protocol: v5.channel.k8s.io\r\n\r\n",
+        false,
+        Duration::from_secs(2),
+    )
+    .await;
+    let (ns, cluster) = unique_cluster();
+    seed_proxy(&pool, &exec_proxy(&ns, &cluster, &upstream_url)).await;
+    let (addr, server) = start_proxy();
+
+    let mut client = TcpStream::connect(addr).await.unwrap();
+    client
+        .write_all(
+            format!(
+                "GET /clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/exec?command=ls&container=app&stdout=true HTTP/1.1\r\n\
+                 Host: proxy\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+                 Sec-WebSocket-Protocol: v5.channel.k8s.io\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut response = Vec::new();
+    let mut buf = [0u8; 4096];
+    while !response.windows(4).any(|w| w == b"\r\n\r\n") {
+        let read = tokio::time::timeout(Duration::from_secs(5), client.read(&mut buf))
+            .await
+            .expect("the 101 should arrive")
+            .unwrap();
+        assert!(read > 0, "the proxy closed instead of upgrading");
+        response.extend_from_slice(&buf[..read]);
+    }
+    assert!(
+        response.starts_with(b"HTTP/1.1 101"),
+        "{}",
+        String::from_utf8_lossy(&response)
+    );
+
+    // A message on channel 0 (stdin): the proxy closes the session.
+    let stdin = ws_binary(&[0, b'r', b'm']);
+    client.write_all(&stdin).await.unwrap();
+    let mut rest = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut rest))
+        .await
+        .expect("the proxy should close the session")
+        .unwrap();
+
+    let upstream_saw = received.await.unwrap();
+    assert!(
+        !upstream_saw
+            .windows(stdin.len())
+            .any(|w| w == stdin.as_slice()),
+        "the stdin message reached the cluster"
+    );
+    let closed = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(line) = api::cluster::redirect::audit::capture::lines()
+                .into_iter()
+                .find(|line| {
+                    line["cluster"] == cluster.as_str() && line["event"] == "session_closed"
+                })
+            {
+                return line;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("a session_closed line");
+    assert_eq!(closed["close_reason"], "filter", "{closed}");
+    assert_eq!(closed["channel"], 0, "{closed}");
 
     server.stop(false).await;
     delete_proxy(&pool, &ns, &cluster).await;

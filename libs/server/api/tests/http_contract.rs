@@ -413,6 +413,7 @@ async fn restricted_proxy() -> Option<(
             parametised: true,
             allowed_ports: ports.map(|p| vec![PortSpec(p.to_string())]),
             verbs,
+            exec: None,
         })
     };
     let (ns, cluster) = harness::unique_cluster();
@@ -504,7 +505,7 @@ async fn proxy_refusals_raw_paths_and_headers() {
         refused(&r),
         (
             403,
-            "nodes/proxy is not allowed while ports or verbs are restricted".into()
+            "nodes/proxy is not allowed while ports, verbs or exec are restricted".into()
         )
     );
 

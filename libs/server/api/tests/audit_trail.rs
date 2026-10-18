@@ -98,6 +98,7 @@ async fn a_refused_verb_writes_a_policy_decision() {
                 path: "/api/v1/namespaces/dev/pods/**".to_string(),
                 parametised: true,
                 allowed_ports: None,
+                exec: None,
                 verbs: Some(Verb::READ.to_vec()),
             },
         ));

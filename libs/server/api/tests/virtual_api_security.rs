@@ -160,6 +160,7 @@ async fn the_verb_is_checked_on_the_mapped_request_too() {
             path: path.to_string(),
             parametised: true,
             allowed_ports: None,
+            exec: None,
             verbs: Some(verbs.to_vec()),
         })
     };

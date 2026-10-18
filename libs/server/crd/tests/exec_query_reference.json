@@ -1,0 +1,381 @@
+[
+  {
+    "query": "command=ls\u0026container=app\u0026stdout=true",
+    "command": [
+      "ls"
+    ],
+    "container": "app",
+    "stdin": false,
+    "stdout": true,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026command=%2Ftmp\u0026container=app\u0026stdout=true\u0026stderr=true",
+    "command": [
+      "ls",
+      "/tmp"
+    ],
+    "container": "app",
+    "stdin": false,
+    "stdout": true,
+    "stderr": true,
+    "tty": false
+  },
+  {
+    "query": "command=sh\u0026command=-c\u0026command=echo+hello",
+    "command": [
+      "sh",
+      "-c",
+      "echo hello"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=echo\u0026command=a%2Bb",
+    "command": [
+      "echo",
+      "a+b"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=echo\u0026command=a+b",
+    "command": [
+      "echo",
+      "a b"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=echo\u0026command=%25",
+    "command": [
+      "echo",
+      "%"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=echo\u0026command=",
+    "command": [
+      "echo",
+      ""
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": true,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": true,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=0",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=false",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=FALSE",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=False",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=1",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": true,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=true",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": true,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=yes",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": true,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=no",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": true,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026tty=true\u0026stdin=true",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": true,
+    "stdout": false,
+    "stderr": false,
+    "tty": true
+  },
+  {
+    "query": "command=ls\u0026tty=0",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdout=1\u0026stderr=0",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": true,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "container=app\u0026container=sidecar\u0026command=ls",
+    "command": [
+      "ls"
+    ],
+    "container": "app",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=false\u0026stdin=true",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls;command=sh",
+    "command": [],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026container=app;x",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "Command=ls\u0026command=id",
+    "command": [
+      "id"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026Container=app",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=l%73\u0026container=%61pp",
+    "command": [
+      "ls"
+    ],
+    "container": "app",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=%E2%9C%93",
+    "command": [
+      "✓"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "stdout=true\u0026stderr=true\u0026container=app",
+    "command": [],
+    "container": "app",
+    "stdin": false,
+    "stdout": true,
+    "stderr": true,
+    "tty": false
+  },
+  {
+    "query": "",
+    "command": [],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=a\u0026command=b\u0026command=c\u0026command=d\u0026command=e",
+    "command": [
+      "a",
+      "b",
+      "c",
+      "d",
+      "e"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026unknown=1",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": false,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=%20true",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": true,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  },
+  {
+    "query": "command=ls\u0026stdin=t",
+    "command": [
+      "ls"
+    ],
+    "container": "",
+    "stdin": true,
+    "stdout": false,
+    "stderr": false,
+    "tty": false
+  }
+]

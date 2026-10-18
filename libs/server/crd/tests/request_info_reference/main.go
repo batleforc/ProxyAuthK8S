@@ -1,5 +1,6 @@
 // Generates request_info_reference.json: the verb, resource and name the real
-// apiserver RequestInfoFactory computes for each case of cases.json. Run by
+// apiserver RequestInfoFactory computes for each case of cases.json, and
+// exec_query_reference.json (exec.go). Run by
 // `task gen:request-info-reference` (needs Go and network), never in CI; the
 // output is versioned and checked by crd's request_info_reference test.
 package main
@@ -74,4 +75,5 @@ func main() {
 	if err := os.WriteFile("../request_info_reference.json", append(encoded, '\n'), 0o644); err != nil {
 		panic(err)
 	}
+	writeExecReference()
 }

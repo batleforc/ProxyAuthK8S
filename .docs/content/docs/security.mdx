@@ -537,7 +537,7 @@ son `targetPort`, et seule une règle qui couvre `services/...` peut l'accorder 
 **`nodes/proxy`.** Ce chemin atteint l'API du kubelet (`/portForward`, `/exec`) sans passer par
 les contrôles de l'apiserver. Sous restriction de ports ou de [verbes](#verbes-autorisés), il est
 refusé
-(`403 "nodes/proxy is not allowed while ports or verbs are restricted"`), sauf si une règle `Path` qui
+(`403 "nodes/proxy is not allowed while ports, verbs or exec are restricted"`), sauf si une règle `Path` qui
 autorise le chemin le **vise explicitement**, avec `nodes` et `proxy` en segments littéraux :
 
 ```yaml
@@ -636,6 +636,77 @@ n'ouvre jamais un shell.
 <Callout type="info">
 **v1.0.0.** `verbs` absent vaudra `[get, list, watch]` pour **tous** les utilisateurs. Déclarez
 dès maintenant les verbes d'écriture dont vos règles ont besoin.
+</Callout>
+
+### Exec et attach
+
+Une règle `Path` ou `Crd` (`kind: Pod` seulement) peut porter une politique `exec` qui limite ce
+que `pods/{nom}/exec` et `pods/{nom}/attach` permettent :
+
+```yaml
+allowed_resources:
+  - Path:
+      path: "/api/v1/namespaces/dev/pods/*/exec"
+      parametised: true
+      exec:
+        commands:
+          - ["ls", "**"]                 # ls avec n'importe quels arguments
+          - ["cat", "/var/log/app/*"]    # cat d'un fichier de ce dossier
+          - ["/app/bin/healthcheck"]     # exactement cette commande
+        containers: ["app"]              # absent : tous ; [] : aucun
+        stdin: false                     # défaut false
+        tty: false                       # défaut false (tty demande stdin)
+  - Path:
+      path: "/api/v1/namespaces/dev/pods/*/attach"
+      parametised: true
+      exec: { containers: ["app"], attach: true }
+```
+
+| Garanti | Non garanti |
+| --- | --- |
+| La commande (`argv` complet), le conteneur, stdin et tty sont vérifiés **avant** toute connexion au cluster, avec la lecture exacte de l'apiserver | Ce que fait une commande autorisée : un shell, un interpréteur ou `find -exec` autorisés avec un joker autorisent tout |
+| Un message sur un canal interdit (stdin sans `stdin`, resize sans `tty`) ferme la session sans atteindre le cluster | Le contenu de stdin, d'un tty ou de stdout : jamais filtré ni enregistré |
+| Le repli SPDY de kubectl reçoit le même `403` avec la raison | Les accès qui ne passent pas par le proxy (voir Kyverno ci-dessous) |
+
+- **Une règle accepte entièrement, ou pas.** Une requête passe si **une** règle accepte à la fois
+  sa commande, son conteneur et ses flux. Deux règles ne se combinent jamais : `ls` dans `app` et
+  `env` dans `sidecar` n'autorisent ni `env` dans `app`, ni `ls` dans `sidecar`.
+- **Restriction par utilisateur.** Dès qu'une règle qui vous concerne déclare `exec`, seules les
+  règles qui correspondent au chemin **et** déclarent `exec` accordent un exec ou un attach. Une
+  règle large (`…/pods/**`, `/api/v1/namespaces/**`, `Crd` `Pod`) n'en accorde plus aucun, même
+  dans un autre namespace. Une règle `Path` n'a pas de sujet : **une seule règle `Path` avec
+  `exec` restreint tous les utilisateurs du cluster.**
+- **Commandes.** Comparées élément par élément ; `*` couvre un élément ou une partie, `**` (en
+  dernier seulement) zéro élément ou plus. Pas de normalisation : `ls` et `/bin/ls` diffèrent.
+  Un motif qui commence par un shell ou un interpréteur (`sh`, `bash`, `python*`, `env`, `find`,
+  `xargs`…) **et** contient un joker est signalé dans `status.warnings` : il autorise tout. Un
+  interpréteur avec un argv exact (`["sh", "-c", "/app/bin/rotate-logs"]`) est une commande exacte.
+- **Conteneur.** Sous restriction de `containers`, la requête doit nommer son conteneur ; kubectl
+  le fait toujours (`-c`, ou le conteneur par défaut qu'il résout lui-même).
+- **Attach.** Il faut une règle qui couvre `…/pods/*/attach`, déclare `exec` **et** a
+  `attach: true` (`commands` y est ignoré). Une règle `…/pods/*/exec` seule n'accorde pas l'attach.
+- **Protocoles.** Sous restriction, seuls `v5.channel.k8s.io` et `v4.channel.k8s.io` (binaires,
+  sans extension websocket) sont acceptés : le proxy doit pouvoir lire le canal de chaque message.
+- **Requêtes ambiguës.** Un paramètre `container`, `stdin`, `stdout`, `stderr` ou `tty` répété, ou un
+  `;` dans la query, reçoit un `400` : l'apiserver garderait la première valeur, le proxy refuse.
+  Une valeur vide (`stdin=`) vaut « vrai », comme pour l'apiserver.
+- **`nodes/proxy`.** Sous restriction d'exec, `nodes/{n}/proxy/**` (donc l'exec du kubelet) est
+  refusé, comme sous restriction de ports ou de verbes, sauf règle `Path` explicite `nodes/*/proxy`.
+
+**`kubectl cp`.** Copier **vers** le pod lance `tar -xmf -` avec stdin : il faut `stdin: true` et
+le motif `["tar", "**"]` (plus `["test", "**"]`, que kubectl lance avant). Copier **depuis** le pod
+lance `tar cf - <chemin>` sans stdin : `["tar", "cf", "-", "**"]` suffit. Piège : avec `--retries`,
+kubectl lance `sh -c "tar cf - … | tail -c+N"`, un shell, donc refusé sauf motif interpréteur.
+
+**Audit.** Chaque ligne d'un exec porte l'objet `exec` (voir [Journal d'audit](#journal-daudit)).
+Une décision écrit `policy_decision` (`policy: exec`, `allowed`, ou `denied` avec `reason` parmi
+`command`, `container`, `stdin`, `tty`, `attach`, `no_rule`), et `session_closed` porte les octets
+de chaque canal (`channel_bytes`) et, si le filtre a coupé, `channel`.
+
+<Callout type="info">
+**Complément côté cluster.** La politique du proxy ne voit que ce qui passe par lui. Une
+politique d'admission Kyverno sur `PodExecOptions` couvre les accès directs à l'apiserver.
+**v1.0.0** : `exec` absent vaudra « exec interdit sauf règle `exec` explicite ».
 </Callout>
 
 ## 5. Quotas

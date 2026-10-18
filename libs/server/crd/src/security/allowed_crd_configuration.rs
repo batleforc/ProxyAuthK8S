@@ -18,6 +18,10 @@ const PORT_KINDS: [&str; 2] = ["Pod", "Service"];
         "rule": "!has(self.allowed_ports) || self.kind in ['Pod', 'Service']",
         "message": "allowed_ports only applies to the Pod and Service kinds",
     }),
+    serde_json::json!({
+        "rule": "!has(self.exec) || self.kind == 'Pod'",
+        "message": "exec only applies to the Pod kind",
+    }),
 ]))]
 pub struct AllowedCrdConfiguration {
     /// The group of the crd
@@ -66,6 +70,11 @@ pub struct AllowedCrdConfiguration {
         }),
     ]))]
     pub verbs: Option<Vec<Verb>>,
+
+    /// Commands, containers and streams this `Pod` rule allows on exec and
+    /// attach (same meaning as on a `Path` rule; RFC 0004)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exec: Option<super::exec_policy::ExecPolicyConfiguration>,
 }
 
 impl AllowedCrdConfiguration {
@@ -186,6 +195,15 @@ impl AllowedCrdConfiguration {
         if let Some(verbs) = &self.verbs {
             validate_verbs(verbs)?;
         }
+        if let Some(exec) = &self.exec {
+            if self.kind != "Pod" {
+                return Err(format!(
+                    "exec only applies to the Pod kind, not {}",
+                    self.kind
+                ));
+            }
+            exec.validate()?;
+        }
         if let Some(ports) = &self.allowed_ports {
             if !PORT_KINDS.contains(&self.kind.as_str()) {
                 return Err(format!(
@@ -230,6 +248,7 @@ mod tests {
             namespace,
             namespaced,
             allowed_ports: None,
+            exec: None,
             verbs: None,
         }
     }
@@ -371,6 +390,7 @@ mod tests {
             namespace: open_ns(),
             namespaced: true,
             allowed_ports: None,
+            exec: None,
             verbs: None,
         };
         assert!(pod.matches("/api/v1/namespaces/dev/pods", "alice", &groups()));

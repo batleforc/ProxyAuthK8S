@@ -70,7 +70,7 @@ mergée.
 | 10 | **0007 phases 2-6** | B | 0, 6 | migration axum, une PR, un commit par phase | contrat identique, diff `swagger.json` vide, lignes 0007 vertes sur le banc | fait (0007 §17 : un écart, le `414`) ; reste la recette de 7 jours |
 | 12b | **0008** (phases 1-3) | B | 0, 5 | schéma d'audit v1, couche audit insensible à `RUST_LOG`, évènements d'authentification et OAuth, `client_banned`, `upstream_reason` | lignes 0008 points 1 à 7 vertes ; peut avancer en parallèle de l'étape 10 | fait (phases 1 à 3, 0008 §17) ; le flux OAuth médié du point 3 attend un client réel |
 | 12c | **0008** (phase 4) | B | 10, 12b | `session_closed` sur le tunnel hyper | ligne 0008 point 8 verte | fait (0008 §17, phase 4) |
-| 12 | **0004** (phases 1-3) | B | 10, 12c | politique `exec`, `restricts_exec`, `ExecChannelFilter`, audit de session, `mask_exec_secrets`, cibles fuzz | lignes 0004 points 1 à 13 vertes | à faire |
+| 12 | **0004** (phases 1-3) | B | 10, 12c | politique `exec`, `restricts_exec`, `ExecChannelFilter`, audit de session, `mask_exec_secrets`, cibles fuzz | lignes 0004 points 1 à 13 vertes | fait (0004 §17) |
 | 11 | **0005 phases 2-5** | C | 0, 9, 12 (G3) | `.docs` → `docs/`, `@weebo/operator-docs`, `kit:sync` | §6.P de la 0005 (hors suite, jobs CI) | à faire |
 | 8 | **tag 0.2.0** | — | 11, 12 | — | `integration.yaml` vert sur le commit tagué, aucune ligne de matrice `à écrire` | à faire |
 | 13 | **RFC crates `weebo-kit-*`** | C | 10 (G6) | à écrire | — | après la 0.2.0 |

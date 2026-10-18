@@ -1627,7 +1627,7 @@ How an allowed resource is described.
           Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
 /apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/<br/>
           <br/>
-            <i>Validations</i>:<li>!has(self.allowed_ports) || self.kind in ['Pod', 'Service']: allowed_ports only applies to the Pod and Service kinds</li>
+            <i>Validations</i>:<li>!has(self.allowed_ports) || self.kind in ['Pod', 'Service']: allowed_ports only applies to the Pod and Service kinds</li><li>!has(self.exec) || self.kind == 'Pod': exec only applies to the Pod kind</li>
         </td>
         <td>false</td>
       </tr><tr>
@@ -1707,6 +1707,16 @@ single ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
 
 Same meaning as on a `Path` rule: once any rule a caller is subject to
 lists ports, a rule without `allowed_ports` grants no port at all.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_resourcesindexcrdexec">exec</a></b></td>
+        <td>object</td>
+        <td>
+          Commands, containers and streams this `Pod` rule allows on exec and
+attach (same meaning as on a `Path` rule; RFC 0004)<br/>
+          <br/>
+            <i>Validations</i>:<li>!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin): tty needs stdin</li>
         </td>
         <td>false</td>
       </tr><tr>
@@ -1831,6 +1841,80 @@ allowed parameters are : \{\{username\}\} and \{\{group\}\}<br/>
 </table>
 
 
+### ProxyKubeApi.spec.security_config.allowed_resources[index].Crd.exec
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_resourcesindexcrd)</sup></sup>
+
+
+
+Commands, containers and streams this `Pod` rule allows on exec and
+attach (same meaning as on a `Path` rule; RFC 0004)
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>attach</b></td>
+        <td>boolean</td>
+        <td>
+          Whether this rule allows `pods/{name}/attach` (its `commands` are
+ignored there)
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>commands</b></td>
+        <td>[][]string</td>
+        <td>
+          Commands this rule allows, element by element (`["ls", "**"]`);
+absent or empty: none
+
+A pattern starting with a shell or an interpreter and holding a
+wildcard allows anything, and is reported in `status.warnings`.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>containers</b></td>
+        <td>[]string</td>
+        <td>
+          Containers this rule allows (`*` allowed in a pattern); absent: all,
+empty: none
+
+Under a container restriction, a request must name its container
+(`kubectl exec -c`); kubectl always does.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>stdin</b></td>
+        <td>boolean</td>
+        <td>
+          Whether stdin may be attached
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>tty</b></td>
+        <td>boolean</td>
+        <td>
+          Whether a tty may be allocated (needs `stdin`)
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
 ### ProxyKubeApi.spec.security_config.allowed_resources[index].Path
 <sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_resourcesindex)</sup></sup>
 
@@ -1880,6 +1964,21 @@ without `allowed_ports` grants none. An empty list grants no port.<br/>
         </td>
         <td>false</td>
       </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_resourcesindexpathexec">exec</a></b></td>
+        <td>object</td>
+        <td>
+          Commands, containers and streams this rule allows on the
+`pods/{name}/exec` and `/attach` paths it matches (RFC 0004)
+
+Once any rule a caller is subject to declares `exec`, only the rules
+that match the path and declare `exec` allow exec or attach, and a
+request is accepted when one of them accepts it entirely. A `Path`
+rule has no subject: one with `exec` restricts every caller.<br/>
+          <br/>
+            <i>Validations</i>:<li>!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin): tty needs stdin</li>
+        </td>
+        <td>false</td>
+      </tr><tr>
         <td><b>parametised</b></td>
         <td>boolean</td>
         <td>
@@ -1921,6 +2020,85 @@ Once any rule a caller is subject to lists verbs, a rule without
 </table>
 
 
+### ProxyKubeApi.spec.security_config.allowed_resources[index].Path.exec
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_resourcesindexpath)</sup></sup>
+
+
+
+Commands, containers and streams this rule allows on the
+`pods/{name}/exec` and `/attach` paths it matches (RFC 0004)
+
+Once any rule a caller is subject to declares `exec`, only the rules
+that match the path and declare `exec` allow exec or attach, and a
+request is accepted when one of them accepts it entirely. A `Path`
+rule has no subject: one with `exec` restricts every caller.
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>attach</b></td>
+        <td>boolean</td>
+        <td>
+          Whether this rule allows `pods/{name}/attach` (its `commands` are
+ignored there)
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>commands</b></td>
+        <td>[][]string</td>
+        <td>
+          Commands this rule allows, element by element (`["ls", "**"]`);
+absent or empty: none
+
+A pattern starting with a shell or an interpreter and holding a
+wildcard allows anything, and is reported in `status.warnings`.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>containers</b></td>
+        <td>[]string</td>
+        <td>
+          Containers this rule allows (`*` allowed in a pattern); absent: all,
+empty: none
+
+Under a container restriction, a request must name its container
+(`kubectl exec -c`); kubectl always does.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>stdin</b></td>
+        <td>boolean</td>
+        <td>
+          Whether stdin may be attached
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>tty</b></td>
+        <td>boolean</td>
+        <td>
+          Whether a tty may be allocated (needs `stdin`)
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
 ### ProxyKubeApi.spec.security_config.allowed_ressources[index]
 <sup><sup>[↩ Parent](#proxykubeapispecsecurity_config)</sup></sup>
 
@@ -1948,7 +2126,7 @@ How an allowed resource is described.
           Allowed crd configuration, used in conjunction with the `allowed_paths` configuration
 /apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/<br/>
           <br/>
-            <i>Validations</i>:<li>!has(self.allowed_ports) || self.kind in ['Pod', 'Service']: allowed_ports only applies to the Pod and Service kinds</li>
+            <i>Validations</i>:<li>!has(self.allowed_ports) || self.kind in ['Pod', 'Service']: allowed_ports only applies to the Pod and Service kinds</li><li>!has(self.exec) || self.kind == 'Pod': exec only applies to the Pod kind</li>
         </td>
         <td>false</td>
       </tr><tr>
@@ -2028,6 +2206,16 @@ single ports (`"8080"`) or inclusive ranges (`"9000-9100"`)
 
 Same meaning as on a `Path` rule: once any rule a caller is subject to
 lists ports, a rule without `allowed_ports` grants no port at all.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindexcrdexec">exec</a></b></td>
+        <td>object</td>
+        <td>
+          Commands, containers and streams this `Pod` rule allows on exec and
+attach (same meaning as on a `Path` rule; RFC 0004)<br/>
+          <br/>
+            <i>Validations</i>:<li>!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin): tty needs stdin</li>
         </td>
         <td>false</td>
       </tr><tr>
@@ -2152,6 +2340,80 @@ allowed parameters are : \{\{username\}\} and \{\{group\}\}<br/>
 </table>
 
 
+### ProxyKubeApi.spec.security_config.allowed_ressources[index].Crd.exec
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_ressourcesindexcrd)</sup></sup>
+
+
+
+Commands, containers and streams this `Pod` rule allows on exec and
+attach (same meaning as on a `Path` rule; RFC 0004)
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>attach</b></td>
+        <td>boolean</td>
+        <td>
+          Whether this rule allows `pods/{name}/attach` (its `commands` are
+ignored there)
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>commands</b></td>
+        <td>[][]string</td>
+        <td>
+          Commands this rule allows, element by element (`["ls", "**"]`);
+absent or empty: none
+
+A pattern starting with a shell or an interpreter and holding a
+wildcard allows anything, and is reported in `status.warnings`.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>containers</b></td>
+        <td>[]string</td>
+        <td>
+          Containers this rule allows (`*` allowed in a pattern); absent: all,
+empty: none
+
+Under a container restriction, a request must name its container
+(`kubectl exec -c`); kubectl always does.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>stdin</b></td>
+        <td>boolean</td>
+        <td>
+          Whether stdin may be attached
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>tty</b></td>
+        <td>boolean</td>
+        <td>
+          Whether a tty may be allocated (needs `stdin`)
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
 ### ProxyKubeApi.spec.security_config.allowed_ressources[index].Path
 <sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_ressourcesindex)</sup></sup>
 
@@ -2201,6 +2463,21 @@ without `allowed_ports` grants none. An empty list grants no port.<br/>
         </td>
         <td>false</td>
       </tr><tr>
+        <td><b><a href="#proxykubeapispecsecurity_configallowed_ressourcesindexpathexec">exec</a></b></td>
+        <td>object</td>
+        <td>
+          Commands, containers and streams this rule allows on the
+`pods/{name}/exec` and `/attach` paths it matches (RFC 0004)
+
+Once any rule a caller is subject to declares `exec`, only the rules
+that match the path and declare `exec` allow exec or attach, and a
+request is accepted when one of them accepts it entirely. A `Path`
+rule has no subject: one with `exec` restricts every caller.<br/>
+          <br/>
+            <i>Validations</i>:<li>!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin): tty needs stdin</li>
+        </td>
+        <td>false</td>
+      </tr><tr>
         <td><b>parametised</b></td>
         <td>boolean</td>
         <td>
@@ -2236,6 +2513,85 @@ Once any rule a caller is subject to lists verbs, a rule without
           <br/>
             <i>Validations</i>:<li>!self.exists(v, v == '*') || size(self) == 1: "*" already allows every verb and must stand alone</li>
             <i>Enum</i>: get, list, watch, create, update, patch, delete, deletecollection, *<br/>
+        </td>
+        <td>false</td>
+      </tr></tbody>
+</table>
+
+
+### ProxyKubeApi.spec.security_config.allowed_ressources[index].Path.exec
+<sup><sup>[↩ Parent](#proxykubeapispecsecurity_configallowed_ressourcesindexpath)</sup></sup>
+
+
+
+Commands, containers and streams this rule allows on the
+`pods/{name}/exec` and `/attach` paths it matches (RFC 0004)
+
+Once any rule a caller is subject to declares `exec`, only the rules
+that match the path and declare `exec` allow exec or attach, and a
+request is accepted when one of them accepts it entirely. A `Path`
+rule has no subject: one with `exec` restricts every caller.
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Required</th>
+        </tr>
+    </thead>
+    <tbody><tr>
+        <td><b>attach</b></td>
+        <td>boolean</td>
+        <td>
+          Whether this rule allows `pods/{name}/attach` (its `commands` are
+ignored there)
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>commands</b></td>
+        <td>[][]string</td>
+        <td>
+          Commands this rule allows, element by element (`["ls", "**"]`);
+absent or empty: none
+
+A pattern starting with a shell or an interpreter and holding a
+wildcard allows anything, and is reported in `status.warnings`.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>containers</b></td>
+        <td>[]string</td>
+        <td>
+          Containers this rule allows (`*` allowed in a pattern); absent: all,
+empty: none
+
+Under a container restriction, a request must name its container
+(`kubectl exec -c`); kubectl always does.<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>stdin</b></td>
+        <td>boolean</td>
+        <td>
+          Whether stdin may be attached
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
+        <td><b>tty</b></td>
+        <td>boolean</td>
+        <td>
+          Whether a tty may be allocated (needs `stdin`)
+default: false<br/>
+          <br/>
+            <i>Default</i>: false<br/>
         </td>
         <td>false</td>
       </tr></tbody>

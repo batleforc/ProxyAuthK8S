@@ -28,6 +28,9 @@ use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tracing::{Instrument as _, error, warn};
 
+use std::collections::BTreeMap;
+
+use super::super::exec::{ExecChannelCounter, ExecChannelFilter};
 use super::super::port_forward::PortForwardFilter;
 use crate::cluster::redirect::audit::{self, AuditContext, PortDecision};
 
@@ -151,20 +154,39 @@ fn close_reason(refused: bool, failed: bool, first_eof: Option<Side>) -> &'stati
     }
 }
 
+/// What reads a restricted session.
+pub(in super::super) enum SessionFilter {
+    /// A port-forward under a port restriction (RFC 0003).
+    Port(PortForwardFilter),
+    /// An exec or attach under an exec restriction (RFC 0004): the client
+    /// half refuses forbidden channels, the upstream half only counts.
+    Exec(ExecChannelFilter, ExecChannelCounter),
+}
+
+/// How a filtered session ended.
+#[derive(Default)]
+struct FilteredEnd {
+    refused: bool,
+    /// The forbidden channel that ended an exec.
+    channel: Option<u8>,
+    /// The bytes of each channel of an exec, both ways.
+    channel_bytes: Option<BTreeMap<u8, u64>>,
+}
+
 /// Answer the client with the upstream's `101`, and pipe both directions once
 /// both connections are upgraded.
 ///
-/// `filter`, when set, inspects every client chunk of a restricted
-/// port-forward and ends the session on a port outside the policy; each port
-/// it opens, and the closing, are recorded on `audit`. The session's end is
-/// recorded there too.
+/// `filter`, when set, inspects every client chunk of a restricted session and
+/// ends it on a port or a channel outside the policy; each port it opens, and
+/// the closing, are recorded on `audit`. The session's end is recorded there
+/// too, with the bytes of each channel of an exec.
 pub(super) fn tunnel(
     client: OnUpgrade,
     upstream: OnUpgrade,
     upstream_headers: &HeaderMap,
     upgrade_protocol: &str,
     audit: AuditContext,
-    filter: Option<PortForwardFilter>,
+    filter: Option<SessionFilter>,
 ) -> Response {
     let Ok(upgrade_protocol) = header::HeaderValue::from_str(upgrade_protocol) else {
         return (StatusCode::BAD_GATEWAY, "bad gateway").into_response();
@@ -175,10 +197,10 @@ pub(super) fn tunnel(
     let session = async move {
         let started = Instant::now();
         let counters = Arc::new(SessionCounters::default());
-        let (refused, failed) = match tokio::try_join!(client, upstream) {
+        let (end, failed) = match tokio::try_join!(client, upstream) {
             Err(err) => {
                 error!(%err, "an upgraded connection could not be taken over");
-                (false, true)
+                (FilteredEnd::default(), true)
             }
             Ok((client, upstream)) => {
                 let client = Counted::new(TokioIo::new(client), Side::Client, &counters);
@@ -188,10 +210,10 @@ pub(super) fn tunnel(
                     None => {
                         let (mut client, mut upstream) = (client, upstream);
                         match tokio::io::copy_bidirectional(&mut client, &mut upstream).await {
-                            Ok(_) => (false, false),
+                            Ok(_) => (FilteredEnd::default(), false),
                             Err(err) => {
                                 warn!(%err, "upgraded connection ended with an error");
-                                (false, true)
+                                (FilteredEnd::default(), true)
                             }
                         }
                     }
@@ -206,7 +228,9 @@ pub(super) fn tunnel(
             u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             counters.bytes_in.load(Ordering::Relaxed),
             counters.bytes_out.load(Ordering::Relaxed),
-            close_reason(refused, failed, counters.first_eof.get().copied()),
+            close_reason(end.refused, failed, counters.first_eof.get().copied()),
+            end.channel_bytes.as_ref(),
+            end.channel,
         );
     };
     tokio::spawn(audit::scope(request, session).instrument(tracing::Span::current()));
@@ -226,67 +250,119 @@ pub(super) fn tunnel(
 }
 
 /// Copy both directions, the client's through `filter`; a refused chunk is
-/// never forwarded and ends the whole session. `true` when it was refused.
+/// never forwarded and ends the whole session.
 async fn pipe_filtered<C, U>(
     client: C,
     upstream: U,
-    mut filter: PortForwardFilter,
+    mut filter: SessionFilter,
     audit: &AuditContext,
-) -> bool
+) -> FilteredEnd
 where
     C: AsyncRead + AsyncWrite + Unpin,
     U: AsyncRead + AsyncWrite + Unpin,
 {
     let (mut client_reader, mut client_writer) = tokio::io::split(client);
     let (mut upstream_reader, mut upstream_writer) = tokio::io::split(upstream);
+    // Each direction borrows its own half of the filter.
+    let (port, exec, counter) = match &mut filter {
+        SessionFilter::Port(port) => (Some(port), None, None),
+        SessionFilter::Exec(exec, counter) => (None, Some(exec), Some(counter)),
+    };
+    let mut refused_channel = None;
 
-    // `true` when the filter refused the session.
-    let client_to_upstream = async {
-        let mut buffer = vec![0u8; FILTER_READ_BUFFER];
-        loop {
-            let read = match client_reader.read(&mut buffer).await {
-                Ok(0) => break,
-                Ok(read) => read,
-                Err(err) => {
-                    error!(%err, "error reading the upgraded client connection");
+    let refused = {
+        // `true` when the filter refused the session.
+        let client_to_upstream = async {
+            let mut buffer = vec![0u8; FILTER_READ_BUFFER];
+            let (mut port, mut exec) = (port, exec);
+            loop {
+                let read = match client_reader.read(&mut buffer).await {
+                    Ok(0) => break,
+                    Ok(read) => read,
+                    Err(err) => {
+                        error!(%err, "error reading the upgraded client connection");
+                        break;
+                    }
+                };
+                let chunk = &buffer[..read];
+                if let Some(filter) = port.as_deref_mut() {
+                    if let Err(reason) = filter.inspect(chunk) {
+                        warn!(%reason, "closing a port-forward session outside the allowed ports");
+                        // A refused port is a `port_denied` with its port; only
+                        // traffic the filter cannot read is `closed_by_filter`.
+                        match filter.refused_port() {
+                            Some(port) => {
+                                audit.emit_port_decision(PortDecision::Denied, Some(port))
+                            }
+                            None => audit.emit_port_decision(PortDecision::ClosedByFilter, None),
+                        }
+                        return true;
+                    }
+                    for port in filter.take_opened() {
+                        audit.emit_port_decision(PortDecision::Allowed, Some(port));
+                    }
+                }
+                if let Some(filter) = exec.as_deref_mut()
+                    && let Err(reason) = filter.inspect(chunk)
+                {
+                    warn!(%reason, "closing an exec session on a forbidden channel");
+                    refused_channel = filter.refused_channel();
+                    return true;
+                }
+                if upstream_writer.write_all(chunk).await.is_err() {
                     break;
                 }
-            };
-            let chunk = &buffer[..read];
-            if let Err(reason) = filter.inspect(chunk) {
-                warn!(%reason, "closing a port-forward session outside the allowed ports");
-                // A refused port is a `port_denied` with its port; only traffic
-                // the filter cannot read is reported as `session_closed_by_filter`.
-                match filter.refused_port() {
-                    Some(port) => audit.emit_port_decision(PortDecision::Denied, Some(port)),
-                    None => audit.emit_port_decision(PortDecision::ClosedByFilter, None),
+            }
+            let _ = upstream_writer.shutdown().await;
+            false
+        };
+        let upstream_to_client = async {
+            let mut counter = counter;
+            let mut buffer = vec![0u8; FILTER_READ_BUFFER];
+            loop {
+                let read = match upstream_reader.read(&mut buffer).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => read,
+                };
+                if let Some(counter) = counter.as_deref_mut() {
+                    counter.count(&buffer[..read]);
                 }
-                return true;
+                if client_writer.write_all(&buffer[..read]).await.is_err() {
+                    break;
+                }
             }
-            for port in filter.take_opened() {
-                audit.emit_port_decision(PortDecision::Allowed, Some(port));
-            }
-            if upstream_writer.write_all(chunk).await.is_err() {
-                break;
-            }
-        }
-        let _ = upstream_writer.shutdown().await;
-        false
-    };
-    let upstream_to_client = tokio::io::copy(&mut upstream_reader, &mut client_writer);
-    tokio::pin!(client_to_upstream, upstream_to_client);
+            let _ = client_writer.flush().await;
+        };
+        tokio::pin!(client_to_upstream, upstream_to_client);
 
-    tokio::select! {
-        refused = &mut client_to_upstream => {
-            // The client finished sending: keep relaying the upstream's answer
-            // until it ends. A refusal drops both connections right away.
-            if !refused {
-                let _ = upstream_to_client.await;
+        tokio::select! {
+            refused = &mut client_to_upstream => {
+                // The client finished sending: keep relaying the upstream's
+                // answer until it ends. A refusal drops both connections.
+                if !refused {
+                    upstream_to_client.await;
+                }
+                refused
             }
-            refused
+            // The upstream closed: the session is over.
+            () = &mut upstream_to_client => false,
         }
-        // The upstream closed: the session is over.
-        _ = &mut upstream_to_client => false,
+    };
+
+    let channel_bytes = match &filter {
+        SessionFilter::Port(_) => None,
+        SessionFilter::Exec(exec, counter) => {
+            let mut bytes = exec.bytes().clone();
+            for (channel, count) in counter.bytes() {
+                *bytes.entry(*channel).or_default() += count;
+            }
+            Some(bytes)
+        }
+    };
+    FilteredEnd {
+        refused,
+        channel: refused_channel,
+        channel_bytes,
     }
 }
 

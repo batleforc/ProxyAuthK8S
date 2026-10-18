@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::allowed_crd_configuration::AllowedCrdConfiguration;
 use super::allowed_path_configuration::AllowedPathConfiguration;
+use super::exec_policy::ExecPolicyConfiguration;
 use super::port_range::PortPolicy;
 use super::request_info::RequestInfo;
 use super::verb::Verb;
@@ -46,6 +47,22 @@ impl AllowedPathConfigurationEnum {
         }
     }
 
+    /// The exec policy this rule declares, if any (RFC 0004).
+    #[must_use]
+    pub fn exec(&self) -> Option<&ExecPolicyConfiguration> {
+        match self {
+            AllowedPathConfigurationEnum::Path(config) => config.exec.as_ref(),
+            AllowedPathConfigurationEnum::Crd(config) => config.exec.as_ref(),
+        }
+    }
+
+    /// Whether this rule restricts exec for the caller: it declares `exec`
+    /// and can apply to them.
+    #[must_use]
+    pub fn restricts_exec(&self, username: &str, groups: &[String]) -> bool {
+        self.exec().is_some() && self.applies_to(username, groups)
+    }
+
     /// Whether this rule can apply to the caller: a `Path` rule has no
     /// subject, a `Crd` one whose parametised namespace expands to nothing for
     /// the caller reaches nothing.
@@ -77,6 +94,10 @@ impl AllowedPathConfigurationEnum {
             || (info.verb == Verb::Create
                 && info.subresource == "portforward"
                 && self.port_policy().is_some())
+            // `exec` implies `create` on the subresources it governs.
+            || (info.verb == Verb::Create
+                && (info.subresource == "exec" || info.subresource == "attach")
+                && self.exec().is_some())
     }
 
     /// Whether this rule restricts the ports of `username`: it lists ports and

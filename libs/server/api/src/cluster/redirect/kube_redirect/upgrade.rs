@@ -133,6 +133,9 @@ enum UpgradeRefusal {
     NotUpgradable,
     /// The upstream accepted a port-forward protocol the proxy cannot filter.
     UnfilterablePortForward(String),
+    /// The upstream accepted an exec protocol whose channels the proxy
+    /// cannot read, while exec is restricted (RFC 0004, T5).
+    UnfilterableExec(String),
 }
 
 impl UpgradeRefusal {
@@ -180,6 +183,11 @@ impl UpgradeRefusal {
             }
             Self::UnfilterablePortForward(reason) => {
                 warn!(%reason, "refusing a port-forward the proxy cannot filter");
+                audit.emit_refusal(403);
+                forbidden(&reason)
+            }
+            Self::UnfilterableExec(reason) => {
+                warn!(%reason, "refusing an exec the proxy cannot filter");
                 audit.emit_refusal(403);
                 forbidden(&reason)
             }
@@ -341,7 +349,13 @@ fn record_status(audit: &AuditContext, status: StatusCode, upstream_reason: Opti
     skip_all,
     fields(http.method = %ctx.method, peer_addr = ?ctx.peer_ip, proxy = tracing::field::Empty, url_to_call)
 )]
-pub(super) async fn upgrade_redirect(ctx: RedirectContext, port_policy: PortPolicy) -> Response {
+/// `exec_streams` is `Some((stdin, tty))` for an exec or attach the policy
+/// restricts: its channels are filtered on the tunnel (RFC 0004).
+pub(super) async fn upgrade_redirect(
+    ctx: RedirectContext,
+    port_policy: PortPolicy,
+    exec_streams: Option<(bool, bool)>,
+) -> Response {
     let url_to_call = ctx.url_to_call();
     tracing::Span::current().record("url_to_call", ctx.url_without_query().as_str());
     if tracing::enabled!(tracing::Level::DEBUG) {
@@ -382,7 +396,18 @@ pub(super) async fn upgrade_redirect(ctx: RedirectContext, port_policy: PortPoli
         };
 
         let filter = if is_restricted_port_forward {
-            port_forward_filter(response.headers(), &port_policy)?
+            port_forward_filter(response.headers(), &port_policy)?.map(tunnel::SessionFilter::Port)
+        } else if let Some((stdin, tty)) = exec_streams {
+            let header = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok());
+            super::exec::check_exec_protocol(
+                header("sec-websocket-protocol"),
+                header("sec-websocket-extensions"),
+            )
+            .map_err(UpgradeRefusal::UnfilterableExec)?;
+            Some(tunnel::SessionFilter::Exec(
+                super::exec::ExecChannelFilter::new(stdin, tty),
+                super::exec::ExecChannelCounter::new(),
+            ))
         } else {
             None
         };

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 mod allowed_crd_configuration;
 mod allowed_path_configuration;
 mod allowed_path_configuration_enum;
+pub mod exec_policy;
 mod fail2login_equal_ban_configuration;
 mod namespaced_access_configuration;
 mod namespaced_access_rule_kind;
@@ -18,6 +19,9 @@ mod verb;
 pub use allowed_crd_configuration::AllowedCrdConfiguration;
 pub use allowed_path_configuration::AllowedPathConfiguration;
 pub use allowed_path_configuration_enum::AllowedPathConfigurationEnum;
+pub use exec_policy::{
+    CommandElement, CommandPattern, ExecDenial, ExecPolicyConfiguration, ExecRequest, ExecRules,
+};
 pub use fail2login_equal_ban_configuration::Fail2LoginEqualBanConfiguration;
 pub use namespaced_access_configuration::NamespacedAccessConfiguration;
 pub use namespaced_access_rule_kind::NamespacedAccessRuleKind;
@@ -269,7 +273,42 @@ impl SecurityConfiguration {
     /// restriction closes it.
     #[must_use]
     pub fn restricts_node_proxy(&self, username: &str, groups: &[String]) -> bool {
-        self.restricts_ports(username, groups) || self.restricts_verbs(username, groups)
+        self.restricts_ports(username, groups)
+            || self.restricts_verbs(username, groups)
+            || self.restricts_exec(username, groups)
+    }
+
+    /// Whether exec is restricted for `username` (RFC 0004): some rule the
+    /// caller is subject to declares `exec`. Same definition as
+    /// [`Self::restricts_ports`].
+    #[must_use]
+    pub fn restricts_exec(&self, username: &str, groups: &[String]) -> bool {
+        self.enabled
+            && self
+                .all_allowed_resources()
+                .any(|rule| rule.restricts_exec(username, groups))
+    }
+
+    /// The exec policy of a request to `path` (`pods/{name}/exec` or
+    /// `/attach`): `Unrestricted` when [`Self::restricts_exec`] is false,
+    /// otherwise the rules that accept the request and declare `exec`. A rule
+    /// without `exec` grants nothing, so it never lifts the restriction.
+    #[must_use]
+    pub fn exec_rules<'a>(
+        &'a self,
+        path: &'a str,
+        info: Option<&'a RequestInfo>,
+        username: &'a str,
+        groups: &'a [String],
+    ) -> ExecRules<'a> {
+        if !self.restricts_exec(username, groups) {
+            return ExecRules::Unrestricted;
+        }
+        ExecRules::Restricted(
+            self.accepting_rules(path, info, username, groups)
+                .filter_map(AllowedPathConfigurationEnum::exec)
+                .collect(),
+        )
     }
 
     /// Whether a `Path` rule that accepts the request names `nodes/{node}/proxy`
@@ -301,11 +340,17 @@ impl SecurityConfiguration {
         let verbs_restricted = self
             .all_allowed_resources()
             .any(|rule| rule.verbs().is_some());
-        if !self.enabled || !(ports_restricted || verbs_restricted) {
+        let exec_restricted = self
+            .all_allowed_resources()
+            .any(|rule| rule.exec().is_some());
+        if !self.enabled || !(ports_restricted || verbs_restricted || exec_restricted) {
             return Vec::new();
         }
         let mut warnings = Vec::new();
         for (index, rule) in self.all_allowed_resources().enumerate() {
+            if let Some(exec) = rule.exec() {
+                warnings.extend(exec.warnings(index));
+            }
             let has_ports = rule.port_policy().is_some();
             let (covers_ports, covers_pod_subresources, covers_nodes) = match rule {
                 AllowedPathConfigurationEnum::Path(config) => {
@@ -347,6 +392,19 @@ impl SecurityConfiguration {
             if covers_nodes {
                 warnings.push(format!(
                     "rule {index} covers nodes/ but not nodes/*/proxy explicitly: nodes/proxy stays denied"
+                ));
+            }
+            if exec_restricted && covers_pod_subresources && rule.exec().is_none() {
+                warnings.push(format!(
+                    "rule {index} covers pods/*/exec or attach without exec: it allows neither while exec is restricted"
+                ));
+            }
+            if exec_restricted
+                && let AllowedPathConfigurationEnum::Path(config) = rule
+                && names_node_proxy(&config.path)
+            {
+                warnings.push(format!(
+                    "rule {index} allows nodes/*/proxy: the kubelet's exec bypasses the exec restriction"
                 ));
             }
             if let Some(verbs) = rule.verbs()
@@ -443,6 +501,7 @@ mod tests {
             path: path.to_string(),
             parametised,
             allowed_ports: None,
+            exec: None,
             verbs: None,
         })
     }
@@ -458,6 +517,7 @@ mod tests {
                     .collect()
             }),
             verbs: None,
+            exec: None,
         })
     }
 
@@ -468,6 +528,7 @@ mod tests {
             path: path.to_string(),
             parametised: true,
             allowed_ports: None,
+            exec: None,
             verbs: Some(verbs.to_vec()),
         })
     }
@@ -688,6 +749,7 @@ mod tests {
                     .collect()
             }),
             verbs: None,
+            exec: None,
         })
     }
 
@@ -848,6 +910,7 @@ mod tests {
             path: path.to_string(),
             parametised,
             allowed_ports: None,
+            exec: None,
             verbs: None,
         };
         for (pattern, parametised, covers) in [
@@ -1037,6 +1100,7 @@ mod tests {
             namespace,
             namespaced: true,
             allowed_ports: None,
+            exec: None,
             verbs: None,
         })
     }
@@ -1240,5 +1304,120 @@ mod tests {
             ..SecurityConfiguration::default()
         };
         assert!(config.validate().is_ok());
+    }
+
+    fn exec_rule(path: &str, commands: &[&[&str]]) -> AllowedPathConfigurationEnum {
+        AllowedPathConfigurationEnum::Path(AllowedPathConfiguration {
+            path: path.to_string(),
+            parametised: true,
+            allowed_ports: None,
+            verbs: None,
+            exec: Some(ExecPolicyConfiguration {
+                commands: Some(
+                    commands
+                        .iter()
+                        .map(|c| {
+                            CommandPattern(c.iter().map(|e| CommandElement((*e).into())).collect())
+                        })
+                        .collect(),
+                ),
+                ..ExecPolicyConfiguration::default()
+            }),
+        })
+    }
+
+    fn exec_config(rules: Vec<AllowedPathConfigurationEnum>) -> SecurityConfiguration {
+        SecurityConfiguration {
+            allowed_resources: rules,
+            ..SecurityConfiguration::default()
+        }
+    }
+
+    fn exec_request(argv: &[&str]) -> ExecRequest {
+        ExecRequest {
+            argv: argv.iter().map(|a| (*a).to_string()).collect(),
+            stdout: true,
+            ..ExecRequest::default()
+        }
+    }
+
+    fn check(config: &SecurityConfiguration, path: &str, argv: &[&str]) -> Result<(), ExecDenial> {
+        let info = request_info("POST", path, "").ok();
+        config
+            .exec_rules(path, info.as_ref(), "alice", &[])
+            .check(&exec_request(argv), false)
+    }
+
+    #[test]
+    fn one_path_rule_with_exec_restricts_every_caller() {
+        let config = exec_config(vec![exec_rule(
+            "/api/v1/namespaces/dev/pods/*/exec",
+            &[&["ls"]],
+        )]);
+        assert!(config.restricts_exec("alice", &[]));
+        assert!(config.restricts_exec("bob", &["ops".to_string()]));
+        assert!(!SecurityConfiguration::default().restricts_exec("alice", &[]));
+    }
+
+    /// T8 (RFC 0004 §6.P point 10): a broad rule without `exec` grants no
+    /// exec under the restriction, in the namespace of the exec rule and in
+    /// any other.
+    #[test]
+    fn a_broad_rule_without_exec_grants_nothing() {
+        let config = exec_config(vec![
+            port_forward_rule("/api/v1/namespaces/**", None),
+            exec_rule("/api/v1/namespaces/dev/pods/*/exec", &[&["ls", "**"]]),
+        ]);
+        assert!(
+            check(
+                &config,
+                "/api/v1/namespaces/dev/pods/web/exec",
+                &["ls", "/"]
+            )
+            .is_ok()
+        );
+        assert!(check(&config, "/api/v1/namespaces/dev/pods/web/exec", &["sh"]).is_err());
+        assert!(check(&config, "/api/v1/namespaces/prod/pods/api/exec", &["sh"]).is_err());
+    }
+
+    #[test]
+    fn exec_alone_closes_node_proxy() {
+        let config = exec_config(vec![exec_rule(
+            "/api/v1/namespaces/dev/pods/*/exec",
+            &[&["ls"]],
+        )]);
+        assert!(config.restricts_node_proxy("alice", &[]));
+    }
+
+    #[test]
+    fn exec_only_applies_to_pod_crd_rules() {
+        let AllowedPathConfigurationEnum::Crd(mut crd) = crd_pod(None) else {
+            unreachable!()
+        };
+        crd.exec = Some(ExecPolicyConfiguration::default());
+        assert!(crd.validate().is_ok());
+        crd.kind = "Service".to_string();
+        assert!(crd.validate().is_err());
+    }
+
+    #[test]
+    fn exec_restrictions_are_warned_about() {
+        let config = exec_config(vec![
+            port_forward_rule("/api/v1/namespaces/dev/pods/**", None),
+            exec_rule("/api/v1/namespaces/dev/pods/*/exec", &[&["sh", "-c", "*"]]),
+        ]);
+        let warnings = config.warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("rule 0") && w.contains("without exec")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("rule 1") && w.contains("interpreter")),
+            "{warnings:?}"
+        );
     }
 }

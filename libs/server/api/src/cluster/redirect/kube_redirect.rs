@@ -10,7 +10,9 @@ use crd::security::PortPolicy;
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::cluster::redirect::audit::{AuditContext, PortDecision};
-use crate::cluster::redirect::status_response::{forbidden, too_many_requests, unauthorized};
+use crate::cluster::redirect::status_response::{
+    bad_request, forbidden, too_many_requests, unauthorized,
+};
 use crate::cluster::redirect::throttle;
 use crate::helper::{extract_authorization_header, forwarded_for, peer_ip};
 use crate::model::user::User;
@@ -29,6 +31,7 @@ mod websocket;
 
 use context::RedirectContext;
 // Public for the `fuzz_port_target` fuzz target.
+pub use exec::{ExecChannelFilter, parse_exec_query};
 pub use port_forward::{PortTarget, port_target};
 use standard::standard_redirect;
 use upgrade::{is_upgrade_request, upgrade_redirect};
@@ -325,7 +328,7 @@ pub async fn redirect(
                     groups,
                 )
             {
-                let reason = "nodes/proxy is not allowed while ports or verbs are restricted";
+                let reason = "nodes/proxy is not allowed while ports, verbs or exec are restricted";
                 warn!(path = %upstream_path, %reason, "refusing a request outside the port policy");
                 audit.emit_port_decision(PortDecision::NodeProxyDenied, None);
                 audited!(audit, forbidden(reason));
@@ -359,6 +362,35 @@ pub async fn redirect(
         }
         None => PortPolicy::Any,
     };
+
+    // Exec policy (RFC 0004), on the query, before any byte reaches the
+    // cluster and before the websocket-only check: kubectl's SPDY fallback
+    // gets the same refusal and its reason.
+    let mut exec_streams = None;
+    if exec::is_exec_or_attach_path(&upstream_path)
+        && let Some(security_config) = &proxy.spec.security_config
+    {
+        let username = user.as_ref().map_or("", |u| u.username.as_str());
+        let groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
+        let rules =
+            security_config.exec_rules(&upstream_path, request_info.as_ref(), username, groups);
+        if matches!(rules, crd::security::ExecRules::Restricted(_)) {
+            let request = match exec::parse_exec_query(req.uri.query().unwrap_or_default()) {
+                Ok(request) => request,
+                Err(reason) => {
+                    warn!(path = %upstream_path, %reason, "refusing an unreadable exec query");
+                    audited!(audit, bad_request(&reason));
+                }
+            };
+            if let Err(denial) = rules.check(&request, exec::is_attach_path(&upstream_path)) {
+                warn!(path = %upstream_path, reason = denial.reason, "refusing an exec outside the policy");
+                audit.emit_exec_decision(Some(denial.reason));
+                audited!(audit, forbidden(&denial.message));
+            }
+            audit.emit_exec_decision(None);
+            exec_streams = Some((request.stdin, request.tty));
+        }
+    }
 
     // A `KubernetesService` without an explicit namespace lives next to the
     // proxy resource, exactly as the reachability check and the kubeconfig
@@ -404,7 +436,7 @@ pub async fn redirect(
     debug!(from = %ctx.req.uri, to = %ctx.url_to_call(), "Forwarding request (full URLs)");
 
     if is_upgrade {
-        return upgrade_redirect(ctx, port_policy).await;
+        return upgrade_redirect(ctx, port_policy, exec_streams).await;
     }
 
     standard_redirect(ctx).await

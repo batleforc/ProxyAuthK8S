@@ -257,6 +257,7 @@ pub fn security_config(paths: Vec<(&str, bool)>) -> SecurityConfiguration {
                     path: path.to_string(),
                     parametised,
                     allowed_ports: None,
+                    exec: None,
                     verbs: None,
                 })
             })

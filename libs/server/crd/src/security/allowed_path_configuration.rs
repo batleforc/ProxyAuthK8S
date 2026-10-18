@@ -110,6 +110,16 @@ pub struct AllowedPathConfiguration {
         }),
     ]))]
     pub verbs: Option<Vec<Verb>>,
+
+    /// Commands, containers and streams this rule allows on the
+    /// `pods/{name}/exec` and `/attach` paths it matches (RFC 0004)
+    ///
+    /// Once any rule a caller is subject to declares `exec`, only the rules
+    /// that match the path and declare `exec` allow exec or attach, and a
+    /// request is accepted when one of them accepts it entirely. A `Path`
+    /// rule has no subject: one with `exec` restricts every caller.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exec: Option<super::exec_policy::ExecPolicyConfiguration>,
 }
 
 impl AllowedPathConfiguration {
@@ -119,6 +129,9 @@ impl AllowedPathConfiguration {
         }
         if let Some(verbs) = &self.verbs {
             validate_verbs(verbs)?;
+        }
+        if let Some(exec) = &self.exec {
+            exec.validate()?;
         }
         if self.parametised {
             // detect any mustache-like parameters
@@ -200,6 +213,7 @@ mod tests {
             path: path.to_string(),
             parametised,
             allowed_ports: None,
+            exec: None,
             verbs: None,
         }
     }

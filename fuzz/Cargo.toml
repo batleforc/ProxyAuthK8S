@@ -32,3 +32,17 @@ path = "fuzz_targets/fuzz_request_info.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_exec_query"
+path = "fuzz_targets/fuzz_exec_query.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_exec_channels"
+path = "fuzz_targets/fuzz_exec_channels.rs"
+test = false
+doc = false
+bench = false

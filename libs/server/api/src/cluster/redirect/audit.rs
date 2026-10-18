@@ -579,6 +579,25 @@ impl AuditContext {
         );
     }
 
+    /// Record an exec policy decision (RFC 0004): one audit line, and the
+    /// shared counter. `denied` carries the fixed word of what was refused
+    /// (`command`, `container`…), never the command itself.
+    pub fn emit_exec_decision(&self, denied: Option<&'static str>) {
+        let (outcome, decision) = match denied {
+            None => (Outcome::Allowed, "allowed"),
+            Some(_) => (Outcome::Denied, "denied"),
+        };
+        let line = self
+            .event(Event::PolicyDecision, outcome)
+            .policy("exec", decision, None);
+        match denied {
+            Some(reason) => line.reason(reason),
+            None => line,
+        }
+        .emit();
+        record_policy_decision(&format!("{}/{}", self.ns, self.cluster), "exec", decision);
+    }
+
     /// Record a request refused for its Kubernetes verb: one audit line, and
     /// the shared counter.
     pub fn emit_verb_denied(&self) {
@@ -612,21 +631,40 @@ impl AuditContext {
     /// The `session_closed` line of a tunnel: `error` when it ended on a
     /// failure, `allowed` otherwise (the filter's refusal has its own
     /// `policy_decision` line).
+    /// `channel_bytes` and `channel` are an exec's under restriction
+    /// (RFC 0004): the bytes of each channel, and the forbidden channel that
+    /// ended it.
     pub fn emit_session_closed(
         &self,
         duration_ms: u64,
         bytes_in: u64,
         bytes_out: u64,
         close_reason: &'static str,
+        channel_bytes: Option<&std::collections::BTreeMap<u8, u64>>,
+        channel: Option<u8>,
     ) {
         let outcome = if close_reason == "error" {
             Outcome::Error
         } else {
             Outcome::Allowed
         };
-        self.event(Event::SessionClosed, outcome)
-            .session(duration_ms, bytes_in, bytes_out, close_reason)
-            .emit();
+        let mut line = self.event(Event::SessionClosed, outcome).session(
+            duration_ms,
+            bytes_in,
+            bytes_out,
+            close_reason,
+        );
+        if let Some(bytes) = channel_bytes {
+            let bytes: Map<String, Value> = bytes
+                .iter()
+                .map(|(channel, count)| (channel.to_string(), json!(count)))
+                .collect();
+            line = line.set("channel_bytes", Value::Object(bytes));
+        }
+        if let Some(channel) = channel {
+            line = line.set("channel", json!(channel));
+        }
+        line.emit();
     }
 
     /// The `request` line of a request the proxy refused itself (`denied`) or
