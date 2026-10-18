@@ -37,3 +37,12 @@ auditConfig:
     # write, never user input. Accepted 2026-10-10; RETIRE when braces ships a
     # fix (re-check on every `pnpm up -r`).
     - GHSA-vfj7-8cjw-p6xm
+
+# eslint-config-next's plugins (react, jsx-a11y, import) are at their latest
+# release and still declare eslint <= 9; their rules run under ESLint 10
+# (checked 2026-10-18). RETIRE once each declares ^10.
+peerDependencyRules:
+  allowedVersions:
+    eslint-plugin-react>eslint: "10"
+    eslint-plugin-jsx-a11y>eslint: "10"
+    eslint-plugin-import>eslint: "10"
