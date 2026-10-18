@@ -16,7 +16,7 @@ RFC passe au `/grill-me` avant d'être `In review`.
 | [0007](0007-migrate-actix-to-axum.md) | Migrer le serveur HTTP d'actix-web vers axum (hyper 1) | à créer | In review | high |
 | [0008](0008-audit-trail.md) | Trace d'audit : couverture, schéma et sortie garantie | à créer | Accepted | medium |
 | [0009](0009-integration-suite.md) | Banc et suite d'intégration sur un vrai cluster | à créer | In review | medium |
-| [0010](0010-token-exchange.md) | Échange de jeton : une connexion au proxy pour tous les clusters | à créer | Draft | high |
+| [0010](0010-token-exchange.md) | Échange de jeton : une connexion au proxy pour tous les clusters | à créer | Accepted | high |
 | [REVIEW](REVIEW-roadmap-readme.md) | Revue de la roadmap et du README (2026-10-17) | — | — | — |
 
 Chaque document se termine par une section « Still open » (ou « Questions pour le

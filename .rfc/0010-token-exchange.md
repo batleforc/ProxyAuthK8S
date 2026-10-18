@@ -2,15 +2,19 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Draft                                                                  |
+| Status      | Accepted                                                               |
 | Short       | Échange de jeton (RFC 8693)                                            |
 | Settles     | Ne plus demander une connexion SSO et un jeton stocké par cluster     |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
 | Co-author   | Claude Opus 5.5 (1M context)                                           |
 | Created     | 2026-10-18                                                             |
 | Supersedes  | —                                                                      |
-| Touches     | `libs/server/crd/src/authentication_configuration/`, `libs/server/common/src/{oidc_cache.rs,token_exchange.rs}`, `libs/server/api/src/cluster/redirect/{kube_redirect.rs,forwarded.rs,audit.rs}`, `…/kube_redirect/{standard.rs,upgrade/connect.rs,virtual_redirect/,list_fallback/}`, `libs/server/api/src/visible_clusters/`, `libs/server/api/src/metrics.rs`, `libs/cli/cli/src/login/`, `apps/front/src/`, CRD générée, `swagger.json` et clients générés, `.it/`, `tests/integration/`, `.docs/content/docs/` |
+| Touches     | `libs/server/crd/src/authentication_configuration/`, `libs/server/common/src/{oidc_cache.rs,token_exchange.rs}`, `libs/server/api/src/cluster/redirect/{kube_redirect.rs,forwarded.rs,audit.rs}`, `…/kube_redirect/{standard.rs,upgrade/connect.rs,virtual_redirect/,list_fallback/}`, `libs/server/api/src/visible_clusters/`, `libs/server/api/src/server_auth/` (nouveau), `libs/server/api/src/metrics.rs`, `libs/cli/cli/src/login/`, `apps/front/src/`, CRD générée, `swagger.json` et clients générés, `.it/`, `tests/integration/`, `.docs/content/docs/` |
 | Risk        | high                                                                   |
+
+
+> Document de référence (environ 5 700 mots) : §1 à §4 suffisent pour en
+> discuter ; §5 à §16 servent à l'implémenter et à le relire.
 
 ---
 
@@ -116,6 +120,8 @@ proxy demain.
 - Opt-in par cluster ; un cluster qui ne l'active pas se comporte exactement
   comme aujourd'hui.
 - Chaque échange laisse une trace d'audit et une métrique.
+- Le CLI garde **un seul** secret : le refresh token de sa session au proxy,
+  rafraîchi sans intervention, obtenu par une connexion SSO au serveur.
 
 **Non-goals**
 
@@ -127,9 +133,11 @@ proxy demain.
   en-têtes restent filtrés (`is_upstream_auth_header`).
 - **La délégation** (`actor_token`, RFC 8693 §4.1) : Keycloak ne l'a qu'en
   preview, et l'apiserver n'en lit rien.
-- **Rafraîchir le jeton du proxy côté CLI** : le CLI garde le jeton serveur tel
-  qu'il l'a reçu ; sa durée de vie borne la session, comme aujourd'hui pour le
-  dashboard.
+- **Rafraîchir le jeton du dashboard** : le front a déjà `automaticSilentRenew`
+  (`apps/front/src/oidc/config.ts`).
+- **`offline_access` par défaut** : le refresh token suit la session SSO de
+  l'IdP ; l'opérateur qui veut des sessions longues l'ajoute à `OIDC_SCOPES`
+  (décision 13).
 - **Un mode mixte** où un cluster en échange accepterait aussi un jeton du
   cluster : une seule façon de valider par cluster (décision 1).
 - **L'échange pour le dashboard lui-même** (`/api/v1/clusters`) : il utilise
@@ -209,10 +217,14 @@ le dashboard) :
 | Method | Path | Auth | Who may call | Limit |
 | --- | --- | --- | --- | --- |
 | GET | `/api/v1/clusters` (champ ajouté `token_exchange: bool` par cluster) | jeton du proxy | inchangé | inchangé |
+| GET | `/api/v1/auth/login` | aucune (démarre un SSO) | tout appelant ; `redirect_uri` loopback seulement (comme `/oauth/authorize`) | throttling non scopé |
+| GET | `/api/v1/auth/callback` | état à usage unique (Redis, 300 s) | l'IdP du proxy, au retour | throttling non scopé |
+| POST | `/api/v1/auth/refresh` | refresh token dans le corps (formulaire) | le détenteur d'un refresh token | throttling non scopé et fail2login (un `invalid_grant` compte) |
 
 Le champ dit au CLI et au front qu'aucune connexion au cluster n'est à faire.
+Les trois routes `/api/v1/auth/*` sont la connexion SSO **au serveur** (§6.5).
 `swagger.json`, le client HeyApi (`libs/front/front-api`) et `client_api`
-sont régénérés. Aucun nouvel endpoint.
+sont régénérés.
 
 ---
 
@@ -308,37 +320,77 @@ concurrents sur une même clé sont regroupés derrière un verrou par clé, com
 - `visible_clusters` : champ `token_exchange` dans la réponse.
 - CLI : `login clusters` ne lance pas de SSO pour un cluster en échange et
   écrit un contexte dont l'exec renvoie le jeton du serveur ; `get-token`
-  n'a pas de jeton de cluster à chercher.
+  n'a pas de jeton de cluster à chercher et rafraîchit le jeton du serveur
+  quand il lui reste moins de 60 s (§6.5).
+- CLI : `login --server-url` sans `--token` lance la connexion SSO au serveur ;
+  avec `--token`, le jeton collé reste accepté, sans rafraîchissement (scripts,
+  CI).
 - Front : le bouton de connexion d'un cluster en échange télécharge
   directement le kubeconfig à plugin (`generateCallbackPluginKubeconfig`),
   sans aller-retour chez l'IdP du cluster.
 
+### 6.5 La connexion SSO au serveur (`libs/server/api/src/server_auth/`)
+
+Sans elle, le CLI n'a que le jeton collé au `login --server-url --token` :
+avec un Keycloak par défaut, il expire en 5 minutes, et l'échange ne tiendrait
+pas sa promesse (décision 8). Elle est **médiée par le proxy** (décision 10),
+comme `login clusters` l'est déjà pour un cluster :
+
+1. `GET /api/v1/auth/login?redirect_uri=http://127.0.0.1:<port>/…` : le proxy
+   range état, nonce et vérificateur PKCE dans Redis (300 s, usage unique) et
+   redirige vers son IdP avec **son** client (`OIDC_CLIENT_ID`, et
+   `OIDC_CLIENT_SECRET` s'il en a un). Le jeton obtenu porte donc
+   `OIDC_AUDIENCE`, comme celui du dashboard : aucune configuration nouvelle
+   chez l'IdP.
+2. `GET /api/v1/auth/callback` : le proxy échange le code côté serveur, vérifie
+   le jeton d'identité, puis rend jeton d'accès et refresh token au listener
+   loopback du CLI.
+3. `POST /api/v1/auth/refresh` (`refresh_token` dans le formulaire) : le proxy
+   appelle l'IdP avec son client et rend la nouvelle paire.
+
+Le CLI garde la paire dans le trousseau, en une seule entrée par serveur
+(`keystore::entry`). Évènements d'audit, au schéma de la RFC 0008 :
+`server_login` (allowed, denied, error) et `token_refreshed` ; jamais un jeton.
+
 ### 6.P Proof against a real client
 
 Suite d'intégration de la RFC 0009 (`tests/integration/tests/rfc0010.rs`),
-kubectl 1.35 (`mise.toml`) et le CLI du dépôt, contre deux IdP réels sur le
-banc : le Dex existant (IdP du proxy) et un second Dex (IdP du cluster) dont
-le connecteur OIDC pointe vers le premier, avec l'échange activé (décision 3).
+le kubectl épinglé du banc (`mise.toml`) et le CLI du dépôt, contre deux IdP
+réels : le Dex existant (Dex A, IdP du proxy) et un second Dex (Dex B, IdP du
+cluster, même image), dont le connecteur OIDC pointe vers Dex A et qui sert
+l'échange (Dex v2.46.0, `server/grants/tokenexchange.go`). L'apiserver de k3s
+fait confiance à Dex B par une `AuthenticationConfiguration` ; le RBAC du test
+porte sur les groupes, Dex B réencodant le `sub` (décision 11).
 
-1. `kubectl get pods` sur un cluster en échange, avec le seul jeton du proxy —
-   succès ; le log du second Dex montre une requête `token-exchange` ; le
-   kubeconfig et le trousseau du persona ne contiennent aucun jeton du
-   cluster.
-2. Dix `kubectl get pods` de suite — un seul échange côté Dex (le cache) ;
+1. `kubectl-proxyauth login --server-url …` sans `--token`, puis `kubectl get
+   pods` sur un cluster en échange — succès ; le log de Dex B montre une
+   requête `token-exchange` ; le trousseau du persona contient une seule
+   entrée (la session au serveur) et aucun jeton du cluster.
+2. Dix `kubectl get pods` de suite — un seul échange côté Dex B (le cache) ;
    `proxyauth_token_exchange_total{result="cache_hit"}` monte de 9.
 3. **Refus** : un persona hors de `proxy_group` — `403` du proxy, et **aucune**
-   requête `token-exchange` dans le log du second Dex.
-4. **Refus** : le jeton du cluster (obtenu par un login direct au second Dex)
-   présenté au proxy pour un cluster en échange — `401` ; l'apiserver n'a
-   reçu aucune requête de ce persona.
+   requête `token-exchange` dans le log de Dex B.
+4. **Refus** : un jeton de Dex B (login direct) présenté au proxy pour un
+   cluster en échange — `401` ; l'apiserver n'a reçu aucune requête de ce
+   persona.
 5. `kubectl exec` et `kubectl port-forward` sur un cluster en échange — le
    tunnel s'ouvre ; l'audit de la session porte l'utilisateur du jeton du
    proxy.
-6. Le second Dex arrêté — `kubectl get pods` reçoit `503` (pas `401`), et le
-   compteur de fail2login du persona n'a pas bougé.
-7. La réponse relayée et les logs du proxy (niveau `debug`) ne contiennent
-   jamais la valeur du jeton échangé (recherche de la chaîne dans
-   `task it:logs`).
+6. Dex B arrêté — `kubectl get pods` reçoit `503` (pas `401`), et le compteur
+   de fail2login du persona n'a pas bougé.
+7. La réponse relayée et les logs du proxy ne contiennent jamais la valeur du
+   jeton échangé (recherche de la chaîne dans `task it:logs`).
+8. Le jeton d'accès de la session au serveur expiré (durée courte configurée
+   sur Dex A pour le test) — `kubectl get pods` réussit quand même : `get-token`
+   a appelé `/api/v1/auth/refresh` (ligne `token_refreshed` allowed), sans
+   navigateur.
+9. **Refus** : `/api/v1/auth/refresh` avec un refresh token invalide — `400`,
+   ligne `token_refreshed` denied, et le compteur de fail2login de l'adresse
+   monte.
+
+Le cas Keycloak (même realm, internal-to-internal) est vérifié à la main, hors
+suite, en suivant la doc ; aucune image Keycloak n'entre sur le banc
+(décision 11).
 
 **Deliberately untouched**, so reviewers do not go looking:
 
@@ -383,11 +435,18 @@ flowchart LR
 | T8 | Info disclosure : le jeton du proxy part chez un IdP tiers | B2 | opt-in par cluster ; avertissement si l'issuer diffère sans `connector_id` (§4.3) | l'opérateur qui active l'échange vers un IdP tiers lui confie le jeton ; accepté (opérateur) |
 | T9 | Elevation : groupes retirés chez l'IdP, jeton échangé encore en cache | cache | `max_cache_seconds` (300, ≤ 3600) ; l'`exp` du jeton du proxy borne aussi | jusqu'à `max_cache_seconds` ; accepté (opérateur, réglable) |
 | T10 | Elevation : un jeton échangé sert hors du proxy | B3 | il ne sort pas du proxy (T3) ; son `aud` est celle du cluster | s'il fuyait, valide jusqu'à son `exp` ; comme un jeton de cluster aujourd'hui |
+| T11 | Elevation : l'IdP du cluster échange un jeton de l'IdP du proxy émis à un autre client | B2 | Dex ne vérifie pas l'audience du `subject_token` (`connector/oidc/oidc.go`, `SkipClientIDCheck`) : le proxy le fait avant, à la porte 4 (`OIDC_AUDIENCE`, `token_audience.rs`), et n'envoie à l'échange qu'un jeton validé | qui joint l'IdP du cluster directement avec un jeton de l'IdP du proxy obtient un jeton du cluster, sans le proxy : propre à Dex, documenté ; accepté (opérateur) |
+| T12 | Spoofing / DoS : abus de `/api/v1/auth/refresh` (refresh tokens volés ou devinés, inondation) | B1 | throttling non scopé et fail2login par adresse (un `invalid_grant` compte, un IdP injoignable non) ; refresh token dans le corps, jamais dans l'URL ni un log ; l'IdP reste seul juge de sa validité | un refresh token volé sert jusqu'à la fin de la session SSO de l'IdP ; accepté (comme tout refresh token) |
 
 ### 7.2 Authentication and authorisation
 
-- Aucune nouvelle surface accessible sans jeton : l'échange n'existe que sur
-  le chemin de proxy, après authentification et autorisation.
+- L'échange n'existe que sur le chemin de proxy, après authentification et
+  autorisation.
+- Deux surfaces nouvelles sont joignables sans jeton du proxy :
+  `/api/v1/auth/login` (démarre un SSO, `redirect_uri` loopback seulement, le
+  même garde-fou que `/oauth/authorize` contre la redirection ouverte) et
+  `/api/v1/auth/refresh` (un refresh token est la preuve ; l'IdP en juge). Les
+  deux passent par le throttling non scopé avant tout appel à l'IdP (T12).
 - Défaut : `enabled: false` ; un cluster sans le bloc n'échange rien.
 - Un contournement de la porte 4 donnerait un jeton du cluster à son auteur :
   c'est pourquoi l'échange n'accepte que des requêtes dont `user` est
@@ -450,6 +509,8 @@ flowchart LR
 | hash du jeton du proxy | non (SHA-256, non réversible) | mémoire du pod | idem | le processus | non |
 | jeton du proxy (`subject_token`) | oui | jamais stocké | — | — | **oui : vers l'IdP du cluster** (T8) |
 | événement `token_exchanged` | oui (nom d'utilisateur, groupes) | logs (cible `audit`) | celle des logs | l'opérateur | selon la collecte des logs |
+| refresh token de la session au serveur | oui (rattaché à l'utilisateur) | trousseau du poste (une entrée par serveur) ; transite par le proxy à chaque rafraîchissement, jamais stocké côté serveur | la session SSO de l'IdP (sans `offline_access`) | l'utilisateur ; le proxy le temps d'un appel | vers l'IdP du proxy |
+| état du SSO serveur (nonce, PKCE) | non | Redis | 300 s, usage unique | le proxy | non |
 
 - Le seul flux nouveau est l'envoi du jeton du proxy à l'IdP du cluster ; il
   est documenté dans la page de sécurité et activé par l'opérateur.
@@ -480,6 +541,8 @@ flowchart LR
 | IdP refuse (`invalid_grant`, `unauthorized_client`) | statut 400/401 de l'IdP | **fermé** : `401` « token exchange refused », pas compté en fail2login (le jeton a déjà été validé à la porte 4) | corriger la config IdP ; `status.warnings` aide |
 | réponse sans `access_token` ou trop grosse | parsing | **fermé** : `502` | idem |
 | client d'échange mal configuré (secret absent) | avertissement de statut | fermé (l'IdP refuse) | corriger la CRD |
+| IdP du proxy injoignable au rafraîchissement | erreur réseau | `503`, pas compté en fail2login ; `get-token` échoue avec ce message | automatique ; sinon nouvelle connexion SSO |
+| refresh token refusé (session expirée) | `invalid_grant` de l'IdP | `400`, compté en fail2login ; `get-token` demande une nouvelle connexion | `kubectl-proxyauth login --server-url …` |
 
 Toujours fermé : un échec d'échange ne relaie jamais le jeton du proxy à
 l'apiserver.
@@ -516,6 +579,8 @@ l'apiserver.
 | Rendre le jeton échangé au client (`/oauth/token` en RFC 8693) | garde un jeton par cluster côté client : le problème de §2.2 reste |
 | Cache dans Redis, partagé par les réplicas | met des jetons de cluster dans Redis, ses dumps et ses sauvegardes, pour économiser au plus N−1 échanges |
 | Dex `audience:server:client_id:` (cross-client trust) | Dex seulement, se décide au login, et donne un jeton multi-audience que tous les clusters accepteraient |
+| Connexion SSO du CLI directement chez l'IdP du proxy, avec un client public dédié | l'opérateur enregistre un client de plus et deux mappers d'audience (vers `OIDC_AUDIENCE` pour que le proxy l'accepte, vers le client d'échange) ; la voie médiée n'en demande aucun (décision 10) |
+| Garder le jeton collé sans rafraîchissement | expire en 5 minutes avec un Keycloak par défaut : l'échange ne servirait à rien (décision 8) |
 | Ne rien faire | dix logins SSO pour dix clusters, dix jetons sur chaque poste |
 
 ---
@@ -530,6 +595,9 @@ l'apiserver.
 - **Operator prerequisites** : chez l'IdP du cluster, un client confidentiel
   avec l'échange activé ; pour Keycloak, le jeton du proxy doit porter ce
   client dans son `aud` (mapper d'audience sur le client du dashboard).
+- **CLI** : `login --server-url --token` reste disponible ; la connexion SSO au
+  serveur est un ajout, qui demande la redirection du proxy (`OIDC_REDIRECT_URL`)
+  déjà enregistrée chez son IdP.
 - **Rollback** : désactiver le bloc ; rien n'est persisté (cache en mémoire).
 - **Feature flag** : le champ `enabled` par cluster.
 
@@ -557,6 +625,8 @@ l'apiserver.
   - T8 `a_foreign_issuer_without_connector_warns`
   - T9 `the_cache_never_outlives_max_cache_seconds`
   - T10 `an_exchange_failure_never_relays_the_proxy_token`
+  - T11 `only_a_validated_token_is_sent_to_the_exchange`
+  - T12 `a_refused_refresh_counts_toward_a_ban`
 - **Audit** : `task audit` vert (aucune dépendance nouvelle).
 - **Existing suites** : `http_contract`, `proxy_security`, `proxy_upgrade`,
   envtest et `rfc0003`, `rfc0006`, `rfc0007` inchangés : un cluster sans
@@ -568,29 +638,29 @@ l'apiserver.
 
 ### Resolved
 
+Tranchées au `/grill-me` du 2026-10-18.
+
 | # | Question | Decision |
 | --- | --- | --- |
 | 1 | Un cluster en échange accepte-t-il aussi un jeton du cluster ? | **Non : un seul mode par cluster.** Deviner le mode depuis l'`iss` non vérifié du jeton ajoute un chemin de validation et une ambiguïté exploitable. |
 | 2 | Où vit le jeton échangé ? | **En mémoire seulement, par réplica.** Redis exposerait des jetons de cluster pour économiser au plus N−1 échanges (§12). |
+| 3 | Release | **0.3.0**, après la RFC 0008, dont `token_exchanged` reprend le schéma. |
+| 4 | Quel client échange ? | **Le client du cluster** (`oidc_provider.client_id`) : il marche aussi en fédération ; le mapper d'audience Keycloak est documenté. |
+| 5 | `max_cache_seconds` par défaut | **300 s** (la durée d'un jeton d'accès Keycloak par défaut), 3 600 s au plus. |
+| 6 | Où se place l'échange | **Après toutes les portes**, juste avant le relais : une requête refusée ne coûte aucun appel à l'IdP. |
+| 7 | Échecs de l'échange | **503** (injoignable), **401** (refus), **502** (illisible) ; aucun ne compte pour fail2login ; le jeton du proxy n'est jamais relayé. |
+| 8 | Durée de vie du jeton du proxy côté CLI | **Dans la RFC** : une connexion SSO au serveur avec refresh token (§6.5). Le jeton collé expire en 5 minutes avec un Keycloak par défaut. |
+| 9 | Audit et métrique | **`token_exchanged`** sur un échange réel seulement ; `proxyauth_token_exchange_total{result}` sans label `cluster`. |
+| 10 | Connexion SSO du CLI au serveur | **Médiée par le proxy**, avec son client : une seule audience, aucune configuration nouvelle chez l'IdP ; rafraîchissement par `/api/v1/auth/refresh`. |
+| 11 | Preuve sur le banc | **Un second Dex fédéré** (même image), RBAC par groupes ; Keycloak vérifié à la main, hors suite ; la faiblesse d'audience de Dex devient T11. Faisabilité vérifiée sur les sources de Dex v2.46.0. |
+| 12 | Protection du rafraîchissement | **Throttling non scopé et fail2login** (un `invalid_grant` compte, un IdP injoignable non) ; refresh token dans le corps ; `server_login` et `token_refreshed` audités. |
+| 13 | `offline_access` | **Non par défaut** : le refresh token suit la session SSO ; l'opérateur l'ajoute à `OIDC_SCOPES` s'il le veut. |
+| 14 | `login --server-url --token` | **Gardé**, sans rafraîchissement (scripts, CI). |
+| 15 | Phases | **Quatre** (§16). |
 
 ### Still open
 
-1. **Quel client échange ?** Le client du cluster (`oidc_provider.client_id`,
-   proposé) fonctionne aussi en fédération Dex mais demande, chez Keycloak, un
-   mapper d'audience sur le client du dashboard. Le client du proxy, s'il est
-   dans le même realm, échangerait son propre jeton sans mapper, mais ne
-   marche que dans ce cas. Recommandation : le client du cluster.
-2. **Release** : la 0.2.0 est gelée sur 0001 à 0009 (`PLAN.md`).
-   Recommandation : 0.3.0, après la RFC 0008 dont l'événement
-   `token_exchanged` réutilise le schéma.
-3. **Preuve Keycloak** : le banc prouve la fédération par Dex (décision à
-   prendre : un second Dex plutôt qu'une image Keycloak, environ 450 Mo, pour
-   éviter une nouvelle image). Le cas Keycloak même realm reste-t-il une
-   vérification manuelle (`hors suite`) ou mérite-t-il l'image ?
-   Recommandation : manuelle d'abord, l'image si un utilisateur le demande.
-4. **`max_cache_seconds` par défaut** : 300 s suit la durée d'un jeton d'accès
-   Keycloak par défaut ; un défaut plus court (60 s) réduit T9 au prix d'un
-   échange par minute et par utilisateur actif.
+Aucune.
 
 ---
 
@@ -598,9 +668,10 @@ l'apiserver.
 
 | Phase | Content |
 | --- | --- |
-| 1 | CRD (`token_exchange`, CEL, warnings), `common::token_exchange` et son cache, branchement dans `redirect` et les trois relais, audit et métriques, tests unitaires, d'intégration et de sécurité (T1 à T10). Utile seul : un opérateur peut l'activer et utiliser le jeton du proxy à la main. |
-| 2 | `visible_clusters.token_exchange`, régénération de `swagger.json` et des clients, CLI (`login clusters`, `get-token`) et front. |
-| 3 | Banc : second Dex fédéré, personas, `rfc0010.rs`, lignes de `MATRIX.md`, retrait de `PENDING` ; documentation. |
+| 1 | Serveur, l'échange : CRD (`token_exchange`, CEL, warnings), `common::token_exchange` et son cache, branchement dans `redirect` et les trois relais, `token_exchanged`, métriques, tests unitaires, d'intégration et de sécurité (T1 à T11). Utile seul : un opérateur peut l'activer et utiliser un jeton du proxy obtenu à la main. |
+| 2 | Serveur, la session : `/api/v1/auth/{login,callback,refresh}` (§6.5), `server_login` et `token_refreshed`, T12 ; `visible_clusters.token_exchange` ; `swagger.json` et clients régénérés. |
+| 3 | Clients : connexion SSO au serveur et rafraîchissement dans `get-token` (CLI), `login clusters` sans SSO pour un cluster en échange, kubeconfig à plugin dans le front. |
+| 4 | Banc : Dex B fédéré, `AuthenticationConfiguration` de k3s, personas, `rfc0010.rs`, lignes de `MATRIX.md`, retrait de `PENDING` ; documentation (sécurité, CRD, Keycloak et Dex). |
 
 Le contrôle (portes avant l'échange, refus fermés) arrive dans la même phase
 que la surface : la phase 1 ne relaie jamais un jeton échangé sans eux.
