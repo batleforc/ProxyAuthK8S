@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review                                                              |
+| Status      | Accepted                                                               |
 | Short       | Filtrage exec / attach                                                 |
 | Settles     | Ce que le proxy peut garantir sur `pods/{name}/exec` et `/attach` : commandes autorisées, conteneurs, flux, et une trace de session |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -10,7 +10,7 @@
 | Created     | 2026-10-17                                                             |
 | Supersedes  | —                                                                      |
 | Issue       | — (à créer)                                                            |
-| Depends on  | RFC 0003 (`status.warnings`, `nodes/proxy`, politiques avant le contrôle websocket), RFC 0006 (règles sensibles au verbe), RFC 0007 (migration vers axum/hyper) |
+| Depends on  | RFC 0003 (`status.warnings`, `nodes/proxy`, politiques avant le contrôle websocket), RFC 0006 (règles sensibles au verbe), RFC 0007 (migration vers axum/hyper), RFC 0008 (schéma d'audit, `session_closed`) |
 | Touches     | `libs/server/crd/src/security/*` (nouveau `exec_policy.rs`), `libs/server/api/src/cluster/redirect/kube_redirect/{upgrade.rs,upgrade/tunnel.rs,port_forward.rs}`, nouveaux `kube_redirect/{exec.rs,websocket.rs}`, `…/redirect/audit.rs`, CRD générée, `.docs/content/docs/{security,crds}.mdx` |
 | Risk        | high                                                                   |
 
@@ -34,8 +34,10 @@ présentées comme telles à l'opérateur :
 2. **Contrôle du flux (garanti)** : un décodeur des canaux `v5.channel.k8s.io`
    ferme la session si des données arrivent sur un canal interdit (stdin,
    resize).
-3. **Trace de session (observation, pas barrière)** : audit d'ouverture
-   (argv, conteneur, flux) et de fermeture (durée, octets par canal, raison).
+3. **Trace de session (observation, pas barrière)** : sur le schéma d'audit de
+   la RFC 0008, la ligne `request` de l'ouverture porte un objet `exec` (argv,
+   conteneur, flux) et la ligne `session_closed` de la fermeture les octets par
+   canal.
 
 Le **filtrage du contenu de stdin** (refuser `rm -rf` tapé dans un shell) est
 **rejeté comme mécanisme de sécurité** (§12) : il est contournable par
@@ -111,10 +113,10 @@ pour que le repli SPDY de kubectl reçoive aussi le 403 avec sa raison.
    donnent un shell interactif dans tous les conteneurs du pod. Le besoin
    courant (« le dev peut lancer le healthcheck et lire les logs ») ne
    s'exprime pas.
-3. **L'audit d'une session exec est vide.** `AuditContext`
-   (`redirect/audit.rs:22`) émet un seul événement par requête, au moment du
-   handshake (`101` ou refus) : ni commande, ni durée, ni volume, ni fin de
-   session.
+3. **L'audit d'une session exec ne dit pas ce qui a été lancé.** Depuis la
+   RFC 0008, la ligne `request` du handshake et la ligne `session_closed` de la
+   fin existent (durée, octets, qui a fermé), mais aucune ne porte la commande,
+   le conteneur ni les flux demandés : la query n'est jamais lue.
 4. **Un refus ne dit pas pourquoi.** kubectl ≥ 1.30 bascule en SPDY dès que la
    montée websocket échoue, y compris sur un 403
    (`client-go/transport/websocket/roundtripper.go:130-156`, puis
@@ -140,7 +142,8 @@ pour que le repli SPDY de kubectl reçoive aussi le 403 avec sa raison.
   combinaison de règles n'autorise ce qu'aucune règle n'a voulu.
 - Un refus intervient **avant** toute connexion upstream, avec un message
   lisible par kubectl, y compris après son repli SPDY.
-- Une session produit un événement d'audit d'ouverture et de fermeture.
+- Une session exec ou attach est tracée de l'ouverture (commande, conteneur,
+  flux) à la fermeture, dans le schéma de la RFC 0008.
 - La doc dit clairement ce qui est garanti et ce qui ne l'est pas.
 
 **Non-goals**
@@ -302,7 +305,7 @@ Avertissements :
 
 ```mermaid
 sequenceDiagram
-    participant K as kubectl 1.34
+    participant K as kubectl 1.35
     participant P as redirect()
     participant H as check_exec
     participant U as apiserver
@@ -311,7 +314,7 @@ sequenceDiagram
     P->>P: is_path_allowed, exec_policy(path, user, groups)
     P->>H: check_exec(parse_exec_query(query), policy)
     alt hors politique
-        H-->>K: 403 + raison, audit exec_denied (aucun connect)
+        H-->>K: 403 + raison, audit policy_decision exec denied (aucun connect)
         K->>P: repli SPDY (POST, même query)
         P-->>K: 403 + même raison
     else conforme
@@ -320,7 +323,7 @@ sequenceDiagram
         P->>T: tunnel(filter = ExecChannelFilter)
         T-->>K: flux
         T->>T: canal 0 (stdin) ou 4 (resize) interdit ? fermer
-        T-->>P: fin : audit exec_closed #123;durée, octets/canal, raison#125;
+        T-->>P: fin : audit session_closed #123;durée, octets/canal, close_reason#125;
     end
 ```
 
@@ -386,8 +389,8 @@ conteneur ou flux refusé ne peut atteindre le kubelet par ce chemin.
   `Restricted(Vec<&ExecPolicyConfiguration>)` (règles qui correspondent au
   chemin et déclarent `exec`, éventuellement vide). Contrairement à
   `port_policy` (RFC 0003), il ne fusionne pas les champs.
-- Le refus de `nodes/proxy` (RFC 0003) teste `restricts_ports ||
-  restricts_exec`.
+- Le refus de `nodes/proxy` (`restricts_node_proxy`, aujourd'hui
+  `restricts_ports || restricts_verbs`) gagne `|| restricts_exec`.
 - `SecurityConfiguration.mask_exec_secrets: bool` (défaut `false`).
 - Règle CEL `!has(self.exec) || self.kind == 'Pod'` sur `AllowedCrdConfiguration`.
 - `ExecPolicyConfiguration::accepts(&ExecRequest) -> Result<(), Denial>` : ET
@@ -416,14 +419,22 @@ de décision sont pures et indépendantes du framework.
 - `upgrade.rs` : `check_handshake` évalue déjà les politiques avant le contrôle
   websocket et le refus de corps (RFC 0003, phase 1) ; la politique exec s'y
   ajoute après celle des ports. Nouvelle variante
-  `UpgradeRefusal::ExecOutsidePolicy(String)` (403, audit `exec_denied`).
+  `UpgradeRefusal::ExecOutsidePolicy(String)` (403, ligne `policy_decision`
+  `policy: exec`, `decision: denied`, avec la raison). Un exec accepté sous
+  restriction écrit sa ligne `policy_decision` `allowed`, comme un port
+  accepté.
   Après le `101`, sélection du filtre selon le protocole accepté (refus des
   protocoles non binaires sous restriction).
 - Tunnel : `inspect` sur le sens client → upstream ; `on_upstream` sur le sens
   upstream → client **uniquement** pour compter les octets, sans jamais
-  bloquer ; à la fin des deux moitiés, `audit.emit_session_end(summary)`.
+  bloquer. Le filtre ne décode les trames (et ne compte par canal) que sous
+  restriction ; une session sans restriction garde les totaux de
+  `session_closed` (RFC 0008, phase 4).
 - `audit.rs` : `AuditContext` gagne `exec: Option<ExecAudit { argv,
-  container, stdin, tty }>` et `emit_session_end`. Avec `mask_exec_secrets`
+  container, stdin, tty }>`, écrit comme un objet `exec` sur la ligne `request`
+  et sur `session_closed` ; `session_closed` gagne `channel_bytes` (octets par
+  canal, sous restriction) et `channel` quand le filtre coupe sur un canal
+  interdit (`close_reason: filter`). Avec `mask_exec_secrets`
   (global, donc aussi pour les refus et les utilisateurs non restreints), les
   éléments `-p<x>`, `--password=<x>`, `--token=<x>` et l'élément qui suit
   `-p`/`--password`/`--token` sont remplacés par `***`.
@@ -444,14 +455,19 @@ de décision sont pures et indépendantes du framework.
 
 ### 6.P Proof against a real client
 
-Client : `kubectl` 1.34 (`v5.channel.k8s.io`, repli SPDY actif par défaut).
-Suite : `libs/server/api/tests/proxy_upgrade.rs` (upstream enregistreur sur
-loopback, `start_upstream`, `:59`), étendue par un harnais de trames v5 ; puis
-un cluster k3d (`task kube3d:*`) pour la preuve de bout en bout.
+Banc de la RFC 0009, `tests/integration/tests/rfc0004.rs`, une fonction
+`pN_sujet` par point, toujours à travers le proxy. Client : le kubectl épinglé
+du banc (`mise.toml`, 1.35 ; `v5.channel.k8s.io`, repli SPDY actif par
+défaut). Les points qui demandent une requête forgée (6, 7, 8) passent par un
+client brut écrit dans le test, sans dépendance nouvelle, comme
+`proxy_upgrade.rs`, qui garde les tests rapides (upstream enregistreur,
+harnais de trames v5). Les lignes d'audit sont lues avec
+`observe::audit_lines`.
 
 1. `kubectl exec web -c app -- ls /tmp` avec `commands: [["ls","**"]]` : sortie
-   de `ls`, code 0. L'audit montre `exec_open argv=["ls","/tmp"]
-   container=app`, puis `exec_closed reason=eof stdout_bytes>0`.
+   de `ls`, code 0. La ligne `request` porte `exec: {argv: ["ls","/tmp"],
+   container: "app"}`, puis `session_closed` porte des octets non nuls sur le
+   canal 1 (stdout).
 2. **Refus, commande** : `kubectl exec web -c app -- sh -c id` affiche
    `Forbidden: command [sh -c id] is not allowed on this cluster` (et **non**
    « SPDY is not supported »). L'upstream enregistreur n'a **accepté aucune
@@ -464,8 +480,8 @@ un cluster k3d (`task kube3d:*`) pour la preuve de bout en bout.
    donne 403.
 6. **Refus, flux** : un client de test qui négocie `stdin=false` puis envoie
    un message sur le canal 0 voit la session fermée. Aucun octet du canal 0
-   n'est arrivé à l'upstream, et l'audit indique `exec_closed
-   reason=forbidden_channel channel=0`.
+   n'est arrivé à l'upstream, et `session_closed` indique `close_reason:
+   filter`, `channel: 0`.
 7. **Refus, doublon** : `?command=ls&container=app&container=sidecar` donne 400.
 8. **Refus, booléen** : `?command=ls&container=app&stdin=` (valeur vide, vraie
    pour l'apiserver) avec `stdin: false` donne 403.
@@ -481,7 +497,7 @@ un cluster k3d (`task kube3d:*`) pour la preuve de bout en bout.
     `allowed_ports`), `curl …/api/v1/nodes/n1/proxy/exec/dev/web/app?command=sh`
     donne 403 ; l'upstream n'a reçu aucune connexion.
 13. Non-régression : sans règle `exec`, les points 1 à 5 passent comme
-    aujourd'hui, et `exec_open` / `exec_closed` sont émis.
+    aujourd'hui, et la ligne `request` porte quand même l'objet `exec`.
 
 **Deliberately untouched**, so reviewers do not go looking :
 
@@ -521,7 +537,7 @@ flowchart LR
 | T7 | Elevation : contournement par création de pod, conteneur éphémère ou `nodes/proxy/exec` | autres chemins | RFC 0006 (verbes) **prérequis** ; `nodes/proxy` refusé sous `restricts_exec` (RFC 0003 R4 étendu) ; avertissement de validation | faible une fois les prérequis livrés |
 | T8 | Elevation : combinaison de règles (produit croisé, règle large sans `exec`, autre namespace) | évaluation | restriction par utilisateur ; seules les règles `exec` accordent ; OU de règles, ET des champs | aucun |
 | T9 | Info disclosure : secrets dans l'argv (`mysql -pXXX`) | audit | doc explicite ; `mask_exec_secrets` global opt-in ; changement annoncé au CHANGELOG | **accepté par l'opérateur** (argv intégral par défaut) |
-| T10 | Repudiation : session sans trace | audit | `exec_open` et `exec_closed` toujours émis | aucun |
+| T10 | Repudiation : session sans trace | audit | objet `exec` sur la ligne `request`, et `session_closed` (RFC 0008), toujours écrits | aucun |
 | T11 | DoS : trames énormes ou fragmentées pour épuiser le décodeur | flux | trame bornée à 1 MiB, aucun buffer au-delà d'une trame | faible |
 
 Tests négatifs : T1 → §6.P point 2 ; T3 → points 7 et 8, table Go ; T4 →
@@ -609,13 +625,16 @@ C'est annoncé dans le CHANGELOG (§13), avec `mask_exec_secrets`.
   - compteur partagé `proxyauth_policy_decisions_total{cluster,
     policy="exec", decision}` (créé par la RFC 0003), `decision` parmi
     `allowed`, `denied`, `closed_by_filter` ;
-  - `proxyauth_exec_session_seconds{cluster, kind}` (histogramme) ;
+  - `proxyauth_session_duration_seconds{kind}` (histogramme), pour tous les
+    tunnels : `kind` parmi `exec`, `attach`, `portforward`, `proxy` ;
   - aucune commande ni aucun utilisateur en label.
-- **Logs and audit trail** : `exec_denied` (avec la raison), `exec_open` et
-  `exec_closed` (raisons : `eof`, `client_closed`, `upstream_closed`,
-  `forbidden_channel`, `error`).
+- **Logs and audit trail** (schéma de la RFC 0008) : `policy_decision`
+  `policy: exec` (`allowed` sous restriction, `denied` avec la raison), objet
+  `exec` sur la ligne `request`, et `session_closed` avec les octets par canal
+  sous restriction et `channel` quand le filtre coupe (`close_reason` :
+  `client`, `upstream`, `filter`, `error`).
 - **Alerts** : aucune par défaut. La doc suggère une alerte sur
-  `forbidden_channel` (client modifié).
+  `session_closed` avec `close_reason: filter` et `channel` (client modifié).
 
 ### 10.2 Failure modes
 
@@ -677,10 +696,9 @@ Sans restriction, le seul surcoût est le comptage d'octets.
 
 ## 13. Rollout and compatibility
 
-- **Default behaviour** : sans `exec`, aucun changement de décision. Seuls les
-  événements d'audit `exec_open` et `exec_closed` sont nouveaux, **et ils
-  contiennent l'argv** (§9) : annoncé dans le CHANGELOG avec
-  `mask_exec_secrets`.
+- **Default behaviour** : sans `exec`, aucun changement de décision. Seul
+  l'objet `exec` de la ligne `request` est nouveau, **et il contient l'argv**
+  (§9) : annoncé en tête du CHANGELOG avec `mask_exec_secrets`.
 - **Changement de comportement** dès qu'une règle `exec` existe : elle
   restreint tous les utilisateurs du cluster (règle `Path`), et les règles
   sans `exec` n'accordent plus exec ni attach (`feat!:`).
@@ -715,10 +733,12 @@ Sans restriction, le seul surcoût est le comptage d'octets.
   `runtime.Convert_Slice_string_To_bool` + conversion `PodExecOptions`)
   génère `tests/fixtures/exec_query_reference.json` ; le test Rust la rejoue.
   Régénérée à chaque montée de version Kubernetes ciblée.
-- **Integration** (`api/tests/proxy_upgrade.rs`) : §6.P points 1 à 13 avec
-  l'upstream enregistreur et un harnais de trames v5, y compris la requête
-  SPDY de repli.
-- **Proof** : §6.P, puis k3d avec kubectl 1.34.
+- **Integration** (`api/tests/proxy_upgrade.rs`) : les refus avant connexion,
+  le filtre de canaux et la requête SPDY de repli, avec l'upstream enregistreur
+  et un harnais de trames v5.
+- **Table de référence Go** : produite par le générateur de la RFC 0006
+  (`crd/tests/request_info_reference`, `task gen:request-info-reference`).
+- **Proof** : §6.P, sur le banc de la RFC 0009 (`rfc0004.rs`).
 - **Security** : un test négatif par ligne T1 à T11 (§7.1).
 - **Audit** : `task audit` vert.
 - **Existing suites** : tests de port-forward inchangés après l'extraction de
@@ -754,7 +774,17 @@ Sans restriction, le seul surcoût est le comptage d'octets.
 | 19 | `exec` sur `Crd` | **`kind: Pod` seulement** (CEL + `validate()`). |
 | 20 | Règle `Path` et sujets | **Une règle `Path` avec `exec` restreint tous les utilisateurs**, documenté ; sujets sur `Path` : future RFC. |
 | 21 | `attach` | **Règle qui couvre `…/attach`, déclare `exec` et `attach: true`** ; `commands` ignoré ; pas d'alternative dans `path_matcher`, donc deux règles ou `Crd` `Pod`. |
-| 22 | Métrique (grill de la RFC 0006) | **Compteur partagé** `proxyauth_policy_decisions_total{policy="exec"}` ; l'histogramme de durée de session reste propre à cette RFC. |
+| 22 | Métrique (grill de la RFC 0006) | **Compteur partagé** `proxyauth_policy_decisions_total{policy="exec"}` ; l'histogramme de durée devient commun à tous les tunnels (décision 29). |
+| 23 | Audit (troisième grill, 2026-10-18) | **Le schéma de la RFC 0008** : refus en `policy_decision` `policy: exec`, objet `exec` sur la ligne `request`, octets par canal sur `session_closed` ; `exec_denied`, `exec_open` et `exec_closed` disparaissent, comme l'annonçait la décision 6 de la RFC 0008. |
+| 24 | Raisons de fermeture | **Celles de la RFC 0008** (`client`, `upstream`, `filter`, `error`) ; un canal interdit est un `filter` avec un champ `channel`. |
+| 25 | Phases | **Phase 1 redéfinie** : la trace de session sans politique est livrée par la RFC 0008 (phase 4) ; restent les champs `exec`, `mask_exec_secrets` et l'extraction de `WebsocketDecoder` et du trait. |
+| 26 | argv dans un audit qu'on ne peut plus couper | **Décision 2 confirmée** : argv intégral, `mask_exec_secrets: false` par défaut, signalé en tête du CHANGELOG. |
+| 27 | Octets par canal | **Seulement sous restriction**, quand le filtre décode les trames ; sans restriction, les totaux de `session_closed`. |
+| 28 | Preuve | **Le banc de la RFC 0009** (`rfc0004.rs`, 13 points), avec le kubectl du banc ; requêtes forgées par un client brut dans le test, sans dépendance nouvelle. |
+| 29 | Histogramme de durée | **`proxyauth_session_duration_seconds{kind}` pour tous les tunnels**, au lieu d'un histogramme propre à exec. |
+| 30 | Table de référence Go | **Le générateur de la RFC 0006**, même tâche et même `go.mod`. |
+| 31 | Exec accepté sous restriction | **Une ligne `policy_decision` `allowed`**, comme un port accepté ; sans restriction, seule la ligne `request` trace la commande. |
+| 32 | Release | **0.2.0**, comme prévu : elle ferme le plus gros trou restant, et ses prérequis (0003, 0006, 0007, 0008) sont livrés. |
 
 ### Still open
 
@@ -766,8 +796,8 @@ Aucune.
 
 | Phase | Content |
 | --- | --- |
-| 0 | Prérequis : RFC 0003, 0006 et 0007 livrées |
-| 1 | Audit `exec_open` / `exec_closed` sans politique, avec `mask_exec_secrets` dès cette phase (l'argv entre dans les logs) ; extraction de `WebsocketDecoder` et du trait `UpgradeFilter` |
+| 0 | Prérequis : RFC 0003, 0006, 0007 et 0008 livrées (fait) |
+| 1 | Objet `exec` (argv, conteneur, flux) sur les lignes `request` et `session_closed`, sans politique, avec `mask_exec_secrets` dès cette phase (l'argv entre dans les logs) ; `proxyauth_session_duration_seconds{kind}` ; extraction de `WebsocketDecoder` et du trait `UpgradeFilter` |
 | 2 | CRD `exec` (CEL `kind: Pod`) + `restricts_exec` + `exec_rules()` + `parse_exec_query` + `check` avant connexion (commandes, conteneurs, flux, attach) + `nodes/proxy` sous `restricts_exec` + avertissements + `ExecChannelFilter` (canaux interdits, refus des protocoles non binaires) + table de référence Go + cibles de fuzz |
 | 3 | Docs (`security.mdx` garanti/non garanti, portée d'une règle `Path`, attach, recettes `kubectl cp`, Kyverno), CHANGELOG (argv dans l'audit, `feat!:`, annonce de la bascule v1.0.0) |
 
