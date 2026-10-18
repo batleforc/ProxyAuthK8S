@@ -6,9 +6,9 @@
 
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::auth::{oauth, well_known};
+use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncTypedCommands;
+use harness::test;
 use harness::{
     delete_proxy, fail2login_config, mount_oidc_provider, oidc_auth_config_with_well_known,
     proxy_fixture, rate_limited_config, seed_proxy, test_state, try_redis_pool, unique_cluster,
@@ -17,14 +17,7 @@ use wiremock::MockServer;
 
 macro_rules! well_known_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(well_known::oauth_authorization_server)
-                    .service(oauth::jwks::jwks),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -37,7 +30,7 @@ macro_rules! redis_or_skip {
     };
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn rate_limit_applies_to_the_well_known_endpoint() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -77,7 +70,7 @@ async fn rate_limit_applies_to_the_well_known_endpoint() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn a_banned_client_is_refused_on_the_oauth_as_surface() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;

@@ -8,8 +8,8 @@
 mod harness;
 mod virtual_api_support;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::redirect;
+use axum::http::StatusCode;
+use harness::test;
 use harness::{delete_proxy, test_state, try_redis_pool, unique_cluster};
 use serde_json::{Value, json};
 use virtual_api_support::{FALLBACK_TOKEN, seed_openshift_proxy_with_fallback};
@@ -18,15 +18,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 macro_rules! proxy_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(redirect::get_redirect)
-                    .service(redirect::post_redirect)
-                    .service(redirect::delete_redirect),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -42,7 +34,7 @@ macro_rules! redis_or_skip {
 /// With `list_fallback_token` configured, `LIST projects` is filtered
 /// unconditionally — the plain (impersonated) namespace list is never even
 /// attempted, only the privileged discovery call is.
-#[actix_web::test]
+#[tokio::test]
 async fn list_fallback_filters_to_what_the_caller_can_get() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -129,7 +121,7 @@ async fn list_fallback_filters_to_what_the_caller_can_get() {
 
 /// The caller can `list` (via the privileged token) but has `get` on nothing:
 /// a real, filtered empty list, not the raw 403 the unconfigured path returns.
-#[actix_web::test]
+#[tokio::test]
 async fn list_fallback_returns_an_empty_list_when_nothing_is_allowed() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -178,7 +170,7 @@ async fn list_fallback_returns_an_empty_list_when_nothing_is_allowed() {
 /// The privileged discovery call itself failing must never widen visibility
 /// (fall back to an unfiltered list) or hide it (a silent empty list) — it
 /// surfaces as a `503`.
-#[actix_web::test]
+#[tokio::test]
 async fn list_fallback_discovery_failure_is_a_503() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -203,7 +195,7 @@ async fn list_fallback_discovery_failure_is_a_503() {
 
 /// One namespace's access check erroring (as opposed to a plain denial) drops
 /// just that namespace, fail-closed — the rest of the list still returns.
-#[actix_web::test]
+#[tokio::test]
 async fn list_fallback_excludes_a_namespace_whose_check_errors() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -264,7 +256,7 @@ async fn list_fallback_excludes_a_namespace_whose_check_errors() {
 
 /// Existing selector/pagination query params keep working through the
 /// privileged discovery call.
-#[actix_web::test]
+#[tokio::test]
 async fn list_fallback_forwards_the_query_string_to_the_privileged_call() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;

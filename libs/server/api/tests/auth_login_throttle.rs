@@ -20,9 +20,9 @@
 
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::auth;
+use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncTypedCommands;
+use harness::test;
 use harness::{
     delete_proxy, fail2login_config, oidc_auth_config, proxy_fixture, rate_limited_config,
     seed_proxy, test_state, try_redis_pool, unique_cluster,
@@ -31,14 +31,7 @@ use wiremock::MockServer;
 
 macro_rules! auth_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(auth::login::cluster_login)
-                    .service(auth::callback::callback_login),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -99,7 +92,7 @@ async fn cleanup(pool: &deadpool_redis::Pool, ns: &str, cluster: &str) {
 /// The refusal is a 404, not a 403: a caller who may not use a cluster must not
 /// be able to tell "restricted" from "does not exist", or `proxy_group` stops
 /// hiding anything.
-#[actix_web::test]
+#[tokio::test]
 async fn a_caller_outside_the_proxy_group_cannot_start_a_login() {
     let pool = redis_or_skip!();
     let idp = unreachable_idp().await;
@@ -133,7 +126,7 @@ async fn a_caller_outside_the_proxy_group_cannot_start_a_login() {
 
 /// The core of the fix: a banned caller is turned away before the handler can
 /// perform the discovery fetch that made this endpoint an amplifier.
-#[actix_web::test]
+#[tokio::test]
 async fn a_banned_client_is_refused_on_auth_callback() {
     let pool = redis_or_skip!();
     let idp = unreachable_idp().await;
@@ -156,7 +149,7 @@ async fn a_banned_client_is_refused_on_auth_callback() {
     cleanup(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn a_banned_client_is_refused_on_auth_login() {
     let pool = redis_or_skip!();
     let idp = unreachable_idp().await;
@@ -179,7 +172,7 @@ async fn a_banned_client_is_refused_on_auth_login() {
 
 /// The ban must outrank the token check: previously the `User` extractor ran
 /// first, so a banned caller still cost two outbound IdP calls before its 401.
-#[actix_web::test]
+#[tokio::test]
 async fn the_ban_is_checked_before_the_token_on_auth_login() {
     let pool = redis_or_skip!();
     let idp = unreachable_idp().await;
@@ -205,7 +198,7 @@ async fn the_ban_is_checked_before_the_token_on_auth_login() {
     cleanup(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn rate_limiting_applies_to_auth_callback() {
     let pool = redis_or_skip!();
     let idp = unreachable_idp().await;
@@ -235,7 +228,7 @@ async fn rate_limiting_applies_to_auth_callback() {
 /// The second half of the fix: a rejected token now feeds fail2login. Under the
 /// extractor this counter never moved, so `/auth/login` could be hammered with
 /// bad tokens forever without ever earning a ban.
-#[actix_web::test]
+#[tokio::test]
 async fn a_failed_token_on_auth_login_counts_toward_a_ban() {
     let pool = redis_or_skip!();
     let idp = unreachable_idp().await;

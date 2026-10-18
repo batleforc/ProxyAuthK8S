@@ -1,9 +1,10 @@
-use actix_web::{
-    FromRequest,
-    error::{ErrorInternalServerError, ErrorUnauthorized},
-    web,
+use std::sync::{Arc, LazyLock};
+
+use axum::{
+    extract::FromRequestParts,
+    http::{StatusCode, request::Parts},
+    response::{IntoResponse, Response},
 };
-use std::sync::LazyLock;
 
 use common::{
     State,
@@ -127,50 +128,45 @@ pub struct User {
     pub groups: Vec<String>,
 }
 
-impl FromRequest for User {
-    type Error = actix_web::Error;
-    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self, Self::Error>>>>;
+/// The caller, resolved from its bearer token against the service-wide OIDC
+/// client. Every rejection is a `401`; its reason stays in the logs.
+impl FromRequestParts<Arc<State>> for User {
+    type Rejection = Response;
 
-    // https://github.com/batleforc/rust-template/blob/main/src/model/user.rs
-    #[instrument(skip(_payload, req))]
-    fn from_request(
-        req: &actix_web::HttpRequest,
-        _payload: &mut actix_web::dev::Payload,
-    ) -> Self::Future {
-        let req = req.clone();
+    #[instrument(skip_all)]
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<State>,
+    ) -> Result<Self, Self::Rejection> {
         tracing::info!("Start auth middleware");
-        Box::pin(async move {
-            let token = match extract_authorization_header(&req) {
-                Ok(token) => token,
-                Err(e) => {
-                    tracing::warn!("Authorization header extraction failed: {}", e);
-                    return Err(e.into_actix_error());
-                }
-            };
-            let oidc_handler = if let Some(handler) = req.app_data::<web::Data<State>>() {
-                handler.clone()
-            } else {
-                tracing::error!("Error while getting oidc handler");
-                return Err(ErrorInternalServerError("Invalid OIDC handler"));
-            };
-
-            match User::get_user_info_from_oidc_token(
-                token.to_string(),
-                oidc_handler.oidc_client.clone(),
-            )
-            .await
-            {
-                Ok(Some(user)) => Ok(user),
-                Ok(None) => {
-                    tracing::warn!("User info not found in OIDC response");
-                    Err(ErrorUnauthorized("User info not found in OIDC response"))
-                }
-                Err(e) => {
-                    tracing::warn!("Error while getting user info from OIDC token: {}", e);
-                    Err(ErrorUnauthorized("Invalid user info from OIDC token"))
-                }
+        let token = match extract_authorization_header(&parts.headers) {
+            Ok(token) => token,
+            Err(e) => {
+                tracing::warn!("Authorization header extraction failed: {}", e);
+                return Err(e.into_response());
             }
-        })
+        };
+        match User::get_user_info_from_oidc_token(token.to_string(), state.oidc_client.clone())
+            .await
+        {
+            Ok(Some(user)) => Ok(user),
+            Ok(None) => {
+                tracing::warn!("User info not found in OIDC response");
+                Err((
+                    StatusCode::UNAUTHORIZED,
+                    "User info not found in OIDC response",
+                )
+                    .into_response())
+            }
+            Err(e) => {
+                tracing::warn!("Error while getting user info from OIDC token: {}", e);
+                Err((
+                    StatusCode::UNAUTHORIZED,
+                    "Invalid user info from OIDC token",
+                )
+                    .into_response())
+            }
+        }
     }
 }
 

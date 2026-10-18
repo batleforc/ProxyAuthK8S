@@ -17,9 +17,8 @@
 
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::auth::{callback::callback_login, login::cluster_login};
-use api::cluster::redirect;
+use axum::http::StatusCode;
+use harness::test;
 use harness::{
     delete_proxy, mount_full_oidc_provider, mount_token_endpoint, oidc_auth_config, proxy_fixture,
     seed_proxy, sign_id_token, test_state, try_redis_pool, unique_cluster,
@@ -35,15 +34,7 @@ const FRONT_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJwcm94
 
 macro_rules! full_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(cluster_login)
-                    .service(callback_login)
-                    .service(redirect::get_redirect),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -64,7 +55,7 @@ fn query_param(url: &Url, key: &str) -> String {
         .into_owned()
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn a_user_logs_in_through_the_extension_flow_and_reads_a_secret() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;

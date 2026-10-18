@@ -7,9 +7,9 @@
 mod harness;
 mod virtual_api_support;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::redirect;
+use axum::http::StatusCode;
 use crd::virtual_api::VirtualApiKind;
+use harness::test;
 use harness::{
     delete_proxy, proxy_fixture, security_config, seed_proxy, test_state, try_redis_pool,
     unique_cluster, with_virtual_api,
@@ -20,15 +20,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 macro_rules! proxy_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(redirect::get_redirect)
-                    .service(redirect::post_redirect)
-                    .service(redirect::delete_redirect),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -41,7 +33,7 @@ macro_rules! redis_or_skip {
     };
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn a_cluster_without_virtual_apis_proxies_the_path_verbatim() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -71,7 +63,7 @@ async fn a_cluster_without_virtual_apis_proxies_the_path_verbatim() {
 }
 
 /// A virtual path must not become a way around the resource allow-list.
-#[actix_web::test]
+#[tokio::test]
 async fn the_allow_list_also_covers_the_mapped_upstream_path() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -111,7 +103,7 @@ async fn the_allow_list_also_covers_the_mapped_upstream_path() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn an_allow_list_covering_both_paths_lets_the_request_through() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -153,7 +145,7 @@ async fn an_allow_list_covering_both_paths_lets_the_request_through() {
 /// RFC 0006 T5: the verb is checked on the rewritten request too. Every verb
 /// on projects does not open a `DELETE` on the namespace it maps to when
 /// namespaces are read-only.
-#[actix_web::test]
+#[tokio::test]
 async fn the_verb_is_checked_on_the_mapped_request_too() {
     use crd::security::{AllowedPathConfiguration, AllowedPathConfigurationEnum, Verb};
     let pool = redis_or_skip!();

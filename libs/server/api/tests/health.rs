@@ -5,24 +5,19 @@ mod harness;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::base::{health, ready};
+use axum::http::StatusCode;
+use harness::test;
 use harness::{mount_full_oidc_provider, test_state, try_redis_pool, unreachable_state};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 macro_rules! probe_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new()
-                .app_data(web::Data::new($state))
-                .service(web::scope("/management").service(health).service(ready)),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn liveness_ignores_redis() {
     let app = probe_app!(unreachable_state("http://127.0.0.1:1".to_string()));
     let res = test::call_service(
@@ -35,7 +30,7 @@ async fn liveness_ignores_redis() {
     assert_eq!(res.status(), StatusCode::OK);
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn readiness_is_503_when_redis_is_down() {
     let app = probe_app!(unreachable_state("http://127.0.0.1:1".to_string()));
     let res = test::call_service(
@@ -51,7 +46,7 @@ async fn readiness_is_503_when_redis_is_down() {
     assert_eq!(body["oidc"], "ok");
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn readiness_is_200_when_redis_answers() {
     if try_redis_pool().await.is_none() {
         return;
@@ -70,7 +65,7 @@ async fn readiness_is_200_when_redis_answers() {
     assert_eq!(body["oidc"], "ok");
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn readiness_is_503_while_oidc_discovery_is_pending() {
     // Redis up or not, a pod whose boot-time discovery has not succeeded yet
     // must not receive traffic.
@@ -89,7 +84,7 @@ async fn readiness_is_503_while_oidc_discovery_is_pending() {
     assert_eq!(body["oidc"], "pending");
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn liveness_stays_ok_while_oidc_discovery_is_pending() {
     let state = unreachable_state("http://127.0.0.1:1".to_string());
     state.oidc_ready.store(false, Ordering::Release);

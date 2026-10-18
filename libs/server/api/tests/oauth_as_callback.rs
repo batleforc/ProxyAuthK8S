@@ -11,8 +11,8 @@
 
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::auth::oauth::{authorize, callback};
+use axum::http::StatusCode;
+use harness::test;
 use harness::{
     delete_proxy, mount_full_oidc_provider, mount_token_endpoint, oidc_auth_config,
     oidc_auth_config_with_well_known, proxy_fixture, seed_proxy, sign_id_token, test_state,
@@ -25,14 +25,7 @@ const EXTERNAL_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
 macro_rules! callback_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(authorize::authorize)
-                    .service(callback::callback),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -45,7 +38,7 @@ macro_rules! redis_or_skip {
     };
 }
 
-fn location(resp: &actix_web::dev::ServiceResponse) -> Url {
+fn location(resp: &axum::response::Response) -> Url {
     let raw = resp
         .headers()
         .get("location")
@@ -73,7 +66,7 @@ macro_rules! authorize_query {
     };
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn rejects_an_unknown_state() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
@@ -96,7 +89,7 @@ async fn rejects_an_unknown_state() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn returns_404_when_discovery_is_not_enabled() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
@@ -117,7 +110,7 @@ async fn returns_404_when_discovery_is_not_enabled() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn redirects_with_access_denied_when_the_upstream_token_exchange_fails() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -160,7 +153,7 @@ async fn redirects_with_access_denied_when_the_upstream_token_exchange_fails() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn redirects_with_a_server_error_when_the_id_token_is_missing() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -210,7 +203,7 @@ async fn redirects_with_a_server_error_when_the_id_token_is_missing() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn redirects_with_a_server_error_when_the_id_token_nonce_is_wrong() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -252,7 +245,7 @@ async fn redirects_with_a_server_error_when_the_id_token_nonce_is_wrong() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn state_is_single_use_and_cannot_be_replayed() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;

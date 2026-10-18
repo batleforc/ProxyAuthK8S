@@ -26,7 +26,18 @@ use deadpool_redis::{
     redis::{AsyncTypedCommands, RedisResult},
 };
 
+pub mod test;
+
 pub const REDIS_PREFIX: &str = crd::REDIS_PREFIX;
+
+/// Every route of the server, on `state`: what the tests call. A known path
+/// with another method answers 404, as under actix.
+pub fn app(state: State) -> axum::Router {
+    api::app_router()
+        .0
+        .method_not_allowed_fallback(|| async { axum::http::StatusCode::NOT_FOUND })
+        .with_state(std::sync::Arc::new(state))
+}
 
 static CLUSTER_COUNTER: AtomicUsize = AtomicUsize::new(0);
 

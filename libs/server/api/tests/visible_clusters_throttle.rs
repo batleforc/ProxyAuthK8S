@@ -14,9 +14,9 @@
 
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::visible_clusters::get_all_visible_cluster::get_all_visible_cluster;
+use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncTypedCommands;
+use harness::test;
 use harness::{test_state, try_redis_pool};
 use tokio::sync::{Mutex, MutexGuard};
 use wiremock::MockServer;
@@ -80,12 +80,7 @@ impl Drop for EnvGuard {
 
 macro_rules! clusters_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new()
-                .app_data(web::Data::new($state))
-                .service(web::scope("/api/v1").service(get_all_visible_cluster)),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -123,7 +118,7 @@ fn request_from(subject: &str) -> test::TestRequest {
 
 /// The default must not change behaviour for anyone: with nothing configured an
 /// anonymous caller still gets 401, never 429.
-#[actix_web::test]
+#[tokio::test]
 async fn nothing_is_throttled_by_default() {
     const SUBJECT: &str = "10.0.0.1";
     let pool = redis_or_skip!();
@@ -146,7 +141,7 @@ async fn nothing_is_throttled_by_default() {
 
 /// Once configured, repeated failures earn a ban — which is what stops an
 /// anonymous caller driving `/userinfo` at the provider indefinitely.
-#[actix_web::test]
+#[tokio::test]
 async fn repeated_auth_failures_earn_a_ban_once_configured() {
     const SUBJECT: &str = "10.0.0.2";
     let pool = redis_or_skip!();
@@ -185,7 +180,7 @@ async fn repeated_auth_failures_earn_a_ban_once_configured() {
     clear(&pool, SUBJECT).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn the_rate_limit_applies_once_configured() {
     const SUBJECT: &str = "10.0.0.3";
     let pool = redis_or_skip!();
@@ -214,7 +209,7 @@ async fn the_rate_limit_applies_once_configured() {
 /// The ban must be checked before the token, so a banned caller costs no
 /// outbound call at all. The IdP mock has no routes: reaching it would surface
 /// as a 401 from a failed lookup, not a 429.
-#[actix_web::test]
+#[tokio::test]
 async fn a_banned_caller_is_refused_before_the_provider_is_contacted() {
     const SUBJECT: &str = "10.0.0.4";
     let pool = redis_or_skip!();

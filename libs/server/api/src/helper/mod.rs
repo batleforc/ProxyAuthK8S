@@ -1,7 +1,14 @@
-//! Request-handling helpers: the [`AuthError`] type and the extractors that
-//! pull the bearer token and the namespace/cluster pair out of a request.
+//! Request-handling helpers: the [`AuthError`] type, the `ns`/`cluster` path
+//! parameters, and the readers of the bearer token and the peer address.
 
-use actix_web::{HttpRequest, HttpResponse, http::header::ContentType};
+use std::net::{IpAddr, SocketAddr};
+
+use axum::{
+    extract::ConnectInfo,
+    http::{HeaderMap, StatusCode, header, request::Parts},
+    response::{IntoResponse, Response},
+};
+use serde::Deserialize;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -14,51 +21,29 @@ pub enum AuthError {
     NoToken,
 }
 
-impl AuthError {
-    #[must_use]
-    pub fn into_http_response(&self) -> HttpResponse {
-        match self {
-            AuthError::InvalidToken => HttpResponse::Unauthorized()
-                .content_type(ContentType::plaintext())
-                .body("Invalid token"),
-            AuthError::NoToken => HttpResponse::Unauthorized()
-                .content_type(ContentType::plaintext())
-                .body("No Authorization header found"),
-            AuthError::InvalidTokenDetail(detail) => HttpResponse::Unauthorized()
-                .content_type(ContentType::plaintext())
-                .body(format!("Invalid token: {detail}")),
-        }
-    }
-
-    #[must_use]
-    pub fn into_actix_error(&self) -> actix_web::Error {
-        match self {
-            AuthError::InvalidToken => actix_web::error::ErrorUnauthorized("Invalid token"),
-            AuthError::NoToken => {
-                actix_web::error::ErrorUnauthorized("No Authorization header found")
-            }
-            AuthError::InvalidTokenDetail(detail) => {
-                actix_web::error::ErrorUnauthorized(format!("Invalid token: {detail}"))
-            }
-        }
+impl IntoResponse for AuthError {
+    /// A plain-text `401` naming what is wrong with the credentials.
+    fn into_response(self) -> Response {
+        (
+            StatusCode::UNAUTHORIZED,
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            self.to_string(),
+        )
+            .into_response()
     }
 }
 
-/// Read the `ns` and `cluster` path parameters shared by every cluster-scoped route.
-///
-/// The routes always declare both, but reading them without unwrapping keeps a
-/// mis-registered route from panicking a worker.
-#[must_use]
-pub fn extract_ns_cluster(req: &HttpRequest) -> Option<(String, String)> {
-    let match_info = req.match_info();
-    match (match_info.get("ns"), match_info.get("cluster")) {
-        (Some(ns), Some(cluster)) => Some((ns.to_string(), cluster.to_string())),
-        _ => None,
-    }
+/// The `ns` and `cluster` path parameters shared by every cluster-scoped
+/// route; the proxy route's `path` is read from the raw URI instead, never
+/// through `Path` (which percent-decodes it).
+#[derive(Debug, Deserialize)]
+pub struct NsCluster {
+    pub ns: String,
+    pub cluster: String,
 }
 
-pub fn extract_authorization_header(req: &HttpRequest) -> Result<&str, AuthError> {
-    let raw = match req.headers().get("Authorization") {
+pub fn extract_authorization_header(headers: &HeaderMap) -> Result<&str, AuthError> {
+    let raw = match headers.get(header::AUTHORIZATION) {
         // A non-ASCII header value is simply "invalid token"; do not echo the
         // raw bytes back to the caller.
         Some(value) => value.to_str().map_err(|_| AuthError::InvalidToken)?,
@@ -75,15 +60,32 @@ pub fn extract_authorization_header(req: &HttpRequest) -> Result<&str, AuthError
     Ok(token)
 }
 
+/// The address of the TCP peer, when the server recorded it (`ConnectInfo`);
+/// `None` in a test that calls the router directly.
+#[must_use]
+pub fn peer_ip(parts: &Parts) -> Option<IpAddr> {
+    parts
+        .extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(addr)| addr.ip())
+}
+
+/// The `x-forwarded-for` header, when it is valid ASCII.
+#[must_use]
+pub fn forwarded_for(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::test::TestRequest;
 
-    fn with_auth(value: &str) -> actix_web::HttpRequest {
-        TestRequest::default()
-            .insert_header(("Authorization", value))
-            .to_http_request()
+    fn with_auth(value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::AUTHORIZATION, value.parse().unwrap());
+        headers
     }
 
     #[test]
@@ -128,10 +130,19 @@ mod tests {
 
     #[test]
     fn a_missing_header_is_no_token() {
-        let req = TestRequest::default().to_http_request();
         assert!(matches!(
-            extract_authorization_header(&req),
+            extract_authorization_header(&HeaderMap::new()),
             Err(AuthError::NoToken)
         ));
+    }
+
+    #[test]
+    fn the_401_names_the_problem() {
+        let response = AuthError::NoToken.into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/plain; charset=utf-8"
+        );
     }
 }

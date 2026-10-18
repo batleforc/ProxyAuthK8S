@@ -11,8 +11,8 @@
 mod harness;
 mod virtual_api_support;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::redirect;
+use axum::http::StatusCode;
+use harness::test;
 use harness::{delete_proxy, test_state, try_redis_pool, unique_cluster};
 use serde_json::{Value, json};
 use virtual_api_support::seed_openshift_proxy;
@@ -21,15 +21,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 macro_rules! proxy_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(redirect::get_redirect)
-                    .service(redirect::post_redirect)
-                    .service(redirect::delete_redirect),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -42,7 +34,7 @@ macro_rules! redis_or_skip {
     };
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn serves_group_discovery_without_touching_the_cluster() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -78,7 +70,7 @@ async fn serves_group_discovery_without_touching_the_cluster() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn serves_version_discovery_without_touching_the_cluster() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -103,7 +95,7 @@ async fn serves_version_discovery_without_touching_the_cluster() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn merges_the_virtual_group_into_the_cluster_group_list() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -142,7 +134,7 @@ async fn merges_the_virtual_group_into_the_cluster_group_list() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn lists_namespaces_as_projects() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -194,7 +186,7 @@ async fn lists_namespaces_as_projects() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn reads_a_single_namespace_as_a_project() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -232,7 +224,7 @@ async fn reads_a_single_namespace_as_a_project() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn a_project_request_creates_a_namespace() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -289,7 +281,7 @@ async fn a_project_request_creates_a_namespace() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn deleting_a_project_deletes_the_namespace() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -324,7 +316,7 @@ async fn deleting_a_project_deletes_the_namespace() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn translates_each_event_of_a_watch_stream() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -374,7 +366,7 @@ async fn translates_each_event_of_a_watch_stream() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn an_upstream_error_reaches_the_client_untranslated() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;

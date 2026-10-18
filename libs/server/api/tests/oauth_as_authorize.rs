@@ -3,8 +3,8 @@
 
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::auth::oauth::authorize;
+use axum::http::StatusCode;
+use harness::test;
 use harness::{
     delete_proxy, mount_oidc_provider, oidc_auth_config, oidc_auth_config_with_well_known,
     proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
@@ -16,12 +16,7 @@ const VALID_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
 macro_rules! authorize_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new()
-                .app_data(web::Data::new($state))
-                .service(web::scope("/clusters").service(authorize::authorize)),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -34,7 +29,7 @@ macro_rules! redis_or_skip {
     };
 }
 
-fn location(resp: &actix_web::dev::ServiceResponse) -> Url {
+fn location(resp: &axum::response::Response) -> Url {
     let raw = resp
         .headers()
         .get("location")
@@ -44,7 +39,7 @@ fn location(resp: &actix_web::dev::ServiceResponse) -> Url {
     Url::parse(raw).expect("Location must be a valid URL")
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn redirects_to_the_upstream_provider_and_stores_pending_state() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -103,7 +98,7 @@ async fn redirects_to_the_upstream_provider_and_stores_pending_state() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn rejects_a_non_loopback_redirect_uri() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -129,7 +124,7 @@ async fn rejects_a_non_loopback_redirect_uri() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn redirects_with_an_error_for_an_unsupported_response_type() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -165,7 +160,7 @@ async fn redirects_with_an_error_for_an_unsupported_response_type() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn redirects_with_an_error_for_a_malformed_code_challenge() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -197,7 +192,7 @@ async fn redirects_with_an_error_for_a_malformed_code_challenge() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn redirects_with_an_error_for_an_unsupported_code_challenge_method() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -229,7 +224,7 @@ async fn redirects_with_an_error_for_an_unsupported_code_challenge_method() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn returns_404_when_discovery_is_not_enabled() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;

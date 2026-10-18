@@ -8,8 +8,8 @@
 mod harness;
 mod virtual_api_support;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::redirect;
+use axum::http::StatusCode;
+use harness::test;
 use harness::{delete_proxy, test_state, try_redis_pool, unique_cluster};
 use serde_json::{Value, json};
 use virtual_api_support::{FALLBACK_TOKEN, seed_openshift_proxy_with_fallback};
@@ -18,15 +18,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 macro_rules! proxy_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(redirect::get_redirect)
-                    .service(redirect::post_redirect)
-                    .service(redirect::delete_redirect),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -41,7 +33,7 @@ macro_rules! redis_or_skip {
 
 /// A `SelfSubjectRulesReview` with a `resourceNames`-scoped rule resolves
 /// filtering in one call — no per-item `SelfSubjectAccessReview` at all.
-#[actix_web::test]
+#[tokio::test]
 async fn list_fallback_resolves_via_rules_review_without_any_access_review() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -125,7 +117,7 @@ async fn list_fallback_resolves_via_rules_review_without_any_access_review() {
 
 /// A rule with no `resourceNames` at all means every namespace is allowed —
 /// still resolved by the rules review alone.
-#[actix_web::test]
+#[tokio::test]
 async fn list_fallback_resolves_unrestricted_rules_without_any_access_review() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -185,7 +177,7 @@ async fn list_fallback_resolves_unrestricted_rules_without_any_access_review() {
 
 /// `incomplete: true` means nothing is resolved: every candidate still falls
 /// back to a real per-item access review, exactly like an unavailable review.
-#[actix_web::test]
+#[tokio::test]
 async fn list_fallback_falls_back_to_per_item_checks_when_incomplete() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -267,7 +259,7 @@ async fn list_fallback_falls_back_to_per_item_checks_when_incomplete() {
 /// A second request from the same caller within the cache TTL skips both the
 /// rules review and any access review — only the (always-fresh) privileged
 /// namespace list is re-fetched.
-#[actix_web::test]
+#[tokio::test]
 async fn list_fallback_caches_the_resolved_allow_set() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;

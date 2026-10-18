@@ -6,8 +6,8 @@
 
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::redirect;
+use axum::http::StatusCode;
+use harness::test;
 use harness::{
     delete_proxy, mount_oidc_provider, oidc_auth_config, proxy_fixture, security_config,
     seed_proxy, test_state, try_redis_pool, unique_cluster,
@@ -25,14 +25,7 @@ const VALID_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJwcm94
 
 macro_rules! proxy_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(redirect::get_redirect)
-                    .service(redirect::post_redirect),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -46,7 +39,7 @@ macro_rules! redis_or_skip {
 }
 
 /// The proxy answers its own rejections with a Kubernetes `Status` object.
-async fn assert_kubernetes_status(resp: actix_web::dev::ServiceResponse, code: u64) {
+async fn assert_kubernetes_status(resp: axum::response::Response, code: u64) {
     let body: serde_json::Value = test::read_body_json(resp).await;
     assert_eq!(body["kind"], "Status");
     assert_eq!(body["apiVersion"], "v1");
@@ -54,7 +47,7 @@ async fn assert_kubernetes_status(resp: actix_web::dev::ServiceResponse, code: u
     assert_eq!(body["code"], code);
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn allows_a_user_inside_the_proxy_group() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -84,7 +77,7 @@ async fn allows_a_user_inside_the_proxy_group() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn rejects_a_user_outside_the_proxy_group() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -124,7 +117,7 @@ async fn rejects_a_user_outside_the_proxy_group() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn refuses_a_group_restricted_cluster_when_validation_is_disabled() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -146,7 +139,7 @@ async fn refuses_a_group_restricted_cluster_when_validation_is_disabled() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn dashboard_exposure_restricts_the_proxy_too() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -170,7 +163,7 @@ async fn dashboard_exposure_restricts_the_proxy_too() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn rejects_a_path_outside_the_allow_list() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -209,7 +202,7 @@ async fn rejects_a_path_outside_the_allow_list() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn allows_a_path_inside_the_allow_list() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -242,7 +235,7 @@ async fn allows_a_path_inside_the_allow_list() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn the_allow_list_matches_on_the_path_not_the_query_string() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -274,7 +267,7 @@ async fn the_allow_list_matches_on_the_path_not_the_query_string() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn forwards_the_caller_identity_and_appends_to_the_forwarded_chain() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -332,7 +325,7 @@ async fn forwards_the_caller_identity_and_appends_to_the_forwarded_chain() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn drops_client_supplied_identity_headers() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -371,7 +364,7 @@ async fn drops_client_supplied_identity_headers() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn an_empty_allow_list_forwards_everything() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -473,7 +466,7 @@ async fn get_through(
 /// RFC 0003 §6.P points 3 and 4: under a restriction, the `Crd` rules grant no
 /// port on `…:port/proxy`, and a named port is refused, without reaching the
 /// cluster.
-#[actix_web::test]
+#[tokio::test]
 async fn proxy_subresources_are_held_to_the_port_restriction() {
     let Some((statuses, reached)) = get_through(
         port_restricted_config(vec![]),
@@ -497,7 +490,7 @@ async fn proxy_subresources_are_held_to_the_port_restriction() {
 }
 
 /// A rule listing the port grants it on the proxy subresource.
-#[actix_web::test]
+#[tokio::test]
 async fn a_rule_with_the_port_grants_the_proxy_subresource() {
     use crd::security::{AllowedPathConfiguration, AllowedPathConfigurationEnum, PortSpec};
     let mut config = port_restricted_config(vec![]);
@@ -533,7 +526,7 @@ async fn a_rule_with_the_port_grants_the_proxy_subresource() {
 
 /// RFC 0003 §6.P points 5 and 6: `nodes/proxy` is refused under a restriction
 /// unless a `Path` rule names `nodes/*/proxy` explicitly.
-#[actix_web::test]
+#[tokio::test]
 async fn node_proxy_needs_an_explicit_rule_under_a_restriction() {
     const NODE: &str = "/api/v1/nodes/n1/proxy/portForward/dev/web?port=8080";
     let Some((broad, reached)) = get_through(
@@ -566,7 +559,7 @@ async fn node_proxy_needs_an_explicit_rule_under_a_restriction() {
 }
 
 /// RFC 0003 §6.P point 7: without any rule listing ports, nothing changes.
-#[actix_web::test]
+#[tokio::test]
 async fn without_a_restriction_port_paths_pass_as_before() {
     let Some((statuses, reached)) = get_through(
         security_config(vec![
@@ -647,23 +640,11 @@ async fn send_through(
     proxy.spec.security_config = Some(config);
     seed_proxy(&pool, &proxy).await;
 
-    let app = test::init_service(
-        App::new()
-            .app_data(web::Data::new(test_state(upstream.uri())))
-            .service(
-                web::scope("/clusters")
-                    .service(redirect::get_redirect)
-                    .service(redirect::post_redirect)
-                    .service(redirect::put_redirect)
-                    .service(redirect::patch_redirect)
-                    .service(redirect::delete_redirect),
-            ),
-    )
-    .await;
+    let app = test::init_service(harness::app(test_state(upstream.uri()))).await;
     let mut statuses = Vec::new();
     for (method, path, header) in requests {
         let mut req = test::TestRequest::default()
-            .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
+            .method(axum::http::Method::from_bytes(method.as_bytes()).unwrap())
             .uri(&format!("/clusters/{ns}/{cluster}{path}"));
         if let Some(header) = header {
             req = req.insert_header(*header);
@@ -678,7 +659,7 @@ async fn send_through(
 /// RFC 0006 §6.P points 1 to 4, 6 and 8: reads pass, writes, `kubectl debug`,
 /// `kubectl run`, writes through a rule without verbs and `OPTIONS` are
 /// refused without reaching the cluster.
-#[actix_web::test]
+#[tokio::test]
 async fn verbs_limit_what_a_rule_allows() {
     use StatusCode as S;
     const PODS: &str = "/api/v1/namespaces/dev/pods";
@@ -727,7 +708,7 @@ async fn verbs_limit_what_a_rule_allows() {
 
 /// RFC 0006 §6.P point 9: a method override neither changes the verb nor
 /// reaches the cluster.
-#[actix_web::test]
+#[tokio::test]
 async fn a_method_override_is_ignored_and_dropped() {
     let override_get = Some(("X-HTTP-Method-Override", "GET"));
     let Some((statuses, received)) = send_through(
@@ -755,7 +736,7 @@ async fn a_method_override_is_ignored_and_dropped() {
 
 /// RFC 0006 §6.P point 7 (T8): a verb restriction alone closes `nodes/proxy`,
 /// whose `GET` is the kubelet's exec.
-#[actix_web::test]
+#[tokio::test]
 async fn a_verb_restriction_closes_node_proxy() {
     const NODE: &str = "/api/v1/nodes/n1/proxy/exec/dev/web/app?command=sh";
     let Some((statuses, received)) = send_through(
@@ -771,7 +752,7 @@ async fn a_verb_restriction_closes_node_proxy() {
 }
 
 /// T2: a websocket exec is a `GET`, but `create`: a read-only rule refuses it.
-#[actix_web::test]
+#[tokio::test]
 async fn an_exec_is_create_whatever_the_method() {
     let Some((statuses, received)) = send_through(
         verb_restricted_config(vec![]),

@@ -15,8 +15,8 @@
 
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::auth::{callback::callback_login, login::cluster_login, oauth};
+use axum::http::StatusCode;
+use harness::test;
 use harness::{
     delete_proxy, mount_full_oidc_provider, mount_token_endpoint, oidc_auth_config,
     oidc_auth_config_with_well_known, proxy_fixture, seed_proxy, sign_id_token, test_state,
@@ -35,17 +35,7 @@ const EXTERNAL_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
 macro_rules! login_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(cluster_login)
-                    .service(callback_login)
-                    .service(oauth::authorize::authorize)
-                    .service(oauth::callback::callback)
-                    .service(oauth::token::token),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -66,7 +56,7 @@ fn query_param(url: &Url, key: &str) -> String {
         .into_owned()
 }
 
-fn location(resp: &actix_web::dev::ServiceResponse) -> Url {
+fn location(resp: &axum::response::Response) -> Url {
     let raw = resp
         .headers()
         .get("location")
@@ -76,7 +66,7 @@ fn location(resp: &actix_web::dev::ServiceResponse) -> Url {
     Url::parse(raw).expect("Location must be a valid URL")
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn existing_auth_login_callback_flow_succeeds_with_a_real_signed_id_token() {
     let pool = redis_or_skip!();
     let idp = harness_mock_server().await;
@@ -129,7 +119,7 @@ async fn existing_auth_login_callback_flow_succeeds_with_a_real_signed_id_token(
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn mediated_oauth_flow_succeeds_with_a_real_signed_id_token() {
     let pool = redis_or_skip!();
     let idp = harness_mock_server().await;

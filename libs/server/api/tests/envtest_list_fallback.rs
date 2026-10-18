@@ -16,13 +16,13 @@
 mod envtest_support;
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::redirect;
+use axum::http::StatusCode;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use crd::certificate::CertSource;
 use crd::service::Service;
 use crd::virtual_api::VirtualApiKind;
 use envtest_support::{EnvTest, EnvTestOptions, ExtraToken};
+use harness::test;
 use harness::{
     delete_proxy, proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
 };
@@ -34,15 +34,7 @@ use serde_json::Value;
 
 macro_rules! proxy_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(redirect::get_redirect)
-                    .service(redirect::post_redirect)
-                    .service(redirect::delete_redirect),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
