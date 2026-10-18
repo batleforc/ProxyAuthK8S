@@ -56,7 +56,7 @@ async fn list_fallback_filters_to_what_the_caller_can_get() {
     Mock::given(method("POST"))
         .and(path("/apis/authorization.k8s.io/v1/selfsubjectaccessreviews"))
         .and(body_partial_json(json!({
-            "spec": { "resourceAttributes": { "name": "dev", "verb": "get", "resource": "namespaces" } }
+            "spec": { "resourceAttributes": { "name": "dev", "namespace": "dev", "verb": "get", "resource": "namespaces" } }
         })))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "kind": "SelfSubjectAccessReview",
@@ -68,7 +68,7 @@ async fn list_fallback_filters_to_what_the_caller_can_get() {
     Mock::given(method("POST"))
         .and(path("/apis/authorization.k8s.io/v1/selfsubjectaccessreviews"))
         .and(body_partial_json(json!({
-            "spec": { "resourceAttributes": { "name": "prod", "verb": "get", "resource": "namespaces" } }
+            "spec": { "resourceAttributes": { "name": "prod", "namespace": "prod", "verb": "get", "resource": "namespaces" } }
         })))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "kind": "SelfSubjectAccessReview",

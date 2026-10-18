@@ -33,17 +33,23 @@ pub(super) async fn check_access(
     name: &str,
 ) -> Result<bool, ()> {
     let url = format!("{base_url}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews");
+    let mut attributes = json!({
+        "group": probe.group,
+        "resource": probe.resource,
+        "verb": probe.verb,
+        "name": name,
+    });
+    // The apiserver authorizes `GET /api/v1/namespaces/{name}` with the
+    // namespace attribute set to `{name}`, so a RoleBinding inside it grants
+    // the read. Ask the same question, or a caller who can get their namespace
+    // directly would never see it listed.
+    if probe.group.is_empty() && probe.resource == "namespaces" {
+        attributes["namespace"] = json!(name);
+    }
     let body = json!({
         "kind": "SelfSubjectAccessReview",
         "apiVersion": "authorization.k8s.io/v1",
-        "spec": {
-            "resourceAttributes": {
-                "group": probe.group,
-                "resource": probe.resource,
-                "verb": probe.verb,
-                "name": name,
-            }
-        }
+        "spec": { "resourceAttributes": attributes }
     });
 
     let mut builder = client

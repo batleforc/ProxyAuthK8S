@@ -164,6 +164,11 @@ impl Session {
         run(self.command(&PathBuf::from("kubectl")).args(args)).await
     }
 
+    /// The real `oc` (`mise.toml`), with the same kubeconfig as [`Self::kubectl`].
+    pub async fn oc(&self, args: &[&str]) -> Output {
+        run(self.command(&PathBuf::from("oc")).args(args)).await
+    }
+
     /// `kubectl` stopped after `duration` (a watch never ends by itself): what
     /// it printed until then. `code` is `None` when it had to be killed.
     pub async fn kubectl_for(&self, duration: Duration, args: &[&str]) -> Output {
