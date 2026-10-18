@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Draft                                                                  |
+| Status      | Accepted                                                               |
 | Short       | Trace d'audit                                                          |
 | Settles     | Chaque décision de sécurité du serveur (accès proxifié, refus de politique, authentification, remise de jetons OAuth, bannissement, fin de session) produit un évènement d'audit d'un schéma versionné, que le niveau de log ne peut pas faire taire |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -12,7 +12,7 @@
 | Issue       | — (à créer)                                                            |
 | Depends on  | RFC 0003 et 0006 (évènements de politique livrés) ; la phase 4 attend la RFC 0007 (tunnel hyper) |
 | Blocks      | RFC 0004 (ses évènements `exec_open`/`exec_closed` s'écrivent sur ce schéma) |
-| Touches     | `libs/server/trace/src/lib.rs`, `libs/server/api/src/cluster/redirect/{audit.rs,throttle.rs}`, `…/kube_redirect.rs`, `…/kube_redirect/{upgrade.rs,upgrade/tunnel.rs,upgrade/response.rs}`, `libs/server/api/src/cluster/auth/{login.rs,callback.rs,oauth/*.rs}`, `.docs/content/docs/security.mdx` |
+| Touches     | `libs/server/trace/src/lib.rs`, `libs/server/api/src/{root_span.rs,metrics.rs}`, `libs/server/api/src/cluster/redirect/{audit.rs,throttle.rs}`, `…/kube_redirect.rs`, `…/kube_redirect/{upgrade.rs,upgrade/tunnel.rs}`, `libs/server/api/src/cluster/auth/{login.rs,callback.rs,oauth/*.rs}`, `tests/integration/`, `mise.toml`, `.docs/content/docs/security.mdx` |
 | Risk        | medium                                                                 |
 
 > Document de référence (environ 4 900 mots) : §1 à §4 suffisent pour en
@@ -36,8 +36,8 @@ Cette RFC fait de l'audit un flux à part, en quatre points :
   `request_id`, `trace_id` et l'adresse du client.
 - **Couvrant** chaque décision de sécurité : authentification, jetons,
   bannissements, refus de politique, fin de session.
-- **Lisible côté client** : le refus amont d'un upgrade websocket n'est plus
-  masqué par le repli SPDY de kubectl.
+- **Consignant le refus amont** d'un upgrade websocket, que le repli SPDY de
+  kubectl masque à l'utilisateur ; le `400` SPDY lui dit comment le voir.
 
 ### Before / after
 
@@ -50,7 +50,8 @@ INFO audit: proxied request user=alice groups=dev ns=default cluster=c verb=GET 
 # avec cette RFC (quel que soit RUST_LOG ou LOG_FORMAT)
 {"audit_schema":1,"event":"request","outcome":"allowed","request_id":"…","trace_id":"…","client_ip":"10.0.0.7","user":"alice","groups":["dev"],"ns":"default","cluster":"c","http_method":"GET","k8s_verb":"list","path":"/api/v1/namespaces/dev/pods","status":200,"latency_ms":12}
 {"audit_schema":1,"event":"oauth_token_issued","outcome":"allowed","client_ip":"10.0.0.7","user":"alice","ns":"default","cluster":"c","grant_type":"authorization_code","redirect_uri":"http://127.0.0.1:8000/",…}
-(kubectl exec sur un pod Pending) error: … SPDY is not supported …; the websocket attempt was refused upstream: pod web does not have a host assigned
+{"audit_schema":1,"event":"request","outcome":"denied",…,"path":"/api/v1/namespaces/dev/pods/web/exec","status":400,"upstream_reason":"pod web does not have a host assigned"}
+(kubectl exec sur un pod Pending) error: … SPDY is not supported …; if a websocket attempt failed just before, kubectl -v=6 shows the upstream reason
 ```
 
 ```mermaid
@@ -111,12 +112,13 @@ rien, et un filtre global qui jette ce qui est émis.
    pour exec (motivation 3) ; c'est vrai de tout tunnel (port-forward, attach,
    watch).
 6. **Le repli SPDY masque le refus amont.** Constaté le 2026-10-17 avec
-   kubectl 1.37 (RFC 0006 §17) : l'apiserver refuse le websocket d'un
-   `kubectl exec` sur un pod `Pending`, et le proxy relaie ce refus
-   (`refused_upgrade_response`, `upgrade/response.rs:107`). kubectl retente
-   alors en SPDY et n'affiche que le `400` du proxy, « SPDY is not supported »
-   (`upgrade.rs:135`). La vraie raison n'est visible ni par l'utilisateur, ni
-   dans l'audit, qui ne garde que le statut.
+   kubectl 1.37 (RFC 0006 §17), et de nouveau le 2026-10-18 sur le banc de la
+   RFC 0009 (kubectl 1.37.1, serveur axum) : l'apiserver refuse le websocket
+   d'un `kubectl exec` sur un pod `Pending` (« pod pending does not have a
+   host assigned »), et le proxy relaie ce refus (`refused_upgrade_response`,
+   `upgrade.rs:262`). kubectl retente alors en SPDY et n'affiche que le `400`
+   du proxy, « SPDY is not supported » (`upgrade.rs:145`) ; la vraie raison
+   n'apparaît qu'avec `kubectl -v=6`. L'audit, lui, ne garde que le statut.
 
 ---
 
@@ -129,8 +131,8 @@ rien, et un filtre global qui jette ce qui est émis.
 - Un audit qui ne dépend ni de `RUST_LOG` ni de `LOG_FORMAT`.
 - Chaque évènement porte `request_id`, `trace_id`, `client_ip`, `http_method`
   et, quand il est calculable, `k8s_verb`.
-- La raison d'un refus amont d'upgrade est consignée, et rendue au client qui
-  retente en SPDY.
+- La raison d'un refus amont d'upgrade est consignée ; le `400` SPDY dit à
+  l'utilisateur comment la voir.
 - Un évènement `session_closed` pour chaque tunnel. La RFC 0004 y ajoute
   `argv` et ses canaux.
 
@@ -160,21 +162,12 @@ rien, et un filtre global qui jette ce qui est émis.
 
 ### 4.1 Configuration
 
-Aucune option nouvelle obligatoire. Un seul réglage, côté serveur :
-
-```text
-AUDIT_SPDY_HINT=true   # défaut true : rappelle au repli SPDY le refus amont du websocket (§4.2)
-```
+Aucune option nouvelle.
 
 - Les évènements d'audit sortent **toujours** : couche dédiée à filtre fixe
   `audit=info`, toujours au format JSON, quel que soit `LOG_FORMAT`. La
   couche de logs ordinaire exclut la cible `audit`, pour qu'il n'y ait pas de
   doublon.
-- `AUDIT_SPDY_HINT` absent vaut `true`, et c'est sans risque : l'indice ne
-  redonne au client que le corps que le proxy lui a déjà relayé pour **sa
-  propre** tentative websocket (même utilisateur, même adresse, même chemin,
-  §7.1 T5). Le couper (`false`) ne change que le
-  message du `400`, jamais l'audit.
 
 ### 4.2 Behaviour rules
 
@@ -195,7 +188,8 @@ AUDIT_SPDY_HINT=true   # défaut true : rappelle au repli SPDY le refus amont du
 **Champs communs**, présents sur chaque évènement :
 
 - `audit_schema` (`1`), `event`, `outcome` (`allowed`, `denied`, `error`) ;
-- `request_id`, `trace_id` ;
+- `request_id` (l'uuid v4 que `root_span` pose dans `x-request-id` ; jamais un
+  identifiant fourni par le client), `trace_id` (celui du span OTel) ;
 - `client_ip` : l'adresse calculée par `throttle_client_ip`, qui honore
   `TRUSTED_PROXY_COUNT`, comme pour les bans ;
 - `user` (`-` si inconnu), `groups` (tableau), `ns`, `cluster`.
@@ -213,33 +207,26 @@ le `client_secret`, la query string, les corps. Les champs sont une liste
 fermée, construite par `AuditEvent`, jamais un dump de la requête.
 
 **Refus amont d'un upgrade** : quand l'upstream répond autre chose que `101`,
-le message du `Status` renvoyé par l'apiserver est lu (`read_response_body`
-le lit déjà, `response.rs:116`). Il est tronqué à 256 caractères et sert à
-deux choses :
-
-- il est consigné dans `upstream_reason` de l'évènement `request` ;
-- il est gardé 10 s dans un cache local, avec pour clé
-  `(client_ip, user, ns/cluster, path)`.
-
-Si un `Upgrade: SPDY/…` arrive avec la même clé pendant ce délai, le `400`
-« SPDY is not supported » gagne : `; the websocket attempt was refused
-upstream: <upstream_reason>`.
+le corps est déjà lu en entier (`refused_upgrade_response`, limité à 1 Mio).
+Le champ `message` du `Status`, tronqué à 256 caractères, est consigné dans
+`upstream_reason` de l'évènement `request` ; un corps qui n'est pas un
+`Status` donne une raison absente. Le `400` « SPDY is not supported » gagne
+une phrase fixe : `if a websocket attempt failed just before, kubectl -v=6
+shows the upstream reason`. Pas de cache : le message est le même pour tous
+(décision 12).
 
 **Cas sans rien de nouveau** : un serveur sans requête n'émet rien. Un cluster
 sans `security_config` émet `request`, comme aujourd'hui. Un appel au
 dashboard (`/api/v1/clusters`) n'émet rien : il ne fait que lire la liste des
-clusters visibles, déjà filtrée par groupe.
+clusters visibles, déjà filtrée par groupe (décision 8).
 
 ### 4.3 Validation
 
 Rien n'est refusé : il n'y a aucune entrée nouvelle à valider.
-`AUDIT_SPDY_HINT` est un booléen, et une valeur illisible vaut `true` avec un
-avertissement.
 
 | Condition | Behaviour | Surfaced in |
 | --- | --- | --- |
 | `RUST_LOG` exclut la cible `audit` (par exemple `warn`) | l'audit sort quand même | un `warn!` au démarrage : « RUST_LOG no longer filters the audit target » |
-| `AUDIT_SPDY_HINT` illisible | `true` | `warn!` au démarrage, comme les autres replis de `common::config` |
 | `LOG_FORMAT=text` | logs en texte, audit en JSON sur le même stdout | doc (`security.mdx`) : filtrer sur `"audit_schema"` |
 
 ---
@@ -273,16 +260,15 @@ sequenceDiagram
     K->>P: GET …/exec (Upgrade: websocket)
     P->>A: handshake
     A-->>P: 400 Status "pod web does not have a host assigned"
-    P->>P: audit request upstream_reason=…<br/>cache (ip, user, cluster, path) 10 s
+    P->>P: audit request upstream_reason=…
     P-->>K: 400 (relayé)
     K->>P: POST …/exec (Upgrade: SPDY/3.1)
-    P->>P: politiques puis NotWebsocket, cache trouvé
-    P-->>K: 400 "SPDY is not supported…; the websocket attempt was refused upstream: pod web does not have a host assigned"
+    P->>P: politiques puis NotWebsocket
+    P-->>K: 400 "SPDY is not supported…; if a websocket attempt failed just before, kubectl -v=6 shows the upstream reason"
 ```
 
-Le cache ne sert qu'à **ce** message : il ne change aucune décision, et une
-entrée absente (autre réplique, délai dépassé) redonne le message
-d'aujourd'hui.
+L'opérateur trouve la raison dans l'audit ; l'utilisateur sait où la
+chercher. Aucun état ne relie les deux requêtes.
 
 ### 5.3 Invariant
 
@@ -317,13 +303,13 @@ ni un jeton. Et la couche audit a son propre filtre fixe : aucune valeur de
   des appels à `AuditEvent`. `sanitize_audit_field` reste en défense en
   profondeur : plus aucune sortie texte ne reçoit la cible `audit`, et les
   évènements de span OTel sont des attributs structurés.
-- `kube_redirect.rs` : `client_ip` (déjà calculé, `peer_id`, `:98`) et
-  `k8s_verb` (déjà calculé, `request_info`) passent dans `AuditContext`.
-- `upgrade/response.rs` : `refused_upgrade_response` rend aussi le message du
-  `Status` amont ; `upgrade.rs` le consigne et l'insère dans le cache.
-- Nouveau `upgrade/spdy_hint.rs` : cache borné (1 024 entrées, TTL 10 s,
-  éviction de la plus ancienne), clé `(client_ip, user, ns/cluster, path)` ;
-  `UpgradeRefusal::NotWebsocket` l'interroge.
+- `kube_redirect.rs` : `client_ip` (déjà calculé, `peer_id`) et `k8s_verb`
+  (déjà calculé, `request_info`) passent dans `AuditContext`.
+- `root_span.rs` : l'uuid de `x-request-id` est rangé dans les extensions de la
+  requête, où `AuditContext` le lit.
+- `upgrade.rs` : `refused_upgrade_response` rend aussi le `message` du
+  `Status` amont, que `upgrade_redirect` consigne dans `upstream_reason` ;
+  `UpgradeRefusal::NotWebsocket` gagne la phrase fixe.
 - `auth/login.rs`, `auth/callback.rs`, `auth/oauth/{authorize,callback,token}.rs` :
   un `AuditEvent` par issue (accepté, refusé, erreur).
 - `auth/oauth/model.rs` : `IssuedCode` gagne `subject` (et `groups` si le
@@ -344,42 +330,42 @@ ni un jeton. Et la couche audit a son propre filtre fixe : aucune valeur de
 
 ### 6.P Proof against a real client
 
-Clients : `kubectl` 1.37 (le seul installé ; websocket par défaut pour exec et
-port-forward), `curl` 8, le plugin `kubectl-proxyauth` du dépôt pour la
-connexion SSO (`/auth/login`, `/auth/callback`) et kubelogin
-(`kubectl oidc-login`) pour le serveur OAuth intégré, comme le décrit
-`security.mdx` (« OAuth Authorization Server médiée »). Banc : le serveur réel, en TLS, devant un kube-apiserver réel
-(binaires envtest, comme pour la preuve de la RFC 0006, §17) ; la sortie est
-lue avec `jq`. Suite automatique : `libs/server/api/tests/audit_trail.rs`
-(capture de la couche audit) et `http_contract.rs` (RFC 0007).
+Banc de la RFC 0009 (k3d, chart, Dex), `tests/integration/tests/rfc0008.rs`,
+une fonction `pN_sujet` par point, toujours à travers le proxy. Clients : le
+kubectl épinglé du banc (`mise.toml`, 1.35 ; le constat du point 7 tient aussi
+avec 1.37.1), le plugin `kubectl-proxyauth`
+du dépôt, kubelogin (`mise.toml`) pour le serveur OAuth intégré, et `reqwest`
+pour les requêtes forgées. Les lignes d'audit sont lues dans les logs du pod
+serveur (`observe::audit_lines`).
 
 1. Serveur lancé avec `RUST_LOG=warn` : `kubectl get pods` produit **une**
    ligne `{"audit_schema":1,"event":"request","k8s_verb":"list",…}`, et
    aucune ligne `info` ordinaire.
 2. `kubectl get pods -w` : `k8s_verb` vaut `watch`, `http_method` `GET` ;
-   `request_id` et `trace_id` sont présents et non vides.
+   `request_id` est l'en-tête `x-request-id` reçu par le client, et
+   `trace_id` est présent et non vide.
 3. `kubectl proxyauth login` : la sortie contient `auth_login` puis
    `auth_callback` (`outcome: allowed`) pour cet utilisateur. `kubectl
    oidc-login get-token` contre le serveur OAuth intégré : `oauth_authorize`,
    `oauth_callback`, puis `oauth_token_issued`, ces deux derniers avec le même
    `user`.
-   **Refus** : un `grep` du jeton émis (lu dans le cache de kubelogin) sur
+   **Refus** : une recherche du jeton émis (lu dans le cache de kubelogin) sur
    toute la sortie du serveur ne trouve rien.
-4. **Refus** : `curl` sur `/oauth/token` avec un code invalide produit
+4. **Refus** : `/oauth/token` avec un code invalide produit
    `oauth_token_denied` et un `400`.
 5. **Refus** : `fail2login.max_failed_logins: 2`, puis trois requêtes avec un
    jeton faux : une ligne `client_banned` avec `client_ip` et `ban_seconds`,
    puis des `request` en `429`.
-6. **Refus** : `kubectl delete pod web` : une ligne `policy_decision`
-   (`policy: verb`, `decision: denied`, `k8s_verb: delete`) et une ligne
-   `request` en `403`.
-7. `kubectl exec web -- ls` sur un pod `Pending` : kubectl affiche
-   `…SPDY is not supported…; the websocket attempt was refused upstream: …`
-   avec la raison de l'apiserver, et la ligne `request` du `GET` porte
-   `upstream_reason`.
-8. Avec un kubelet (k3d, délégation cgroup `cpuset`, voir RFC 0006 §17) :
-   `kubectl port-forward pod/web 8080` puis Ctrl-C donne `session_closed`
-   avec `close_reason: client` et des octets non nuls.
+6. **Refus** : `kubectl delete pod web` sous une règle en lecture seule : une
+   ligne `policy_decision` (`policy: verb`, `decision: denied`, `k8s_verb:
+   delete`) et une ligne `request` en `403`.
+7. `kubectl exec` sur un pod `Pending` : kubectl affiche `…SPDY is not
+   supported…; if a websocket attempt failed just before, kubectl -v=6 shows
+   the upstream reason`, et la ligne `request` du `GET` porte
+   `upstream_reason` avec la raison de l'apiserver.
+8. `kubectl port-forward pod/web 8080` puis l'arrêt du client donne
+   `session_closed` avec `close_reason: client` et des octets non nuls
+   (phase 4).
 9. Un `kubectl get` avec `Authorization: Bearer <jeton>` : le jeton
    n'apparaît dans aucune ligne, ni d'audit, ni de log.
 
@@ -415,25 +401,25 @@ flowchart LR
 | T2 | Repudiation : jetons remis sans trace | `oauth/callback.rs`, `oauth/token.rs` | `oauth_callback` et `oauth_token_issued` / `_denied` à chaque issue ; le sujet suit le code dans `IssuedCode` | aucun |
 | T3 | Info disclosure : jeton, code ou secret dans l'audit | `AuditEvent` | champs fermés ; aucun en-tête, query ou corps ; test qui cherche le jeton dans toute la sortie | `upstream_reason` reprend un message de l'apiserver (borné à 256 caractères) ; accepté |
 | T4 | Tampering : faux évènement par un champ contrôlé (`user`, `path`, `upstream_reason`) | sortie | JSON : le sérialiseur échappe CR/LF ; la couche texte ordinaire exclut `audit` ; `sanitize_audit_field` gardé en défense en profondeur | aucun |
-| T5 | Info disclosure : l'indice SPDY donne le refus d'un autre utilisateur | `spdy_hint.rs` | clé `(client_ip, user, ns/cluster, path)` ; TTL 10 s. L'indice ne révèle rien de neuf : c'est le corps que le proxy a déjà relayé à ce même client en réponse à sa tentative websocket, que kubectl n'a simplement pas affiché | deux connexions derrière le même NAT avec le **même** `user` : c'est le même utilisateur |
+| T5 | *retirée* : elle visait l'indice SPDY, abandonné (décision 12) | — | — | — |
 | T6 | Spoofing : `client_ip` falsifiée par `X-Forwarded-For` | `throttle_client_ip` | `TRUSTED_PROXY_COUNT` existant, défaut 0 | celui déjà accepté pour les bans (`security.mdx`, risques acceptés) |
-| T7 | DoS : saturation par l'indice SPDY ou par le volume d'audit | cache, stdout | cache borné à 1 024 entrées ; un évènement par décision, pas par octet | un stdout bloqué ralentit les requêtes (§10.2) ; accepté |
+| T7 | DoS : saturation par le volume d'audit | stdout | un évènement par décision, pas par octet | un stdout bloqué bloque les requêtes (décision 7, §10.2) ; accepté |
+| T8 | Spoofing : `request_id` imposé par le client pour brouiller les recoupements | `root_span` | l'uuid est généré par le proxy ; un `x-request-id` entrant est ignoré | aucun |
 
 Tests négatifs : T1 → §6.P point 1 ; T2 → point 3 ; T3 → points 3 et 9 ;
 T4 → `user` contenant `\n{"audit_schema":1}` reste un seul champ JSON ;
-T5 → un autre `user` ne reçoit pas l'indice ; T7 → 2 000 clés distinctes
-laissent le cache à 1 024.
+T8 → une requête avec `x-request-id: forged` est auditée avec l'uuid du
+proxy.
 
 ### 7.2 Authentication and authorisation
 
-Aucune surface nouvelle : pas de route, pas de jeton. Le cache de l'indice ne
-sert qu'à composer un message pour l'appelant qui a provoqué l'entrée.
+Aucune surface nouvelle : pas de route, pas de jeton.
 
 ### 7.3 Input handling and injection
 
 Le seul parseur nouveau lit le message d'un `Status` amont, déjà lu en entier
-(`read_response_body`, borné par sa limite actuelle) : le JSON est décodé, le
-champ `message` tronqué à 256 caractères, et tout échec donne une raison vide.
+(`refused_upgrade_response`, borné à 1 Mio) : le JSON est décodé, le champ
+`message` tronqué à 256 caractères, et tout échec donne une raison absente.
 Pas de fuzz dédié : `serde_json` sur un corps borné.
 
 ### 7.4 Secrets and cryptography
@@ -443,9 +429,7 @@ fermée des champs et prouvée par §6.P points 3 et 9.
 
 ### 7.5 Abuse and resource exhaustion
 
-Un évènement par décision, déjà le cas pour `request`. Le cache de l'indice
-est borné en entrées et en durée : un client qui varie les chemins ne fait
-qu'évincer ses propres entrées.
+Un évènement par décision, déjà le cas pour `request`.
 
 ### 7.6 Existing defences that still hold
 
@@ -458,7 +442,8 @@ le refus de SPDY après les politiques (RFC 0003 R13).
 
 | Dependency / image / tool | Version | Why this one | Licence | Known CVEs (`task audit`) | Maintenance |
 | --- | --- | --- | --- | --- | --- |
-| aucune nouvelle | — | `tracing-subscriber` (feature `json`) et `serde_json` sont déjà dans l'arbre | — | — | — |
+| aucune crate nouvelle | — | `tracing-subscriber` (feature `json`) et `serde_json` sont déjà dans l'arbre | — | — | — |
+| kubelogin (banc seulement, `mise.toml`) | dernière version | client OAuth réel pour §6.P point 3 | Apache-2.0 | aucune connue | int128/kubelogin, publié régulièrement |
 
 - **Build et release** : inchangés.
 - **Updates** : sans objet.
@@ -473,7 +458,7 @@ le refus de SPDY après les politiques (RFC 0003 R13).
 | `user`, `groups` (déjà là) | oui | idem | idem | idem | idem |
 | `redirect_uri` (OAuth, loopback) | non | idem | idem | idem | idem |
 | `subject` dans `IssuedCode` | oui (identifiant) | Redis, avec les jetons | 60 s (`CODE_TTL_SECONDS`) | le serveur | non |
-| `upstream_reason` | peut nommer un pod ou un namespace | stdout ; cache mémoire 10 s | 10 s en mémoire, puis opérateur | opérateurs ; l'appelant lui-même (indice) | selon le collecteur |
+| `upstream_reason` | peut nommer un pod ou un namespace | stdout | politique de l'opérateur | opérateurs | selon le collecteur |
 | `request_id`, `trace_id` | non | idem | idem | idem | vers le collecteur OTel déjà configuré |
 
 - L'adresse est déjà dans les clés de bannissement (Redis) : l'audit la
@@ -500,32 +485,29 @@ le refus de SPDY après les politiques (RFC 0003 R13).
 
 | Failure | Detected by | Behaviour | Recovery |
 | --- | --- | --- | --- |
-| stdout bloqué (collecteur arrêté, pipe plein) | latence des requêtes | **proposé** (question 1) : l'écriture bloque la requête (fermé : pas de décision sans trace) | relancer le collecteur |
-| corps du refus amont illisible | `upstream_reason` vide | message SPDY d'aujourd'hui | aucune |
-| indice absent (autre réplique, plus de 10 s) | — | message SPDY d'aujourd'hui | aucune ; best effort assumé |
+| stdout bloqué (collecteur arrêté, pipe plein) | latence des requêtes | l'écriture bloque la requête (fermé : pas de décision sans trace, décision 7) ; c'est l'écriture synchrone d'aujourd'hui | relancer le collecteur |
+| corps du refus amont illisible | `upstream_reason` absent | le refus est relayé comme aujourd'hui | aucune |
 | `RUST_LOG` excluant `audit` | avertissement au démarrage | audit émis quand même | aucune |
 
 ### 10.3 Performance and capacity
 
 Une sérialisation JSON par décision, contre une ligne texte aujourd'hui. Le
 coût est à mesurer par le banc de débit de la RFC 0007 (§6.P point 9), avec
-un seuil de 5 % de latence ajoutée au p99. Le cache : 1 024 entrées d'au plus
-~600 octets, soit moins de 1 Mio par réplique.
+un seuil de 5 % de latence ajoutée au p99.
 
 ---
 
 ## 11. Other concerns
 
 - **Accessibility** : pas d'UI.
-- **Internationalisation** : le message de l'indice SPDY et l'audit sont en
+- **Internationalisation** : la phrase du `400` SPDY et l'audit sont en
   anglais, comme les autres messages d'API.
 - **Compliance** : traçabilité ISO 27001 A.8.15 (journalisation) et A.5.28
   (preuves) ; NIS2 art. 21 (journalisation des accès). Le schéma versionné
   devient la pièce produite à l'audit.
 - **Licensing** : inchangé.
 - **Documentation** : `security.mdx` (Journal d'audit, risques acceptés),
-  `configuration.mdx` (`AUDIT_SPDY_HINT`), CHANGELOG (alias `verb`, JSON
-  forcé).
+  CHANGELOG (alias `verb`, JSON forcé).
 
 ---
 
@@ -537,7 +519,8 @@ un seuil de 5 % de latence ajoutée au p99. Le cache : 1 024 entrées d'au plus
 | Exporteur OTLP logs (`opentelemetry-appender-tracing`) | une dépendance et un second pipeline pour ce que stdout fait déjà ; les évènements restent des évènements de span. Réévaluable si un opérateur en a besoin |
 | Fichier d'audit dédié avec rotation | état sur disque dans un conteneur sans volume ; la rotation et la rétention reviennent au collecteur |
 | Audit en texte quand `LOG_FORMAT=text` | deux formats à maintenir pour une sortie lue par des machines |
-| Indice SPDY partagé via Redis | une écriture Redis par refus amont pour un message best effort ; derrière un répartiteur sans affinité, le repli peut tomber sur une autre réplique et retrouve alors le message d'aujourd'hui, ce qui est accepté |
+| Indice SPDY : la raison amont gardée 10 s dans un cache local et ajoutée au `400` SPDY (proposition initiale) | un cache par réplique, donc best effort derrière un répartiteur sans affinité, une option de configuration et une menace (ancienne T5) pour un message ; la phrase fixe et l'audit couvrent le besoin (décision 12) |
+| Indice SPDY partagé via Redis | une écriture Redis par refus amont pour un message |
 | Ne pas relayer le refus amont (répondre `101` puis fermer) | contredit l'invariant d'upgrade (seul un `101` amont ouvre un tunnel) |
 | Un champ `verb` réutilisé pour le verbe k8s | casse silencieusement les requêtes des collecteurs ; l'alias puis le retrait en v1.0.0 sont annoncés |
 
@@ -555,8 +538,7 @@ un seuil de 5 % de latence ajoutée au p99. Le cache : 1 024 entrées d'au plus
 - **Operator prerequisites** : aucune.
 - **Rollback** : image précédente ; la couverture et le format reviennent,
   sans état persistant.
-- **Feature flag** : non pour l'audit (§3) ; `AUDIT_SPDY_HINT` pour
-  l'indice seul.
+- **Feature flag** : aucun (§3).
 
 ---
 
@@ -567,15 +549,14 @@ un seuil de 5 % de latence ajoutée au p99. Le cache : 1 024 entrées d'au plus
 - **Unit** (`trace`) : un subscriber avec `RUST_LOG=warn` capture quand même
   un évènement `audit` dans la couche audit, et aucun dans la couche
   ordinaire.
-- **Unit** (`upgrade/spdy_hint.rs`) : TTL, borne de 1 024, clé par
-  utilisateur.
+- **Unit** (`upgrade.rs`) : `message` d'un `Status` extrait et tronqué à
+  256 caractères ; un corps qui n'est pas un `Status` ne donne rien.
 - **Integration** (`tests/audit_trail.rs`, nouveau) : capture de la couche
   audit ; un cas par ligne de §4.2, dont OAuth (`oauth_as_*` existants
   réutilisés) et `client_banned` (`proxy_throttle.rs`).
-- **Integration** (`http_contract.rs`) : le message du `400` SPDY avec
-  l'indice ; sans entrée, inchangé.
+- **Integration** (`proxy_upgrade.rs`) : le `400` SPDY porte la phrase fixe.
 - **Proof** : §6.P.
-- **Security** : un test négatif par ligne T1 à T7 (§7.1).
+- **Security** : un test négatif par ligne T1 à T8 (§7.1, T5 retirée).
 - **Audit** : `task audit` vert, sans dépendance nouvelle.
 - **Existing suites** : toutes. Les tests qui lisent `proxied request` sont
   portés sur `event: request`.
@@ -586,27 +567,29 @@ un seuil de 5 % de latence ajoutée au p99. Le cache : 1 024 entrées d'au plus
 
 ### Resolved
 
-Propositions de l'auteur, pas encore confrontées au `/grill-me` : chacune
-peut y être rouverte.
+Tranchées au `/grill-me` du 2026-10-18. Les décisions 1 à 6 étaient des
+propositions de l'auteur ; la 5 a été renversée (12).
 
 | # | Question | Decision |
 | --- | --- | --- |
 | 1 | Peut-on couper l'audit ? | **Non.** Un audit qu'une configuration éteint ne prouve rien ; le filtrage se fait au collecteur. |
-| 2 | Format | **JSON toujours**, schéma versionné `audit_schema: 1` ; les logs ordinaires gardent `LOG_FORMAT`. |
-| 3 | Sortie | **stdout**, en plus des évènements de span OTel existants ; pas d'exporteur OTLP logs pour l'instant (§12). |
-| 4 | `client_ip` | **Ajoutée**, calculée comme pour les bans (`TRUSTED_PROXY_COUNT`). |
-| 5 | Repli SPDY qui masque le refus amont | **Indice best effort** dans le `400`, cache local 10 s par `(ip, user, cluster, path)`, désactivable (`AUDIT_SPDY_HINT`). |
-| 6 | Session close pour tous les tunnels ou seulement exec | **Tous** ; la RFC 0004 ajoute ses champs propres à exec. |
+| 2 | Format | **JSON toujours**, schéma versionné `audit_schema: 1`, même avec `LOG_FORMAT=text` ; le collecteur le reconnaît à `"audit_schema"`. |
+| 3 | Sortie | **stdout**, en plus des évènements de span OTel existants ; pas de fichier ni d'exporteur OTLP logs (§12). |
+| 4 | `client_ip` | **Ajoutée**, calculée comme pour les bans (`TRUSTED_PROXY_COUNT`) ; ni user-agent ni query. |
+| 5 | Repli SPDY qui masque le refus amont | **Remplacée par la décision 12.** |
+| 6 | Session close pour tous les tunnels ou seulement exec | **Tous**, en phase 4 (étape 12c du PLAN) ; la RFC 0004 ajoute ses champs propres à exec. |
+| 7 | Échec d'écriture sur stdout | **Bloquer la requête.** C'est l'écriture synchrone d'aujourd'hui (`trace/src/lib.rs`, `std::io::stdout`) : rien à coder, aucune dépendance ; un proxy d'accès sans trace est le cas que la RFC ferme. Coût mesuré au banc de débit de la RFC 0007. |
+| 8 | Le dashboard (`/api/v1/clusters`) audite-t-il ? | **Non** : lecture seule d'une liste déjà filtrée par groupe ; revu si le dashboard gagne des écritures. |
+| 9 | Schéma et compatibilité | **`event: request`, `status`, `verb` alias de `http_method` jusqu'en v1.0.0**, annoncé en `feat!:` dans la 0.2.0. |
+| 10 | Origine de `request_id` | **L'uuid du proxy** (`x-request-id` de `root_span`), jamais un identifiant fourni par le client (T8) ; `trace_id` vient du span OTel. |
+| 11 | Où se fait la preuve | **Sur le banc de la RFC 0009** (`rfc0008.rs`), avec le kubectl du banc, kubelogin (`mise.toml`) et `observe::audit_lines`, plutôt que les binaires envtest du premier jet. |
+| 12 | Indice SPDY | **Pas d'indice ni de cache** : `upstream_reason` dans l'audit (13) et une phrase fixe dans le `400` SPDY qui renvoie à `kubectl -v=6`. Le banc a confirmé le 2026-10-18 que kubectl 1.37.1 masque bien la raison ; un indice par réplique ne marcherait qu'une fois sur N. |
+| 13 | `upstream_reason` | **Toujours consigné** sur `request` : `message` du `Status` amont, 256 caractères au plus. |
+| 14 | Métrique | **`proxyauth_audit_events_total{event, outcome}`**, labels bornés ; pas d'alerte livrée, un exemple dans la doc. |
 
 ### Still open
 
-1. **Échec d'écriture sur stdout** : bloquer la requête (fermé, proposé) ou
-   abandonner la ligne et compter `proxyauth_audit_dropped_total` (ouvert) ?
-   Recommandation : bloquer, puisqu'un proxy d'accès sans trace est le cas que
-   la RFC ferme ; à trancher au grill avec le banc de débit de la RFC 0007.
-2. **Le dashboard (`/api/v1/clusters`) doit-il auditer ?** Il ne lit que des
-   métadonnées déjà filtrées par groupe. Recommandation : non, revu si le
-   dashboard gagne des écritures.
+Aucune.
 
 ---
 
@@ -616,9 +599,10 @@ peut y être rouverte.
 | --- | --- |
 | 1 | `AuditEvent` et schéma v1 ; couche audit dédiée insensible à `RUST_LOG` (contrôle de T1, livré avec le format) ; `request_id`, `trace_id`, `client_ip`, `http_method`/`k8s_verb` ; alias `verb` ; docs et CHANGELOG `feat!:` |
 | 2 | Évènements d'authentification et OAuth (`auth_*`, `oauth_*`), `client_banned` (contrôles de T2 et T3) |
-| 3 | `upstream_reason` et indice SPDY (`spdy_hint.rs`, contrôle de T5) |
+| 3 | `upstream_reason` et la phrase fixe du `400` SPDY (décisions 12 et 13) |
 | 4 | `session_closed` sur le tunnel hyper de la RFC 0007 ; la RFC 0004 s'y appuie |
 
 Les phases 1 à 3 sont indépendantes du framework HTTP : elles touchent
 l'émission, pas le transport, et peuvent sortir avant la RFC 0007. La phase 4
 attend son tunnel, pour ne pas écrire deux fois le comptage d'octets.
+

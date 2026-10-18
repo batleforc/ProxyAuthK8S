@@ -14,7 +14,7 @@ RFC passe au `/grill-me` avant d'être `In review`.
 | [0005](0005-adopt-weebo-operator-kit.md) | Adopter weebo-operator-kit (doc, tâches) | à créer | In review | medium |
 | [0006](0006-verb-aware-rules.md) | Règles sensibles au verbe Kubernetes | à créer | In review | high |
 | [0007](0007-migrate-actix-to-axum.md) | Migrer le serveur HTTP d'actix-web vers axum (hyper 1) | à créer | In review | high |
-| [0008](0008-audit-trail.md) | Trace d'audit : couverture, schéma et sortie garantie | à créer | Draft | medium |
+| [0008](0008-audit-trail.md) | Trace d'audit : couverture, schéma et sortie garantie | à créer | Accepted | medium |
 | [0009](0009-integration-suite.md) | Banc et suite d'intégration sur un vrai cluster | à créer | In review | medium |
 | [0010](0010-token-exchange.md) | Échange de jeton : une connexion au proxy pour tous les clusters | à créer | Draft | high |
 | [REVIEW](REVIEW-roadmap-readme.md) | Revue de la roadmap et du README (2026-10-17) | — | — | — |
