@@ -14,12 +14,6 @@ yanked = "deny"
 # zvariant/zbus_names via the CLI's keyring store, none with a successor.
 unmaintained = "workspace"
 ignore = [
-    # h2 unbounded empty DATA frames (DoS, low), through actix-http: actix-web
-    # 4.x pins the h2 0.3 line, the fix is 0.4.16 (reqwest already resolves
-    # 0.4.20). Accepted 2026-08-29, first in the retired .cargo/audit.toml.
-    # RETIRE with RFC 0007 (axum, hyper 1 / h2 0.4) or an actix-web release
-    # on h2 0.4.
-    { id = "RUSTSEC-2026-0258", reason = "actix-web pins h2 0.3; fixed by the axum migration (RFC 0007)" },
     # rsa (Marvin Attack), through openidconnect, no fixed release. Only RSA
     # private-key operations are affected; the proxy only verifies IdP-signed
     # ID tokens (public key). See security.mdx, "Risques acceptés / différés".

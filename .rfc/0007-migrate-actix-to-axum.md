@@ -550,3 +550,57 @@ Phase 1 (2026-10-17) :
   voit pas l'identifiant de trace en HTTP.
 - `h2` 0.3 (actix-http) porte RUSTSEC-2026-0258 (DoS, low), sans correctif sur
   cette branche : la migration vers axum (hyper 1, h2 0.4) le retire.
+
+Phases 2 à 6 (2026-10-18), une PR, un commit par phase :
+
+- **Résultat.** Plus aucune crate `actix*` dans `Cargo.lock` ni dans
+  `fuzz/Cargo.lock` ; `h2` 0.3 est parti avec, et l'exception
+  RUSTSEC-2026-0258 de `deny.toml` est retirée. `swagger.json` régénéré est
+  identique **octet pour octet**. `http_contract.rs` passe, à un écart près
+  (ci-dessous). 780 tests du workspace et les 60 de l'envtest passent ; la
+  suite d'intégration de la RFC 0009 (k3d, kubectl 1.37) aussi, avec
+  `tests/integration/tests/rfc0007.rs` pour les points 3 à 8.
+- **Écart impossible à combler** : une URI de plus de 65 534 octets reçoit
+  `414 URI Too Long` de hyper, avant tout service, au lieu du `400` d'actix.
+  Le contrat a été modifié sur cette seule assertion, avec ce renvoi.
+- **Iso tenu exprès**, chacun couvert par le contrat ou un test :
+  - le préflight CORS d'une origine refusée reste un `400` (une couche
+    devant `CorsLayer`, qui aurait répondu `200` sans en-têtes) ;
+  - une méthode non routée sur un chemin connu reste un `404`
+    (`method_not_allowed_fallback`, axum aurait dit `405`) ;
+  - un formulaire illisible reste un `400` et un formulaire de plus de
+    16 Kio un `413` (axum aurait dit `422`) ;
+  - `h2` et `http/1.1` annoncés par ALPN, comme le faisait
+    `listen_rustls_0_23` ; 96 lignes d'en-tête et 128 Kio de tête, comme
+    actix-http ; une requête reçue après que le client a fermé son sens
+    d'envoi est quand même servie (`half_close`) ;
+  - le label `http.route` de la route du proxy garde l'écriture actix
+    (`{path:.*}`), et le span racine les champs de `tracing-actix-web` ;
+  - `x-request-id` reste un UUID généré pour chaque requête.
+- **Écarts assumés** : une réponse texte d'erreur porte maintenant
+  `text/plain; charset=utf-8` (actix n'en mettait pas) ; un en-tête de
+  réponse amont non UTF-8 est relayé au lieu d'être retiré ; une requête
+  `POST …/auth/login` (méthode d'une route statique) est un `404`, alors
+  qu'actix la relayait au cluster comme un chemin quelconque ; les spans
+  n'enregistrent plus la requête entière (`req`), seulement `ns` et
+  `cluster`.
+- **Tunnel.** `connect.rs` construit une `http::Request` (mêmes en-têtes
+  retirés et ajoutés) que `hyper::client::conn::http1` envoie sur la
+  connexion TLS existante ; `response.rs` (486 lignes, le parseur de réponse
+  fait main) est supprimé, et ses 13 tests avec lui. Le refus de corps reste,
+  avec son `400` : il n'est plus le seul rempart (hyper ne relaie aucun
+  corps), mais l'ordre et les réponses ne changent pas.
+- **`Send`.** Deux futures n'étaient pas `Send` : un sérialiseur
+  `form_urlencoded` vivant pendant un `await` (`oidc_conf.rs`), et une
+  closure de `list_fallback` dont la future empruntait son argument (bug
+  connu de rustc, rust-lang/rust#110338) ; les deux sont corrigées à la
+  source, sans `spawn_local`.
+- **Extracteur `User`** : porté en `FromRequestParts`, bien qu'aucune route ne
+  l'utilise (ses tests le couvrent).
+- **Tests.** Un module `harness::test` reprend l'API de `actix_web::test`
+  (`TestRequest`, `call_service`, `read_body`…) sur `tower::ServiceExt::oneshot`
+  et les vraies routes (`harness::app`) : les corps et les assertions des
+  tests portés n'ont pas changé. `proxy_upgrade.rs` démarre le serveur par
+  `serve`, comme en production.
+- **Reste, hors du dépôt** : la mesure de débit du point 9 et les 7 jours de
+  recette.

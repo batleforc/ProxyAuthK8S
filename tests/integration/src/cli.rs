@@ -16,7 +16,7 @@ use crate::{Bench, Persona};
 
 /// Loopback callback ports the suite's CLI logins use (Dex accepts any port
 /// for the public `kube_login` client; a small range keeps them recognisable).
-const CALLBACK_PORTS: std::ops::Range<u16> = 18_000..18_008;
+const CALLBACK_PORTS: std::ops::Range<u16> = 18_000..18_100;
 
 /// A callback port free right now. nextest runs each test in its own
 /// process, so no counter is shared: start from an offset taken from the

@@ -79,12 +79,12 @@ Statuts :
 | 0006 | 10    | hors suite  | job back-cargo-test (`tests/proxy_security.rs` et voisins, inchangés) |
 | 0007 | 1     | hors suite  | job back-cargo-test (`libs/server/api/tests/http_contract.rs`) |
 | 0007 | 2     | hors suite  | `task gen:swagger-file` puis `git diff --exit-code swagger.json`, dans la PR de la migration |
-| 0007 | 3     | à écrire    | |
-| 0007 | 4     | à écrire    | |
-| 0007 | 5     | à écrire    | |
-| 0007 | 6     | à écrire    | |
-| 0007 | 7     | à écrire    | |
-| 0007 | 8     | à écrire    | |
+| 0007 | 3     | suite       | `rfc0007::p3_kubectl_streams_work_through_the_tunnel` |
+| 0007 | 4     | suite       | `rfc0007::p4_a_port_forward_outside_the_policy_is_refused` |
+| 0007 | 5     | suite       | `rfc0007::p5_an_upgrade_with_a_body_is_refused` |
+| 0007 | 6     | suite       | `rfc0007::p6_a_spdy_upgrade_is_refused` |
+| 0007 | 7     | suite       | `rfc0007::p7_a_foreign_cors_preflight_is_refused` |
+| 0007 | 8     | suite       | `rfc0007::p8_the_http_metrics_keep_their_route_label` |
 | 0007 | 9     | hors suite  | manuel : débit `kubectl exec … cat /dev/zero`, et 7 jours en recette |
 | 0008 | 1     | à écrire    | |
 | 0008 | 2     | à écrire    | |

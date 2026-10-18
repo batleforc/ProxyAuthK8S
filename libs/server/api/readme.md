@@ -1,6 +1,6 @@
 # ProxyAuthK8s Api
 
-HTTP surface of the server (actix-web + utoipa). The full, generated reference is
+HTTP surface of the server (axum + utoipa). The full, generated reference is
 served by the server at `/api/docs` (Scalar) and published in the docs site
 (`.docs/content/docs/api`, regenerated with `task gen:swagger-file && task docs:api`).
 

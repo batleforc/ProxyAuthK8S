@@ -57,6 +57,14 @@ MSG
   fi
 fi
 
+# The kubelet's `logs -f` needs inotify instances; rootless podman shares the
+# host's, and 128 (a common default) runs out with the suite's pods.
+instances=$(cat /proc/sys/fs/inotify/max_user_instances 2>/dev/null || echo 0)
+if [[ "$instances" -lt 512 ]]; then
+  echo "it:up: warning: fs.inotify.max_user_instances is $instances; \`kubectl logs -f\` in the suite needs more:" >&2
+  echo "  sysctl -w fs.inotify.max_user_instances=512   (as root)" >&2
+fi
+
 if ss -Hltn "sport = :$PORT" | grep -q .; then
   echo "it:up: port $PORT is already in use (IT_HTTPS_PORT)" >&2
   exit 1
@@ -122,6 +130,7 @@ done
 k -n kube-system rollout status deployment/traefik --timeout=180s
 
 step "ready"
-curl -fsS -o /dev/null --cacert "$RUN/ca/rootCA.pem" \
+# Traefik programs the routes a moment after the rollouts: retry briefly.
+curl -fsS -o /dev/null --retry 15 --retry-all-errors --retry-delay 2 --cacert "$RUN/ca/rootCA.pem" \
   --resolve "proxyauth.k8s.localhost:$PORT:127.0.0.1" "https://proxyauth.k8s.localhost:$PORT/"
 echo "bench up: https://proxyauth.k8s.localhost:$PORT (admin kubeconfig: $ADMIN)"

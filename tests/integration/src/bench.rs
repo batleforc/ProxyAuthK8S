@@ -64,6 +64,19 @@ impl Bench {
     /// A client that trusts only the run's CA, resolves both bench names to
     /// the published port, and follows no redirect (tests look at them).
     pub fn http(&self) -> reqwest::Client {
+        self.client_builder().build().expect("http client")
+    }
+
+    /// [`Bench::http`] on HTTP/1.1 only: the version an upgrade is spoken in
+    /// (`Upgrade` and `Connection` mean nothing in h2).
+    pub fn http1(&self) -> reqwest::Client {
+        self.client_builder()
+            .http1_only()
+            .build()
+            .expect("http/1.1 client")
+    }
+
+    fn client_builder(&self) -> reqwest::ClientBuilder {
         let ca = std::fs::read(self.ca_path()).expect("run CA");
         let addr = SocketAddr::from(([127, 0, 0, 1], self.port));
         reqwest::Client::builder()
@@ -71,8 +84,6 @@ impl Bench {
             .resolve(HOST, addr)
             .resolve(DEX_HOST, addr)
             .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("http client")
     }
 
     /// A request to `path` of a proxied cluster, as a raw client would send
