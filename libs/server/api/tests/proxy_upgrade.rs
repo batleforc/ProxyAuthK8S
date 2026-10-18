@@ -216,6 +216,7 @@ async fn an_upgrade_header_on_a_plain_path_does_not_open_a_raw_socket() {
 /// The fix must not break real upgrades: after a `101`, bytes flow both ways.
 #[tokio::test]
 async fn an_accepted_upgrade_tunnels_both_ways() {
+    api::cluster::redirect::audit::capture::start();
     let pool = redis_or_skip!();
     let (upstream_url, received) = start_upstream(
         b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
@@ -269,6 +270,30 @@ async fn an_accepted_upgrade_tunnels_both_ways() {
         "got: {upstream_saw}"
     );
     assert!(!upstream_saw.contains("keep-alive"), "got: {upstream_saw}");
+
+    // RFC 0008 phase 4: the session's end is audited, with its bytes and who
+    // left first.
+    let closed = async {
+        loop {
+            if let Some(line) = api::cluster::redirect::audit::capture::lines()
+                .into_iter()
+                .find(|line| {
+                    line["cluster"] == cluster.as_str() && line["event"] == "session_closed"
+                })
+            {
+                return line;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    let closed = tokio::time::timeout(Duration::from_secs(5), closed)
+        .await
+        .expect("a session_closed line");
+    assert_eq!(closed["bytes_in"], 4, "{closed}");
+    assert_eq!(closed["bytes_out"], 4, "{closed}");
+    assert_eq!(closed["close_reason"], "client", "{closed}");
+    assert_eq!(closed["outcome"], "allowed", "{closed}");
+    assert!(closed["duration_ms"].is_u64(), "{closed}");
 
     server.stop(false).await;
     delete_proxy(&pool, &ns, &cluster).await;
@@ -508,6 +533,7 @@ fn ws_binary(payload: &[u8]) -> Vec<u8> {
 /// frame reaches the cluster.
 #[tokio::test]
 async fn a_tunnelled_spdy_port_forward_is_filtered_per_stream() {
+    api::cluster::redirect::audit::capture::start();
     let pool = redis_or_skip!();
     let (upstream_url, received) = start_upstream(
         b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: SPDY/3.1+portforward.k8s.io\r\n\r\n",
@@ -574,6 +600,25 @@ async fn a_tunnelled_spdy_port_forward_is_filtered_per_stream() {
         "the allowed stream should reach the cluster"
     );
     assert!(!contains(&denied), "the denied stream reached the cluster");
+
+    // RFC 0008 phase 4: the filter's refusal is the session's close reason.
+    let closed = async {
+        loop {
+            if let Some(line) = api::cluster::redirect::audit::capture::lines()
+                .into_iter()
+                .find(|line| {
+                    line["cluster"] == cluster.as_str() && line["event"] == "session_closed"
+                })
+            {
+                return line;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    let closed = tokio::time::timeout(Duration::from_secs(5), closed)
+        .await
+        .expect("a session_closed line");
+    assert_eq!(closed["close_reason"], "filter", "{closed}");
 
     server.stop(false).await;
     delete_proxy(&pool, &ns, &cluster).await;

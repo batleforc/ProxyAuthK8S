@@ -701,6 +701,7 @@ plutôt que de passer sans trace.
 | `oauth_callback` | retour de l'IdP vers le serveur OAuth médié |
 | `oauth_token_issued`, `oauth_token_denied` | `/oauth/token` : jetons remis ou refusés |
 | `client_banned` | un client est banni après trop d'échecs (`failures`, `ban_seconds`, `0` : permanent) |
+| `session_closed` | fin d'un tunnel (exec, attach, port-forward, proxy) : `duration_ms`, `bytes_in` (du client), `bytes_out` (vers le client), `close_reason` (`client`, `upstream`, `filter`, `error`) |
 
 Champs communs à chaque ligne :
 

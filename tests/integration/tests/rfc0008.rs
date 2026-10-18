@@ -1,7 +1,6 @@
 //! RFC 0008 §6.P, on the bench: the audit trail as a collector reads it from
 //! the server's stdout. The bench runs the server with `RUST_LOG=warn`
 //! (`.it/values.yaml`): every audit line read here got through that filter.
-//! Point 8 (`session_closed`) is phase 4.
 
 use std::time::Duration;
 
@@ -303,6 +302,43 @@ async fn p7_the_upstream_refusal_reason_is_kept() {
             .is_some_and(|reason| reason.contains("does not have a host assigned")),
         "{refused}"
     );
+}
+
+/// Point 8: the end of a port-forward session is audited: who closed it
+/// (the client, here), how long it ran and the bytes each way.
+#[tokio::test]
+async fn p8_a_session_end_is_audited() {
+    let p = unrestricted("rfc0008-p8").await;
+    let ns = p.ns.name.as_str();
+    let forward = p
+        .reader
+        .port_forward(ns, "pod/web", 8080)
+        .await
+        .expect("port-forward 8080");
+    let answered = reqwest::get(format!("http://127.0.0.1:{}/", forward.local)).await;
+    assert!(answered.is_ok(), "port-forward: {answered:?}");
+    // Stopping kubectl closes the client side of the tunnel.
+    drop(forward);
+
+    let mut closed = None;
+    for _ in 0..20 {
+        closed = events(ns, "session_closed").into_iter().next();
+        if closed.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    let closed = closed.expect("no session_closed line");
+    assert_eq!(closed["close_reason"], "client", "{closed}");
+    assert!(
+        closed["bytes_in"].as_u64().is_some_and(|b| b > 0),
+        "{closed}"
+    );
+    assert!(
+        closed["bytes_out"].as_u64().is_some_and(|b| b > 0),
+        "{closed}"
+    );
+    assert!(closed["duration_ms"].is_u64(), "{closed}");
 }
 
 /// Point 9: the caller's bearer token never reaches the server's output.

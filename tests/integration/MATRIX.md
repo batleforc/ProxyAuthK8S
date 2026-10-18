@@ -93,7 +93,7 @@ Statuts :
 | 0008 | 5     | suite       | `rfc0008::p5_a_ban_is_audited` |
 | 0008 | 6     | suite       | `rfc0008::p6_a_refused_verb_is_audited` |
 | 0008 | 7     | suite       | `rfc0008::p7_the_upstream_refusal_reason_is_kept` |
-| 0008 | 8     | à écrire    | |
+| 0008 | 8     | suite       | `rfc0008::p8_a_session_end_is_audited` |
 | 0008 | 9     | suite       | `rfc0008::p9_the_token_never_reaches_the_output` |
 | 0009 | 1     | suite       | `rfc0009::p1_front_answers_through_the_ingress_with_a_csp` |
 | 0009 | 2     | suite       | `rfc0009::p2_cli_login_reaches_pods_as_the_dex_user` |

@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Accepted                                                               |
+| Status      | Implemented (2026-10-18)                                               |
 | Short       | Trace d'audit                                                          |
 | Settles     | Chaque décision de sécurité du serveur (accès proxifié, refus de politique, authentification, remise de jetons OAuth, bannissement, fin de session) produit un évènement d'audit d'un schéma versionné, que le niveau de log ne peut pas faire taire |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -610,8 +610,8 @@ attend son tunnel, pour ne pas écrire deux fois le comptage d'octets.
 
 ## 17. Revision against the tree (2026-10-18, phases 1 à 3)
 
-Les phases 1 à 3 sont livrées ; la phase 4 (`session_closed`, point 8) reste
-l'étape 12c du PLAN, et le statut reste `Accepted` jusqu'à elle.
+Les phases 1 à 3 sont livrées (étape 12b du PLAN), puis la phase 4 le même jour
+(étape 12c, voir la fin de cette section).
 
 Ce qui diffère du texte, et pourquoi :
 
@@ -662,3 +662,20 @@ Preuves : `rfc0008::p1` à `p7` et `p9` verts sur le banc (kubectl 1.37.1 côté
 poste, 1.35 épinglé en CI) ; `tests/audit_trail.rs` (5 tests) ; T4 et la
 troncature de `upstream_reason` en tests unitaires de `audit.rs` ; T8 dans
 `root_span.rs`. §8 : aucune crate nouvelle, kubelogin non ajouté.
+
+### Phase 4 (2026-10-18)
+
+`session_closed` est écrit à la fin de chaque tunnel (`upgrade/tunnel.rs`),
+filtré ou non. Les deux flux sont enveloppés dans un `Counted` qui compte les
+octets lus et note le premier côté arrivé en fin de flux : `close_reason` vaut
+`filter` si le filtre de port-forward a coupé, `error` sur une erreur
+d'entrée-sortie, sinon `client` ou `upstream` selon le premier qui a fermé.
+`outcome` est `error` dans ce seul cas, `allowed` sinon (le refus du filtre a
+déjà sa ligne `policy_decision`). La tâche du tunnel survit au handler : elle
+reprend le scope de requête et le span, comme §17 l'avait prévu.
+
+Preuves : `rfc0008::p8` sur le banc (port-forward arrêté par le client :
+`close_reason: client`, octets non nuls), `proxy_upgrade.rs` (session tunnelée :
+4 octets dans chaque sens, `client` ; port-forward SPDY refusé : `filter`), et
+les tests unitaires de `tunnel.rs` (comptage et premier côté fermé).
+

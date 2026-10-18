@@ -392,12 +392,12 @@ pub(super) async fn upgrade_redirect(ctx: RedirectContext, port_policy: PortPoli
 
         record_status(&audit, response.status(), None);
         let upstream_upgrade = hyper::upgrade::on(&mut response);
-        let filter = filter.map(|filter| (filter, audit.clone()));
         Ok(tunnel::tunnel(
             client_upgrade,
             upstream_upgrade,
             response.headers(),
             &upgrade_protocol,
+            audit.clone(),
             filter,
         ))
     };

@@ -38,6 +38,7 @@ pub enum Event {
     OauthTokenIssued,
     OauthTokenDenied,
     ClientBanned,
+    SessionClosed,
 }
 
 impl Event {
@@ -53,6 +54,7 @@ impl Event {
             Self::OauthTokenIssued => "oauth_token_issued",
             Self::OauthTokenDenied => "oauth_token_denied",
             Self::ClientBanned => "client_banned",
+            Self::SessionClosed => "session_closed",
         }
     }
 }
@@ -246,6 +248,22 @@ impl AuditEvent {
     pub fn ban(self, failures: u64, ban_seconds: u64) -> Self {
         self.set("failures", json!(failures))
             .set("ban_seconds", json!(ban_seconds))
+    }
+
+    /// The end of a tunnelled session: how long it ran, the bytes each way
+    /// (`in`: from the client), and who closed it (`client`, `upstream`,
+    /// `filter` or `error`).
+    pub fn session(
+        self,
+        duration_ms: u64,
+        bytes_in: u64,
+        bytes_out: u64,
+        close_reason: &'static str,
+    ) -> Self {
+        self.set("duration_ms", json!(duration_ms))
+            .set("bytes_in", json!(bytes_in))
+            .set("bytes_out", json!(bytes_out))
+            .set("close_reason", json!(close_reason))
     }
 
     /// Write the line, count it, and record it on the current span.
@@ -558,6 +576,26 @@ impl AuditContext {
             None => line,
         }
         .emit();
+    }
+
+    /// The `session_closed` line of a tunnel: `error` when it ended on a
+    /// failure, `allowed` otherwise (the filter's refusal has its own
+    /// `policy_decision` line).
+    pub fn emit_session_closed(
+        &self,
+        duration_ms: u64,
+        bytes_in: u64,
+        bytes_out: u64,
+        close_reason: &'static str,
+    ) {
+        let outcome = if close_reason == "error" {
+            Outcome::Error
+        } else {
+            Outcome::Allowed
+        };
+        self.event(Event::SessionClosed, outcome)
+            .session(duration_ms, bytes_in, bytes_out, close_reason)
+            .emit();
     }
 
     /// The `request` line of a request the proxy refused itself (`denied`) or

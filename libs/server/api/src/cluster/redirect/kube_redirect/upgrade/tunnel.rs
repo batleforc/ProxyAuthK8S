@@ -3,6 +3,20 @@
 //! Both handshakes are hyper's: the client's `101` is the response the
 //! handler returns, and both connections are taken over with
 //! `hyper::upgrade::on`, so no byte of either side is parsed here.
+//!
+//! When the session ends, one `session_closed` audit line (RFC 0008 phase 4)
+//! records its duration, the bytes each way and who closed it.
+
+use std::{
+    io,
+    pin::Pin,
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
+    task::{Context, Poll},
+    time::Instant,
+};
 
 use axum::{
     body::Body,
@@ -11,11 +25,11 @@ use axum::{
 };
 use hyper::upgrade::OnUpgrade;
 use hyper_util::rt::TokioIo;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tracing::{error, warn};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tracing::{Instrument as _, error, warn};
 
 use super::super::port_forward::PortForwardFilter;
-use crate::cluster::redirect::audit::{AuditContext, PortDecision};
+use crate::cluster::redirect::audit::{self, AuditContext, PortDecision};
 
 /// Bytes read from the client at a time on a filtered session.
 const FILTER_READ_BUFFER: usize = 8 * 1024;
@@ -49,40 +63,149 @@ pub(super) fn relayed_response(status: StatusCode, upstream: &HeaderMap, body: B
     response
 }
 
+/// One side of a tunnel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Side {
+    Client,
+    Upstream,
+}
+
+/// What a session's two streams counted while it ran.
+#[derive(Default)]
+struct SessionCounters {
+    /// Bytes read from the client, so sent towards the upstream.
+    bytes_in: AtomicU64,
+    /// Bytes read from the upstream, so sent towards the client.
+    bytes_out: AtomicU64,
+    /// The side whose stream ended first.
+    first_eof: OnceLock<Side>,
+}
+
+/// A stream that counts the bytes read from it, and records on the shared
+/// counters whether it ended before the other side.
+struct Counted<T> {
+    inner: T,
+    side: Side,
+    counters: Arc<SessionCounters>,
+}
+
+impl<T> Counted<T> {
+    fn new(inner: T, side: Side, counters: &Arc<SessionCounters>) -> Self {
+        Self {
+            inner,
+            side,
+            counters: Arc::clone(counters),
+        }
+    }
+}
+
+impl<T: AsyncRead + Unpin> AsyncRead for Counted<T> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let before = buf.filled().len();
+        let poll = Pin::new(&mut self.inner).poll_read(cx, buf);
+        if let Poll::Ready(Ok(())) = &poll {
+            let read = (buf.filled().len() - before) as u64;
+            if read == 0 {
+                let _ = self.counters.first_eof.set(self.side);
+            }
+            let total = match self.side {
+                Side::Client => &self.counters.bytes_in,
+                Side::Upstream => &self.counters.bytes_out,
+            };
+            total.fetch_add(read, Ordering::Relaxed);
+        }
+        poll
+    }
+}
+
+impl<T: AsyncWrite + Unpin> AsyncWrite for Counted<T> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// How a session ended, the `close_reason` of its audit line.
+fn close_reason(refused: bool, failed: bool, first_eof: Option<Side>) -> &'static str {
+    match (refused, failed, first_eof) {
+        (true, _, _) => "filter",
+        (_, true, _) => "error",
+        (_, _, Some(Side::Client)) => "client",
+        (_, _, Some(Side::Upstream)) => "upstream",
+        (_, _, None) => "error",
+    }
+}
+
 /// Answer the client with the upstream's `101`, and pipe both directions once
 /// both connections are upgraded.
 ///
 /// `filter`, when set, inspects every client chunk of a restricted
 /// port-forward and ends the session on a port outside the policy; each port
-/// it opens, and the closing, are recorded on the audit context with it.
+/// it opens, and the closing, are recorded on `audit`. The session's end is
+/// recorded there too.
 pub(super) fn tunnel(
     client: OnUpgrade,
     upstream: OnUpgrade,
     upstream_headers: &HeaderMap,
     upgrade_protocol: &str,
-    filter: Option<(PortForwardFilter, AuditContext)>,
+    audit: AuditContext,
+    filter: Option<PortForwardFilter>,
 ) -> Response {
     let Ok(upgrade_protocol) = header::HeaderValue::from_str(upgrade_protocol) else {
         return (StatusCode::BAD_GATEWAY, "bad gateway").into_response();
     };
-    tokio::spawn(async move {
-        let (client, upstream) = match tokio::try_join!(client, upstream) {
-            Ok(both) => both,
+    // The task outlives the handler: it takes the request scope (request id,
+    // client address) and the span along, for its audit lines.
+    let request = audit::current_request().unwrap_or_default();
+    let session = async move {
+        let started = Instant::now();
+        let counters = Arc::new(SessionCounters::default());
+        let (refused, failed) = match tokio::try_join!(client, upstream) {
             Err(err) => {
                 error!(%err, "an upgraded connection could not be taken over");
-                return;
+                (false, true)
             }
-        };
-        let (mut client, mut upstream) = (TokioIo::new(client), TokioIo::new(upstream));
-        match filter {
-            Some(filter) => pipe_filtered(client, upstream, filter).await,
-            None => {
-                if let Err(err) = tokio::io::copy_bidirectional(&mut client, &mut upstream).await {
-                    warn!(%err, "upgraded connection ended with an error");
+            Ok((client, upstream)) => {
+                let client = Counted::new(TokioIo::new(client), Side::Client, &counters);
+                let upstream = Counted::new(TokioIo::new(upstream), Side::Upstream, &counters);
+                match filter {
+                    Some(filter) => (pipe_filtered(client, upstream, filter, &audit).await, false),
+                    None => {
+                        let (mut client, mut upstream) = (client, upstream);
+                        match tokio::io::copy_bidirectional(&mut client, &mut upstream).await {
+                            Ok(_) => (false, false),
+                            Err(err) => {
+                                warn!(%err, "upgraded connection ended with an error");
+                                (false, true)
+                            }
+                        }
+                    }
                 }
             }
-        }
-    });
+        };
+        audit.emit_session_closed(
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+            counters.bytes_in.load(Ordering::Relaxed),
+            counters.bytes_out.load(Ordering::Relaxed),
+            close_reason(refused, failed, counters.first_eof.get().copied()),
+        );
+    };
+    tokio::spawn(audit::scope(request, session).instrument(tracing::Span::current()));
 
     let mut response = relayed_response(
         StatusCode::SWITCHING_PROTOCOLS,
@@ -99,12 +222,14 @@ pub(super) fn tunnel(
 }
 
 /// Copy both directions, the client's through `filter`; a refused chunk is
-/// never forwarded and ends the whole session.
+/// never forwarded and ends the whole session. `true` when it was refused.
 async fn pipe_filtered<C, U>(
     client: C,
     upstream: U,
-    (mut filter, audit): (PortForwardFilter, AuditContext),
-) where
+    mut filter: PortForwardFilter,
+    audit: &AuditContext,
+) -> bool
+where
     C: AsyncRead + AsyncWrite + Unpin,
     U: AsyncRead + AsyncWrite + Unpin,
 {
@@ -154,8 +279,56 @@ async fn pipe_filtered<C, U>(
             if !refused {
                 let _ = upstream_to_client.await;
             }
+            refused
         }
         // The upstream closed: the session is over.
-        _ = &mut upstream_to_client => {}
+        _ = &mut upstream_to_client => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_close_reason_names_who_ended_the_session() {
+        assert_eq!(close_reason(true, false, Some(Side::Client)), "filter");
+        assert_eq!(close_reason(false, true, Some(Side::Client)), "error");
+        assert_eq!(close_reason(false, false, Some(Side::Client)), "client");
+        assert_eq!(close_reason(false, false, Some(Side::Upstream)), "upstream");
+        assert_eq!(close_reason(false, false, None), "error");
+    }
+
+    #[tokio::test]
+    async fn counted_streams_count_each_way_and_the_first_end() {
+        let counters = Arc::new(SessionCounters::default());
+        let (client_side, mut client_peer) = tokio::io::duplex(64);
+        let (upstream_side, mut upstream_peer) = tokio::io::duplex(64);
+        let mut client = Counted::new(client_side, Side::Client, &counters);
+        let mut upstream = Counted::new(upstream_side, Side::Upstream, &counters);
+
+        let peers = async {
+            client_peer.write_all(b"hello").await.unwrap();
+            let mut got = [0u8; 5];
+            upstream_peer.read_exact(&mut got).await.unwrap();
+            upstream_peer.write_all(b"answer!").await.unwrap();
+            let mut back = [0u8; 7];
+            client_peer.read_exact(&mut back).await.unwrap();
+            // The client leaves first.
+            drop(client_peer);
+            upstream_peer
+        };
+        let (copied, _upstream_peer) = tokio::join!(
+            tokio::io::copy_bidirectional(&mut client, &mut upstream),
+            async {
+                let peer = peers.await;
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                drop(peer);
+            }
+        );
+        copied.unwrap();
+        assert_eq!(counters.bytes_in.load(Ordering::Relaxed), 5);
+        assert_eq!(counters.bytes_out.load(Ordering::Relaxed), 7);
+        assert_eq!(counters.first_eof.get(), Some(&Side::Client));
     }
 }
