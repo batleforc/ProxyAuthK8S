@@ -96,8 +96,9 @@ auth_config:
   même issuer et le même client, et créez les `RoleBinding`/`ClusterRoleBinding` pour les
   utilisateurs ou groupes.
 - `expose_oauth_authorization_server: true` publie en plus un serveur OAuth médié
-  (compatible `oc login`) : voir la section *OAuth Authorization Server médiée* de
-  [Sécurité du proxy](/docs/security).
+  (RFC 8414 + PKCE) : voir la section *OAuth Authorization Server médiée* de
+  [Sécurité du proxy](/docs/security). `oc login --web` ne fonctionne pas encore contre lui
+  ([#277](https://github.com/batleforc/ProxyAuthK8S/issues/277)).
 
 ### Jetons Kubernetes (ServiceAccount, kubeadm, cloud…)
 
