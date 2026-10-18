@@ -1,18 +1,25 @@
 //! Tunnelling upgraded connections (exec, attach, port-forward, proxy, watch).
 //!
-//! The handshake is checked here, then [`connect`] opens the raw upstream
-//! socket and writes the hand-serialized request, [`response`] reads the
-//! upstream answer (relaying a refusal), and [`tunnel`] pipes the upgraded
-//! connection both ways.
+//! The handshake is checked here, then [`connect`] opens the upstream
+//! connection and builds the handshake hyper sends on it, and [`tunnel`]
+//! answers the client's `101` and pipes the upgraded connections both ways.
+//! Any other upstream answer is relayed as a refusal.
 
 use super::context::RedirectContext;
 
-use actix_web::{HttpRequest, HttpResponse, http, web};
+use axum::{
+    body::Body,
+    http::{self, HeaderMap, StatusCode, header, request::Parts},
+    response::{IntoResponse, Response},
+};
+use bytes::Bytes;
 use common::State;
 use crd::ProxyKubeApi;
 use crd::security::PortPolicy;
 use crd::security::path_matcher::percent_decode_once;
-use tokio::io::AsyncWriteExt;
+use http_body_util::{BodyExt as _, Empty, Limited};
+use hyper::upgrade::OnUpgrade;
+use hyper_util::rt::TokioIo;
 use tracing::{error, instrument, warn};
 
 use super::port_forward::{self, PortForwardFilter};
@@ -20,11 +27,15 @@ use crate::cluster::redirect::audit::{AuditContext, PortDecision};
 use crate::cluster::redirect::status_response::{bad_request, forbidden};
 
 mod connect;
-mod response;
 mod tunnel;
 
-use connect::{BoxedAsyncIo, connect_upgrade_stream, serialize_upgrade_request};
-use response::{UpstreamHead, read_upgrade_response_headers, refused_upgrade_response};
+use connect::{build_upgrade_request, connect_upgrade_stream};
+use tunnel::relayed_response;
+
+/// Upper bound on a non-upgraded upstream response read on the upgrade path.
+/// Such a response is a refused handshake (an apiserver `Status`, a 4xx from a
+/// proxied pod), buffered so the upstream connection can be dropped right after.
+const MAX_REFUSED_RESPONSE_BYTES: usize = 1024 * 1024;
 
 /// Subresources the apiserver serves over an upgraded connection.
 const STREAMING_SUBRESOURCES: [&str; 4] = ["exec", "attach", "portforward", "proxy"];
@@ -36,14 +47,15 @@ const STREAMING_SUBRESOURCES: [&str; 4] = ["exec", "attach", "portforward", "pro
 /// subresources and watches. Anything else goes through the standard path, where
 /// `reqwest` owns the request framing, so an `Upgrade` header on an arbitrary
 /// request cannot open a raw socket to the cluster.
-pub(super) fn is_upgrade_request(req: &HttpRequest, upstream_path: &str) -> bool {
+pub(super) fn is_upgrade_request(req: &Parts, upstream_path: &str) -> bool {
     let has_upgrade_header = req
-        .headers()
+        .headers
         .get(http::header::UPGRADE)
         .is_some_and(|value| !value.is_empty());
     let connection_has_upgrade_token = req
-        .headers()
+        .headers
         .get_all(http::header::CONNECTION)
+        .iter()
         .filter_map(|v| v.to_str().ok())
         .any(|v| {
             v.split(',').any(|token| {
@@ -55,8 +67,8 @@ pub(super) fn is_upgrade_request(req: &HttpRequest, upstream_path: &str) -> bool
 
     has_upgrade_header
         && connection_has_upgrade_token
-        && matches!(*req.method(), http::Method::GET | http::Method::POST)
-        && is_upgrade_target(upstream_path, req.query_string())
+        && matches!(req.method, http::Method::GET | http::Method::POST)
+        && is_upgrade_target(upstream_path, req.uri.query().unwrap_or_default())
 }
 
 /// Whether the apiserver can upgrade a request to `upstream_path`.
@@ -77,24 +89,20 @@ fn is_upgrade_target(upstream_path: &str, query: &str) -> bool {
 /// Whether the client declares a request body on the upgrade path.
 ///
 /// Upgrade handshakes (websocket / SPDY exec, attach, port-forward, watch) never
-/// carry a request body. The upgrade path hand-serializes the request onto a raw
-/// upstream socket, so a client-supplied `Content-Length`/`Transfer-Encoding`
-/// plus a body would let an attacker control request framing and smuggle a
-/// second request past the proxy's authorization and identity stamping. Refusing
-/// any declared body closes that vector.
-fn upgrade_request_declares_body(req: &HttpRequest) -> bool {
-    if req.headers().contains_key(http::header::TRANSFER_ENCODING) {
+/// carry a request body. hyper sends the handshake without one, but a client
+/// body would still be bytes after the handshake that the client believes
+/// framed: refusing any declared body keeps the anti-smuggling guard of the
+/// hand-serialized path this replaced, and its `400`.
+fn upgrade_request_declares_body(headers: &HeaderMap) -> bool {
+    if headers.contains_key(http::header::TRANSFER_ENCODING) {
         return true;
     }
-    match req
-        .headers()
-        .get(http::header::CONTENT_LENGTH)
-        .map(|value| {
-            value
-                .to_str()
-                .ok()
-                .and_then(|v| v.trim().parse::<u64>().ok())
-        }) {
+    match headers.get(http::header::CONTENT_LENGTH).map(|value| {
+        value
+            .to_str()
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+    }) {
         // No Content-Length header at all.
         None => false,
         // Present and parses to zero.
@@ -118,19 +126,18 @@ enum UpgradeRefusal {
     InvalidUpstreamUrl(String),
     /// TCP connect / TLS handshake to the upstream failed.
     ConnectFailed(String),
-    /// Writing the handshake upstream failed.
-    WriteFailed(std::io::Error),
-    /// Flushing the handshake upstream failed.
-    FlushFailed(std::io::Error),
-    /// The upstream response head could not be read.
-    BadResponseHead(String),
+    /// The HTTP handshake with the upstream failed (sending it, or reading
+    /// the answer).
+    Handshake(String),
+    /// The client connection cannot be upgraded (not HTTP/1.1).
+    NotUpgradable,
     /// The upstream accepted a port-forward protocol the proxy cannot filter.
     UnfilterablePortForward(String),
 }
 
 impl UpgradeRefusal {
     /// Log the refusal, record its audit event and build the client answer.
-    fn respond(self, audit: &AuditContext) -> HttpResponse {
+    fn respond(self, audit: &AuditContext) -> Response {
         match self {
             Self::NotWebsocket => {
                 audit.emit(400);
@@ -146,32 +153,30 @@ impl UpgradeRefusal {
             }
             Self::DeclaresBody => {
                 audit.emit(400);
-                HttpResponse::BadRequest().body("upgrade requests must not carry a body")
+                (
+                    StatusCode::BAD_REQUEST,
+                    "upgrade requests must not carry a body",
+                )
+                    .into_response()
             }
             Self::InvalidUpstreamUrl(err) => {
                 error!(error = %err, "invalid upstream url for upgrade request");
                 audit.emit(502);
-                HttpResponse::BadGateway().body("bad gateway")
+                (StatusCode::BAD_GATEWAY, "bad gateway").into_response()
             }
             Self::ConnectFailed(err) => {
                 error!(error = %err, "could not open the upstream upgrade stream");
                 audit.emit(503);
-                HttpResponse::ServiceUnavailable().body("upstream unavailable")
+                (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response()
             }
-            Self::WriteFailed(err) => {
-                error!(error = %err, "could not write the upgrade request upstream");
-                audit.emit(503);
-                HttpResponse::ServiceUnavailable().body("upstream unavailable")
-            }
-            Self::FlushFailed(err) => {
-                error!(error = %err, "could not flush the upgrade request upstream");
-                audit.emit(503);
-                HttpResponse::ServiceUnavailable().body("upstream unavailable")
-            }
-            Self::BadResponseHead(err) => {
-                error!(error = %err, "could not read the upstream upgrade response headers");
+            Self::Handshake(err) => {
+                error!(error = %err, "the upgrade handshake with the upstream failed");
                 audit.emit(502);
-                HttpResponse::BadGateway().body("bad gateway")
+                (StatusCode::BAD_GATEWAY, "bad gateway").into_response()
+            }
+            Self::NotUpgradable => {
+                audit.emit(400);
+                bad_request("this connection cannot be upgraded; use HTTP/1.1")
             }
             Self::UnfilterablePortForward(reason) => {
                 warn!(%reason, "refusing a port-forward the proxy cannot filter");
@@ -183,8 +188,8 @@ impl UpgradeRefusal {
 }
 
 /// Whether the client asks for a websocket upgrade.
-fn is_websocket_upgrade(req: &HttpRequest) -> bool {
-    req.headers()
+fn is_websocket_upgrade(headers: &HeaderMap) -> bool {
+    headers
         .get(http::header::UPGRADE)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.trim().eq_ignore_ascii_case("websocket"))
@@ -194,7 +199,7 @@ fn is_websocket_upgrade(req: &HttpRequest) -> bool {
 /// request is a port-forward restricted by `port_policy`, and the ports its
 /// query asks for.
 fn check_handshake(
-    req: &HttpRequest,
+    req: &Parts,
     port_policy: &PortPolicy,
 ) -> Result<(bool, Vec<u16>), UpgradeRefusal> {
     // The policies come first: kubectl falls back to SPDY on any failed
@@ -203,67 +208,109 @@ fn check_handshake(
     // The query fixes the ports of the channel protocols, and a SPDY tunnel
     // must not ask for others either.
     let is_restricted_port_forward =
-        port_policy.is_restricted() && port_forward::is_port_forward_path(req.path());
+        port_policy.is_restricted() && port_forward::is_port_forward_path(req.uri.path());
     let query_ports = if is_restricted_port_forward {
-        port_forward::check_query_ports(req.query_string(), port_policy)
+        port_forward::check_query_ports(req.uri.query().unwrap_or_default(), port_policy)
             .map_err(UpgradeRefusal::PortOutsidePolicy)?
     } else {
         Vec::new()
     };
 
-    // Only websocket is tunnelled: actix-http hands the bytes that follow the
-    // handshake to the handler for `Upgrade: websocket` alone, so a SPDY
-    // session would die right after its `101`. Refusing it up front gives the
-    // client a readable error instead.
-    if !is_websocket_upgrade(req) {
+    // Only websocket is tunnelled (RFC 0007, decision 1): SPDY is refused up
+    // front with a readable error, as it was before the move to hyper.
+    if !is_websocket_upgrade(&req.headers) {
         return Err(UpgradeRefusal::NotWebsocket);
     }
 
     // Upgrade handshakes never carry a body; a declared body here is an attempt
-    // to smuggle a second request onto the raw upstream socket.
-    if upgrade_request_declares_body(req) {
+    // to smuggle a second request onto the upstream connection.
+    if upgrade_request_declares_body(&req.headers) {
         return Err(UpgradeRefusal::DeclaresBody);
     }
     Ok((is_restricted_port_forward, query_ports))
 }
 
-/// Connect to the upstream and send it the serialized handshake.
+/// Connect to the upstream and send it the handshake; the upstream's answer,
+/// still to be upgraded or relayed.
 async fn open_upstream(
     proxy: &ProxyKubeApi,
-    data: &web::Data<State>,
+    data: &State,
     upstream_url: &reqwest::Url,
-    request_bytes: &[u8],
-) -> Result<BoxedAsyncIo, UpgradeRefusal> {
-    let mut upstream = connect_upgrade_stream(proxy, data, upstream_url)
+    request: http::Request<Empty<Bytes>>,
+) -> Result<http::Response<hyper::body::Incoming>, UpgradeRefusal> {
+    let stream = connect_upgrade_stream(proxy, data, upstream_url)
         .await
         .map_err(UpgradeRefusal::ConnectFailed)?;
-    upstream
-        .write_all(request_bytes)
+    // One connection per session, no pool: an exec or a port-forward holds
+    // it for hours.
+    let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
         .await
-        .map_err(UpgradeRefusal::WriteFailed)?;
-    upstream
-        .flush()
+        .map_err(|err| UpgradeRefusal::Handshake(err.to_string()))?;
+    tokio::spawn(async move {
+        if let Err(err) = connection.with_upgrades().await {
+            warn!(%err, "upstream upgrade connection ended with an error");
+        }
+    });
+    sender
+        .send_request(request)
         .await
-        .map_err(UpgradeRefusal::FlushFailed)?;
-    Ok(upstream)
+        .map_err(|err| UpgradeRefusal::Handshake(err.to_string()))
+}
+
+/// Relay an upstream answer that is not a `101`, read in full (bounded) so
+/// the upstream connection is dropped with it.
+async fn refused_upgrade_response(response: http::Response<hyper::body::Incoming>) -> Response {
+    let (head, body) = response.into_parts();
+    let body = match Limited::new(body, MAX_REFUSED_RESPONSE_BYTES)
+        .collect()
+        .await
+    {
+        Ok(body) => body.to_bytes(),
+        Err(err) => {
+            error!(error = %err, status = %head.status, "could not read the refused upgrade response");
+            return (
+                StatusCode::BAD_GATEWAY,
+                [(header::CONNECTION, "close")],
+                "bad gateway",
+            )
+                .into_response();
+        }
+    };
+    let mut response = relayed_response(head.status, &head.headers, Body::from(body));
+    // The client is not upgraded either: close its connection, as before.
+    response.headers_mut().insert(
+        header::CONNECTION,
+        header::HeaderValue::from_static("close"),
+    );
+    response
 }
 
 /// A restricted port-forward is only tunnelled over a protocol whose ports are
 /// known: fixed by the (checked) query, or read by the filter.
 fn port_forward_filter(
-    head: &UpstreamHead,
+    headers: &HeaderMap,
     port_policy: &PortPolicy,
 ) -> Result<Option<PortForwardFilter>, UpgradeRefusal> {
+    let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
     port_forward::filter_for_accepted_protocol(
-        head.header("sec-websocket-protocol"),
-        head.header("sec-websocket-extensions"),
+        header("sec-websocket-protocol"),
+        header("sec-websocket-extensions"),
         port_policy,
     )
     .map_err(UpgradeRefusal::UnfilterablePortForward)
 }
 
+/// The protocol the connection switched to, only for a completed
+/// `101 Switching Protocols` that names one.
+fn switched_protocol(response: &http::Response<hyper::body::Incoming>) -> Option<String> {
+    (response.status() == StatusCode::SWITCHING_PROTOCOLS)
+        .then(|| response.headers().get(header::UPGRADE)?.to_str().ok())
+        .flatten()
+        .map(str::to_string)
+}
+
 /// Record the status the client is answered with, on the span and the audit log.
-fn record_status(audit: &AuditContext, status: http::StatusCode) {
+fn record_status(audit: &AuditContext, status: StatusCode) {
     tracing::Span::current().record("http.response.status_code", status.as_u16());
     audit.emit(status.as_u16());
 }
@@ -273,23 +320,19 @@ fn record_status(audit: &AuditContext, status: http::StatusCode) {
 // whatever the subscriber's level); it is recorded only under DEBUG.
 #[instrument(
     skip_all,
-    fields(http.method = %ctx.method, peer_addr = ?ctx.peer_addr, proxy = tracing::field::Empty, url_to_call)
+    fields(http.method = %ctx.method, peer_addr = ?ctx.peer_ip, proxy = tracing::field::Empty, url_to_call)
 )]
-pub(super) async fn upgrade_redirect(
-    ctx: RedirectContext,
-    port_policy: PortPolicy,
-) -> HttpResponse {
+pub(super) async fn upgrade_redirect(ctx: RedirectContext, port_policy: PortPolicy) -> Response {
     let url_to_call = ctx.url_to_call();
     tracing::Span::current().record("url_to_call", ctx.url_without_query().as_str());
     if tracing::enabled!(tracing::Level::DEBUG) {
         tracing::Span::current().record("proxy", tracing::field::debug(&ctx.proxy));
     }
     let RedirectContext {
-        req,
+        mut req,
         data,
-        payload,
         method,
-        peer_addr,
+        peer_ip,
         proxy,
         user,
         audit,
@@ -300,25 +343,28 @@ pub(super) async fn upgrade_redirect(
         let (is_restricted_port_forward, query_ports) = check_handshake(&req, &port_policy)?;
         let upstream_url = reqwest::Url::parse(&url_to_call)
             .map_err(|err| UpgradeRefusal::InvalidUpstreamUrl(err.to_string()))?;
-        let request_bytes =
-            serialize_upgrade_request(&req, &method, &upstream_url, peer_addr, user.as_ref());
-        let mut upstream = open_upstream(&proxy, &data, &upstream_url, &request_bytes).await?;
-        let head = read_upgrade_response_headers(&mut upstream)
-            .await
-            .map_err(UpgradeRefusal::BadResponseHead)?;
+        let request =
+            build_upgrade_request(&req.headers, &method, &upstream_url, peer_ip, user.as_ref())
+                .map_err(UpgradeRefusal::InvalidUpstreamUrl)?;
+        let client_upgrade = req
+            .extensions
+            .remove::<OnUpgrade>()
+            .ok_or(UpgradeRefusal::NotUpgradable)?;
+        let mut response = open_upstream(&proxy, &data, &upstream_url, request).await?;
 
         // Only a completed `101 Switching Protocols` turns the connection into
         // a tunnel. On any other answer the upstream keeps parsing HTTP on that
-        // socket, so piping the client's remaining bytes would let them through
-        // as a second request that skipped authorization, the allow-list and
-        // identity stamping. Answer with the refusal and drop both connections.
-        let Some(upgrade_protocol) = head.switched_protocol() else {
-            record_status(&audit, head.status);
-            return Ok(refused_upgrade_response(&mut upstream, head).await);
+        // connection, so piping the client's remaining bytes would let them
+        // through as a second request that skipped authorization, the
+        // allow-list and identity stamping. Answer with the refusal and drop
+        // both connections.
+        let Some(upgrade_protocol) = switched_protocol(&response) else {
+            record_status(&audit, response.status());
+            return Ok(refused_upgrade_response(response).await);
         };
 
         let filter = if is_restricted_port_forward {
-            port_forward_filter(&head, &port_policy)?
+            port_forward_filter(response.headers(), &port_policy)?
         } else {
             None
         };
@@ -326,9 +372,16 @@ pub(super) async fn upgrade_redirect(
             audit.emit_port_decision(PortDecision::Allowed, Some(port));
         }
 
-        record_status(&audit, head.status);
+        record_status(&audit, response.status());
+        let upstream_upgrade = hyper::upgrade::on(&mut response);
         let filter = filter.map(|filter| (filter, audit.clone()));
-        Ok(tunnel::tunnel(upstream, head, upgrade_protocol, payload, filter).await)
+        Ok(tunnel::tunnel(
+            client_upgrade,
+            upstream_upgrade,
+            response.headers(),
+            &upgrade_protocol,
+            filter,
+        ))
     };
 
     outcome
@@ -336,10 +389,39 @@ pub(super) async fn upgrade_redirect(
         .unwrap_or_else(|refusal: UpgradeRefusal| refusal.respond(&audit))
 }
 
+/// `actix_web::test::TestRequest`'s shape, producing the request head the
+/// upgrade path reads.
+#[cfg(test)]
+pub(super) mod test_request {
+    use axum::http::{Method, Request, request::Parts};
+
+    pub(crate) struct TestRequest(axum::http::request::Builder);
+
+    impl TestRequest {
+        pub(crate) fn get() -> Self {
+            Self(Request::builder().method(Method::GET).uri("/"))
+        }
+
+        pub(crate) fn uri(self, uri: &str) -> Self {
+            Self(self.0.uri(uri))
+        }
+
+        pub(crate) fn insert_header(self, (name, value): (&str, &str)) -> Self {
+            Self(self.0.header(name, value))
+        }
+
+        // actix's name, so the ported tests read as they did.
+        #[allow(clippy::wrong_self_convention)]
+        pub(crate) fn to_http_request(self) -> Parts {
+            self.0.body(()).expect("valid test request").into_parts().0
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::test_request::TestRequest;
     use super::*;
-    use actix_web::test::TestRequest;
 
     const PORT_FORWARD: &str = "/clusters/ns/c/api/v1/namespaces/d/pods/p/portforward";
 
@@ -365,7 +447,8 @@ mod tests {
 
     #[test]
     fn only_a_zero_content_length_is_bodyless() {
-        let declares = |req: TestRequest| upgrade_request_declares_body(&req.to_http_request());
+        let declares =
+            |req: TestRequest| upgrade_request_declares_body(&req.to_http_request().headers);
         assert!(!declares(TestRequest::get()));
         assert!(!declares(
             TestRequest::get().insert_header(("content-length", "0"))
@@ -394,6 +477,7 @@ mod tests {
             &TestRequest::get()
                 .insert_header(("upgrade", " WebSocket "))
                 .to_http_request()
+                .headers
         ));
     }
 
@@ -454,16 +538,14 @@ mod tests {
     #[test]
     fn each_refusal_keeps_its_status() {
         let audit = AuditContext::new("ns", "c", "GET", "/api");
-        let io = || std::io::Error::other("io");
         let cases = [
             (UpgradeRefusal::NotWebsocket, 400),
             (UpgradeRefusal::PortOutsidePolicy("p".into()), 403),
             (UpgradeRefusal::DeclaresBody, 400),
             (UpgradeRefusal::InvalidUpstreamUrl("u".into()), 502),
             (UpgradeRefusal::ConnectFailed("c".into()), 503),
-            (UpgradeRefusal::WriteFailed(io()), 503),
-            (UpgradeRefusal::FlushFailed(io()), 503),
-            (UpgradeRefusal::BadResponseHead("h".into()), 502),
+            (UpgradeRefusal::Handshake("h".into()), 502),
+            (UpgradeRefusal::NotUpgradable, 400),
             (UpgradeRefusal::UnfilterablePortForward("f".into()), 403),
         ];
         for (refusal, status) in cases {
@@ -483,21 +565,22 @@ mod security_contract_tests {
     //! code is required to do, so they can still fail if the merge changes it.
     //!
     //! Scope is the two functions that encode a security contract rather than an
-    //! implementation shape: the request-smuggling guard, and the serializer that
-    //! strips client-supplied identity and stamps the proxy's own.
+    //! implementation shape: the request-smuggling guard, and the handshake
+    //! builder that strips client-supplied identity and stamps the proxy's own.
+    //! The handshake hyper will send is rendered as text, so the assertions
+    //! read as they did on the hand-serialized request it replaced.
 
-    use super::{serialize_upgrade_request, upgrade_request_declares_body};
+    use super::test_request::TestRequest;
+    use super::{build_upgrade_request, upgrade_request_declares_body};
     use crate::model::user::User;
-    use actix_web::dev::PeerAddr;
-    use actix_web::test::TestRequest;
-    use actix_web::{HttpRequest, http};
+    use axum::http::{self, HeaderMap};
 
-    fn request(headers: &[(&str, &str)]) -> HttpRequest {
+    fn request(headers: &[(&str, &str)]) -> HeaderMap {
         let mut req = TestRequest::get().uri("/api/v1/pods");
         for (name, value) in headers {
             req = req.insert_header((*name, *value));
         }
-        req.to_http_request()
+        req.to_http_request().headers
     }
 
     fn user() -> User {
@@ -512,21 +595,24 @@ mod security_contract_tests {
         let req = request(headers);
         let url = reqwest::Url::parse("https://cluster.example.com:6443/api/v1/pods?watch=true")
             .expect("test url should parse");
-        String::from_utf8(serialize_upgrade_request(
+        let built = build_upgrade_request(
             &req,
             &http::Method::GET,
             &url,
-            Some(PeerAddr(
-                "10.1.2.3:5555".parse().expect("addr should parse"),
-            )),
+            Some("10.1.2.3".parse().expect("ip should parse")),
             user,
-        ))
-        .expect("serialized request should be utf-8")
+        )
+        .expect("the handshake builds");
+        let mut wire = format!("{} {} HTTP/1.1\r\n", built.method(), built.uri());
+        for (name, value) in built.headers() {
+            wire.push_str(&format!("{name}: {}\r\n", value.to_str().unwrap()));
+        }
+        wire
     }
 
-    /// The smuggling guard. An upgrade handshake never carries a body, and this
-    /// path hand-serializes onto a raw socket — a client-controlled framing
-    /// header plus a body would let a second request ride past authorization.
+    /// The smuggling guard. An upgrade handshake never carries a body — a
+    /// client-controlled framing header plus a body would let a second request
+    /// ride past authorization.
     #[test]
     fn a_declared_body_is_refused_on_the_upgrade_path() {
         assert!(upgrade_request_declares_body(&request(&[(
@@ -559,7 +645,7 @@ mod security_contract_tests {
         )])));
     }
 
-    /// The framing headers must never reach the raw socket, or the guard above
+    /// The framing headers must never reach the upstream, or the guard above
     /// could be bypassed by anything that sets them later.
     #[test]
     fn framing_headers_are_stripped_from_the_serialized_request() {
@@ -654,7 +740,7 @@ mod security_contract_tests {
             &[("host", "evil.example.com"), ("upgrade", "websocket")],
             Some(&user()),
         );
-        assert!(wire.contains("Host: cluster.example.com:6443"), "{wire}");
+        assert!(wire.contains("host: cluster.example.com:6443"), "{wire}");
         assert!(!wire.contains("evil.example.com"), "{wire}");
     }
 
@@ -689,12 +775,5 @@ mod security_contract_tests {
             wire.contains("x-forwarded-for: 203.0.113.9, 10.1.2.3"),
             "the original client hop must survive: {wire}"
         );
-    }
-
-    /// Headers end with a blank line; without it the upstream waits forever.
-    #[test]
-    fn the_header_block_is_terminated() {
-        let wire = serialize(&[("upgrade", "websocket")], Some(&user()));
-        assert!(wire.ends_with("\r\n\r\n"), "{wire:?}");
     }
 }

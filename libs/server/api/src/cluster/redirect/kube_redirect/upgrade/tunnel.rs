@@ -1,143 +1,161 @@
 //! Piping an upgraded connection between the client and the upstream.
+//!
+//! Both handshakes are hyper's: the client's `101` is the response the
+//! handler returns, and both connections are taken over with
+//! `hyper::upgrade::on`, so no byte of either side is parsed here.
 
-use actix_web::{HttpResponse, web};
-use futures_util::stream::StreamExt;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf},
-    sync::{mpsc, oneshot},
+use axum::{
+    body::Body,
+    http::{HeaderMap, StatusCode, header},
+    response::{IntoResponse, Response},
 };
-use tokio_stream::wrappers::ReceiverStream;
+use hyper::upgrade::OnUpgrade;
+use hyper_util::rt::TokioIo;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::{error, warn};
 
 use super::super::port_forward::PortForwardFilter;
-use super::connect::BoxedAsyncIo;
-use super::response::{UpstreamHead, copy_upstream_headers};
 use crate::cluster::redirect::audit::{AuditContext, PortDecision};
 
-/// In-flight chunks buffered between the upgraded upstream connection and the
-/// client. Bounded to keep exec/attach/port-forward sessions from growing
-/// without limit when one side reads slower than the other.
-const UPGRADE_CHANNEL_CAPACITY: usize = 32;
+/// Bytes read from the client at a time on a filtered session.
+const FILTER_READ_BUFFER: usize = 8 * 1024;
 
-/// Answer the client with the upstream's `101` and pipe both directions.
+/// Whether an upstream response header is not relayed to the client: framing
+/// and connection management belong to each hop.
+fn is_dropped_response_header(header_name: &str) -> bool {
+    [
+        "transfer-encoding",
+        "content-length",
+        "host",
+        "connection",
+        "keep-alive",
+        "upgrade",
+    ]
+    .iter()
+    .any(|dropped| header_name.eq_ignore_ascii_case(dropped))
+}
+
+/// The client response for an upstream answer: its status and relayable
+/// headers, and `body`.
+pub(super) fn relayed_response(status: StatusCode, upstream: &HeaderMap, body: Body) -> Response {
+    let mut response = Response::new(body);
+    *response.status_mut() = status;
+    let headers = response.headers_mut();
+    for (name, value) in upstream {
+        if !is_dropped_response_header(name.as_str()) {
+            headers.append(name, value.clone());
+        }
+    }
+    response
+}
+
+/// Answer the client with the upstream's `101`, and pipe both directions once
+/// both connections are upgraded.
 ///
 /// `filter`, when set, inspects every client chunk of a restricted
 /// port-forward and ends the session on a port outside the policy; each port
 /// it opens, and the closing, are recorded on the audit context with it.
-pub(super) async fn tunnel(
-    upstream: BoxedAsyncIo,
-    head: UpstreamHead,
-    upgrade_protocol: String,
-    payload: web::Payload,
+pub(super) fn tunnel(
+    client: OnUpgrade,
+    upstream: OnUpgrade,
+    upstream_headers: &HeaderMap,
+    upgrade_protocol: &str,
     filter: Option<(PortForwardFilter, AuditContext)>,
-) -> HttpResponse {
-    let UpstreamHead {
-        status,
-        headers,
-        leftover,
-    } = head;
-    let (upstream_reader, upstream_writer) = tokio::io::split(upstream);
-    // Bounded so a slow client back-pressures the upstream reader instead of
-    // letting the upgraded stream accumulate in memory.
-    let (tx, rx) = mpsc::channel::<web::Bytes>(UPGRADE_CHANNEL_CAPACITY);
-
-    if !leftover.is_empty() && tx.send(web::Bytes::from(leftover)).await.is_err() {
-        return HttpResponse::ServiceUnavailable().body("client stream closed");
-    }
-
-    // Fired when the filter closes the session, to stop the upstream reader
-    // too: both halves dropped close the upstream connection, and the client
-    // stream ends with the reader.
-    let (close_tx, close_rx) = oneshot::channel::<()>();
-
-    actix_web::rt::spawn(client_to_upstream(
-        payload,
-        upstream_writer,
-        filter,
-        close_tx,
-    ));
-    actix_web::rt::spawn(upstream_to_client(upstream_reader, tx, close_rx));
-
-    let mut client_resp = HttpResponse::build(status);
-    client_resp.upgrade(upgrade_protocol);
-    copy_upstream_headers(&mut client_resp, headers);
-
-    client_resp.streaming(ReceiverStream::new(rx).map(Ok::<web::Bytes, actix_web::Error>))
-}
-
-/// Copy the client's bytes upstream until either side ends, or the filter
-/// refuses a chunk.
-async fn client_to_upstream(
-    payload: web::Payload,
-    mut upstream_writer: WriteHalf<BoxedAsyncIo>,
-    mut filter: Option<(PortForwardFilter, AuditContext)>,
-    close_tx: oneshot::Sender<()>,
-) {
-    let mut client_payload = payload.into_inner();
-    while let Some(item) = client_payload.next().await {
-        match item {
-            Ok(chunk) => {
-                if let Some((filter, audit)) = filter.as_mut() {
-                    if let Err(reason) = filter.inspect(&chunk) {
-                        warn!(%reason, "closing a port-forward session outside the allowed ports");
-                        // A refused port is a `port_denied` with its port;
-                        // only traffic the filter cannot read is reported as
-                        // `session_closed_by_filter`.
-                        match filter.refused_port() {
-                            Some(port) => {
-                                audit.emit_port_decision(PortDecision::Denied, Some(port))
-                            }
-                            None => audit.emit_port_decision(PortDecision::ClosedByFilter, None),
-                        }
-                        let _ = close_tx.send(());
-                        return;
-                    }
-                    for port in filter.take_opened() {
-                        audit.emit_port_decision(PortDecision::Allowed, Some(port));
-                    }
-                }
-                if upstream_writer.write_all(&chunk).await.is_err() {
-                    break;
-                }
-            }
+) -> Response {
+    let Ok(upgrade_protocol) = header::HeaderValue::from_str(upgrade_protocol) else {
+        return (StatusCode::BAD_GATEWAY, "bad gateway").into_response();
+    };
+    tokio::spawn(async move {
+        let (client, upstream) = match tokio::try_join!(client, upstream) {
+            Ok(both) => both,
             Err(err) => {
-                error!(%err, "error reading upgraded client payload");
-                break;
+                error!(%err, "an upgraded connection could not be taken over");
+                return;
             }
-        }
-    }
-
-    let _ = upstream_writer.shutdown().await;
-}
-
-/// Copy the upstream's bytes to the client stream until either side ends or
-/// the session is closed by the filter.
-async fn upstream_to_client(
-    mut upstream_reader: ReadHalf<BoxedAsyncIo>,
-    tx: mpsc::Sender<web::Bytes>,
-    mut close_rx: oneshot::Receiver<()>,
-) {
-    let mut buffer = [0u8; 8192];
-    loop {
-        let read = tokio::select! {
-            read = upstream_reader.read(&mut buffer) => read,
-            _ = &mut close_rx => break,
         };
-        match read {
-            Ok(0) => break,
-            Ok(read) => {
-                if tx
-                    .send(web::Bytes::copy_from_slice(&buffer[..read]))
-                    .await
-                    .is_err()
-                {
-                    break;
+        let (mut client, mut upstream) = (TokioIo::new(client), TokioIo::new(upstream));
+        match filter {
+            Some(filter) => pipe_filtered(client, upstream, filter).await,
+            None => {
+                if let Err(err) = tokio::io::copy_bidirectional(&mut client, &mut upstream).await {
+                    warn!(%err, "upgraded connection ended with an error");
                 }
             }
-            Err(err) => {
-                error!(%err, "error reading upgraded upstream payload");
+        }
+    });
+
+    let mut response = relayed_response(
+        StatusCode::SWITCHING_PROTOCOLS,
+        upstream_headers,
+        Body::empty(),
+    );
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONNECTION,
+        header::HeaderValue::from_static("upgrade"),
+    );
+    headers.insert(header::UPGRADE, upgrade_protocol);
+    response
+}
+
+/// Copy both directions, the client's through `filter`; a refused chunk is
+/// never forwarded and ends the whole session.
+async fn pipe_filtered<C, U>(
+    client: C,
+    upstream: U,
+    (mut filter, audit): (PortForwardFilter, AuditContext),
+) where
+    C: AsyncRead + AsyncWrite + Unpin,
+    U: AsyncRead + AsyncWrite + Unpin,
+{
+    let (mut client_reader, mut client_writer) = tokio::io::split(client);
+    let (mut upstream_reader, mut upstream_writer) = tokio::io::split(upstream);
+
+    // `true` when the filter refused the session.
+    let client_to_upstream = async {
+        let mut buffer = vec![0u8; FILTER_READ_BUFFER];
+        loop {
+            let read = match client_reader.read(&mut buffer).await {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(err) => {
+                    error!(%err, "error reading the upgraded client connection");
+                    break;
+                }
+            };
+            let chunk = &buffer[..read];
+            if let Err(reason) = filter.inspect(chunk) {
+                warn!(%reason, "closing a port-forward session outside the allowed ports");
+                // A refused port is a `port_denied` with its port; only traffic
+                // the filter cannot read is reported as `session_closed_by_filter`.
+                match filter.refused_port() {
+                    Some(port) => audit.emit_port_decision(PortDecision::Denied, Some(port)),
+                    None => audit.emit_port_decision(PortDecision::ClosedByFilter, None),
+                }
+                return true;
+            }
+            for port in filter.take_opened() {
+                audit.emit_port_decision(PortDecision::Allowed, Some(port));
+            }
+            if upstream_writer.write_all(chunk).await.is_err() {
                 break;
             }
         }
+        let _ = upstream_writer.shutdown().await;
+        false
+    };
+    let upstream_to_client = tokio::io::copy(&mut upstream_reader, &mut client_writer);
+    tokio::pin!(client_to_upstream, upstream_to_client);
+
+    tokio::select! {
+        refused = &mut client_to_upstream => {
+            // The client finished sending: keep relaying the upstream's answer
+            // until it ends. A refusal drops both connections right away.
+            if !refused {
+                let _ = upstream_to_client.await;
+            }
+        }
+        // The upstream closed: the session is over.
+        _ = &mut upstream_to_client => {}
     }
 }

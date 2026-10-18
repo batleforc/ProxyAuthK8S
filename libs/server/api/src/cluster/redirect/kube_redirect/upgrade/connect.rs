@@ -1,10 +1,15 @@
-//! Opening the raw upstream connection of an upgrade and writing its handshake.
+//! Opening the upstream connection of an upgrade, and the handshake request
+//! hyper sends on it (RFC 0007: no hand-written HTTP).
 
 use std::time::Duration;
 
-use actix_web::{HttpRequest, dev::PeerAddr, http, web};
+use std::net::IpAddr;
+
+use axum::http::{self, HeaderMap, HeaderValue, Request};
+use bytes::Bytes;
 use common::State;
 use crd::ProxyKubeApi;
+use http_body_util::Empty;
 use rustls::pki_types::ServerName;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -49,7 +54,7 @@ fn upstream_host_port(upstream_url: &reqwest::Url) -> Result<(&str, u16), String
 /// Connect to the upstream, over TLS unless the URL is plain `http`.
 pub(super) async fn connect_upgrade_stream(
     proxy: &ProxyKubeApi,
-    state: &web::Data<State>,
+    state: &State,
     upstream_url: &reqwest::Url,
 ) -> Result<BoxedAsyncIo, String> {
     let (host, port) = upstream_host_port(upstream_url)?;
@@ -95,8 +100,17 @@ fn is_dropped_request_header(header_name: &http::header::HeaderName) -> bool {
         || is_upstream_auth_header(header_name.as_str())
 }
 
-/// `METHOD path?query HTTP/1.1` plus the `Host` header for `upstream_url`.
-fn request_line_and_host(method: &http::Method, upstream_url: &reqwest::Url) -> Vec<u8> {
+/// The handshake sent upstream, serialized by hyper: the request line of
+/// `upstream_url`, its `Host`, the rebuilt `Connection`/`Upgrade`, the client's
+/// headers minus the dropped ones, the forwarding chain and the proxy's
+/// identity headers. No body: the handshake never carries one.
+pub(super) fn build_upgrade_request(
+    headers: &HeaderMap,
+    method: &http::Method,
+    upstream_url: &reqwest::Url,
+    peer_ip: Option<IpAddr>,
+    user: Option<&User>,
+) -> Result<Request<Empty<Bytes>>, String> {
     let path = match upstream_url.query() {
         Some(query) => format!("{}?{}", upstream_url.path(), query),
         None => upstream_url.path().to_string(),
@@ -105,62 +119,52 @@ fn request_line_and_host(method: &http::Method, upstream_url: &reqwest::Url) -> 
         || upstream_url.host_str().unwrap_or_default().to_string(),
         |port| format!("{}:{}", upstream_url.host_str().unwrap_or_default(), port),
     );
-
-    let mut request_bytes = format!("{} {} HTTP/1.1\r\n", method.as_str(), path).into_bytes();
-    request_bytes.extend_from_slice(format!("Host: {authority}\r\n").as_bytes());
-    request_bytes
-}
-
-/// Hand-serialize the upgrade handshake sent on the raw upstream socket.
-pub(super) fn serialize_upgrade_request(
-    req: &HttpRequest,
-    method: &http::Method,
-    upstream_url: &reqwest::Url,
-    peer_addr: Option<PeerAddr>,
-    user: Option<&User>,
-) -> Vec<u8> {
-    let mut request_bytes = request_line_and_host(method, upstream_url);
-
+    let mut request = Request::builder()
+        .method(method.clone())
+        .uri(path)
+        .body(Empty::new())
+        .map_err(|e| e.to_string())?;
+    let upstream_headers = request.headers_mut();
+    upstream_headers.insert(
+        http::header::HOST,
+        HeaderValue::from_str(&authority).map_err(|e| e.to_string())?,
+    );
     // The connection-management headers are rebuilt rather than copied, so the
     // client cannot steer how the upstream treats the connection.
-    request_bytes.extend_from_slice(b"Connection: Upgrade\r\n");
-    if let Some(upgrade) = req.headers().get(http::header::UPGRADE) {
-        request_bytes.extend_from_slice(b"Upgrade: ");
-        request_bytes.extend_from_slice(upgrade.as_bytes());
-        request_bytes.extend_from_slice(b"\r\n");
+    upstream_headers.insert(
+        http::header::CONNECTION,
+        HeaderValue::from_static("Upgrade"),
+    );
+    if let Some(upgrade) = headers.get(http::header::UPGRADE) {
+        upstream_headers.insert(http::header::UPGRADE, upgrade.clone());
     }
-
-    for (header_name, header_value) in req.headers() {
-        if is_dropped_request_header(header_name) {
-            continue;
+    for (name, value) in headers {
+        if !is_dropped_request_header(name) {
+            upstream_headers.append(name, value.clone());
         }
-        request_bytes.extend_from_slice(header_name.as_str().as_bytes());
-        request_bytes.extend_from_slice(b": ");
-        request_bytes.extend_from_slice(header_value.as_bytes());
-        request_bytes.extend_from_slice(b"\r\n");
     }
 
-    let incoming_forwarded_for = req
-        .headers()
+    let incoming_forwarded_for = headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok());
-    let peer_ip = peer_addr.map(|PeerAddr(addr)| addr.ip());
     if let Some(forwarded_for) = forwarded_for_value(incoming_forwarded_for, peer_ip) {
-        request_bytes.extend_from_slice(format!("x-forwarded-for: {forwarded_for}\r\n").as_bytes());
+        upstream_headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_str(&forwarded_for).map_err(|e| e.to_string())?,
+        );
     }
-
     for (name, value) in identity_headers(user) {
-        request_bytes.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
+        upstream_headers.insert(
+            name,
+            HeaderValue::from_str(&value).map_err(|e| e.to_string())?,
+        );
     }
-
-    request_bytes.extend_from_slice(b"\r\n");
-    request_bytes
+    Ok(request)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::test::TestRequest;
 
     fn url(raw: &str) -> reqwest::Url {
         reqwest::Url::parse(raw).expect("valid test url")
@@ -193,19 +197,28 @@ mod tests {
 
     #[test]
     fn the_request_line_keeps_the_query_and_explicit_port() {
-        let bytes = request_line_and_host(
+        let req = build_upgrade_request(
+            &HeaderMap::new(),
             &http::Method::GET,
             &url("https://api.example:6443/api/v1/pods/p/exec?command=ls"),
-        );
-        assert_eq!(
-            String::from_utf8(bytes).unwrap(),
-            "GET /api/v1/pods/p/exec?command=ls HTTP/1.1\r\nHost: api.example:6443\r\n"
-        );
-        let bytes = request_line_and_host(&http::Method::POST, &url("https://api.example/x"));
-        assert_eq!(
-            String::from_utf8(bytes).unwrap(),
-            "POST /x HTTP/1.1\r\nHost: api.example\r\n"
-        );
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(req.method(), http::Method::GET);
+        assert_eq!(req.uri(), "/api/v1/pods/p/exec?command=ls");
+        assert_eq!(req.headers()["host"], "api.example:6443");
+        let req = build_upgrade_request(
+            &HeaderMap::new(),
+            &http::Method::POST,
+            &url("https://api.example/x"),
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(req.method(), http::Method::POST);
+        assert_eq!(req.uri(), "/x");
+        assert_eq!(req.headers()["host"], "api.example");
     }
 
     #[test]
@@ -230,26 +243,25 @@ mod tests {
 
     #[test]
     fn the_handshake_rebuilds_connection_headers_and_drops_smuggling_vectors() {
-        let req = TestRequest::get()
-            .insert_header(("upgrade", "websocket"))
-            .insert_header(("connection", "keep-alive, Upgrade"))
-            .insert_header(("transfer-encoding", "chunked"))
-            .insert_header(("sec-websocket-protocol", "v5.channel.k8s.io"))
-            .to_http_request();
-        let bytes = serialize_upgrade_request(
-            &req,
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "websocket".parse().unwrap());
+        headers.insert("connection", "keep-alive, Upgrade".parse().unwrap());
+        headers.insert("transfer-encoding", "chunked".parse().unwrap());
+        headers.insert(
+            "sec-websocket-protocol",
+            "v5.channel.k8s.io".parse().unwrap(),
+        );
+        let req = build_upgrade_request(
+            &headers,
             &http::Method::GET,
             &url("https://api.example:6443/api/v1/namespaces/d/pods/p/exec"),
             None,
             None,
-        );
-        let text = String::from_utf8(bytes).unwrap();
-        assert!(text.starts_with(
-            "GET /api/v1/namespaces/d/pods/p/exec HTTP/1.1\r\nHost: api.example:6443\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n"
-        ));
-        assert!(text.contains("sec-websocket-protocol: v5.channel.k8s.io\r\n"));
-        assert!(!text.contains("transfer-encoding"));
-        assert!(!text.contains("keep-alive"));
-        assert!(text.ends_with("\r\n\r\n"));
+        )
+        .unwrap();
+        assert_eq!(req.headers()["connection"], "Upgrade");
+        assert_eq!(req.headers()["upgrade"], "websocket");
+        assert_eq!(req.headers()["sec-websocket-protocol"], "v5.channel.k8s.io");
+        assert!(!req.headers().contains_key("transfer-encoding"));
     }
 }

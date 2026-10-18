@@ -1,15 +1,13 @@
 //! Upgrade (exec/attach/port-forward) path, driven over real sockets.
 //!
-//! The upgrade path writes the handshake onto a raw upstream socket, so both
-//! sides have to be real: an actix server bound on loopback, and a hand-rolled
-//! upstream that records every byte it receives on its connection.
+//! Both sides have to be real: the axum server bound on loopback (its
+//! upgrades are hyper's), and a hand-rolled upstream that records every byte
+//! it receives on its connection.
 
 mod harness;
 
 use std::time::Duration;
 
-use actix_web::{App, HttpServer, web};
-use api::cluster::redirect;
 use crd::security::{
     AllowedPathConfiguration, AllowedPathConfigurationEnum, PortSpec, SecurityConfiguration,
 };
@@ -33,24 +31,34 @@ macro_rules! redis_or_skip {
 
 const SMUGGLED_MARKER: &str = "smuggled-request-marker";
 
-/// Serve the redirect handlers on an ephemeral loopback port.
-fn start_proxy() -> (std::net::SocketAddr, actix_web::dev::ServerHandle) {
-    let state = web::Data::new(test_state("http://127.0.0.1:1".to_string()));
-    let server = HttpServer::new(move || {
-        App::new().app_data(state.clone()).service(
-            web::scope("/clusters")
-                .service(redirect::get_redirect)
-                .service(redirect::post_redirect),
-        )
-    })
-    .workers(1)
-    .bind(("127.0.0.1", 0))
-    .expect("proxy should bind");
-    let addr = server.addrs()[0];
-    let server = server.run();
-    let handle = server.handle();
-    actix_web::rt::spawn(server);
-    (addr, handle)
+/// The running proxy of a test.
+struct ServerHandle(tokio::task::JoinHandle<()>);
+
+impl ServerHandle {
+    /// Stop serving (actix's `ServerHandle::stop` shape).
+    async fn stop(self, _graceful: bool) {
+        self.0.abort();
+        let _ = self.0.await;
+    }
+}
+
+/// Serve the API on an ephemeral loopback port, through `serve` as in
+/// production (its HTTP/1 settings included).
+fn start_proxy() -> (std::net::SocketAddr, ServerHandle) {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("proxy should bind");
+    let addr = listener.local_addr().unwrap();
+    let app = api::server::AppState {
+        state: test_state("http://127.0.0.1:1".to_string()),
+        prometheus_registry: api::metrics::PrometheusRegistry(None),
+        http_metrics: api::metrics::HttpMetrics::new(&opentelemetry::global::meter("test")),
+        cors_allowed_origins: common::config::CorsOrigins::SameOriginOnly,
+        tls: None,
+        shutdown_timeout_secs: 1,
+    };
+    let server = tokio::spawn(async move {
+        let _ = api::server::serve(listener, app).await;
+    });
+    (addr, ServerHandle(server))
 }
 
 /// A one-connection upstream: answer the handshake with `response`, then
@@ -104,11 +112,11 @@ async fn start_upstream(
 }
 
 /// Regression: a handshake the upstream refuses must not turn into a tunnel.
-/// actix hands every byte after an `Upgrade: websocket` request to the handler
-/// as its payload; forwarding them after a non-101 answer lets the upstream
+/// The bytes a client sends after an `Upgrade: websocket` handshake must not
+/// reach the upstream after a non-101 answer: that would let the upstream
 /// parse them as a second request that skipped authorization, the allow-list
 /// and identity-header stripping.
-#[actix_web::test]
+#[tokio::test]
 async fn a_refused_upgrade_never_forwards_the_client_bytes() {
     let pool = redis_or_skip!();
     let (upstream_url, received) = start_upstream(
@@ -162,7 +170,7 @@ async fn a_refused_upgrade_never_forwards_the_client_bytes() {
 
 /// A request that merely carries an `Upgrade` header, on a path the apiserver
 /// never upgrades, goes through the standard path instead of a raw socket.
-#[actix_web::test]
+#[tokio::test]
 async fn an_upgrade_header_on_a_plain_path_does_not_open_a_raw_socket() {
     let pool = redis_or_skip!();
     let (upstream_url, received) = start_upstream(
@@ -206,7 +214,7 @@ async fn an_upgrade_header_on_a_plain_path_does_not_open_a_raw_socket() {
 }
 
 /// The fix must not break real upgrades: after a `101`, bytes flow both ways.
-#[actix_web::test]
+#[tokio::test]
 async fn an_accepted_upgrade_tunnels_both_ways() {
     let pool = redis_or_skip!();
     let (upstream_url, received) = start_upstream(
@@ -288,9 +296,9 @@ async fn exchange(addr: std::net::SocketAddr, request: &[u8]) -> String {
     String::from_utf8_lossy(&response).into_owned()
 }
 
-/// Only websocket is tunnelled: actix-http cannot hand a SPDY session's bytes
-/// to the handler, so a SPDY handshake is refused before reaching the cluster.
-#[actix_web::test]
+/// Only websocket is tunnelled (RFC 0007, decision 1): a SPDY handshake is
+/// refused before reaching the cluster.
+#[tokio::test]
 async fn a_spdy_upgrade_is_refused_before_reaching_the_cluster() {
     let pool = redis_or_skip!();
     let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
@@ -348,7 +356,7 @@ fn port_forward_proxy(
 
 /// With the channel protocols the ports are in the query string: a port
 /// outside the rule is refused before the cluster is contacted.
-#[actix_web::test]
+#[tokio::test]
 async fn a_port_forward_query_outside_the_allowed_ports_is_refused() {
     let pool = redis_or_skip!();
     let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
@@ -388,7 +396,7 @@ async fn a_port_forward_query_outside_the_allowed_ports_is_refused() {
 /// restricted one, port 5432 is refused with its reason in websocket and in
 /// kubectl's SPDY fallback alike (not "SPDY is not supported"), and the
 /// cluster never sees a connection.
-#[actix_web::test]
+#[tokio::test]
 async fn a_rule_without_ports_does_not_lift_the_restriction() {
     use crd::security::{
         AllowedCrdConfiguration, NamespacedAccessConfiguration, NamespacedAccessRuleKind,
@@ -498,7 +506,7 @@ fn ws_binary(payload: &[u8]) -> Vec<u8> {
 /// kubectl's transport: SPDY tunnelled in websocket. Streams to an allowed port
 /// go through; the first one to another port closes the session before its
 /// frame reaches the cluster.
-#[actix_web::test]
+#[tokio::test]
 async fn a_tunnelled_spdy_port_forward_is_filtered_per_stream() {
     let pool = redis_or_skip!();
     let (upstream_url, received) = start_upstream(
