@@ -73,8 +73,10 @@ async fn p3_kubectl_streams_work_through_the_tunnel() {
         )
         .await;
     assert!(attach.code.is_none(), "attach ended early: {attach:?}");
+    // kubectl's own failures start with `error:`; the exec plugin may log a
+    // warning on stderr too (no Secret Service on a CI runner).
     assert!(
-        !attach.stderr.to_lowercase().contains("error"),
+        !attach.stderr.lines().any(|line| line.starts_with("error:")),
         "attach: {attach:?}"
     );
 
