@@ -316,6 +316,14 @@ async fn translated_response(
     audit: &AuditContext,
 ) -> Result<Response, VirtualFailure> {
     let limit = max_buffered_bytes();
+    // Kept as the upstream gave it: the aggregated discovery's media type
+    // parameters (`g=apidiscovery.k8s.io;v=v2;as=…`) are how clients tell its
+    // format from the legacy one.
+    let content_type = res
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .filter(|value| value.as_bytes().starts_with(b"application/json"))
+        .cloned();
     let body = read_response_capped(res, limit)
         .await
         .map_err(|err| match err {
@@ -335,7 +343,13 @@ async fn translated_response(
 
     let translated = translate_json(forward, registry, upstream_path, json);
     audit.emit(status.as_u16());
-    Ok(json_response(status, &translated))
+    let mut response = json_response(status, &translated);
+    if let Some(content_type) = content_type {
+        response
+            .headers_mut()
+            .insert(http::header::CONTENT_TYPE, content_type);
+    }
+    Ok(response)
 }
 
 /// Where a virtual request is sent: the cluster and its upstream origin.

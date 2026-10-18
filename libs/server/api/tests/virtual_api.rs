@@ -134,6 +134,56 @@ async fn merges_the_virtual_group_into_the_cluster_group_list() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
+/// kubectl asks for aggregated discovery first and reads its format from the
+/// media type: the merge must keep it, or kubectl reads an empty group list.
+#[tokio::test]
+async fn merges_the_virtual_group_into_aggregated_discovery() {
+    const AGGREGATED: &str = "application/json;g=apidiscovery.k8s.io;v=v2;as=APIGroupDiscoveryList";
+    let pool = redis_or_skip!();
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/apis"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", AGGREGATED)
+                .set_body_raw(
+                    json!({
+                        "kind": "APIGroupDiscoveryList",
+                        "apiVersion": "apidiscovery.k8s.io/v2",
+                        "items": [{ "metadata": { "name": "apps" }, "versions": [] }],
+                    })
+                    .to_string(),
+                    AGGREGATED,
+                ),
+        )
+        .mount(&upstream)
+        .await;
+
+    let (ns, cluster) = unique_cluster();
+    seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
+
+    let app = proxy_app!(test_state(upstream.uri()));
+    let req = test::TestRequest::get()
+        .uri(&format!("/clusters/{ns}/{cluster}/apis"))
+        .insert_header(("accept", AGGREGATED))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.headers()["content-type"], AGGREGATED);
+    let body: Value = test::read_body_json(resp).await;
+    let names: Vec<&str> = body["items"]
+        .as_array()
+        .expect("items should be a list")
+        .iter()
+        .filter_map(|group| group["metadata"]["name"].as_str())
+        .collect();
+    assert_eq!(names, vec!["apps", "project.openshift.io"]);
+
+    delete_proxy(&pool, &ns, &cluster).await;
+}
+
 #[tokio::test]
 async fn lists_namespaces_as_projects() {
     let pool = redis_or_skip!();
