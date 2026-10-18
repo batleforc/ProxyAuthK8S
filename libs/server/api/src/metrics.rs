@@ -4,24 +4,16 @@
 //! The metrics are recorded through OpenTelemetry; when
 //! `METRICS_PROMETHEUS_ENABLED` is set, the `trace` crate also attaches a
 //! Prometheus reader to the meter provider and hands its registry to the app
-//! as [`PrometheusRegistry`] application data.
+//! as [`PrometheusRegistry`], a request extension.
 
-use std::{
-    future::{Ready, ready},
-    rc::Rc,
-    sync::LazyLock,
-    time::Instant,
-};
+use std::{sync::LazyLock, time::Instant};
 
-use actix_web::{
-    Error, HttpResponse, Responder,
-    body::MessageBody,
-    dev::{Service, ServiceRequest, ServiceResponse, Transform},
-    get,
-    http::header,
-    web,
+use axum::{
+    extract::{MatchedPath, Request, State},
+    http::{StatusCode, header, request::Parts},
+    middleware::Next,
+    response::{IntoResponse, Response},
 };
-use futures_util::future::LocalBoxFuture;
 use opentelemetry::{
     KeyValue,
     metrics::{Counter, Histogram, Meter},
@@ -68,7 +60,7 @@ const DURATION_BUCKETS: [f64; 14] = [
 ];
 
 /// The registry the `/management/metrics` endpoint renders. `None` (or no
-/// such app data at all) disables the endpoint: it then answers `404`.
+/// such request extension at all) disables the endpoint: it then answers `404`.
 #[derive(Clone, Default)]
 pub struct PrometheusRegistry(pub Option<prometheus::Registry>);
 
@@ -77,26 +69,34 @@ pub struct PrometheusRegistry(pub Option<prometheus::Registry>);
 /// Only served when `METRICS_PROMETHEUS_ENABLED` is set; `404` otherwise. The
 /// same metrics are exported over OTLP when a collector is configured.
 #[utoipa::path(
+    get,
+    path = "/metrics",
     tag = "health",
     responses(
         (status = 200, description = "Metrics in the Prometheus text exposition format 0.0.4.", content_type = "text/plain", body = String),
         (status = 404, description = "The Prometheus endpoint is disabled (`METRICS_PROMETHEUS_ENABLED` is not set)."),
     )
 )]
-#[get("/metrics")]
-#[instrument(name = "metrics", level = "debug", skip(registry))]
-pub async fn prometheus_metrics(registry: Option<web::Data<PrometheusRegistry>>) -> impl Responder {
-    let Some(registry) = registry.as_ref().and_then(|data| data.0.as_ref()) else {
-        return HttpResponse::NotFound().finish();
+#[instrument(name = "metrics", level = "debug", skip(req))]
+pub async fn prometheus_metrics(req: Parts) -> Response {
+    let Some(registry) = req
+        .extensions
+        .get::<PrometheusRegistry>()
+        .and_then(|registry| registry.0.as_ref())
+    else {
+        return StatusCode::NOT_FOUND.into_response();
     };
     let mut body = Vec::new();
     if let Err(e) = TextEncoder::new().encode(&registry.gather(), &mut body) {
         warn!(error = %e, "Failed to encode the Prometheus metrics");
-        return HttpResponse::InternalServerError().finish();
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
-    HttpResponse::Ok()
-        .insert_header((header::CONTENT_TYPE, PROMETHEUS_CONTENT_TYPE))
-        .body(body)
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, PROMETHEUS_CONTENT_TYPE)],
+        body,
+    )
+        .into_response()
 }
 
 /// Middleware recording [`HTTP_SERVER_REQUEST_DURATION`] (seconds) for every
@@ -122,65 +122,69 @@ impl HttpMetrics {
     }
 }
 
-impl<S, B> Transform<S, ServiceRequest> for HttpMetrics
-where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
-    B: MessageBody + 'static,
-{
-    type Response = ServiceResponse<B>;
-    type Error = Error;
-    type Transform = HttpMetricsMiddleware<S>;
-    type InitError = ();
-    type Future = Ready<Result<Self::Transform, Self::InitError>>;
+/// The route a request matched, carried on its response from inside the
+/// router (where [`MatchedPath`] is known) to [`record_duration`] outside it,
+/// which also sees the requests no route matched.
+#[derive(Clone)]
+pub(crate) struct MatchedRoute(pub(crate) String);
 
-    fn new_transform(&self, service: S) -> Self::Future {
-        ready(Ok(HttpMetricsMiddleware {
-            service: Rc::new(service),
-            duration: self.duration.clone(),
-        }))
+/// `route_layer` middleware: copy the matched route onto the response.
+pub async fn carry_matched_route(req: Request, next: Next) -> Response {
+    let route = req
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|path| actix_style_route(path.as_str()));
+    let mut response = next.run(req).await;
+    if let Some(route) = route {
+        response.extensions_mut().insert(MatchedRoute(route));
     }
+    response
 }
 
-/// The service produced by [`HttpMetrics`].
-pub struct HttpMetricsMiddleware<S> {
-    service: Rc<S>,
-    duration: Histogram<f64>,
+/// The proxy's catch-all as actix wrote it (`{path:.*}`), so the `http.route`
+/// label keeps its value across the move to axum (`{*path}`).
+fn actix_style_route(route: &str) -> String {
+    route.replace("{*path}", "{path:.*}")
 }
 
-impl<S, B> Service<ServiceRequest> for HttpMetricsMiddleware<S>
-where
-    S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
-    B: MessageBody + 'static,
-{
-    type Response = ServiceResponse<B>;
-    type Error = Error;
-    type Future = LocalBoxFuture<'static, Result<Self::Response, Self::Error>>;
+/// Middleware recording [`HTTP_SERVER_REQUEST_DURATION`] for every request.
+pub async fn record_duration(
+    State(metrics): State<HttpMetrics>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let start = Instant::now();
+    let method = req.method().as_str().to_owned();
+    let response = next.run(req).await;
+    let mut attributes = vec![
+        KeyValue::new("http.request.method", method),
+        KeyValue::new(
+            "http.response.status_code",
+            i64::from(response.status().as_u16()),
+        ),
+    ];
+    if let Some(MatchedRoute(route)) = response.extensions().get::<MatchedRoute>() {
+        attributes.push(KeyValue::new("http.route", route.clone()));
+    }
+    metrics
+        .duration
+        .record(start.elapsed().as_secs_f64(), &attributes);
+    response
+}
 
-    actix_web::dev::forward_ready!(service);
+#[cfg(test)]
+mod tests {
+    use super::actix_style_route;
 
-    fn call(&self, req: ServiceRequest) -> Self::Future {
-        let start = Instant::now();
-        let method = req.method().as_str().to_owned();
-        let service = Rc::clone(&self.service);
-        let duration = self.duration.clone();
-        Box::pin(async move {
-            let result = service.call(req).await;
-            let (route, status) = match &result {
-                Ok(res) => (
-                    res.request().match_pattern(),
-                    res.response().status().as_u16(),
-                ),
-                Err(e) => (None, e.as_response_error().status_code().as_u16()),
-            };
-            let mut attributes = vec![
-                KeyValue::new("http.request.method", method),
-                KeyValue::new("http.response.status_code", i64::from(status)),
-            ];
-            if let Some(route) = route {
-                attributes.push(KeyValue::new("http.route", route));
-            }
-            duration.record(start.elapsed().as_secs_f64(), &attributes);
-            result
-        })
+    #[test]
+    fn the_catch_all_keeps_its_label() {
+        assert_eq!(
+            actix_style_route("/clusters/{ns}/{cluster}/{*path}"),
+            "/clusters/{ns}/{cluster}/{path:.*}"
+        );
+        assert_eq!(
+            actix_style_route("/management/health"),
+            "/management/health"
+        );
     }
 }

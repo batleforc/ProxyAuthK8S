@@ -1,14 +1,14 @@
 //! Prometheus pull endpoint (`/management/metrics`) and the HTTP server
 //! request-duration instrument it exposes.
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::{
-    base::health,
-    metrics::{
-        HTTP_SERVER_REQUEST_DURATION, HttpMetrics, PROMETHEUS_CONTENT_TYPE, PrometheusRegistry,
-        prometheus_metrics,
-    },
+mod harness;
+
+use api::metrics::{
+    HTTP_SERVER_REQUEST_DURATION, HttpMetrics, PROMETHEUS_CONTENT_TYPE, PrometheusRegistry,
+    carry_matched_route, record_duration,
 };
+use axum::{Extension, http::StatusCode, middleware};
+use harness::test;
 use opentelemetry::metrics::MeterProvider as _;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 
@@ -24,23 +24,28 @@ fn prometheus_provider() -> (SdkMeterProvider, prometheus::Registry) {
     (provider, registry)
 }
 
+/// The routes with the metrics middlewares the server wires, and the
+/// registry when one is given.
+fn metrics_router(registry: Option<PrometheusRegistry>, http_metrics: HttpMetrics) -> axum::Router {
+    let router = harness::app(harness::test_state("http://127.0.0.1:1".to_string()))
+        .route_layer(middleware::from_fn(carry_matched_route))
+        .layer(middleware::from_fn_with_state(
+            http_metrics,
+            record_duration,
+        ));
+    match registry {
+        Some(registry) => router.layer(Extension(registry)),
+        None => router,
+    }
+}
+
 macro_rules! metrics_app {
     ($registry:expr_2021, $http_metrics:expr_2021) => {
-        test::init_service(
-            App::new()
-                .wrap($http_metrics)
-                .app_data(web::Data::new($registry))
-                .service(
-                    web::scope("/management")
-                        .service(health)
-                        .service(prometheus_metrics),
-                ),
-        )
-        .await
+        test::init_service(metrics_router(Some($registry), $http_metrics)).await
     };
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn the_endpoint_serves_the_http_server_metrics_when_enabled() {
     let (provider, registry) = prometheus_provider();
     let app = metrics_app!(
@@ -94,7 +99,7 @@ async fn the_endpoint_serves_the_http_server_metrics_when_enabled() {
     assert!(health_count.ends_with(" 1"), "{health_count}");
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn the_endpoint_is_404_when_disabled() {
     let (provider, _registry) = prometheus_provider();
     let app = metrics_app!(
@@ -111,11 +116,13 @@ async fn the_endpoint_is_404_when_disabled() {
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn the_endpoint_is_404_without_registry_app_data() {
-    let app = test::init_service(
-        App::new().service(web::scope("/management").service(prometheus_metrics)),
-    )
+    let (provider, _registry) = prometheus_provider();
+    let app = test::init_service(metrics_router(
+        None,
+        HttpMetrics::new(&provider.meter("proxyauthk8s")),
+    ))
     .await;
     let res = test::call_service(
         &app,

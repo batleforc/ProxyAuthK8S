@@ -1,11 +1,17 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, dev::PeerAddr, get, http, web::Data};
-use common::State;
+use std::sync::Arc;
+
+use axum::{
+    Json,
+    extract::State,
+    http::{Method, StatusCode, request::Parts},
+    response::{IntoResponse, Response},
+};
 use crd::ProxyKubeApi;
 use tracing::{error, instrument};
 
 use crate::{
     cluster::redirect::{forwarded, status_response::too_many_requests, throttle},
-    helper::extract_authorization_header,
+    helper::{extract_authorization_header, forwarded_for, peer_ip},
     model::user::User,
     visible_clusters::get_all_visible_cluster_model::{GetAllVisibleClusterBody, VisibleCluster},
 };
@@ -16,6 +22,8 @@ use crate::{
 /// if the user is not authenticated return 401,
 /// if none return an empty array.
 #[utoipa::path(
+    get,
+    path = "/clusters",
     tag = "api_clusters",
     responses(
         (status = 200, description = "Get all visible clusters.", body = GetAllVisibleClusterBody),
@@ -28,14 +36,12 @@ use crate::{
         ("bearer_auth" = [])
     ),
 )]
-#[get("/clusters")]
-#[instrument(name = "get_all_visible_cluster", skip(state))]
+#[instrument(name = "get_all_visible_cluster", skip(state, req))]
 pub async fn get_all_visible_cluster(
-    req: HttpRequest,
-    method: http::Method,
-    peer_addr: Option<PeerAddr>,
-    state: Data<State>,
-) -> impl Responder {
+    State(state): State<Arc<common::State>>,
+    method: Method,
+    req: Parts,
+) -> Response {
     // Authentication happens here rather than through the `User` extractor: an
     // extractor runs before the handler, so its outbound `/userinfo` call to the
     // provider would already have happened by the time any gate could refuse the
@@ -45,12 +51,7 @@ pub async fn get_all_visible_cluster(
     // Unlike the cluster endpoints there is no `ProxyKubeApi` here to carry a
     // policy, so this uses the unscoped budget — off unless an operator has
     // configured it (see `throttle::unscoped`).
-    let peer_ip = peer_addr.as_ref().map(|PeerAddr(addr)| addr.ip());
-    let forwarded_for = req
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok());
-    let peer_id = forwarded::throttle_client_ip(forwarded_for, peer_ip);
+    let peer_id = forwarded::throttle_client_ip(forwarded_for(&req.headers), peer_ip(&req));
 
     if throttle::unscoped::is_banned(&state, &peer_id).await {
         let retry_after = throttle::unscoped::ban_retry_after(&state, &peer_id).await;
@@ -62,12 +63,12 @@ pub async fn get_all_visible_cluster(
         return too_many_requests(&throttled.message(), throttled.retry_after());
     }
 
-    let token = match extract_authorization_header(&req) {
+    let token = match extract_authorization_header(&req.headers) {
         Ok(token) => token,
         Err(e) => {
             error!("Authorization header extraction failed: {}", e);
             throttle::unscoped::record_auth_failure(&state, &peer_id).await;
-            return HttpResponse::Unauthorized().finish();
+            return StatusCode::UNAUTHORIZED.into_response();
         }
     };
     let user =
@@ -81,7 +82,7 @@ pub async fn get_all_visible_cluster(
             Ok(None) => {
                 error!("User info not found in OIDC response");
                 throttle::unscoped::record_auth_failure(&state, &peer_id).await;
-                return HttpResponse::Unauthorized().finish();
+                return StatusCode::UNAUTHORIZED.into_response();
             }
             Err(e) => {
                 error!(error = %e, "couldn't resolve the caller's token");
@@ -89,7 +90,7 @@ pub async fn get_all_visible_cluster(
                 if e.is_caller_fault() {
                     throttle::unscoped::record_auth_failure(&state, &peer_id).await;
                 }
-                return HttpResponse::Unauthorized().finish();
+                return StatusCode::UNAUTHORIZED.into_response();
             }
         };
 
@@ -100,7 +101,7 @@ pub async fn get_all_visible_cluster(
         Ok(cached) => cached,
         Err(e) => {
             error!(error = %e, "couldn't list the cached clusters");
-            return HttpResponse::ServiceUnavailable().finish();
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
 
@@ -110,5 +111,5 @@ pub async fn get_all_visible_cluster(
         .map(VisibleCluster::from)
         .collect();
     let body = GetAllVisibleClusterBody { clusters: proxies };
-    HttpResponse::Ok().json(body)
+    (StatusCode::OK, Json(body)).into_response()
 }

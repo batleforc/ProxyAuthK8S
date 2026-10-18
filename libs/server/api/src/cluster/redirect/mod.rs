@@ -1,7 +1,13 @@
-use actix_web::{HttpRequest, Responder, delete, dev::PeerAddr, get, http, patch, post, put, web};
-use common::State;
+use std::sync::Arc;
+
+use axum::{
+    extract::{Path, Request, State},
+    response::Response,
+};
 use kube_redirect::redirect;
 use tracing::instrument;
+
+use crate::helper::NsCluster;
 
 pub mod audit;
 pub mod forwarded;
@@ -13,8 +19,8 @@ pub mod throttle;
 
 /// One handler per HTTP method, all delegating to the same `redirect`.
 ///
-/// actix needs a distinct function per method attribute, and utoipa needs the
-/// documentation attached to each of them. Writing that out by hand meant six
+/// utoipa needs the documentation attached to a function per method (the
+/// `operationId`s `get_redirect`, `post_redirect`… of `swagger.json`). Writing that out by hand meant six
 /// copies of the same doc block drifting apart; the macro keeps a single source
 /// of truth for both.
 macro_rules! redirect_handler {
@@ -23,6 +29,8 @@ macro_rules! redirect_handler {
         ///
         /// Redirect to the cluster if exists.
         #[utoipa::path(
+            $method,
+            path = "/clusters/{ns}/{cluster}/{path}",
             tag = "proxy_clusters",
             responses(
                 (status = 200, description = "Response from remote cluster."),
@@ -39,16 +47,13 @@ macro_rules! redirect_handler {
                 ("path" = String, description = "Corresponding path to resource given to the kube api server.")
             )
         )]
-        #[$method("/{ns}/{cluster}/{path:.*}")]
-        #[instrument(name = $span, skip(data, payload))]
+        #[instrument(name = $span, skip(data, req))]
         pub async fn $name(
-            req: HttpRequest,
-            data: web::Data<State>,
-            payload: web::Payload,
-            method: http::Method,
-            peer_addr: Option<PeerAddr>,
-        ) -> impl Responder {
-            redirect(req, data, payload, method, peer_addr).await
+            State(data): State<Arc<common::State>>,
+            Path(NsCluster { ns, cluster }): Path<NsCluster>,
+            req: Request,
+        ) -> Response {
+            redirect(data, ns, cluster, req).await
         }
     };
 }

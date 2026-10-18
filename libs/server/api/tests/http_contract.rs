@@ -51,7 +51,7 @@ fn app_state(cors: CorsOrigins, metrics: bool) -> AppState {
 async fn start(app: AppState) -> SocketAddr {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
     let addr = listener.local_addr().unwrap();
-    actix_web::rt::spawn(serve(listener, app));
+    tokio::spawn(serve(listener, app));
     addr
 }
 
@@ -73,7 +73,7 @@ fn status_of(response: &str) -> u16 {
 }
 
 /// Measures the limits the contract freezes; run with `--ignored --nocapture`.
-#[actix_web::test]
+#[tokio::test]
 #[ignore = "measurement helper"]
 async fn measure_limits() {
     let addr = start(app_state(CorsOrigins::SameOriginOnly, false)).await;
@@ -174,7 +174,7 @@ fn get(path: &str, extra: &str) -> String {
 
 /// The limits actix applies (none is configured), measured by
 /// `measure_limits`: hyper and axum must be set to the same.
-#[actix_web::test]
+#[tokio::test]
 async fn http_limits() {
     let addr = start(app_state(CorsOrigins::SameOriginOnly, false)).await;
 
@@ -202,7 +202,9 @@ async fn http_limits() {
     assert_eq!(status_of(&raw(addr, head(fits).as_bytes()).await), 200);
     assert_eq!(status_of(&raw(addr, head(fits + 1).as_bytes()).await), 431);
 
-    // The URI: 65 534 bytes (the `http` crate's bound), then 400.
+    // The URI: 65 534 bytes (the `http` crate's bound). Beyond, actix
+    // answered 400 and hyper answers 414 URI Too Long before any service
+    // runs: the one gap the move to axum could not close (RFC 0007 §17).
     let uri = |len: usize| {
         format!(
             "/management/health?{}",
@@ -215,7 +217,7 @@ async fn http_limits() {
     );
     assert_eq!(
         status_of(&raw(addr, get(&uri(65_535), "").as_bytes()).await),
-        400
+        414
     );
 
     // A form body (the OAuth token endpoint): 16 KiB, then 413.
@@ -234,7 +236,7 @@ async fn http_limits() {
     assert_eq!(status_of(&raw(addr, form(16_385).as_bytes()).await), 413);
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn management_routes_request_id_and_metrics() {
     let addr = start(app_state(CorsOrigins::SameOriginOnly, true)).await;
     let health = client()
@@ -282,7 +284,7 @@ async fn management_routes_request_id_and_metrics() {
     assert_eq!(res.status(), 404);
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn compression() {
     let addr = start(app_state(CorsOrigins::SameOriginOnly, false)).await;
     let res = client()
@@ -331,7 +333,7 @@ async fn cors(addr: SocketAddr, origin: &str) -> ((u16, Option<String>), (u16, O
     )
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn cors_modes() {
     let same = start(app_state(CorsOrigins::SameOriginOnly, false)).await;
     let any = start(app_state(CorsOrigins::Any, false)).await;
@@ -371,6 +373,17 @@ async fn cors_modes() {
         .await
         .unwrap();
     assert_eq!(preflight.headers()["access-control-max-age"], "3600");
+    // An OPTIONS that is not a preflight (no Origin) is not answered by CORS:
+    // it reaches the routes, which answer 404 as for any unrouted method.
+    let plain = client()
+        .request(
+            reqwest::Method::OPTIONS,
+            format!("http://{list}/api/v1/clusters"),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(plain.status(), 404);
     assert!(
         preflight.headers()["access-control-allow-methods"]
             .to_str()
@@ -433,7 +446,7 @@ fn message(response: &str) -> String {
         .to_string()
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn proxy_refusals_raw_paths_and_headers() {
     let Some((addr, upstream, prefix, pool)) = restricted_proxy().await else {
         return;
@@ -627,7 +640,7 @@ async fn negotiated(
 /// The TLS listener, built by `ServerConfig::rustls_config` as in production,
 /// announces h2 and http/1.1: kubectl's requests go h2, an upgrade (which
 /// only offers http/1.1) stays on http/1.1.
-#[actix_web::test]
+#[tokio::test]
 async fn tls_alpn() {
     harness::install_crypto_provider();
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();

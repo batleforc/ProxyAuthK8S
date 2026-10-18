@@ -1,47 +1,126 @@
-//! Root span for every HTTP request, linked to the caller's trace.
+//! Root span for every HTTP request, linked to the caller's trace, and the
+//! `x-request-id` of its response.
 //!
-//! `tracing-actix-web` only propagates the incoming trace context through its
-//! `opentelemetry_0_x` features, which lag behind the `opentelemetry` releases
-//! this workspace tracks. Mixing versions compiles but silently drops the
-//! link: its `set_parent` targets a `tracing-opentelemetry` layer that is not
-//! the one registered. The extraction is done here instead, against the same
-//! `opentelemetry` / `tracing-opentelemetry` versions as `trace::start_tracing`.
+//! The span keeps the fields `tracing-actix-web` gave it before the move to
+//! axum (`http.method`, `http.route`, `request_id`, `trace_id`…), so the logs
+//! and the audit lines nested under it keep their shape. The incoming trace
+//! context is extracted against the same `opentelemetry` /
+//! `tracing-opentelemetry` versions as `trace::start_tracing`.
 
-use actix_web::{
-    Error,
-    body::MessageBody,
-    dev::{ServiceRequest, ServiceResponse},
-    http::header::HeaderMap,
+use axum::{
+    extract::{ConnectInfo, Request},
+    http::{HeaderMap, HeaderName, HeaderValue, Version, header},
+    middleware::Next,
+    response::Response,
 };
 use opentelemetry::propagation::Extractor;
-use tracing::Span;
-use tracing_actix_web::{DefaultRootSpanBuilder, RootSpanBuilder, root_span};
+use tracing::{Instrument as _, field::Empty};
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 
-/// [`RootSpanBuilder`] that parents the request span on the `traceparent`
-/// sent by the caller (through the global propagator) and records `trace_id`.
-pub struct OtelRootSpanBuilder;
+use crate::metrics::MatchedRoute;
 
-impl RootSpanBuilder for OtelRootSpanBuilder {
-    fn on_request_start(request: &ServiceRequest) -> Span {
-        let span = root_span!(request);
-        let parent = opentelemetry::global::get_text_map_propagator(|propagator| {
-            propagator.extract(&HeaderExtractor(request.headers()))
-        });
-        // Only fails once the span has been entered, which cannot have
-        // happened yet: the span was just created.
-        let _ = span.set_parent(parent);
-        // The caller's trace id when one was propagated, the new one otherwise;
-        // none at all without an OpenTelemetry layer.
-        if let Some(trace_id) = trace::helper::trace_id_of(&span) {
-            span.record("trace_id", tracing::field::display(trace_id));
-        }
-        span
-    }
+/// Middleware: run the request inside its root span, then record the route
+/// and the status on it, and name the request in `x-request-id`.
+pub async fn root_span(req: Request, next: Next) -> Response {
+    let request_id = uuid::Uuid::new_v4();
+    let span = request_span(&req, &request_id);
+    let mut response = next.run(req).instrument(span.clone()).await;
 
-    fn on_request_end<B: MessageBody>(span: Span, outcome: &Result<ServiceResponse<B>, Error>) {
-        DefaultRootSpanBuilder::on_request_end(span, outcome);
+    if let Some(MatchedRoute(route)) = response.extensions().get::<MatchedRoute>() {
+        span.record("http.route", route.as_str());
+        span.record("otel.name", format!("HTTP {route}"));
     }
+    let status = response.status();
+    span.record("http.status_code", status.as_u16());
+    span.record(
+        "otel.status_code",
+        if status.is_server_error() {
+            "ERROR"
+        } else {
+            "OK"
+        },
+    );
+    if let Ok(value) = HeaderValue::from_str(&request_id.to_string()) {
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("x-request-id"), value);
+    }
+    response
+}
+
+fn request_span(req: &Request, request_id: &uuid::Uuid) -> tracing::Span {
+    let headers = req.headers();
+    let header = |name: header::HeaderName| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string()
+    };
+    let client_ip = headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|ip| ip.trim().to_string())
+        .or_else(|| {
+            req.extensions()
+                .get::<ConnectInfo<std::net::SocketAddr>>()
+                .map(|ConnectInfo(addr)| addr.ip().to_string())
+        })
+        .unwrap_or_default();
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| req.uri().scheme_str().map(str::to_string))
+        .unwrap_or_else(|| "http".to_string());
+    let host = req
+        .uri()
+        .authority()
+        .map(ToString::to_string)
+        .unwrap_or_else(|| header(header::HOST));
+    let flavor = match req.version() {
+        Version::HTTP_09 => "0.9",
+        Version::HTTP_10 => "1.0",
+        Version::HTTP_2 => "2.0",
+        Version::HTTP_3 => "3.0",
+        _ => "1.1",
+    };
+    let target = req
+        .uri()
+        .path_and_query()
+        .map_or_else(|| req.uri().path().to_string(), ToString::to_string);
+    let span = tracing::info_span!(
+        "HTTP request",
+        http.method = %req.method(),
+        http.route = Empty,
+        http.flavor = flavor,
+        http.scheme = %scheme,
+        http.host = %host,
+        http.client_ip = %client_ip,
+        http.user_agent = %header(header::USER_AGENT),
+        http.target = %target,
+        http.status_code = Empty,
+        otel.name = %format!("HTTP {}", req.method()),
+        otel.kind = "server",
+        otel.status_code = Empty,
+        request_id = %request_id,
+        trace_id = Empty,
+        exception.message = Empty,
+        exception.details = Empty,
+    );
+    let parent = opentelemetry::global::get_text_map_propagator(|propagator| {
+        propagator.extract(&HeaderExtractor(headers))
+    });
+    // Only fails once the span has been entered, which cannot have
+    // happened yet: the span was just created.
+    let _ = span.set_parent(parent);
+    // The caller's trace id when one was propagated, the new one otherwise;
+    // none at all without an OpenTelemetry layer.
+    if let Some(trace_id) = trace::helper::trace_id_of(&span) {
+        span.record("trace_id", tracing::field::display(trace_id));
+    }
+    span
 }
 
 struct HeaderExtractor<'a>(&'a HeaderMap);
@@ -52,26 +131,25 @@ impl Extractor for HeaderExtractor<'_> {
     }
 
     fn keys(&self) -> Vec<&str> {
-        self.0
-            .keys()
-            .map(actix_web::http::header::HeaderName::as_str)
-            .collect()
+        self.0.keys().map(HeaderName::as_str).collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use actix_web::{App, HttpResponse, test, web};
+    use axum::{Router, body::Body, http::Request, middleware, routing::get};
+    use http_body_util::BodyExt as _;
     use opentelemetry::trace::TracerProvider as _;
     use opentelemetry_sdk::{propagation::TraceContextPropagator, trace::SdkTracerProvider};
-    use tracing_actix_web::TracingLogger;
+    use tower::ServiceExt as _;
     use tracing_subscriber::layer::SubscriberExt as _;
 
-    use super::*;
+    use super::root_span;
 
-    async fn current_trace_id() -> HttpResponse {
-        let trace_id = trace::helper::get_trace_id().unwrap_or(opentelemetry::TraceId::INVALID);
-        HttpResponse::Ok().body(trace_id.to_string())
+    async fn current_trace_id() -> String {
+        trace::helper::get_trace_id()
+            .unwrap_or(opentelemetry::TraceId::INVALID)
+            .to_string()
     }
 
     async fn trace_id_for(traceparent: Option<&str>) -> String {
@@ -86,21 +164,23 @@ mod tests {
             .with(tracing_opentelemetry::layer().with_tracer(provider.tracer("test")));
         let _guard = tracing::subscriber::set_default(subscriber);
 
-        let app = test::init_service(
-            App::new()
-                .wrap(TracingLogger::<OtelRootSpanBuilder>::new())
-                .route("/", web::get().to(current_trace_id)),
-        )
-        .await;
-        let mut request = test::TestRequest::get().uri("/");
+        let app = Router::new()
+            .route("/", get(current_trace_id))
+            .layer(middleware::from_fn(root_span));
+        let mut request = Request::get("/");
         if let Some(traceparent) = traceparent {
-            request = request.insert_header(("traceparent", traceparent));
+            request = request.header("traceparent", traceparent);
         }
-        let body = test::call_and_read_body(&app, request.to_request()).await;
+        let response = app
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.headers()["x-request-id"].len(), 36);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
         String::from_utf8(body.to_vec()).expect("utf-8 trace id")
     }
 
-    #[actix_web::test]
+    #[tokio::test]
     async fn the_request_span_joins_the_callers_trace() {
         let trace_id = trace_id_for(Some(
             "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
@@ -109,7 +189,7 @@ mod tests {
         assert_eq!(trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
     }
 
-    #[actix_web::test]
+    #[tokio::test]
     async fn without_traceparent_a_new_trace_is_started() {
         let trace_id = trace_id_for(None).await;
         assert_ne!(trace_id, opentelemetry::TraceId::INVALID.to_string());

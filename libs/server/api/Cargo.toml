@@ -9,21 +9,27 @@ default = ["server"]
 # `api::server::serve` and its middlewares. Off for the consumers that only
 # need the handlers or the OpenAPI document (fuzz/, swaggergen), so they do
 # not build the OTLP and CORS stacks.
-server = ["dep:trace", "dep:tracing-opentelemetry", "dep:utoipa-scalar", "dep:actix-cors", "dep:tracing-actix-web", "dep:socket2"]
+server = ["dep:trace", "dep:tracing-opentelemetry", "dep:utoipa-scalar", "dep:tower-http", "dep:axum-server", "dep:socket2", "dep:uuid"]
 # Opt-in tier that needs a real kube-apiserver and etcd (see `task envtest:setup`).
 envtest = []
 
 [dependencies]
 utoipa = { workspace = true }
-utoipa-actix-web = { workspace = true }
+utoipa-axum = { workspace = true }
 kube = { workspace = true }
 k8s-openapi = { workspace = true }
-actix-web = { workspace = true }
+axum = { workspace = true }
+# Already in the tree (kube, reqwest): the request/response types, the
+# upgrade of both handshakes, and the client of the upgrade tunnel.
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 tracing = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
-tokio-stream = { workspace = true }
 futures-util = { workspace = true }
 openidconnect = { workspace = true }
 thiserror = { workspace = true }
@@ -38,14 +44,16 @@ subtle = "2"
 opentelemetry = { workspace = true }
 prometheus = { version = "0.14", default-features = false }
 tracing-opentelemetry = { workspace = true, optional = true }
-utoipa-scalar = { version = "0.4", features = ["actix-web"], optional = true }
-actix-cors = { version = "0.7", optional = true }
-# No `opentelemetry_0_x` feature: trace-context propagation lives in
-# src/root_span.rs, so it follows the workspace `opentelemetry` version.
-tracing-actix-web = { version = "0.7", optional = true }
-# Already in the tree (actix-server, tokio); binds the listener with actix's
-# backlog, which a std TcpListener does not let us set.
+utoipa-scalar = { version = "0.4", features = ["axum"], optional = true }
+# 0.6: the version kube already pulls in, so no second copy in the tree.
+tower-http = { version = "0.7", features = ["compression-full"], optional = true }
+# TLS listener on hyper-util's auto (h1 + h2) server, like weebo-kit-runtime.
+axum-server = { version = "0.8", features = ["tls-rustls-no-provider"], optional = true }
+# Already in the tree (tokio); binds the listener with a backlog of 2048,
+# which a std TcpListener does not let us set.
 socket2 = { version = "0.6", optional = true }
+# Already in the tree (kube); the request id of every response.
+uuid = { version = "1", features = ["v4"], optional = true }
 
 common = { path = "../common", version = "0.1.9" }
 crd = { path = "../crd", version = "0.1.9" }
@@ -61,9 +69,12 @@ opentelemetry-prometheus = "0.33"
 # `test-util` unlocks `State::from_parts`; dev-dependencies are not part of a
 # normal build so the feature stays off outside `cargo test`.
 common = { path = "../common", version = "0.1.9", features = ["test-util"] }
-actix-web = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 wiremock = "0.6"
+# Already in the tree (axum): `oneshot` on the router in tests.
+tower = { version = "0.5", features = ["util"] }
+# Already in the tree (axum): the forms of `harness::test`.
+serde_urlencoded = "0.7"
 # Already in the tree (kube's dev graph); the http_contract suite's TLS cert.
 rcgen = "0.14"
 deadpool-redis = { workspace = true }

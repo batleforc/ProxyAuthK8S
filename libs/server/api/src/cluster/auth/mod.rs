@@ -5,15 +5,21 @@ pub mod login;
 pub mod oauth;
 pub mod well_known;
 
-use actix_web::{HttpRequest, HttpResponse};
+use axum::{
+    http::{StatusCode, request::Parts},
+    response::{IntoResponse, Response},
+};
 use common::State;
 use crd::ProxyKubeApi;
 
-use crate::cluster::redirect::{forwarded, status_response::too_many_requests, throttle};
+use crate::{
+    cluster::redirect::{forwarded, status_response::too_many_requests, throttle},
+    helper::{forwarded_for, peer_ip},
+};
 
 /// Why [`load_discovery_enabled_proxy`] refused a request.
 ///
-/// Kept tiny (rather than returning an `HttpResponse` as the error) so the
+/// Kept tiny (rather than returning a `Response` as the error) so the
 /// `Result` stays small; map it with [`DiscoveryGateError::into_response`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DiscoveryGateError {
@@ -24,10 +30,10 @@ pub(crate) enum DiscoveryGateError {
 }
 
 impl DiscoveryGateError {
-    pub(crate) fn into_response(self) -> HttpResponse {
+    pub(crate) fn into_response(self) -> Response {
         match self {
-            Self::NotFound => HttpResponse::NotFound().finish(),
-            Self::Unavailable => HttpResponse::ServiceUnavailable().finish(),
+            Self::NotFound => StatusCode::NOT_FOUND.into_response(),
+            Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         }
     }
 }
@@ -73,16 +79,11 @@ pub(crate) async fn load_discovery_enabled_proxy(
 /// admin gets one shared, already-tuned budget across the proxy path and the
 /// discovery/OAuth-AS surface rather than a second limit to configure.
 pub(crate) async fn throttle_oauth_as(
-    req: &HttpRequest,
+    req: &Parts,
     data: &State,
     proxy: &ProxyKubeApi,
-) -> Option<HttpResponse> {
-    let peer_ip = req.peer_addr().map(|addr| addr.ip());
-    let forwarded_for = req
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok());
-    let peer_id = forwarded::throttle_client_ip(forwarded_for, peer_ip);
+) -> Option<Response> {
+    let peer_id = forwarded::throttle_client_ip(forwarded_for(&req.headers), peer_ip(req));
 
     if throttle::is_banned(data, proxy, &peer_id).await {
         let retry_after = throttle::ban_retry_after(data, proxy, &peer_id).await;
@@ -110,9 +111,9 @@ pub(crate) async fn throttle_oauth_as(
 /// header, empty when unset, so the kubectl plugin's request carried an empty
 /// `x-front-callback` and was redirected to the dashboard instead of its
 /// loopback listener.
-pub(crate) fn callback_target(req: &HttpRequest) -> (bool, Option<String>) {
+pub(crate) fn callback_target(req: &Parts) -> (bool, Option<String>) {
     let value = |name: &str| {
-        req.headers()
+        req.headers
             .get(name)
             .and_then(|v| v.to_str().ok())
             .map(str::trim)
@@ -127,37 +128,39 @@ pub(crate) fn callback_target(req: &HttpRequest) -> (bool, Option<String>) {
 
 #[cfg(test)]
 mod callback_target_tests {
-    use actix_web::test::TestRequest;
+    use axum::http::{Request, request::Parts};
 
     use super::callback_target;
 
+    fn parts(headers: &[(&str, &str)]) -> Parts {
+        let mut request = Request::builder();
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        request.body(()).unwrap().into_parts().0
+    }
+
     #[test]
     fn empty_headers_count_as_absent() {
-        let req = TestRequest::default()
-            .insert_header(("x-front-callback", ""))
-            .insert_header(("x-kubectl-callback", "http://localhost:18000/"))
-            .to_http_request();
+        let req = parts(&[
+            ("x-front-callback", ""),
+            ("x-kubectl-callback", "http://localhost:18000/"),
+        ]);
         assert_eq!(
             callback_target(&req),
             (false, Some("http://localhost:18000/".to_string()))
         );
 
-        let req = TestRequest::default()
-            .insert_header(("x-front-callback", "true"))
-            .insert_header(("x-kubectl-callback", ""))
-            .to_http_request();
+        let req = parts(&[("x-front-callback", "true"), ("x-kubectl-callback", "")]);
         assert_eq!(callback_target(&req), (true, None));
 
-        assert_eq!(
-            callback_target(&TestRequest::default().to_http_request()),
-            (false, None)
-        );
+        assert_eq!(callback_target(&parts(&[])), (false, None));
     }
 }
 
 #[cfg(test)]
 mod discovery_gate_tests {
-    use actix_web::http::StatusCode;
+    use axum::http::StatusCode;
 
     use super::DiscoveryGateError;
 

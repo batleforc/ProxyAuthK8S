@@ -1,5 +1,10 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
-use common::State;
+use std::sync::Arc;
+
+use axum::{
+    extract::{Path, Query, State},
+    http::{StatusCode, request::Parts},
+    response::{IntoResponse, Response},
+};
 use crd_runtime::ProxyKubeApiRuntime;
 use openidconnect::{
     AccessTokenHash, AuthorizationCode, Nonce, OAuth2TokenResponse, PkceCodeVerifier, TokenResponse,
@@ -17,7 +22,7 @@ use crate::cluster::auth::{
     },
     throttle_oauth_as,
 };
-use crate::helper::extract_ns_cluster;
+use crate::helper::NsCluster;
 
 #[derive(Deserialize, ToSchema, IntoParams)]
 pub struct OAuthCallbackQuery {
@@ -33,6 +38,8 @@ pub struct OAuthCallbackQuery {
 /// the caller authenticates. On success, redirects to the external client's
 /// own `redirect_uri` with a proxy-minted authorization code.
 #[utoipa::path(
+    get,
+    path = "/{ns}/{cluster}/oauth/callback",
     tag = "auth_clusters",
     responses(
         (status = 302, description = "Redirect to the external client's redirect_uri, with a proxy-minted code (or an error)."),
@@ -46,19 +53,13 @@ pub struct OAuthCallbackQuery {
         OAuthCallbackQuery,
     )
 )]
-#[get("/{ns}/{cluster}/oauth/callback")]
-#[instrument(name = "oauth_as_callback", skip(data, callback))]
+#[instrument(name = "oauth_as_callback", skip(req, data, callback))]
 pub async fn callback(
-    req: HttpRequest,
-    data: web::Data<State>,
-    callback: web::Query<OAuthCallbackQuery>,
-) -> impl Responder {
-    let (ns, cluster) = if let Some(parts) = extract_ns_cluster(&req) {
-        parts
-    } else {
-        error!(path = %req.path(), "missing ns/cluster path parameters");
-        return HttpResponse::NotFound().finish();
-    };
+    req: Parts,
+    State(data): State<Arc<common::State>>,
+    Path(NsCluster { ns, cluster }): Path<NsCluster>,
+    callback: Query<OAuthCallbackQuery>,
+) -> Response {
     let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
         Ok(proxy) => proxy,
         Err(gate) => return gate.into_response(),
@@ -75,29 +76,26 @@ pub async fn callback(
             Ok(pending) => pending,
             Err(e) => {
                 error!(error = %e, "couldn't parse pending authorization");
-                return HttpResponse::BadRequest().body("invalid state");
+                return (StatusCode::BAD_REQUEST, "invalid state").into_response();
             }
         },
         Ok(None) => {
             error!("pending authorization not found");
-            return HttpResponse::BadRequest().body("invalid or expired state");
+            return (StatusCode::BAD_REQUEST, "invalid or expired state").into_response();
         }
         Err(e) => {
             error!(error = %e, "couldn't get pending authorization");
-            return HttpResponse::ServiceUnavailable().finish();
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
     // Already validated (loopback-only) when stored; re-parsing here just
     // recovers the `Url` needed to build the redirect / error responses.
     let Ok(client_redirect_uri) = Url::parse(&pending.client_redirect_uri) else {
         error!("stored client_redirect_uri is not a valid URL");
-        return HttpResponse::InternalServerError().finish();
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
 
-    let oauth_conf = match proxy
-        .get_oauth_as_oidc_conf(data.clone().into_inner())
-        .await
-    {
+    let oauth_conf = match proxy.get_oauth_as_oidc_conf(data.clone()).await {
         Ok(Some(conf)) => conf,
         Ok(None) => {
             error!("OIDC config not found");
@@ -287,7 +285,5 @@ pub async fn callback(
             pairs.append_pair("state", state);
         }
     }
-    HttpResponse::Found()
-        .insert_header(("Location", redirect.to_string()))
-        .finish()
+    super::found(redirect.as_str())
 }

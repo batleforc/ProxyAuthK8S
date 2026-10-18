@@ -1,5 +1,10 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
-use common::State;
+use std::sync::Arc;
+
+use axum::{
+    extract::{Path, State},
+    http::{StatusCode, header, request::Parts},
+    response::{IntoResponse, Response},
+};
 use crd::ProxyKubeApi;
 use crd_runtime::ProxyKubeApiRuntime;
 use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge, Scope, core::CoreAuthenticationFlow};
@@ -8,7 +13,7 @@ use tracing::{error, info, instrument};
 use crate::{
     cluster::auth::{auth_model::LoginToCallBackModel, throttle_oauth_as},
     cluster::redirect::{forwarded, throttle},
-    helper::{extract_authorization_header, extract_ns_cluster},
+    helper::{NsCluster, extract_authorization_header, forwarded_for, peer_ip},
     model::user::User,
 };
 
@@ -16,6 +21,8 @@ use crate::{
 ///
 /// If the cluster is not found or disabled, return 404.
 #[utoipa::path(
+    get,
+    path = "/{ns}/{cluster}/auth/login",
     tag = "auth_clusters",
     responses(
         (status = 200, description = "Response from remote cluster.", body = String),
@@ -35,27 +42,24 @@ use crate::{
         ("x-kubectl-callback" = String, Header, nullable, description = "If it's from kubectl plugin, this header will be set."),
     )
 )]
-#[get("/{ns}/{cluster}/auth/login")]
-#[instrument(name = "cluster_login", skip(data))]
-pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Responder {
+#[instrument(name = "cluster_login", skip(data, req))]
+pub async fn cluster_login(
+    State(data): State<Arc<common::State>>,
+    Path(NsCluster { ns, cluster }): Path<NsCluster>,
+    req: Parts,
+) -> Response {
     /// The CSRF token and nonce only need to survive the redirect round-trip.
     const CSRF_NONCE_TTL_SECONDS: u64 = 300;
 
-    let (ns, cluster) = if let Some(parts) = extract_ns_cluster(&req) {
-        parts
-    } else {
-        error!(path = %req.path(), "missing ns/cluster path parameters");
-        return HttpResponse::NotFound().finish();
-    };
     let proxy: ProxyKubeApi = match data
         .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
         .await
     {
         Ok(Some(proxy)) => proxy,
-        Ok(None) => return HttpResponse::NotFound().finish(),
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             error!(error = %e, "couldn't get proxy from redis");
-            return HttpResponse::ServiceUnavailable().finish();
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
     if !proxy.spec.enabled
@@ -65,7 +69,7 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Res
             .as_ref()
             .is_some_and(|auth_config| !auth_config.oidc_provider.enabled)
     {
-        return HttpResponse::NotFound().finish();
+        return StatusCode::NOT_FOUND.into_response();
     }
     // Authentication happens in the body rather than through the `User`
     // extractor. An extractor runs before the handler, so the proxy — and with
@@ -77,19 +81,14 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Res
     if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
         return response;
     }
-    let peer_ip = req.peer_addr().map(|addr| addr.ip());
-    let forwarded_for = req
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok());
-    let peer_id = forwarded::throttle_client_ip(forwarded_for, peer_ip);
+    let peer_id = forwarded::throttle_client_ip(forwarded_for(&req.headers), peer_ip(&req));
 
-    let token = match extract_authorization_header(&req) {
+    let token = match extract_authorization_header(&req.headers) {
         Ok(token) => token,
         Err(e) => {
             error!("Authorization header extraction failed: {}", e);
             throttle::record_auth_failure(&data, &proxy, &peer_id).await;
-            return HttpResponse::Unauthorized().finish();
+            return StatusCode::UNAUTHORIZED.into_response();
         }
     };
     // Validated against the proxy's own auth server (`state.oidc_client`), which
@@ -108,7 +107,7 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Res
         Ok(None) => {
             error!("User info not found in OIDC response");
             throttle::record_auth_failure(&data, &proxy, &peer_id).await;
-            return HttpResponse::Unauthorized().finish();
+            return StatusCode::UNAUTHORIZED.into_response();
         }
         Err(e) => {
             error!(error = %e, "couldn't resolve the caller's token");
@@ -117,22 +116,22 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Res
             if e.is_caller_fault() {
                 throttle::record_auth_failure(&data, &proxy, &peer_id).await;
             }
-            return HttpResponse::Unauthorized().finish();
+            return StatusCode::UNAUTHORIZED.into_response();
         }
     };
     let (redirect_front, redirect_kubectl) = super::callback_target(&req);
     let oidc_conf = match proxy
-        .get_oidc_conf(data.clone().into_inner(), redirect_front, redirect_kubectl)
+        .get_oidc_conf(data.clone(), redirect_front, redirect_kubectl)
         .await
     {
         Ok(Some(conf)) => conf,
         Ok(None) => {
             error!("OIDC config not found");
-            return HttpResponse::InternalServerError().finish();
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
         Err(e) => {
             error!(error = %e, "couldn't resolve the OIDC config");
-            return HttpResponse::InternalServerError().finish();
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
     // Resolving the caller is not the same as authorizing them. Every sibling
@@ -151,7 +150,7 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Res
             user = %user.username,
             "refusing a login for a cluster the caller is not a member of"
         );
-        return HttpResponse::NotFound().finish();
+        return StatusCode::NOT_FOUND.into_response();
     }
     info!(
         "User {:?} is logging in to cluster {:?}",
@@ -161,7 +160,7 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Res
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't get oidc client");
-            return HttpResponse::InternalServerError().finish();
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
     let scopes: Vec<Scope> = oidc_conf
@@ -192,12 +191,15 @@ pub async fn cluster_login(req: HttpRequest, data: web::Data<State>) -> impl Res
         .await
     {
         error!(error = %e, "couldn't store csrf and nonce in redis");
-        return HttpResponse::InternalServerError().finish();
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
     // The documented `text/plain`: without it the generated clients fall back
     // to `application/octet-stream` and refuse the body.
-    HttpResponse::Ok()
-        .content_type("text/plain; charset=utf-8")
-        .body(auth_url.to_string())
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        auth_url.to_string(),
+    )
+        .into_response()
 }

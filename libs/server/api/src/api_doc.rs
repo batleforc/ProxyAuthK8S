@@ -46,6 +46,14 @@ impl Modify for SecurityAddons {
     servers(
         (url = "/", description = "Current usable server.")
     ),
+    // The proxy catch-all, routed outside utoipa-axum (see `cluster_router`).
+    paths(
+        crate::cluster::redirect::get_redirect,
+        crate::cluster::redirect::post_redirect,
+        crate::cluster::redirect::put_redirect,
+        crate::cluster::redirect::patch_redirect,
+        crate::cluster::redirect::delete_redirect,
+    ),
     modifiers(&SecurityAddons)
 )]
 pub struct ApiDoc;
