@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use actix_web::{HttpRequest, dev::PeerAddr, web};
+use axum::http::HeaderMap;
 use common::{
     State,
     upstream_cache::{
@@ -30,7 +30,7 @@ const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// configuration the upgrade path uses), so neither outlives the TTL.
 pub(super) async fn upstream_client(
     proxy: &ProxyKubeApi,
-    data: &web::Data<State>,
+    data: &State,
 ) -> Result<reqwest::Client, String> {
     let key = UpstreamCacheKey::for_proxy(proxy);
     let ttl = upstream_client_ttl();
@@ -52,7 +52,7 @@ pub(super) async fn upstream_client(
 /// upstream client cache, whose key does not tell the two identities apart.
 pub(super) async fn ca_only_client(
     proxy: &ProxyKubeApi,
-    data: &web::Data<State>,
+    data: &State,
 ) -> Result<reqwest::Client, String> {
     build_upstream_client(build_tls_config(proxy, data, false).await?)
 }
@@ -81,11 +81,11 @@ fn build_upstream_client(tls_config: rustls::ClientConfig) -> Result<reqwest::Cl
 /// and re-created here, so a caller cannot forge its own identity.
 pub(super) fn apply_forward_headers(
     mut builder: reqwest::RequestBuilder,
-    req: &HttpRequest,
-    peer_addr: Option<PeerAddr>,
+    headers: &HeaderMap,
+    peer_ip: Option<std::net::IpAddr>,
     user: Option<&User>,
 ) -> reqwest::RequestBuilder {
-    for (name, value) in req.headers() {
+    for (name, value) in headers {
         let name = name.as_str();
         // Skip headers that must not be forwarded or are managed by reqwest when
         // streaming, any header the proxy itself is authoritative for, and any
@@ -104,11 +104,9 @@ pub(super) fn apply_forward_headers(
 
     // Append to the forwarding chain rather than replacing it, so an upstream
     // proxy's record of the original client survives.
-    let incoming_forwarded_for = req
-        .headers()
+    let incoming_forwarded_for = headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok());
-    let peer_ip = peer_addr.map(|PeerAddr(addr)| addr.ip());
     if let Some(forwarded_for) = forwarded_for_value(incoming_forwarded_for, peer_ip) {
         builder = builder.header("x-forwarded-for", forwarded_for);
     }

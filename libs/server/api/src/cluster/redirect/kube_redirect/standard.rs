@@ -1,8 +1,10 @@
-use actix_web::{HttpResponse, http, web};
+use axum::{
+    body::{Body, Bytes},
+    http::{self, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
+};
 use futures_util::stream::StreamExt;
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 
 use super::context::RedirectContext;
 use super::upstream::{apply_forward_headers, upstream_client};
@@ -23,13 +25,6 @@ const MAX_UPSTREAM_TIMEOUT: std::time::Duration = std::time::Duration::from_hour
 /// body is streamed through untouched and simply not logged.
 fn debug_body_max_bytes() -> usize {
     common::config::get().proxy.debug_body_max_bytes
-}
-
-/// In-flight chunks between the client payload reader and the upstream request
-/// body (`PROXY_STREAM_CHANNEL_CAPACITY`): bounded so a slow upstream applies
-/// back-pressure instead of accumulating the whole body in memory.
-fn stream_channel_capacity() -> usize {
-    common::config::get().proxy.stream_channel_capacity
 }
 
 /// Content-Length of a request/response, when the peer announced one.
@@ -59,10 +54,11 @@ fn body_for_debug_log(body: &[u8]) -> String {
 // identifies the target cluster at any level through `url_to_call`.
 #[instrument(
     skip_all,
-    fields(method = ?ctx.method, peer_addr = ?ctx.peer_addr, proxy = tracing::field::Empty, url_to_call)
+    fields(method = ?ctx.method, peer_addr = ?ctx.peer_ip, proxy = tracing::field::Empty, url_to_call)
 )]
-pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
+pub(super) async fn standard_redirect(ctx: RedirectContext) -> Response {
     let url_to_call = ctx.url_to_call();
+    let query_string = ctx.query_string().to_string();
     tracing::Span::current().record("url_to_call", ctx.url_without_query().as_str());
     let is_debug_enabled = tracing::enabled!(tracing::Level::DEBUG);
     if is_debug_enabled {
@@ -70,18 +66,17 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
     }
     let RedirectContext {
         req,
+        body: payload,
         data,
-        mut payload,
         method,
-        peer_addr,
+        peer_ip,
         proxy,
         user,
         audit,
         ..
     } = ctx;
     // watch=true/1 and follow=true/1 produce infinite streaming responses; treat them specially
-    let is_streaming_request = req
-        .query_string()
+    let is_streaming_request = query_string
         .split('&')
         .any(|p| p.starts_with("watch=") || p.starts_with("follow="));
 
@@ -90,7 +85,7 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
     // size we are willing to hold in memory. Unknown or oversized bodies are
     // streamed through as usual and simply not logged.
     let buffer_request_body = is_debug_enabled
-        && match announced_content_length(req.headers()) {
+        && match announced_content_length(&req.headers) {
             Some(len) => len <= debug_body_limit,
             None => false,
         };
@@ -102,8 +97,9 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
         );
     }
 
+    let mut payload = payload.into_data_stream();
     let request_body = if buffer_request_body {
-        let mut body = web::BytesMut::new();
+        let mut body = Vec::new();
         let mut overflowed = false;
         while let Some(item) = payload.next().await {
             match item {
@@ -129,11 +125,14 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
                 "request body exceeded the debug buffering limit"
             );
             audit.emit(413);
-            return HttpResponse::PayloadTooLarge()
-                .body("request body exceeds the configured proxy buffering limit");
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "request body exceeds the configured proxy buffering limit",
+            )
+                .into_response();
         }
 
-        let body = body.freeze();
+        let body = Bytes::from(body);
         debug!(
             request_body_len = body.len(),
             request_body = %body_for_debug_log(body.as_ref()),
@@ -144,72 +143,40 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
         None
     };
 
-    let request_stream = if request_body.is_none() {
-        // Stream the request payload into a bounded tokio channel as raw bytes.
-        // The bound is what makes a slow upstream back-pressure the client
-        // instead of letting the whole body pile up in memory.
-        // Only forward successful chunks; on a payload error log and stop.
-        let (tx, rx) = mpsc::channel::<web::Bytes>(stream_channel_capacity());
-        actix_web::rt::spawn(async move {
-            while let Some(item) = payload.next().await {
-                match item {
-                    Ok(chunk) => {
-                        // send bytes, but stop if receiver was dropped
-                        if tx.send(chunk).await.is_err() {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        error!(%e, "error reading request payload");
-                        break;
-                    }
-                }
-            }
-
-            // tx is dropped here when the task ends which closes the stream for the receiver
-        });
-        Some(rx)
-    } else {
-        None
-    };
+    // Streamed straight into the upstream request body: hyper's own flow
+    // control back-pressures the client when the upstream is slow.
+    let request_stream = request_body.is_none().then_some(payload);
 
     let client = match upstream_client(&proxy, &data).await {
         Ok(client) => client,
         Err(err) => {
             error!(err, "couldn't build the upstream client");
             audit.emit(503);
-            return HttpResponse::ServiceUnavailable().body("upstream unavailable");
+            return (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response();
         }
     };
 
-    let upstream_method = match reqwest::Method::from_bytes(method.as_str().as_bytes()) {
-        Ok(m) => m,
-        Err(err) => {
-            error!(error = %err, method = %method.as_str(), "unsupported HTTP method");
-            audit.emit(405);
-            return HttpResponse::MethodNotAllowed().body("unsupported HTTP method");
-        }
-    };
-
-    let mut forwarded_req = client.request(upstream_method, url_to_call);
+    // Same `http` crate on both sides: the method is forwarded as is.
+    let mut forwarded_req = client.request(method, url_to_call);
 
     forwarded_req = match (request_body, request_stream) {
         (Some(request_body), _) => forwarded_req.body(request_body),
         // Convert the ReceiverStream<Bytes> into a stream of Result<Bytes, _>
         // which reqwest::Body::wrap_stream expects.
-        (None, Some(request_stream)) => forwarded_req.body(reqwest::Body::wrap_stream(
-            ReceiverStream::new(request_stream).map(Ok::<web::Bytes, std::io::Error>),
-        )),
+        (None, Some(request_stream)) => forwarded_req
+            .body(reqwest::Body::wrap_stream(request_stream.map(|chunk| {
+                chunk.inspect_err(|e| error!(%e, "error reading request payload"))
+            }))),
         // Unreachable: exactly one of the two is always set above.
         (None, None) => forwarded_req,
     };
 
-    forwarded_req = apply_forward_headers(forwarded_req, &req, peer_addr, user.as_ref());
+    forwarded_req = apply_forward_headers(forwarded_req, &req.headers, peer_ip, user.as_ref());
 
     // Kubernetes sends durations in Go format (`timeout=32s`, `1m30s`), so the
     // value has to be parsed as such and not as a bare number of seconds.
     // One extra second of slack so the upstream timeout fires first.
-    if let Some(timeout) = extract_timeout_from_query(req.query_string()) {
+    if let Some(timeout) = extract_timeout_from_query(&query_string) {
         let capped = timeout.min(MAX_UPSTREAM_TIMEOUT);
         forwarded_req = forwarded_req.timeout(capped + std::time::Duration::from_secs(1));
     }
@@ -219,7 +186,7 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
         Err(e) => {
             tracing::error!(error = %e, "error forwarding request to cluster");
             audit.emit(503);
-            return HttpResponse::ServiceUnavailable().body("upstream unavailable");
+            return (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response();
         }
     };
 
@@ -230,58 +197,29 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
     let response_headers = res.headers().clone();
 
     tracing::Span::current().record("http.response.status_code", response_status.as_u16());
-    // An upstream status we cannot represent is a broken gateway, not a reason
-    // to panic the worker.
-    let client_status = match actix_web::http::StatusCode::from_u16(response_status.as_u16()) {
-        Ok(status) => status,
-        Err(err) => {
-            error!(error = %err, upstream_status = response_status.as_u16(), "invalid upstream status code");
-            actix_web::http::StatusCode::BAD_GATEWAY
-        }
-    };
-    let mut client_resp = HttpResponse::build(client_status);
-
-    // Track whether the upstream already sent a Content-Encoding so we know whether to
-    // add "identity" ourselves to stop actix-web's Compress middleware from buffering the stream.
+    // Same `http` crate on both sides: status and headers are copied as they
+    // are, minus the hop-by-hop ones.
+    let mut client_resp = Response::builder().status(response_status);
     let mut has_content_encoding = false;
-    for (header_name, header_value) in &response_headers {
-        let name = header_name.as_str();
-        if name.eq_ignore_ascii_case("content-encoding") {
-            has_content_encoding = true;
-        }
-        // Skip headers that must not be forwarded or are managed by reqwest when streaming
-        if is_hop_by_hop(name) {
-            continue;
-        }
-
-        // Only forward header values that are valid UTF-8 strings. If not valid, skip them.
-        let Ok(value_str) = header_value.to_str() else {
-            // non-utf8 header; skip it to avoid conversion issues
-            info!(header = %name, "skipping non-utf8 header");
-            continue;
-        };
-
-        // An upstream may send a header actix cannot represent; drop it rather
-        // than panicking the worker.
-        match (
-            actix_web::http::header::HeaderName::from_bytes(name.as_bytes()),
-            actix_web::http::header::HeaderValue::from_bytes(value_str.as_bytes()),
-        ) {
-            (Ok(header_name), Ok(header_value)) => {
-                client_resp.insert_header((header_name, header_value));
+    if let Some(headers) = client_resp.headers_mut() {
+        for (name, value) in &response_headers {
+            if name == http::header::CONTENT_ENCODING {
+                has_content_encoding = true;
             }
-            _ => {
-                warn!(header = %name, "skipping response header actix cannot represent");
+            if !is_hop_by_hop(name.as_str()) {
+                headers.append(name, value.clone());
             }
         }
-    }
-
-    // Prevent actix-web's Compress middleware from gzip-buffering the proxied stream.
-    // Compress skips compression whenever Content-Encoding is already present in the response.
-    // If the upstream didn't send one (common for k8s watch/logs), inject "identity" so
-    // Compress leaves the byte stream untouched and each chunk reaches the client immediately.
-    if !has_content_encoding {
-        client_resp.insert_header(("content-encoding", "identity"));
+        // Keep the compression layer from buffering the proxied stream: it
+        // leaves alone a response that already names its encoding. Without
+        // one (common for k8s watch/logs), say "identity" so each chunk
+        // reaches the client immediately.
+        if !has_content_encoding {
+            headers.insert(
+                http::header::CONTENT_ENCODING,
+                HeaderValue::from_static("identity"),
+            );
+        }
     }
 
     // Same rule as for the request: only hold the response in memory when the
@@ -301,11 +239,13 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
                     response_body = %body_for_debug_log(response_body.as_ref()),
                     "standard redirect output body"
                 );
-                client_resp.body(response_body)
+                client_resp
+                    .body(Body::from(response_body))
+                    .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
             }
             Err(e) => {
                 error!(%e, "error reading response body for debug logging");
-                HttpResponse::ServiceUnavailable().body("upstream unavailable")
+                (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response()
             }
         }
     } else {
@@ -316,6 +256,8 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> HttpResponse {
             );
         }
         // Copy the response body stream directly to the client response
-        client_resp.streaming(res.bytes_stream())
+        client_resp
+            .body(Body::from_stream(res.bytes_stream()))
+            .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
     }
 }

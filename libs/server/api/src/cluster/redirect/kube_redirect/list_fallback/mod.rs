@@ -32,7 +32,9 @@
 //! rules review can't resolve a candidate — it is the only source ever
 //! trusted for the actual allow/deny decision when there is any doubt.
 
-use actix_web::{HttpRequest, dev::PeerAddr, web};
+use std::net::IpAddr;
+
+use axum::http::HeaderMap;
 use common::State;
 use crd::ProxyKubeApi;
 use crd::certificate::CertSource;
@@ -79,11 +81,12 @@ pub(super) fn is_configured(proxy: &ProxyKubeApi) -> bool {
 /// keeps a transposition from compiling.
 pub(super) struct ListFallbackArgs<'a> {
     pub(super) proxy: &'a ProxyKubeApi,
-    pub(super) state: &'a web::Data<State>,
+    pub(super) state: &'a State,
     /// Client for the caller's own (impersonated) access reviews.
     pub(super) client: &'a reqwest::Client,
-    pub(super) req: &'a HttpRequest,
-    pub(super) peer_addr: Option<PeerAddr>,
+    /// The client's request headers, forwarded to the access reviews.
+    pub(super) headers: &'a HeaderMap,
+    pub(super) peer_ip: Option<IpAddr>,
     pub(super) user: Option<&'a User>,
     /// Upstream origin, trailing slash already trimmed.
     pub(super) base_url: &'a str,

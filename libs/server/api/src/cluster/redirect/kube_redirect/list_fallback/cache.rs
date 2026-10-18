@@ -4,7 +4,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 
-use actix_web::web;
 use common::State;
 use crd::ProxyKubeApi;
 use sha2::{Digest, Sha256};
@@ -60,7 +59,7 @@ pub(super) fn cache_key(
 }
 
 pub(super) async fn load_cached_outcome(
-    state: &web::Data<State>,
+    state: &State,
     proxy: &ProxyKubeApi,
     user: Option<&User>,
     probe: virtual_api::AccessProbe,
@@ -76,7 +75,7 @@ pub(super) async fn load_cached_outcome(
 }
 
 pub(super) async fn store_cached_outcome(
-    state: &web::Data<State>,
+    state: &State,
     proxy: &ProxyKubeApi,
     user: Option<&User>,
     probe: virtual_api::AccessProbe,

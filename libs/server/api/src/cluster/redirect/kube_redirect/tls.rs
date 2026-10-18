@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use actix_web::web;
 use common::{
     State,
     upstream_cache::{UPSTREAM_TLS_CONFIGS, UpstreamCacheKey, upstream_client_ttl},
@@ -18,7 +17,7 @@ use rustls_platform_verifier::BuilderVerifierExt;
 /// re-read the cluster's certificates from Kubernetes every time.
 pub(super) async fn cached_tls_config(
     proxy: &ProxyKubeApi,
-    state: &web::Data<State>,
+    state: &State,
 ) -> Result<Arc<ClientConfig>, String> {
     UPSTREAM_TLS_CONFIGS
         .get_or_try_insert_with(
@@ -39,7 +38,7 @@ pub(super) async fn cached_tls_config(
 /// the front-proxy mTLS identity used for impersonated calls).
 pub(super) async fn build_tls_config(
     proxy: &ProxyKubeApi,
-    state: &web::Data<State>,
+    state: &State,
     attach_client_cert: bool,
 ) -> Result<ClientConfig, String> {
     let namespace = proxy.namespace().unwrap_or_default();

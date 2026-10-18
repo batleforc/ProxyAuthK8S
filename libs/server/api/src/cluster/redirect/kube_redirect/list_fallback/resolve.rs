@@ -2,7 +2,6 @@
 //! privileged fetch of the candidates, the per-item review of whatever the
 //! rules review left unresolved, and the cache/lock dance around both.
 
-use actix_web::web;
 use common::State;
 use crd::ProxyKubeApi;
 use crd::virtual_api::VirtualApiKind;
@@ -34,7 +33,7 @@ use crate::cluster::redirect::kube_redirect::{
 /// mapping itself.
 pub(super) async fn privileged_namespaces(
     proxy: &ProxyKubeApi,
-    state: &web::Data<State>,
+    state: &State,
     base_url: &str,
     namespaces_path: &str,
     query_string: &str,
@@ -105,17 +104,21 @@ async fn resolve_unresolved(
     };
 
     if !unresolved.is_empty() {
-        let checked: Vec<(String, bool)> = stream::iter(unresolved)
-            .map(|item| async move {
-                let name = item
-                    .get("metadata")
-                    .and_then(|metadata| metadata.get("name"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)?;
+        // Owned names, not items borrowed by the closure: a closure whose
+        // future borrows its argument keeps the handler future from being
+        // `Send` (rust-lang/rust#110338). An item without a name is skipped.
+        let names = unresolved.iter().filter_map(|item| {
+            item.get("metadata")
+                .and_then(|metadata| metadata.get("name"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        });
+        let checked: Vec<(String, bool)> = stream::iter(names.collect::<Vec<_>>())
+            .map(|name| async move {
                 let checked = check_access(
                     args.client,
-                    args.req,
-                    args.peer_addr,
+                    args.headers,
+                    args.peer_ip,
                     args.user,
                     args.base_url,
                     args.probe,
@@ -167,8 +170,8 @@ fn fully_resolved(outcome: &RulesOutcome, items: &[Value]) -> bool {
 async fn rules_review(args: &ListFallbackArgs<'_>) -> RulesOutcome {
     resolve_via_rules_review(
         args.client,
-        args.req,
-        args.peer_addr,
+        args.headers,
+        args.peer_ip,
         args.user,
         args.base_url,
         args.probe,

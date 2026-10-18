@@ -1,7 +1,12 @@
 //! Watch streams: translated event by event, because a watch never ends and so
 //! can never be buffered the way an ordinary response is.
 
-use actix_web::{HttpResponse, http, web};
+use axum::{
+    body::Body,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
+};
+use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use serde_json::Value;
 use tracing::warn;
@@ -12,19 +17,19 @@ use crate::cluster::redirect::kube_redirect::virtual_redirect::body::max_buffere
 /// Translate a newline-delimited watch stream event by event.
 pub(super) fn stream_watch(
     res: reqwest::Response,
-    status: http::StatusCode,
+    status: StatusCode,
     registry: MapperRegistry,
     upstream_path: String,
-) -> HttpResponse {
-    let mut buffer = web::BytesMut::new();
+) -> Response {
+    let mut buffer = BytesMut::new();
     // Cap a single unterminated line: a watch that never emits a newline (a
     // hostile or stuck upstream) would otherwise grow `buffer` without bound.
     let line_limit = max_buffered_bytes();
     let translated = res.bytes_stream().map(move |chunk| {
-        let chunk = chunk.map_err(actix_web::error::ErrorBadGateway)?;
+        let chunk = chunk.map_err(std::io::Error::other)?;
         buffer.extend_from_slice(&chunk);
 
-        let mut out = web::BytesMut::new();
+        let mut out = BytesMut::new();
         // Only whole lines can be parsed; a partial one stays buffered until
         // the rest of it arrives.
         while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
@@ -55,17 +60,20 @@ pub(super) fn stream_watch(
         // Whatever is left is an as-yet-unterminated line; refuse to let it grow
         // past the limit.
         if buffer.len() > line_limit {
-            return Err(actix_web::error::ErrorBadGateway(
-                "watch line exceeds the size limit",
-            ));
+            return Err(std::io::Error::other("watch line exceeds the size limit"));
         }
 
-        Ok::<web::Bytes, actix_web::Error>(out.freeze())
+        Ok::<Bytes, std::io::Error>(out.freeze())
     });
 
-    HttpResponse::build(status)
-        .content_type("application/json")
-        // Stop actix' Compress middleware from buffering the stream.
-        .insert_header(("content-encoding", "identity"))
-        .streaming(translated)
+    (
+        status,
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            // Keep the compression layer from buffering the stream.
+            (header::CONTENT_ENCODING, "identity"),
+        ],
+        Body::from_stream(translated),
+    )
+        .into_response()
 }

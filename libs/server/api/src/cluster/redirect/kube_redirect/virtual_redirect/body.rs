@@ -4,7 +4,12 @@
 //! capped: [`read_response_capped`] aborts as soon as the limit is passed
 //! instead of buffering everything and checking the size afterwards.
 
-use actix_web::{HttpResponse, http, web};
+use axum::{
+    body::Body,
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
+};
+use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use serde_json::Value;
 
@@ -18,18 +23,19 @@ pub(super) fn max_buffered_bytes() -> usize {
     common::config::get().proxy.virtual_max_body_bytes
 }
 
-pub(super) fn json_response(status: http::StatusCode, body: &Value) -> HttpResponse {
-    HttpResponse::build(status)
-        .content_type("application/json")
-        .body(body.to_string())
+pub(super) fn json_response(status: StatusCode, body: &Value) -> Response {
+    (
+        status,
+        [(header::CONTENT_TYPE, "application/json")],
+        body.to_string(),
+    )
+        .into_response()
 }
 
 /// Read the client body, capped, so a mapper can rewrite it.
-pub(super) async fn read_client_body(
-    payload: &mut web::Payload,
-    limit: usize,
-) -> Result<web::Bytes, ReadCapError> {
-    let mut body = web::BytesMut::new();
+pub(super) async fn read_client_body(payload: Body, limit: usize) -> Result<Bytes, ReadCapError> {
+    let mut body = BytesMut::new();
+    let mut payload = payload.into_data_stream();
     while let Some(chunk) = payload.next().await {
         let chunk = chunk.map_err(|err| ReadCapError::Upstream(err.to_string()))?;
         if body.len() + chunk.len() > limit {
@@ -55,14 +61,14 @@ pub(super) enum ReadCapError {
 pub(super) async fn read_response_capped(
     res: reqwest::Response,
     limit: usize,
-) -> Result<web::Bytes, ReadCapError> {
+) -> Result<Bytes, ReadCapError> {
     // Reject early when the upstream announced an oversized body.
     if let Some(len) = res.content_length()
         && len > limit as u64
     {
         return Err(ReadCapError::TooLarge);
     }
-    let mut body = web::BytesMut::new();
+    let mut body = BytesMut::new();
     let mut stream = res.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|err| ReadCapError::Upstream(err.to_string()))?;

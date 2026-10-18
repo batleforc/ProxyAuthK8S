@@ -8,7 +8,12 @@
 //! thing on the security-sensitive hot path. Passing one named struct makes
 //! that class of mistake a compile error.
 
-use actix_web::{HttpRequest, dev::PeerAddr, http, web};
+use std::{net::IpAddr, sync::Arc};
+
+use axum::{
+    body::Body,
+    http::{Method, request::Parts},
+};
 use common::State;
 use crd::ProxyKubeApi;
 
@@ -16,11 +21,13 @@ use crate::cluster::redirect::audit::AuditContext;
 use crate::model::user::User;
 
 pub(super) struct RedirectContext {
-    pub req: HttpRequest,
-    pub data: web::Data<State>,
-    pub payload: web::Payload,
-    pub method: http::Method,
-    pub peer_addr: Option<PeerAddr>,
+    /// The request head; the path and query are its raw URI.
+    pub req: Parts,
+    pub body: Body,
+    pub data: Arc<State>,
+    pub method: Method,
+    /// The TCP peer, when the server recorded it.
+    pub peer_ip: Option<IpAddr>,
     pub proxy: ProxyKubeApi,
     /// The caller, when the cluster validates tokens. `None` means validation
     /// is disabled — never "the caller failed to authenticate", which is
@@ -37,7 +44,12 @@ pub(super) struct RedirectContext {
 impl RedirectContext {
     /// The absolute upstream URL for a plain forward.
     pub(super) fn url_to_call(&self) -> String {
-        join_upstream_url(&self.base_url, &self.upstream_path, self.req.query_string())
+        join_upstream_url(&self.base_url, &self.upstream_path, self.query_string())
+    }
+
+    /// The client's raw query string, empty when there is none.
+    pub(super) fn query_string(&self) -> &str {
+        self.req.uri.query().unwrap_or_default()
     }
 
     /// The upstream URL without the client's query string, for spans and

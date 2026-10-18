@@ -11,7 +11,14 @@
 //! Response rewriting means buffering, which is why watches get their own
 //! newline-delimited path: a watch never ends, so it can never be buffered.
 
-use actix_web::{HttpRequest, HttpResponse, dev::PeerAddr, http, web};
+use std::net::IpAddr;
+
+use axum::{
+    body::Body,
+    http::{self, StatusCode, header, request::Parts},
+    response::{IntoResponse, Response},
+};
+use bytes::Bytes;
 use common::State;
 use crd::ProxyKubeApi;
 use serde_json::Value;
@@ -66,8 +73,6 @@ enum VirtualFailure {
     RequestBodyUnreadable(String),
     /// The upstream client could not be built.
     ClientUnavailable(String),
-    /// The method has no reqwest equivalent.
-    UnsupportedMethod { error: String, method: String },
     /// The upstream request could not be built.
     BuildFailed(reqwest::Error),
     /// The upstream request failed.
@@ -80,59 +85,62 @@ enum VirtualFailure {
 
 impl VirtualFailure {
     /// Log the failure, record its audit event and build the client answer.
-    fn respond(self, audit: &AuditContext) -> HttpResponse {
+    fn respond(self, audit: &AuditContext) -> Response {
         match self {
             Self::NoMapper { path } => {
                 error!(%path, "virtual plan without a matching mapper");
                 audit.emit(500);
-                HttpResponse::InternalServerError().finish()
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
             Self::RequestBodyTooLarge { limit } => {
                 warn!(limit, "virtual request body exceeds the size cap");
                 audit.emit(413);
-                HttpResponse::PayloadTooLarge().body(format!("request body exceeds {limit} bytes"))
+                (
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    format!("request body exceeds {limit} bytes"),
+                )
+                    .into_response()
             }
             Self::RequestBodyUnreadable(err) => {
                 warn!(%err, "could not read the request body of a virtual request");
                 audit.emit(400);
-                HttpResponse::BadRequest().body("could not read request body")
+                (StatusCode::BAD_REQUEST, "could not read request body").into_response()
             }
             Self::ClientUnavailable(err) => {
                 error!(err, "couldn't build the upstream client");
                 audit.emit(503);
-                HttpResponse::ServiceUnavailable().body("upstream unavailable")
-            }
-            Self::UnsupportedMethod { error, method } => {
-                error!(error = %error, method = %method, "unsupported HTTP method");
-                audit.emit(405);
-                HttpResponse::MethodNotAllowed().body("unsupported HTTP method")
+                (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response()
             }
             Self::BuildFailed(err) => {
                 error!(error = %err, "couldn't build the virtual API request");
                 audit.emit(500);
-                HttpResponse::InternalServerError().finish()
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
             Self::ForwardFailed(err) => {
                 error!(error = %err, "error forwarding a virtual API request");
                 audit.emit(503);
-                HttpResponse::ServiceUnavailable().body("upstream unavailable")
+                (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response()
             }
             Self::ResponseTooLarge { limit } => {
                 error!(limit, "virtual API response is too large to translate");
                 audit.emit(502);
-                HttpResponse::BadGateway().body("upstream response is too large to translate")
+                (
+                    StatusCode::BAD_GATEWAY,
+                    "upstream response is too large to translate",
+                )
+                    .into_response()
             }
             Self::ResponseUnreadable(err) => {
                 error!(error = %err, "error reading the upstream response");
                 audit.emit(503);
-                HttpResponse::ServiceUnavailable().body("upstream unavailable")
+                (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response()
             }
         }
     }
 }
 
 /// Discovery the proxy owns outright: no cluster round-trip.
-fn answer_discovery(body: &Value, upstream_path: &str, audit: &AuditContext) -> HttpResponse {
+fn answer_discovery(body: &Value, upstream_path: &str, audit: &AuditContext) -> Response {
     debug!(path = %upstream_path, "answering virtual discovery locally");
     audit.emit(200);
     json_response(http::StatusCode::OK, body)
@@ -145,19 +153,17 @@ fn method_not_allowed(
     upstream_path: &str,
     method: &http::Method,
     audit: &AuditContext,
-) -> HttpResponse {
+) -> Response {
     debug!(path = %upstream_path, method = %method.as_str(), "method not allowed on virtual resource");
     audit.emit(405);
-    HttpResponse::MethodNotAllowed()
-        .insert_header(("allow", allow))
-        .finish()
+    (StatusCode::METHOD_NOT_ALLOWED, [(header::ALLOW, allow)]).into_response()
 }
 
 /// What to forward for a client body: nothing when empty, the mapper's
 /// rewrite when it is JSON, the bytes verbatim otherwise (the cluster will say
 /// what it thinks of them).
 fn rewrite_request_body(
-    body: web::Bytes,
+    body: Bytes,
     rewrite: impl FnOnce(Value) -> Value,
 ) -> Option<VirtualRequestBody> {
     if body.is_empty() {
@@ -178,7 +184,7 @@ async fn forwarded_body(
     registry: &MapperRegistry,
     upstream_path: &str,
     method: &http::Method,
-    payload: &mut web::Payload,
+    payload: Body,
 ) -> Result<Option<VirtualRequestBody>, VirtualFailure> {
     if matches!(forward, Forward::MergeApiGroups) {
         return Ok(None);
@@ -213,16 +219,16 @@ fn upstream_url(base_url: &str, path: &str, query_string: &str) -> String {
 
 /// The client request a virtual call is forwarded on behalf of.
 struct Caller<'a> {
-    req: &'a HttpRequest,
+    req: &'a Parts,
     method: &'a http::Method,
-    peer_addr: Option<PeerAddr>,
+    peer_ip: Option<IpAddr>,
     user: Option<&'a User>,
 }
 
 /// Build the upstream request, send it, and hand back the upstream answer.
 async fn send_upstream(
     proxy: &ProxyKubeApi,
-    data: &web::Data<State>,
+    data: &State,
     url: &str,
     caller: &Caller<'_>,
     request_body: Option<VirtualRequestBody>,
@@ -232,7 +238,7 @@ async fn send_upstream(
         .map_err(VirtualFailure::ClientUnavailable)?;
     let forwarded_req = build_forwarded_request(&client, url, caller, request_body)?;
 
-    debug!(from = %caller.req.path(), to = %url, "forwarding a virtual API request");
+    debug!(from = %caller.req.uri.path(), to = %url, "forwarding a virtual API request");
     client
         .execute(forwarded_req)
         .await
@@ -246,18 +252,10 @@ fn build_forwarded_request(
     caller: &Caller<'_>,
     request_body: Option<VirtualRequestBody>,
 ) -> Result<reqwest::Request, VirtualFailure> {
-    let method = caller.method;
-    let upstream_method =
-        reqwest::Method::from_bytes(method.as_str().as_bytes()).map_err(|err| {
-            VirtualFailure::UnsupportedMethod {
-                error: err.to_string(),
-                method: method.as_str().to_string(),
-            }
-        })?;
     let mut forwarded_req = apply_forward_headers(
-        client.request(upstream_method, url),
-        caller.req,
-        caller.peer_addr,
+        client.request(caller.method.clone(), url),
+        &caller.req.headers,
+        caller.peer_ip,
         caller.user,
     )
     .build()
@@ -316,7 +314,7 @@ async fn translated_response(
     registry: &MapperRegistry,
     upstream_path: &str,
     audit: &AuditContext,
-) -> Result<HttpResponse, VirtualFailure> {
+) -> Result<Response, VirtualFailure> {
     let limit = max_buffered_bytes();
     let body = read_response_capped(res, limit)
         .await
@@ -331,7 +329,7 @@ async fn translated_response(
             // Nothing to translate; hand the bytes back as they came.
             warn!(error = %err, "upstream response is not JSON, forwarding it untouched");
             audit.emit(status.as_u16());
-            return Ok(HttpResponse::build(status).body(body));
+            return Ok((status, body).into_response());
         }
     };
 
@@ -343,7 +341,7 @@ async fn translated_response(
 /// Where a virtual request is sent: the cluster and its upstream origin.
 struct Target<'a> {
     proxy: &'a ProxyKubeApi,
-    data: &'a web::Data<State>,
+    data: &'a State,
     /// Upstream origin, trailing slash already trimmed.
     base_url: &'a str,
 }
@@ -363,8 +361,8 @@ async fn list_fallback_response(
     caller: &Caller<'_>,
     target: &Target<'_>,
     audit: &AuditContext,
-) -> Option<HttpResponse> {
-    let query_string = caller.req.query_string();
+) -> Option<Response> {
+    let query_string = caller.req.uri.query().unwrap_or_default();
     if !matches!(forward, Forward::Mapped { .. })
         || !caller.method.as_str().eq_ignore_ascii_case("GET")
         || is_watch(query_string)
@@ -388,8 +386,8 @@ async fn list_fallback_response(
         proxy: target.proxy,
         state: target.data,
         client: &client,
-        req: caller.req,
-        peer_addr: caller.peer_addr,
+        headers: &caller.req.headers,
+        peer_ip: caller.peer_ip,
         user: caller.user,
         base_url: target.base_url,
         namespaces_path: &namespaces_path,
@@ -404,7 +402,7 @@ async fn list_fallback_response(
         Err(list_fallback::DiscoveryError(err)) => {
             error!(err, "list fallback discovery failed");
             audit.emit(503);
-            HttpResponse::ServiceUnavailable().body("upstream unavailable")
+            (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response()
         }
     };
     Some(response)
@@ -414,13 +412,13 @@ pub(super) async fn virtual_redirect(
     ctx: RedirectContext,
     registry: MapperRegistry,
     plan: VirtualPlan,
-) -> HttpResponse {
+) -> Response {
     let RedirectContext {
         req,
+        body: payload,
         data,
-        mut payload,
         method,
-        peer_addr,
+        peer_ip,
         proxy,
         user,
         audit,
@@ -441,7 +439,7 @@ pub(super) async fn virtual_redirect(
     let caller = Caller {
         req: &req,
         method: &method,
-        peer_addr,
+        peer_ip,
         user: user.as_ref(),
     };
     let target = Target {
@@ -464,12 +462,11 @@ pub(super) async fn virtual_redirect(
 
     let outcome = async {
         let request_body =
-            forwarded_body(&forward, &registry, &upstream_path, &method, &mut payload).await?;
-        let query_string = req.query_string();
+            forwarded_body(&forward, &registry, &upstream_path, &method, payload).await?;
+        let query_string = req.uri.query().unwrap_or_default();
         let url = upstream_url(&base_url, forward.path(), query_string);
         let res = send_upstream(&proxy, &data, &url, &caller, request_body).await?;
-        let status = http::StatusCode::from_u16(res.status().as_u16())
-            .unwrap_or(http::StatusCode::BAD_GATEWAY);
+        let status = res.status();
 
         // Each branch emits the audit event for the status it really answers
         // with, exactly once. A watch never ends, so it is translated event by
@@ -532,15 +529,15 @@ mod tests {
     #[test]
     fn client_bodies_are_rewritten_only_when_json() {
         let rewrite = |_: Value| serde_json::json!({"kind": "Namespace"});
-        assert_eq!(rewrite_request_body(web::Bytes::new(), rewrite), None);
+        assert_eq!(rewrite_request_body(Bytes::new(), rewrite), None);
         assert_eq!(
-            rewrite_request_body(web::Bytes::from_static(b"{}"), rewrite),
+            rewrite_request_body(Bytes::from_static(b"{}"), rewrite),
             Some(VirtualRequestBody::Rewritten(
                 br#"{"kind":"Namespace"}"#.to_vec()
             ))
         );
         assert_eq!(
-            rewrite_request_body(web::Bytes::from_static(b"not json"), rewrite),
+            rewrite_request_body(Bytes::from_static(b"not json"), rewrite),
             Some(VirtualRequestBody::Verbatim(b"not json".to_vec()))
         );
     }
@@ -602,13 +599,6 @@ mod tests {
             (VirtualFailure::RequestBodyTooLarge { limit: 1 }, 413),
             (VirtualFailure::RequestBodyUnreadable("e".into()), 400),
             (VirtualFailure::ClientUnavailable("e".into()), 503),
-            (
-                VirtualFailure::UnsupportedMethod {
-                    error: "e".into(),
-                    method: "X".into(),
-                },
-                405,
-            ),
             (VirtualFailure::ResponseTooLarge { limit: 1 }, 502),
             (VirtualFailure::ResponseUnreadable("e".into()), 503),
         ];

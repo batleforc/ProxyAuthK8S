@@ -3,7 +3,9 @@
 
 use std::collections::HashSet;
 
-use actix_web::{HttpRequest, dev::PeerAddr, http};
+use std::net::IpAddr;
+
+use axum::http::{self, HeaderMap};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -23,8 +25,8 @@ use crate::model::user::User;
 /// ordinary filtering.
 pub(super) async fn check_access(
     client: &reqwest::Client,
-    req: &HttpRequest,
-    peer_addr: Option<PeerAddr>,
+    headers: &HeaderMap,
+    peer_ip: Option<IpAddr>,
     user: Option<&User>,
     base_url: &str,
     probe: virtual_api::AccessProbe,
@@ -47,7 +49,7 @@ pub(super) async fn check_access(
     let mut builder = client
         .request(reqwest::Method::POST, &url)
         .timeout(upstream_timeout());
-    builder = apply_forward_headers(builder, req, peer_addr, user);
+    builder = apply_forward_headers(builder, headers, peer_ip, user);
     builder = builder
         .header(http::header::CONTENT_TYPE.as_str(), "application/json")
         .body(body.to_string());
@@ -157,8 +159,8 @@ fn interpret_rules_review(body: &Value, probe: virtual_api::AccessProbe) -> Opti
 /// `incomplete`: `None`, safe to fall back on.
 pub(super) async fn resolve_via_rules_review(
     client: &reqwest::Client,
-    req: &HttpRequest,
-    peer_addr: Option<PeerAddr>,
+    headers: &HeaderMap,
+    peer_ip: Option<IpAddr>,
     user: Option<&User>,
     base_url: &str,
     probe: virtual_api::AccessProbe,
@@ -182,7 +184,7 @@ pub(super) async fn resolve_via_rules_review(
     let mut builder = client
         .request(reqwest::Method::POST, &url)
         .timeout(upstream_timeout());
-    builder = apply_forward_headers(builder, req, peer_addr, user);
+    builder = apply_forward_headers(builder, headers, peer_ip, user);
     builder = builder
         .header(http::header::CONTENT_TYPE.as_str(), "application/json")
         .body(body.to_string());
