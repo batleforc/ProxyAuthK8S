@@ -140,19 +140,19 @@ impl UpgradeRefusal {
     fn respond(self, audit: &AuditContext) -> Response {
         match self {
             Self::NotWebsocket => {
-                audit.emit(400);
+                audit.emit_refusal(400);
                 bad_request(
-                    "this proxy only tunnels websocket upgrades; SPDY is not supported, use a kubectl recent enough to use websockets for exec, attach and port-forward",
+                    "this proxy only tunnels websocket upgrades; SPDY is not supported, use a kubectl recent enough to use websockets for exec, attach and port-forward; if a websocket attempt failed just before, kubectl -v=6 shows the upstream reason",
                 )
             }
             Self::PortOutsidePolicy(reason) => {
                 warn!(%reason, "refusing a port-forward to a port outside the allowed list");
                 audit.emit_port_decision(PortDecision::Denied, None);
-                audit.emit(403);
+                audit.emit_refusal(403);
                 forbidden(&reason)
             }
             Self::DeclaresBody => {
-                audit.emit(400);
+                audit.emit_refusal(400);
                 (
                     StatusCode::BAD_REQUEST,
                     "upgrade requests must not carry a body",
@@ -161,26 +161,26 @@ impl UpgradeRefusal {
             }
             Self::InvalidUpstreamUrl(err) => {
                 error!(error = %err, "invalid upstream url for upgrade request");
-                audit.emit(502);
+                audit.emit_refusal(502);
                 (StatusCode::BAD_GATEWAY, "bad gateway").into_response()
             }
             Self::ConnectFailed(err) => {
                 error!(error = %err, "could not open the upstream upgrade stream");
-                audit.emit(503);
+                audit.emit_refusal(503);
                 (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response()
             }
             Self::Handshake(err) => {
                 error!(error = %err, "the upgrade handshake with the upstream failed");
-                audit.emit(502);
+                audit.emit_refusal(502);
                 (StatusCode::BAD_GATEWAY, "bad gateway").into_response()
             }
             Self::NotUpgradable => {
-                audit.emit(400);
+                audit.emit_refusal(400);
                 bad_request("this connection cannot be upgraded; use HTTP/1.1")
             }
             Self::UnfilterablePortForward(reason) => {
                 warn!(%reason, "refusing a port-forward the proxy cannot filter");
-                audit.emit(403);
+                audit.emit_refusal(403);
                 forbidden(&reason)
             }
         }
@@ -257,9 +257,24 @@ async fn open_upstream(
         .map_err(|err| UpgradeRefusal::Handshake(err.to_string()))
 }
 
+/// The `message` of a Kubernetes `Status` body, the reason an apiserver gives
+/// for refusing an upgrade; `None` for any other body.
+fn status_message(body: &[u8]) -> Option<String> {
+    let status: serde_json::Value = serde_json::from_slice(body).ok()?;
+    (status.get("kind")?.as_str()? == "Status")
+        .then(|| status.get("message")?.as_str().map(str::to_string))
+        .flatten()
+        .filter(|message| !message.is_empty())
+}
+
 /// Relay an upstream answer that is not a `101`, read in full (bounded) so
-/// the upstream connection is dropped with it.
-async fn refused_upgrade_response(response: http::Response<hyper::body::Incoming>) -> Response {
+/// the upstream connection is dropped with it, and audit it with the reason
+/// the upstream gave (RFC 0008 decision 13): kubectl's SPDY fallback hides it
+/// from the user.
+async fn refused_upgrade_response(
+    response: http::Response<hyper::body::Incoming>,
+    audit: &AuditContext,
+) -> Response {
     let (head, body) = response.into_parts();
     let body = match Limited::new(body, MAX_REFUSED_RESPONSE_BYTES)
         .collect()
@@ -268,6 +283,8 @@ async fn refused_upgrade_response(response: http::Response<hyper::body::Incoming
         Ok(body) => body.to_bytes(),
         Err(err) => {
             error!(error = %err, status = %head.status, "could not read the refused upgrade response");
+            tracing::Span::current().record("http.response.status_code", 502);
+            audit.emit_refusal(502);
             return (
                 StatusCode::BAD_GATEWAY,
                 [(header::CONNECTION, "close")],
@@ -276,6 +293,7 @@ async fn refused_upgrade_response(response: http::Response<hyper::body::Incoming
                 .into_response();
         }
     };
+    record_status(audit, head.status, status_message(&body).as_deref());
     let mut response = relayed_response(head.status, &head.headers, Body::from(body));
     // The client is not upgraded either: close its connection, as before.
     response.headers_mut().insert(
@@ -309,10 +327,11 @@ fn switched_protocol(response: &http::Response<hyper::body::Incoming>) -> Option
         .map(str::to_string)
 }
 
-/// Record the status the client is answered with, on the span and the audit log.
-fn record_status(audit: &AuditContext, status: StatusCode) {
+/// Record the status the client is answered with, on the span and the audit
+/// log, with the upstream's reason for a refused upgrade.
+fn record_status(audit: &AuditContext, status: StatusCode, upstream_reason: Option<&str>) {
     tracing::Span::current().record("http.response.status_code", status.as_u16());
-    audit.emit(status.as_u16());
+    audit.emit_upstream_refusal(status.as_u16(), upstream_reason);
 }
 
 // `proxy` is `Empty` so the whole `ProxyKubeApi` is not formatted into the span
@@ -359,8 +378,7 @@ pub(super) async fn upgrade_redirect(ctx: RedirectContext, port_policy: PortPoli
         // allow-list and identity stamping. Answer with the refusal and drop
         // both connections.
         let Some(upgrade_protocol) = switched_protocol(&response) else {
-            record_status(&audit, response.status());
-            return Ok(refused_upgrade_response(response).await);
+            return Ok(refused_upgrade_response(response, &audit).await);
         };
 
         let filter = if is_restricted_port_forward {
@@ -372,7 +390,7 @@ pub(super) async fn upgrade_redirect(ctx: RedirectContext, port_policy: PortPoli
             audit.emit_port_decision(PortDecision::Allowed, Some(port));
         }
 
-        record_status(&audit, response.status());
+        record_status(&audit, response.status(), None);
         let upstream_upgrade = hyper::upgrade::on(&mut response);
         let filter = filter.map(|filter| (filter, audit.clone()));
         Ok(tunnel::tunnel(
@@ -420,6 +438,24 @@ pub(super) mod test_request {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_status_message_is_the_upstream_reason() {
+        let body = br#"{"kind":"Status","apiVersion":"v1","status":"Failure","message":"pod web does not have a host assigned","code":400}"#;
+        assert_eq!(
+            super::status_message(body).as_deref(),
+            Some("pod web does not have a host assigned")
+        );
+        assert_eq!(super::status_message(b"<html>nope</html>"), None);
+        assert_eq!(
+            super::status_message(br#"{"kind":"Pod","message":"x"}"#),
+            None
+        );
+        assert_eq!(
+            super::status_message(br#"{"kind":"Status","message":""}"#),
+            None
+        );
+    }
+
     use super::test_request::TestRequest;
     use super::*;
 

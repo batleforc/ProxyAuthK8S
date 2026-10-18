@@ -1,3 +1,4 @@
+use crate::cluster::redirect::audit::{Event, HandlerAudit};
 use std::sync::Arc;
 
 use axum::{
@@ -69,6 +70,21 @@ pub async fn authorize(
     Path(NsCluster { ns, cluster }): Path<NsCluster>,
     query: Query<AuthorizeQuery>,
 ) -> Response {
+    let mut audit = HandlerAudit::new(&ns, &cluster);
+    let response = authorize_inner(req, data, ns, cluster, query, &mut audit).await;
+    audit.finish(Event::OauthAuthorize, Event::OauthAuthorize, &response);
+    response
+}
+
+/// The handler itself; [`authorize`] writes its audit line.
+async fn authorize_inner(
+    req: Parts,
+    data: Arc<common::State>,
+    ns: String,
+    cluster: String,
+    query: Query<AuthorizeQuery>,
+    audit: &mut HandlerAudit,
+) -> Response {
     let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
         Ok(proxy) => proxy,
         Err(gate) => return gate.into_response(),
@@ -78,6 +94,7 @@ pub async fn authorize(
     }
 
     let Some(redirect_uri) = parse_loopback_redirect_uri(&query.redirect_uri) else {
+        audit.deny("redirect_uri is not a loopback URI");
         return (
             StatusCode::BAD_REQUEST,
             "invalid_request: redirect_uri must be a loopback URI (http://localhost, http://127.0.0.1 or http://[::1])",
@@ -85,6 +102,7 @@ pub async fn authorize(
             .into_response();
     };
 
+    audit.redirect_uri(redirect_uri.as_str());
     if query.response_type != "code" {
         return redirect_with_error(
             &redirect_uri,

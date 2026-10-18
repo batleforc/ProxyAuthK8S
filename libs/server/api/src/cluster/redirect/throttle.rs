@@ -11,7 +11,10 @@
 
 use common::State;
 use crd::{ProxyKubeApi, security::SecurityConfiguration};
+use kube::ResourceExt as _;
 use tracing::{debug, warn};
+
+use super::audit::{AuditEvent, Event, Outcome};
 
 /// Window over which requests are counted.
 const RATE_LIMIT_WINDOW_SECONDS: i64 = 60;
@@ -142,6 +145,11 @@ pub async fn record_auth_failure(state: &State, proxy: &ProxyKubeApi, subject: &
         failures,
         subject, ban_duration, "banning the client after too many failed authentications"
     );
+    AuditEvent::new(Event::ClientBanned, Outcome::Denied)
+        .cluster(&proxy.namespace().unwrap_or_default(), &proxy.name_any())
+        .client_ip(subject)
+        .ban(failures, u64::from(ban_duration))
+        .emit();
     if let Err(err) = state
         .set_flag(&ban_key(proxy, subject), u64::from(ban_duration))
         .await
@@ -219,7 +227,10 @@ pub async fn check_rate_limit(
 /// depth (or terminates TLS directly) can turn these on and get a real budget;
 /// one who has not is no worse off than before.
 pub mod unscoped {
-    use super::{FAILURE_WINDOW_SECONDS, RATE_LIMIT_WINDOW_SECONDS, Throttled, fail_closed};
+    use super::{
+        AuditEvent, Event, FAILURE_WINDOW_SECONDS, Outcome, RATE_LIMIT_WINDOW_SECONDS, Throttled,
+        fail_closed,
+    };
     use common::State;
     use tracing::{debug, warn};
 
@@ -320,6 +331,10 @@ pub mod unscoped {
             failures,
             subject, duration, "banning the client after too many failed authentications"
         );
+        AuditEvent::new(Event::ClientBanned, Outcome::Denied)
+            .client_ip(subject)
+            .ban(failures, duration)
+            .emit();
         if let Err(err) = state.set_flag(&ban_key(subject), duration).await {
             warn!(%err, "could not apply the ban");
         }

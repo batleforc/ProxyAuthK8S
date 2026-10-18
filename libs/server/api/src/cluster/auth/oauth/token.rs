@@ -1,3 +1,4 @@
+use crate::cluster::redirect::audit::{Event, HandlerAudit};
 use std::sync::Arc;
 
 use axum::{
@@ -87,6 +88,21 @@ pub async fn token(
     Path(NsCluster { ns, cluster }): Path<NsCluster>,
     form: Result<Form<TokenRequest>, FormRejection>,
 ) -> Response {
+    let mut audit = HandlerAudit::new(&ns, &cluster);
+    let response = token_inner(req, data, ns, cluster, form, &mut audit).await;
+    audit.finish(Event::OauthTokenIssued, Event::OauthTokenDenied, &response);
+    response
+}
+
+/// The handler itself; [`token`] writes its audit line.
+async fn token_inner(
+    req: Parts,
+    data: Arc<common::State>,
+    ns: String,
+    cluster: String,
+    form: Result<Form<TokenRequest>, FormRejection>,
+    audit: &mut HandlerAudit,
+) -> Response {
     // As under actix: a body over the limit is a 413, any other unreadable
     // form a 400 (axum's own answer would be a 422).
     let form = match form {
@@ -104,7 +120,9 @@ pub async fn token(
         return response;
     }
 
+    audit.redirect_uri(&form.redirect_uri);
     if form.grant_type != "authorization_code" {
+        audit.deny("unsupported_grant_type");
         return token_error(StatusCode::BAD_REQUEST, "unsupported_grant_type");
     }
 
@@ -117,22 +135,37 @@ pub async fn token(
             Ok(issued) => issued,
             Err(e) => {
                 error!(error = %e, "couldn't parse issued code");
+                audit.deny("invalid_grant");
                 return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
             }
         },
-        Ok(None) => return token_error(StatusCode::BAD_REQUEST, "invalid_grant"),
+        Ok(None) => {
+            audit.deny("invalid_grant");
+            return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
+        }
         Err(e) => {
             error!(error = %e, "couldn't get issued code");
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
+    if !issued.subject.is_empty() {
+        audit.user(&issued.subject, &[]);
+    }
     if !redirect_uri_matches(&form.redirect_uri, &issued.redirect_uri) {
+        audit.deny("redirect_uri does not match the code");
         return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
     }
     if !verify_pkce_s256(&form.code_verifier, &issued.code_challenge) {
+        audit.deny("PKCE verification failed");
         return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
     }
 
+    audit.grant(
+        "authorization_code",
+        issued
+            .expires_in
+            .and_then(|seconds| u64::try_from(seconds).ok()),
+    );
     (
         StatusCode::OK,
         [

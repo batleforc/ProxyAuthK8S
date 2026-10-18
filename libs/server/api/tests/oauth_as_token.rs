@@ -59,6 +59,7 @@ async fn seed_code(
 
 fn issued_code(redirect_uri: &str) -> IssuedCode {
     IssuedCode {
+        subject: "alice".to_string(),
         redirect_uri: redirect_uri.to_string(),
         code_challenge: s256_challenge(VERIFIER),
         access_token: "upstream-access-token".to_string(),

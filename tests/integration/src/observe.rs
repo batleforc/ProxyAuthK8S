@@ -49,8 +49,8 @@ pub async fn metric_delta<F: Future>(
     (after - before, result)
 }
 
-/// The back's log lines on the `audit` target (JSON format) that contain
-/// `needle`.
+/// The back's audit lines (RFC 0008: one JSON object with `audit_schema`)
+/// that contain `needle`.
 pub fn audit_lines(needle: &str) -> Vec<serde_json::Value> {
     let out = Bench::get().admin(&[
         "-n",
@@ -63,7 +63,7 @@ pub fn audit_lines(needle: &str) -> Vec<serde_json::Value> {
         .lines()
         .filter(|line| line.contains(needle))
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .filter(|event| event["target"] == "audit")
+        .filter(|event| event.get("audit_schema").is_some())
         .collect()
 }
 

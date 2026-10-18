@@ -86,15 +86,15 @@ Statuts :
 | 0007 | 7     | suite       | `rfc0007::p7_a_foreign_cors_preflight_is_refused` |
 | 0007 | 8     | suite       | `rfc0007::p8_the_http_metrics_keep_their_route_label` |
 | 0007 | 9     | hors suite  | manuel : débit `kubectl exec … cat /dev/zero`, et 7 jours en recette |
-| 0008 | 1     | à écrire    | |
-| 0008 | 2     | à écrire    | |
-| 0008 | 3     | à écrire    | |
-| 0008 | 4     | à écrire    | |
-| 0008 | 5     | à écrire    | |
-| 0008 | 6     | à écrire    | |
-| 0008 | 7     | à écrire    | |
+| 0008 | 1     | suite       | `rfc0008::p1_rust_log_does_not_silence_the_audit` |
+| 0008 | 2     | suite       | `rfc0008::p2_a_watch_is_audited_with_its_ids` |
+| 0008 | 3     | suite       | `rfc0008::p3_a_login_is_audited` (auth_login, auth_callback) ; flux OAuth médié prouvé hors banc par libs/server/api/tests/audit_trail.rs, aucun client réel ne le pilote (0008 §17, #277) |
+| 0008 | 4     | suite       | `rfc0008::p4_an_invalid_code_is_denied` |
+| 0008 | 5     | suite       | `rfc0008::p5_a_ban_is_audited` |
+| 0008 | 6     | suite       | `rfc0008::p6_a_refused_verb_is_audited` |
+| 0008 | 7     | suite       | `rfc0008::p7_the_upstream_refusal_reason_is_kept` |
 | 0008 | 8     | à écrire    | |
-| 0008 | 9     | à écrire    | |
+| 0008 | 9     | suite       | `rfc0008::p9_the_token_never_reaches_the_output` |
 | 0009 | 1     | suite       | `rfc0009::p1_front_answers_through_the_ingress_with_a_csp` |
 | 0009 | 2     | suite       | `rfc0009::p2_cli_login_reaches_pods_as_the_dex_user` |
 | 0009 | 3     | suite       | `rfc0009::p3_refusals_come_from_the_proxy` |

@@ -42,6 +42,29 @@ static POLICY_DECISIONS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
         .build()
 });
 
+/// Name of the counter of audit lines (exposed to Prometheus as
+/// `proxyauth_audit_events_total`). Labels: `event` and `outcome`, both closed
+/// lists (RFC 0008); never a user or a path.
+pub const AUDIT_EVENTS: &str = "proxyauth.audit.events";
+
+static AUDIT_EVENTS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(AUDIT_EVENTS)
+        .with_description("Audit lines written, by event and outcome.")
+        .build()
+});
+
+/// Count one audit line.
+pub fn record_audit_event(event: &'static str, outcome: &'static str) {
+    AUDIT_EVENTS_COUNTER.add(
+        1,
+        &[
+            KeyValue::new("event", event),
+            KeyValue::new("outcome", outcome),
+        ],
+    );
+}
+
 /// Count one policy decision.
 pub fn record_policy_decision(cluster: &str, policy: &'static str, decision: &'static str) {
     POLICY_DECISIONS_COUNTER.add(

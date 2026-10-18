@@ -52,8 +52,8 @@ async fn get(p: &Proxied, path: &str) -> (StatusCode, String) {
 fn port_decisions(ns: &str) -> Vec<Value> {
     observe::audit_lines(ns)
         .into_iter()
-        .filter(|e| e["fields"]["message"] == "port policy decision")
-        .filter(|e| e["fields"]["ns"] == ns)
+        .filter(|e| e["event"] == "policy_decision" && e["policy"] == "port")
+        .filter(|e| e["ns"] == ns)
         .collect()
 }
 
@@ -85,7 +85,7 @@ async fn p1_port_forward_on_an_allowed_port_connects() {
     assert!(
         decisions
             .iter()
-            .any(|e| e["fields"]["decision"] == "port_allowed" && e["fields"]["port"] == 8080),
+            .any(|e| e["decision"] == "allowed" && e["port"] == 8080),
         "no port_allowed port=8080 in {decisions:?}"
     );
 }
@@ -121,7 +121,7 @@ async fn p2_port_forward_on_another_port_is_refused() {
     assert!(
         decisions
             .iter()
-            .any(|e| e["fields"]["decision"] == "port_denied" && e["fields"]["port"] == 9090),
+            .any(|e| e["decision"] == "denied" && e["port"] == 9090),
         "no port_denied port=9090 in {decisions:?}"
     );
 }

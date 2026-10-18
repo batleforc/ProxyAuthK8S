@@ -606,3 +606,59 @@ Les phases 1 à 3 sont indépendantes du framework HTTP : elles touchent
 l'émission, pas le transport, et peuvent sortir avant la RFC 0007. La phase 4
 attend son tunnel, pour ne pas écrire deux fois le comptage d'octets.
 
+---
+
+## 17. Revision against the tree (2026-10-18, phases 1 à 3)
+
+Les phases 1 à 3 sont livrées ; la phase 4 (`session_closed`, point 8) reste
+l'étape 12c du PLAN, et le statut reste `Accepted` jusqu'à elle.
+
+Ce qui diffère du texte, et pourquoi :
+
+- **Pas de couche `tracing` dédiée (§6.1).** La couche JSON de
+  `tracing-subscriber` n'écrit pas de tableaux : `groups` serait sorti en
+  chaîne. `AuditEvent` construit donc l'objet JSON lui-même et l'écrit sur
+  stdout, de façon synchrone (décision 7) ; aucun filtre ne s'interpose, ce
+  qui tient la promesse de T1 plus directement qu'un filtre fixe. Un évènement
+  `tracing` minimal (`event`, `outcome`) part vers le span OTel, et la couche
+  de logs ordinaire exclut la cible `audit` (`audit=off`). Conséquence :
+  l'avertissement de démarrage « RUST_LOG no longer filters the audit target »
+  (§4.3) n'a plus d'objet et n'est pas écrit.
+- **`request_id` et `client_ip` viennent d'un scope de requête.** `root_span`
+  les pose dans un `task_local` tokio (`audit::scope`), lu par
+  `AuditEvent::new` : aucun émetteur ne les transporte. Une tâche lancée à part
+  (le tunnel de la phase 4) devra les recopier.
+- **`trace_id` vaut `null` quand `RUST_LOG` coupe les spans `info`** : il n'y a
+  alors pas de trace. Forcer le span racine changerait le volume exporté vers
+  OTel, ce que §6.1 exclut. Le point 2 du banc, qui tourne en `RUST_LOG=warn`,
+  vérifie la présence du champ, pas sa valeur.
+- **`decision` prend les valeurs de la métrique** (`allowed`, `denied`,
+  `node_proxy_denied`, `closed_by_filter`) sous `policy: port|verb`, au lieu de
+  `port_allowed`, `port_denied`, `verb_denied`… : un seul vocabulaire pour la
+  ligne et pour `proxyauth_policy_decisions_total`.
+- **`outcome` d'une ligne `request`** : `allowed` dès que le proxy a laissé
+  passer la requête, quel que soit le statut de l'amont (un refus d'upgrade
+  relayé est `allowed`, avec `upstream_reason`) ; `denied` ou `error` pour un
+  refus du proxy lui-même (4xx ou 5xx).
+- **Les erreurs OAuth en redirection** (`302` vers le client avec `?error=`)
+  sont classées par leur code, ramené à une liste fermée (`HandlerAudit`) :
+  `server_error` est une `error`, les autres un refus.
+- **`IssuedCode` porte `subject`**, pas `groups` : le jeton d'identité n'en
+  porte pas toujours, et `/oauth/token` n'en a pas besoin pour nommer le
+  destinataire. Un code émis avant la mise à jour n'a pas de `subject`, et sa
+  ligne garde `user: "-"`.
+- **Preuve du point 3** : kubelogin ne peut pas piloter le serveur OAuth
+  médié, puisqu'il découvre l'IdP par `/.well-known/openid-configuration`,
+  que le proxy n'expose pas. `oc login --web`, le client que la fonction
+  imite, échoue aujourd'hui sur la racine `/clusters/{ns}/{cluster}`, qui n'est
+  pas routée (« Seems you passed an HTML page »). `rfc0008::p3` prouve donc
+  `auth_login` et `auth_callback` par la connexion SSO du plugin ;
+  `oauth_token_issued` et l'absence de jeton (T2, T3) sont prouvés par
+  `tests/audit_trail.rs`, et `oauth_token_denied` par `rfc0008::p4`. La
+  compatibilité `oc login` est suivie par l'issue #277, et la doc ne la
+  promet plus.
+
+Preuves : `rfc0008::p1` à `p7` et `p9` verts sur le banc (kubectl 1.37.1 côté
+poste, 1.35 épinglé en CI) ; `tests/audit_trail.rs` (5 tests) ; T4 et la
+troncature de `upstream_reason` en tests unitaires de `audit.rs` ; T8 dans
+`root_span.rs`. §8 : aucune crate nouvelle, kubelogin non ajouté.

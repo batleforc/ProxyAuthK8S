@@ -10,6 +10,7 @@ use crd_runtime::ProxyKubeApiRuntime;
 use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge, Scope, core::CoreAuthenticationFlow};
 use tracing::{error, info, instrument};
 
+use crate::cluster::redirect::audit::{Event, HandlerAudit};
 use crate::{
     cluster::auth::{auth_model::LoginToCallBackModel, throttle_oauth_as},
     cluster::redirect::{forwarded, throttle},
@@ -47,6 +48,20 @@ pub async fn cluster_login(
     State(data): State<Arc<common::State>>,
     Path(NsCluster { ns, cluster }): Path<NsCluster>,
     req: Parts,
+) -> Response {
+    let mut audit = HandlerAudit::new(&ns, &cluster);
+    let response = cluster_login_inner(data, ns, cluster, req, &mut audit).await;
+    audit.finish(Event::AuthLogin, Event::AuthLogin, &response);
+    response
+}
+
+/// The handler itself; [`cluster_login`] writes its audit line.
+async fn cluster_login_inner(
+    data: Arc<common::State>,
+    ns: String,
+    cluster: String,
+    req: Parts,
+    audit: &mut HandlerAudit,
 ) -> Response {
     /// The CSRF token and nonce only need to survive the redirect round-trip.
     const CSRF_NONCE_TTL_SECONDS: u64 = 300;
@@ -87,6 +102,7 @@ pub async fn cluster_login(
         Ok(token) => token,
         Err(e) => {
             error!("Authorization header extraction failed: {}", e);
+            audit.deny("no usable bearer token");
             throttle::record_auth_failure(&data, &proxy, &peer_id).await;
             return StatusCode::UNAUTHORIZED.into_response();
         }
@@ -102,15 +118,18 @@ pub async fn cluster_login(
     {
         Ok(Some(user)) => {
             throttle::clear_auth_failures(&data, &proxy, &peer_id).await;
+            audit.user(&user.username, &user.groups);
             user
         }
         Ok(None) => {
             error!("User info not found in OIDC response");
+            audit.deny("the token could not be resolved to a user");
             throttle::record_auth_failure(&data, &proxy, &peer_id).await;
             return StatusCode::UNAUTHORIZED.into_response();
         }
         Err(e) => {
             error!(error = %e, "couldn't resolve the caller's token");
+            audit.deny("the token could not be validated");
             // Only a fault in the caller's own token counts toward a ban; a
             // provider outage must not ban whoever happened to be calling.
             if e.is_caller_fault() {
@@ -150,6 +169,7 @@ pub async fn cluster_login(
             user = %user.username,
             "refusing a login for a cluster the caller is not a member of"
         );
+        audit.deny("not a member of the cluster's group");
         return StatusCode::NOT_FOUND.into_response();
     }
     info!(

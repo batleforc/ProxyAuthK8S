@@ -39,6 +39,9 @@ back:
   env:
     - name: SSL_CERT_FILE
       value: /etc/proxyauth-it/rootCA.pem
+    # RFC 0008 §6.P point 1: the audit must get through a restrictive level.
+    - name: RUST_LOG
+      value: warn
   extraVolumes:
     - name: it-ca
       secret:

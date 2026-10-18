@@ -89,12 +89,12 @@ impl VirtualFailure {
         match self {
             Self::NoMapper { path } => {
                 error!(%path, "virtual plan without a matching mapper");
-                audit.emit(500);
+                audit.emit_refusal(500);
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
             Self::RequestBodyTooLarge { limit } => {
                 warn!(limit, "virtual request body exceeds the size cap");
-                audit.emit(413);
+                audit.emit_refusal(413);
                 (
                     StatusCode::PAYLOAD_TOO_LARGE,
                     format!("request body exceeds {limit} bytes"),
@@ -103,27 +103,27 @@ impl VirtualFailure {
             }
             Self::RequestBodyUnreadable(err) => {
                 warn!(%err, "could not read the request body of a virtual request");
-                audit.emit(400);
+                audit.emit_refusal(400);
                 (StatusCode::BAD_REQUEST, "could not read request body").into_response()
             }
             Self::ClientUnavailable(err) => {
                 error!(err, "couldn't build the upstream client");
-                audit.emit(503);
+                audit.emit_refusal(503);
                 (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response()
             }
             Self::BuildFailed(err) => {
                 error!(error = %err, "couldn't build the virtual API request");
-                audit.emit(500);
+                audit.emit_refusal(500);
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
             Self::ForwardFailed(err) => {
                 error!(error = %err, "error forwarding a virtual API request");
-                audit.emit(503);
+                audit.emit_refusal(503);
                 (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response()
             }
             Self::ResponseTooLarge { limit } => {
                 error!(limit, "virtual API response is too large to translate");
-                audit.emit(502);
+                audit.emit_refusal(502);
                 (
                     StatusCode::BAD_GATEWAY,
                     "upstream response is too large to translate",
@@ -132,7 +132,7 @@ impl VirtualFailure {
             }
             Self::ResponseUnreadable(err) => {
                 error!(error = %err, "error reading the upstream response");
-                audit.emit(503);
+                audit.emit_refusal(503);
                 (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response()
             }
         }
@@ -155,7 +155,7 @@ fn method_not_allowed(
     audit: &AuditContext,
 ) -> Response {
     debug!(path = %upstream_path, method = %method.as_str(), "method not allowed on virtual resource");
-    audit.emit(405);
+    audit.emit_refusal(405);
     (StatusCode::METHOD_NOT_ALLOWED, [(header::ALLOW, allow)]).into_response()
 }
 
@@ -415,7 +415,7 @@ async fn list_fallback_response(
         }
         Err(list_fallback::DiscoveryError(err)) => {
             error!(err, "list fallback discovery failed");
-            audit.emit(503);
+            audit.emit_refusal(503);
             (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response()
         }
     };

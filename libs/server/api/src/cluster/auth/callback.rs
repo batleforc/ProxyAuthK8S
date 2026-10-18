@@ -1,3 +1,4 @@
+use crate::cluster::redirect::audit::{Event, HandlerAudit};
 use std::sync::Arc;
 
 use axum::{
@@ -55,6 +56,21 @@ pub async fn callback_login(
     Path(NsCluster { ns, cluster }): Path<NsCluster>,
     req: Parts,
     callback: Query<CallbackQuery>,
+) -> Response {
+    let mut audit = HandlerAudit::new(&ns, &cluster);
+    let response = callback_login_inner(data, ns, cluster, req, callback, &mut audit).await;
+    audit.finish(Event::AuthCallback, Event::AuthCallback, &response);
+    response
+}
+
+/// The handler itself; [`callback_login`] writes its audit line.
+async fn callback_login_inner(
+    data: Arc<common::State>,
+    ns: String,
+    cluster: String,
+    req: Parts,
+    callback: Query<CallbackQuery>,
+    audit: &mut HandlerAudit,
 ) -> Response {
     let proxy: ProxyKubeApi = match data
         .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
@@ -133,11 +149,13 @@ pub async fn callback_login(
                 model
             } else {
                 error!("Couldn't parse nonce object");
+                audit.deny("invalid or expired state");
                 return (StatusCode::BAD_REQUEST, "Invalid state").into_response();
             }
         }
         Ok(None) => {
             error!("Nonce not found in redis");
+            audit.deny("invalid or expired state");
             return (StatusCode::BAD_REQUEST, "Invalid state").into_response();
         }
         Err(e) => {
@@ -150,6 +168,7 @@ pub async fn callback_login(
             Ok(code) => code,
             Err(e) => {
                 error!(error = %e, "couldn't exchange code");
+                audit.fail("the code exchange with the identity provider failed");
                 return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
@@ -162,6 +181,7 @@ pub async fn callback_login(
         Ok(token) => token,
         Err(e) => {
             error!(error = %e, "couldn't get token response");
+            audit.fail("the code exchange with the identity provider failed");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
@@ -177,6 +197,7 @@ pub async fn callback_login(
         Ok(claims) => claims,
         Err(e) => {
             error!(error = %e, "couldn't verify ID token");
+            audit.fail("the ID token could not be verified");
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
@@ -208,9 +229,11 @@ pub async fn callback_login(
             }
         };
         if actual_access_token_hash != *expected_access_token_hash {
+            audit.deny("the access token does not match the ID token");
             return (StatusCode::BAD_REQUEST, "Invalid access token").into_response();
         }
     }
+    audit.user(claims.subject().as_str(), &[]);
     let callback_body = CallbackModel {
         id_token: id_token.to_string(),
         access_token: token_response.access_token().secret().clone(),

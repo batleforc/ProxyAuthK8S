@@ -222,7 +222,7 @@ async fn p8_options_is_refused() {
     );
     let relayed = integration::observe::audit_lines(&p.ns.name)
         .into_iter()
-        .any(|e| e["fields"]["verb"] == "OPTIONS");
+        .any(|e| e["http_method"] == "OPTIONS");
     assert!(!relayed, "an OPTIONS request reached the proxy handler");
 }
 

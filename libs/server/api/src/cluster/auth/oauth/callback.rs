@@ -1,3 +1,4 @@
+use crate::cluster::redirect::audit::{Event, HandlerAudit};
 use std::sync::Arc;
 
 use axum::{
@@ -60,6 +61,21 @@ pub async fn callback(
     Path(NsCluster { ns, cluster }): Path<NsCluster>,
     callback: Query<OAuthCallbackQuery>,
 ) -> Response {
+    let mut audit = HandlerAudit::new(&ns, &cluster);
+    let response = callback_inner(req, data, ns, cluster, callback, &mut audit).await;
+    audit.finish(Event::OauthCallback, Event::OauthCallback, &response);
+    response
+}
+
+/// The handler itself; [`callback`] writes its audit line.
+async fn callback_inner(
+    req: Parts,
+    data: Arc<common::State>,
+    ns: String,
+    cluster: String,
+    callback: Query<OAuthCallbackQuery>,
+    audit: &mut HandlerAudit,
+) -> Response {
     let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
         Ok(proxy) => proxy,
         Err(gate) => return gate.into_response(),
@@ -76,11 +92,13 @@ pub async fn callback(
             Ok(pending) => pending,
             Err(e) => {
                 error!(error = %e, "couldn't parse pending authorization");
+                audit.deny("invalid or expired state");
                 return (StatusCode::BAD_REQUEST, "invalid state").into_response();
             }
         },
         Ok(None) => {
             error!("pending authorization not found");
+            audit.deny("invalid or expired state");
             return (StatusCode::BAD_REQUEST, "invalid or expired state").into_response();
         }
         Err(e) => {
@@ -94,6 +112,7 @@ pub async fn callback(
         error!("stored client_redirect_uri is not a valid URL");
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
+    audit.redirect_uri(client_redirect_uri.as_str());
 
     let oauth_conf = match proxy.get_oauth_as_oidc_conf(data.clone()).await {
         Ok(Some(conf)) => conf,
@@ -235,8 +254,10 @@ pub async fn callback(
         }
     }
 
+    audit.user(claims.subject().as_str(), &[]);
     let issued_code_value = openidconnect::CsrfToken::new_random().secret().clone();
     let issued = IssuedCode {
+        subject: claims.subject().to_string(),
         redirect_uri: pending.client_redirect_uri.clone(),
         code_challenge: pending.client_code_challenge,
         access_token: token_response.access_token().secret().clone(),

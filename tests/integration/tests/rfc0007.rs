@@ -180,9 +180,10 @@ async fn p4_a_port_forward_outside_the_policy_is_refused() {
     };
     assert_ne!(refused.code, Some(0), "{refused:?}");
     let denied = observe::audit_lines(&p.ns.name).into_iter().any(|e| {
-        e["fields"]["ns"] == p.ns.name.as_str()
-            && e["fields"]["decision"] == "port_denied"
-            && e["fields"]["port"] == 9090
+        e["ns"] == p.ns.name.as_str()
+            && e["event"] == "policy_decision"
+            && e["decision"] == "denied"
+            && e["port"] == 9090
     });
     assert!(denied, "no port_denied port=9090 in the audit");
 }

@@ -45,6 +45,11 @@ pub struct PendingAuthorization {
 
 #[derive(Serialize, Deserialize)]
 pub struct IssuedCode {
+    /// Who the tokens were issued to (the verified ID token's `sub`), for the
+    /// audit line of `/oauth/token` (RFC 0008). Absent from a code minted
+    /// before the upgrade.
+    #[serde(default)]
+    pub subject: String,
     /// Must match the `redirect_uri` the external client presents at `/oauth/token`
     /// (RFC 6749 §4.1.3): binds the code to the request that requested it.
     pub redirect_uri: String,

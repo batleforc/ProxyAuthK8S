@@ -124,7 +124,7 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> Response {
                 debug_body_limit,
                 "request body exceeded the debug buffering limit"
             );
-            audit.emit(413);
+            audit.emit_refusal(413);
             return (
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "request body exceeds the configured proxy buffering limit",
@@ -151,7 +151,7 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> Response {
         Ok(client) => client,
         Err(err) => {
             error!(err, "couldn't build the upstream client");
-            audit.emit(503);
+            audit.emit_refusal(503);
             return (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response();
         }
     };
@@ -185,7 +185,7 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> Response {
         Ok(res) => res,
         Err(e) => {
             tracing::error!(error = %e, "error forwarding request to cluster");
-            audit.emit(503);
+            audit.emit_refusal(503);
             return (StatusCode::SERVICE_UNAVAILABLE, "upstream unavailable").into_response();
         }
     };

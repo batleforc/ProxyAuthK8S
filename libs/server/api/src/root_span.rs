@@ -17,14 +17,29 @@ use opentelemetry::propagation::Extractor;
 use tracing::{Instrument as _, field::Empty};
 use tracing_opentelemetry::OpenTelemetrySpanExt as _;
 
-use crate::metrics::MatchedRoute;
+use crate::{
+    cluster::redirect::{audit, forwarded::throttle_client_ip},
+    helper::forwarded_for,
+    metrics::MatchedRoute,
+};
 
 /// Middleware: run the request inside its root span, then record the route
 /// and the status on it, and name the request in `x-request-id`.
 pub async fn root_span(req: Request, next: Next) -> Response {
     let request_id = uuid::Uuid::new_v4();
     let span = request_span(&req, &request_id);
-    let mut response = next.run(req).instrument(span.clone()).await;
+    // Read by every audit line of the request (RFC 0008): the proxy's own
+    // request id, never a client's `x-request-id`, and the client address as
+    // bans see it.
+    let peer = req
+        .extensions()
+        .get::<ConnectInfo<std::net::SocketAddr>>()
+        .map(|ConnectInfo(addr)| addr.ip());
+    let meta = audit::RequestMeta {
+        request_id: request_id.to_string(),
+        client_ip: throttle_client_ip(forwarded_for(req.headers()), peer),
+    };
+    let mut response = audit::scope(meta, next.run(req).instrument(span.clone())).await;
 
     if let Some(MatchedRoute(route)) = response.extensions().get::<MatchedRoute>() {
         span.record("http.route", route.as_str());
@@ -178,6 +193,44 @@ mod tests {
         assert_eq!(response.headers()["x-request-id"].len(), 36);
         let body = response.into_body().collect().await.unwrap().to_bytes();
         String::from_utf8(body.to_vec()).expect("utf-8 trace id")
+    }
+
+    /// T8 (RFC 0008): the audit line carries the proxy's request id, the one
+    /// the response names, never the id the client sent.
+    #[tokio::test]
+    async fn an_audit_line_carries_the_proxys_request_id() {
+        use crate::cluster::redirect::audit::{AuditEvent, Event, Outcome, capture};
+
+        capture::start();
+        let app = Router::new()
+            .route(
+                "/",
+                get(|| async {
+                    AuditEvent::new(Event::Request, Outcome::Allowed)
+                        .cluster("root-span", "t8")
+                        .emit();
+                }),
+            )
+            .layer(middleware::from_fn(root_span));
+        let response = app
+            .oneshot(
+                Request::get("/")
+                    .header("x-request-id", "forged")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let answered = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_string();
+        let line = capture::lines()
+            .into_iter()
+            .find(|line| line["ns"] == "root-span" && line["cluster"] == "t8")
+            .expect("the audit line");
+        assert_eq!(line["request_id"], answered.as_str());
+        assert_ne!(line["request_id"], "forged");
     }
 
     #[tokio::test]

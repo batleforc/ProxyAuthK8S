@@ -37,7 +37,7 @@ use virtual_redirect::virtual_redirect as serve_virtual_api;
 macro_rules! audited {
     ($audit:expr_2021, $response:expr_2021) => {{
         let response = $response;
-        $audit.emit(response.status().as_u16());
+        $audit.emit_refusal(response.status().as_u16());
         return response;
     }};
 }
@@ -86,6 +86,17 @@ pub async fn redirect(
     };
 
     let mut audit = AuditContext::new(&ns, &cluster, method.as_str(), &upstream_path);
+    // The Kubernetes verb, computed as the apiserver does (RFC 0006): every
+    // audit line of this request carries it, refusals included.
+    let request_info = crd::security::request_info(
+        method.as_str(),
+        &upstream_path,
+        req.uri.query().unwrap_or_default(),
+    )
+    .ok();
+    audit.k8s_verb = request_info
+        .as_ref()
+        .map(|info| info.verb.as_str().to_string());
 
     let is_upgrade = is_upgrade_request(&req, &upstream_path);
 
@@ -223,26 +234,30 @@ pub async fn redirect(
     // When a virtual API rewrites the request, the path that is really reached
     // on the cluster is checked too: allowing a virtual path must not become a
     // way around the allow-list on the API it maps to.
-    let request_info = crd::security::request_info(
-        method.as_str(),
-        &upstream_path,
-        req.uri.query().unwrap_or_default(),
-    )
-    .ok();
-    if let Some(security_config) = &proxy.spec.security_config {
-        let username = user.as_ref().map_or("", |u| u.username.as_str());
-        let groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
-
-        let mut checked = vec![(upstream_path.as_str(), request_info.clone())];
-        if let Some(mapped) = virtual_plan.as_ref().and_then(|plan| plan.upstream_path()) {
+    let mapped = virtual_plan
+        .as_ref()
+        .and_then(|plan| plan.upstream_path())
+        .map(|mapped| {
             let info = crd::security::request_info(
                 method.as_str(),
                 mapped,
                 req.uri.query().unwrap_or_default(),
             )
             .ok();
-            checked.push((mapped, info));
-        }
+            (mapped, info)
+        });
+    if let Some((path, info)) = &mapped {
+        audit.upstream = Some((
+            (*path).to_string(),
+            info.as_ref().map(|info| info.verb.as_str().to_string()),
+        ));
+    }
+    if let Some(security_config) = &proxy.spec.security_config {
+        let username = user.as_ref().map_or("", |u| u.username.as_str());
+        let groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
+
+        let mut checked = vec![(upstream_path.as_str(), request_info.clone())];
+        checked.extend(mapped.clone());
 
         for (path, info) in checked {
             if security_config.is_request_allowed(path, info.as_ref(), username, groups) {
@@ -253,7 +268,7 @@ pub async fn redirect(
                     .as_ref()
                     .map_or(method.as_str(), |info| info.verb.as_str());
                 warn!(%path, %verb, "request verb is not in the allowed resources");
-                audit.emit_verb_denied(verb);
+                audit.emit_verb_denied();
                 audited!(
                     audit,
                     forbidden(&format!("verb \"{verb}\" is not allowed on \"{path}\""))
