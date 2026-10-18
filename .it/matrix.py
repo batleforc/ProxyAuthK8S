@@ -4,7 +4,7 @@
 # ///
 """Check tests/integration/MATRIX.md against the RFCs (RFC 0009 §6.5).
 
-Every numbered point of a `### 6.P` section of `.rfc/000N-*.md` needs a row;
+Every numbered point of a `### 6.P` section of `.rfc/NNNN-*.md` needs a row;
 a `suite` row must name tests that exist; `hors suite` needs a reason or a
 pointer; `quarantaine` needs an issue number; `à écrire` is refused except
 for the RFCs whose code is not written yet (PENDING). The suite crate must
@@ -25,9 +25,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MATRIX = ROOT / "tests/integration/MATRIX.md"
-# RFCs whose rows may still say `à écrire`: 0004 and 0008, whose code is not
-# written yet; each leaves this set in the PR that lands its code and tests.
-PENDING = {"0004", "0008"}
+# RFCs whose rows may still say `à écrire`: 0004, 0008 and 0010, whose code is
+# not written yet; each leaves this set in the PR that lands its code and tests.
+PENDING = {"0004", "0008", "0010"}
 STATUSES = {"suite", "hors suite", "quarantaine", "à écrire"}
 
 
@@ -152,7 +152,7 @@ def main() -> int:
         self_test()
         return 0
     rfcs = {}
-    for path in sorted((ROOT / ".rfc").glob("000[1-9]-*.md")):
+    for path in sorted((ROOT / ".rfc").glob("[0-9][0-9][0-9][0-9]-*.md")):
         rfcs[path.name[:4]] = rfc_points(path.read_text())
     errors, warnings = check(
         rfcs,

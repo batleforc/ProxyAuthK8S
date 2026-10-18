@@ -1,6 +1,6 @@
 # Matrice §6.P → tests
 
-Une ligne par point numéroté d'un §6.P des RFC 0001 à 0009 (RFC 0009 §6.5).
+Une ligne par point numéroté d'un §6.P des RFC 0001 à 0010 (RFC 0009 §6.5).
 `task it:matrix` (et donc `task lint`) échoue si un point manque, si une ligne
 `suite` cite un test absent, si une ligne `hors suite` n'a ni renvoi ni
 raison, ou si une `quarantaine` n'a pas d'issue.
@@ -104,3 +104,10 @@ Statuts :
 | 0009 | 7     | suite       | `e2e-it/login.spec.ts › full login` |
 | 0009 | 8     | hors suite  | `retries = 0` du profil nextest `it` et `retries: 0` de `playwright.it.config.ts` ; échec volontaire vérifié à la main |
 | 0009 | 9     | hors suite  | résumé du job `integration` (durées de `it:up` et `it:test`) |
+| 0010 | 1     | à écrire    | `rfc0010::p1_…` |
+| 0010 | 2     | à écrire    | `rfc0010::p2_…` |
+| 0010 | 3     | à écrire    | `rfc0010::p3_…` |
+| 0010 | 4     | à écrire    | `rfc0010::p4_…` |
+| 0010 | 5     | à écrire    | `rfc0010::p5_…` |
+| 0010 | 6     | à écrire    | `rfc0010::p6_…` |
+| 0010 | 7     | à écrire    | `rfc0010::p7_…` |
