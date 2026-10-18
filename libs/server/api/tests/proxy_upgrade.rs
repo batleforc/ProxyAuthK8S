@@ -293,6 +293,26 @@ async fn an_accepted_upgrade_tunnels_both_ways() {
     assert_eq!(closed["bytes_out"], 4, "{closed}");
     assert_eq!(closed["close_reason"], "client", "{closed}");
     assert_eq!(closed["outcome"], "allowed", "{closed}");
+    // RFC 0004 phase 1: what the exec ran is on its lines.
+    assert_eq!(
+        closed["exec"]["argv"],
+        serde_json::json!(["sh"]),
+        "{closed}"
+    );
+    let opened = api::cluster::redirect::audit::capture::lines()
+        .into_iter()
+        .find(|line| {
+            line["cluster"] == cluster.as_str()
+                && line["event"] == "request"
+                && line["status"] == 101
+        })
+        .expect("the request line of the 101");
+    assert_eq!(
+        opened["exec"]["argv"],
+        serde_json::json!(["sh"]),
+        "{opened}"
+    );
+    assert_eq!(opened["exec"]["stdin"], false, "{opened}");
     assert!(closed["duration_ms"].is_u64(), "{closed}");
 
     server.stop(false).await;

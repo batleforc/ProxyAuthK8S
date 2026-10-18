@@ -59,6 +59,16 @@ pub struct SecurityConfiguration {
     #[serde(default = "default_empty_array::<AllowedPathConfigurationEnum>")]
     #[schemars(length(max = 128))]
     pub allowed_ressources: Vec<AllowedPathConfigurationEnum>,
+
+    /// Mask secrets in the command lines the audit records for exec (RFC 0004)
+    ///
+    /// When true, `-pSECRET`, `--password=SECRET`, `--token=SECRET` and the
+    /// element that follows `-p`, `--password` or `--token` are written as
+    /// `***`. A
+    /// heuristic, not a guarantee: off by default, so the audit keeps the
+    /// command exactly as it ran.
+    #[serde(default)]
+    pub mask_exec_secrets: bool,
 }
 
 impl Default for SecurityConfiguration {
@@ -70,6 +80,7 @@ impl Default for SecurityConfiguration {
             per_user_group_rate_limiting: default_empty_array(),
             allowed_resources: default_empty_array(),
             allowed_ressources: default_empty_array(),
+            mask_exec_secrets: false,
         }
     }
 }

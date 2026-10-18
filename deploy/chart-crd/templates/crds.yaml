@@ -1188,6 +1188,17 @@ spec:
                         minimum: 0.0
                         type: integer
                     type: object
+                  mask_exec_secrets:
+                    default: false
+                    description: |-
+                      Mask secrets in the command lines the audit records for exec (RFC 0004)
+
+                      When true, `-pSECRET`, `--password=SECRET`, `--token=SECRET` and the
+                      element that follows `-p`, `--password` or `--token` are written as
+                      `***`. A
+                      heuristic, not a guarantee: off by default, so the audit keeps the
+                      command exactly as it ran.
+                    type: boolean
                   per_user_group_rate_limiting:
                     default: []
                     description: |-

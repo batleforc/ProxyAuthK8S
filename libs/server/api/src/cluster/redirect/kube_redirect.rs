@@ -16,6 +16,7 @@ use crate::helper::{extract_authorization_header, forwarded_for, peer_ip};
 use crate::model::user::User;
 
 mod context;
+mod exec;
 mod list_fallback;
 mod port_forward;
 mod spdy_dictionary;
@@ -24,6 +25,7 @@ mod tls;
 mod upgrade;
 mod upstream;
 mod virtual_redirect;
+mod websocket;
 
 use context::RedirectContext;
 // Public for the `fuzz_port_target` fuzz target.
@@ -97,6 +99,27 @@ pub async fn redirect(
     audit.k8s_verb = request_info
         .as_ref()
         .map(|info| info.verb.as_str().to_string());
+    // What an exec or attach runs goes to every audit line of the request
+    // (RFC 0004); an unreadable query is left to the policy of phase 2.
+    if exec::is_exec_or_attach_path(&upstream_path)
+        && let Ok(request) = exec::parse_exec_query(req.uri.query().unwrap_or_default())
+    {
+        let mask = proxy
+            .spec
+            .security_config
+            .as_ref()
+            .is_some_and(|config| config.mask_exec_secrets);
+        audit.exec = Some(crate::cluster::redirect::audit::ExecAudit {
+            argv: if mask {
+                exec::mask_secrets(&request.argv)
+            } else {
+                request.argv
+            },
+            container: request.container,
+            stdin: request.stdin,
+            tty: request.tty,
+        });
+    }
 
     let is_upgrade = is_upgrade_request(&req, &upstream_path);
 

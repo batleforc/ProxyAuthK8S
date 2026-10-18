@@ -721,11 +721,21 @@ virtuelle, `upstream_path` et `upstream_k8s_verb` décrivent la requête réécr
 l'apiserver refuse un upgrade (exec, attach, port-forward), `upstream_reason` reprend le
 `message` de son `Status` (256 caractères au plus).
 
+Pour un `exec` ou un `attach`, chaque ligne de la requête (`request`, `policy_decision`,
+`session_closed`) porte un objet `exec` : `argv` (la commande, élément par élément), `container`,
+`stdin` et `tty`, tels que l'apiserver les lit dans la query. La commande est écrite **en entier**,
+y compris un mot de passe passé en argument (`mysql -pSECRET`). Avec
+`security_config.mask_exec_secrets: true`, ce qui ressemble à un secret est remplacé par `***`
+(`-pSECRET`, `--password=SECRET`, `--token=SECRET`, et l'élément qui suit `-p`, `--password` ou
+`--token`) : une heuristique, pas une garantie, désactivée par défaut.
+
 Une ligne ne contient **jamais** l'en-tête `Authorization`, un jeton (d'accès, de
 rafraîchissement, d'identité), un code d'autorisation, un `client_secret`, une query string ni
 un corps : ses champs sont une liste fermée.
 
-`proxyauth_audit_events_total{event, outcome}` compte les lignes écrites. Exemple de règle
+`proxyauth_audit_events_total{event, outcome}` compte les lignes écrites, et
+`proxyauth_session_duration_seconds{kind}` mesure la durée des tunnels (`kind` parmi `exec`,
+`attach`, `portforward`, `proxy`, `other`). Exemple de règle
 d'alerte : `increase(proxyauth_audit_events_total{event="client_banned"}[5m]) > 10`.
 
 <Callout type="warn">

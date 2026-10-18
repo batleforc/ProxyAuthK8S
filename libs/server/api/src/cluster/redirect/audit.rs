@@ -203,6 +203,20 @@ impl AuditEvent {
             .set("upstream_k8s_verb", json!(k8s_verb))
     }
 
+    /// What an exec or attach asked for (RFC 0004).
+    pub fn exec(self, exec: &ExecAudit) -> Self {
+        let argv: Vec<String> = exec.argv.iter().map(|e| sanitize_audit_field(e)).collect();
+        self.set(
+            "exec",
+            json!({
+                "argv": argv,
+                "container": exec.container.as_deref().map(sanitize_audit_field),
+                "stdin": exec.stdin,
+                "tty": exec.tty,
+            }),
+        )
+    }
+
     /// The answer's status and how long it took.
     pub fn status(self, status: u16, latency_ms: u64) -> Self {
         self.set("status", json!(status))
@@ -472,6 +486,16 @@ impl PortDecision {
     }
 }
 
+/// What an exec or attach request asked for, as the audit records it: the
+/// command line already masked when `mask_exec_secrets` is on.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ExecAudit {
+    pub argv: Vec<String>,
+    pub container: Option<String>,
+    pub stdin: bool,
+    pub tty: bool,
+}
+
 /// Everything known about a proxied request before it is answered.
 #[derive(Debug, Clone)]
 pub struct AuditContext {
@@ -483,6 +507,8 @@ pub struct AuditContext {
     pub k8s_verb: Option<String>,
     /// The rewritten request of a virtual API: path and Kubernetes verb.
     pub upstream: Option<(String, Option<String>)>,
+    /// What an exec or attach asked for (RFC 0004).
+    pub exec: Option<ExecAudit>,
     pub user: Option<String>,
     pub groups: Vec<String>,
     started_at: Instant,
@@ -498,6 +524,7 @@ impl AuditContext {
             path: path.to_string(),
             k8s_verb: None,
             upstream: None,
+            exec: None,
             user: None,
             groups: Vec::new(),
             started_at: Instant::now(),
@@ -524,8 +551,12 @@ impl AuditContext {
             .user(self.user.as_deref(), &self.groups)
             .cluster(&self.ns, &self.cluster)
             .http(&self.method, self.k8s_verb.as_deref(), &self.path);
-        match &self.upstream {
+        let line = match &self.upstream {
             Some((path, verb)) => line.upstream(path, verb.as_deref()),
+            None => line,
+        };
+        match &self.exec {
+            Some(exec) => line.exec(exec),
             None => line,
         }
     }

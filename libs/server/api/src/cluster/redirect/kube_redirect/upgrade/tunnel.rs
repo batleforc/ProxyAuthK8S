@@ -198,6 +198,10 @@ pub(super) fn tunnel(
                 }
             }
         };
+        crate::metrics::record_session_duration(
+            super::super::exec::session_kind(&audit.path),
+            started.elapsed().as_secs_f64(),
+        );
         audit.emit_session_closed(
             u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             counters.bytes_in.load(Ordering::Relaxed),

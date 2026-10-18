@@ -54,6 +54,25 @@ static AUDIT_EVENTS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
         .build()
 });
 
+/// Name of the histogram of tunnelled session durations (exposed to
+/// Prometheus as `proxyauth_session_duration_seconds`). Label: `kind` (`exec`,
+/// `attach`, `portforward`, `proxy`, `other`).
+pub const SESSION_DURATION: &str = "proxyauth.session.duration";
+
+static SESSION_DURATION_HISTOGRAM: LazyLock<Histogram<f64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .f64_histogram(SESSION_DURATION)
+        .with_unit("s")
+        .with_description("Duration of tunnelled sessions (exec, attach, port-forward, proxy).")
+        .with_boundaries(vec![1.0, 5.0, 15.0, 60.0, 300.0, 900.0, 3600.0, 14400.0])
+        .build()
+});
+
+/// Record how long one tunnelled session ran.
+pub fn record_session_duration(kind: &'static str, seconds: f64) {
+    SESSION_DURATION_HISTOGRAM.record(seconds, &[KeyValue::new("kind", kind)]);
+}
+
 /// Count one audit line.
 pub fn record_audit_event(event: &'static str, outcome: &'static str) {
     AUDIT_EVENTS_COUNTER.add(

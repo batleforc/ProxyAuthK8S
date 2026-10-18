@@ -1563,6 +1563,21 @@ the next major, once resources have been migrated.<br/>
         </td>
         <td>false</td>
       </tr><tr>
+        <td><b>mask_exec_secrets</b></td>
+        <td>boolean</td>
+        <td>
+          Mask secrets in the command lines the audit records for exec (RFC 0004)
+
+When true, `-pSECRET`, `--password=SECRET`, `--token=SECRET` and the
+element that follows `-p`, `--password` or `--token` are written as
+`***`. A
+heuristic, not a guarantee: off by default, so the audit keeps the
+command exactly as it ran.<br/>
+          <br/>
+            <i>Default</i>: false<br/>
+        </td>
+        <td>false</td>
+      </tr><tr>
         <td><b><a href="#proxykubeapispecsecurity_configper_user_group_rate_limitingindex">per_user_group_rate_limiting</a></b></td>
         <td>[]object</td>
         <td>
