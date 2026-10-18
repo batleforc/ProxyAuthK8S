@@ -62,7 +62,7 @@ jobs:
       - name: Install the tools
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends keyutils
-          mise install rust k3d kubectl oc helm mkcert yq uv cargo:cargo-nextest
+          mise install rust k3d kubectl oc helm mkcert yq uv cargo-binstall cargo:cargo-nextest
           pnpm install --frozen-lockfile
           pnpm -C apps/front exec playwright install --with-deps chromium
 
