@@ -65,6 +65,15 @@ if [[ "$instances" -lt 512 ]]; then
   echo "  sysctl -w fs.inotify.max_user_instances=512   (as root)" >&2
 fi
 
+# Every persona's tokens go to one session keyring (`it:test` runs the
+# suite under `keyctl session -`); the default 20000-byte quota fills up
+# after about twenty logins and the CLI then fails to store its token.
+keybytes=$(cat /proc/sys/kernel/keys/maxbytes 2>/dev/null || echo 0)
+if [[ "$keybytes" -lt 1000000 ]]; then
+  echo "it:up: warning: kernel.keys.maxbytes is $keybytes; the suite's logins need more:" >&2
+  echo "  sysctl -w kernel.keys.maxbytes=2000000 kernel.keys.maxkeys=2000   (as root)" >&2
+fi
+
 if ss -Hltn "sport = :$PORT" | grep -q .; then
   echo "it:up: port $PORT is already in use (IT_HTTPS_PORT)" >&2
   exit 1

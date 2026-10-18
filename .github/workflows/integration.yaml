@@ -74,6 +74,11 @@ jobs:
           mise exec -- task it:up
           echo "IT_UP_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
 
+      - name: Raise the keyring quota
+        # Every persona's tokens share the suite's session keyring; the
+        # default 20000 bytes fill up after about twenty logins.
+        run: sudo sysctl -w kernel.keys.maxbytes=2000000 kernel.keys.maxkeys=2000
+
       - name: Run the suite
         env:
           MISE_EXEC_AUTO_INSTALL: "false"
