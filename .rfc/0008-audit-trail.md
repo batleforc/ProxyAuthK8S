@@ -650,8 +650,10 @@ Ce qui diffère du texte, et pourquoi :
 - **Preuve du point 3** : kubelogin ne peut pas piloter le serveur OAuth
   médié, puisqu'il découvre l'IdP par `/.well-known/openid-configuration`,
   que le proxy n'expose pas. `oc login --web`, le client que la fonction
-  imite, échoue aujourd'hui sur la racine `/clusters/{ns}/{cluster}`, qui n'est
-  pas routée (« Seems you passed an HTML page »). `rfc0008::p3` prouve donc
+  imite, échoue aujourd'hui avant le flux : il sonde la racine de l'hôte
+  (`HEAD /`, sans le chemin du cluster), qui sert le dashboard en HTML quand
+  dashboard et API partagent un nom d'hôte (« Seems you passed an HTML
+  page »). `rfc0008::p3` prouve donc
   `auth_login` et `auth_callback` par la connexion SSO du plugin ;
   `oauth_token_issued` et l'absence de jeton (T2, T3) sont prouvés par
   `tests/audit_trail.rs`, et `oauth_token_denied` par `rfc0008::p4`. La
