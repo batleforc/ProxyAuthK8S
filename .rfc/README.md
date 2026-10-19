@@ -17,6 +17,7 @@ RFC passe au `/grill-me` avant d'être `In review`.
 | [0008](0008-audit-trail.md) | Trace d'audit : couverture, schéma et sortie garantie | à créer | Implemented | medium |
 | [0009](0009-integration-suite.md) | Banc et suite d'intégration sur un vrai cluster | à créer | In review | medium |
 | [0010](0010-token-exchange.md) | Échange de jeton : une connexion au proxy pour tous les clusters | à créer | Accepted | high |
+| [0011](0011-adopt-kit-runtime-crates.md) | Conditions, Events et codes de raison : adopter les crates du kit | à créer | Accepted | medium |
 | [REVIEW](REVIEW-roadmap-readme.md) | Revue de la roadmap et du README (2026-10-17) | — | — | — |
 
 Chaque document se termine par une section « Still open » (ou « Questions pour le

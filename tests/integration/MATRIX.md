@@ -113,3 +113,13 @@ Statuts :
 | 0010 | 7     | à écrire    | `rfc0010::p7_…` |
 | 0010 | 8     | à écrire    | `rfc0010::p8_…` |
 | 0010 | 9     | à écrire    | `rfc0010::p9_…` |
+| 0011 | 1     | à écrire    | `rfc0011::p1_…` |
+| 0011 | 2     | à écrire    | `rfc0011::p2_…` |
+| 0011 | 3     | à écrire    | `rfc0011::p3_…` |
+| 0011 | 4     | à écrire    | `rfc0011::p4_…` |
+| 0011 | 5     | à écrire    | `rfc0011::p5_…` |
+| 0011 | 6     | à écrire    | `rfc0011::p6_…` |
+| 0011 | 7     | à écrire    | `rfc0011::p7_…` |
+| 0011 | 8     | à écrire    | `rfc0011::p8_…` |
+| 0011 | 9     | à écrire    | job `back-clippy` (`cargo tree -e features -i k8s-openapi`) |
+| 0011 | 10    | à écrire    | `task audit` (`cargo deny check sources`) |
