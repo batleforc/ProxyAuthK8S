@@ -50,6 +50,8 @@ All the commands are controlled through Taskfile and need the `desc` field fille
 
 If multiple commands share the same target (like launching tests), split them into a separate taskfile placed in the `.tasks` folder. Do not use `.task` (singular): that directory is Task's internal cache for checksums/fingerprints and should stay gitignored.
 
+The `rust:*` and `repo:*` tasks, `.tasks/kit.yaml` and the docs package `@weebo/operator-docs` come from [weebo-operator-kit](https://github.com/batleforc/weebo-operator-kit), pinned by `KIT_TAG` in `Taskfile.yaml` and by the includes' `checksum:`. Never edit them in place (fix them in the kit) and move to a new release with `task kit-sync TAG=vX.Y.Z`, never `kit:sync` or `kit:cog` alone: they replace this repository's `cog.toml` (RFC 0005 §17).
+
 ## Mise
 
 Mise is the de-facto package manager. You never have root rights, so use mise whenever a new tool is needed.

@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                 |
 | ----------- | --------------------------------------------------------------------- |
-| Status      | In review                                                             |
+| Status      | Implemented (2026-10-17 à 2026-10-19)                                 |
 | Short       | Adoption de weebo-operator-kit                                        |
 | Settles     | Quelles briques du kit ProxyAuthK8S adopte (doc, Taskfiles partagés), lesquelles il refuse (CI réutilisable, chart lib, couverture, crates), et comment elles cohabitent avec le workspace pnpm de la RFC 0001 |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                               |
@@ -11,7 +11,7 @@
 | Supersedes  | —                                                                     |
 | Depends on  | RFC 0001 **livrée** (workspace pnpm, contrat de scripts, `.docs` autonome ; le dépôt est sous Yarn 4 tant qu'elle ne l'est pas) ; une release du kit qui contient la PR de la phase 0 |
 | Kit         | [batleforc/weebo-operator-kit](https://github.com/batleforc/weebo-operator-kit) `v0.17.0` (2026-10-16), dernière release au 2026-10-17 ; épingle cible : la release qui suit la PR de la phase 0 |
-| Touches     | `.docs/` → `docs/`, `pnpm-workspace.yaml`, `Taskfile.yaml`, `.tasks/{lint,audit,gen,docs}.yaml`, `.github/workflows/`, `mise.toml`, `cog.toml`, `deny.toml`, docs développeur ; côté kit : `templates/kit.yaml`, `templates/pin-kit.sh`, `packages/operator-docs/package.json` |
+| Touches     | `.docs/` → `docs/`, `pnpm-workspace.yaml`, `Taskfile.yaml`, `.tasks/{lint,audit,gen,docs,js,kit}.yaml`, `.github/workflows/`, `.github/actions/setup-mise`, `mise.toml`, `cog.toml` (chemins seulement), `deny.toml`, `deploy/crd/`, docs développeur, `CLAUDE.md` ; côté kit : `templates/kit.yaml`, `templates/pin-kit.sh`, `packages/operator-docs/package.json` |
 | Risk        | medium                                                                |
 
 ---
@@ -784,3 +784,44 @@ Phase 4 (2026-10-19), sur le kit **v0.20.0** :
 - Point 10 : `grep -rn "npm \(ci\|install\|audit\)"` ne trouve que la branche
   `npm` de `.tasks/kit.yaml` (copie du kit, non exécutée avec
   `NPM_CLIENT=pnpm`) et les workflows retirés de `.github/workflows/.bck/`.
+
+Phase 5 (2026-10-19) :
+
+- `docs/content/docs/developper-guide/tasks.mdx` gagne « Tâches du kit » :
+  origine de `rust:*`, `repo:*`, `kit:*` et de la tarball de doc, rôle du
+  `checksum:`, `task --offline`, `task kit-sync TAG=vX.Y.Z` (et pourquoi pas
+  `kit:sync`/`kit:cog` seuls), ce qui n'est pas repris du kit. `CLAUDE.md`
+  porte un paragraphe sur l'épinglage. Écart au §11 : le README n'est pas
+  touché, il ne liste aucune tâche et renvoie déjà au guide développeur.
+- **Écart, point 7** : le refus n'était pas celui écrit. `pnpm install` avec
+  `next@16.3.0` dans `docs/` (pnpm 12.11.2) **réussit**, avec
+  « Issues with peer dependencies found » en avertissement seulement.
+  `pnpm peers check` sort en 1 sur « unmet peer next, Installed: 16.3.0,
+  Wanted: ^16.4.1 » et en 0 sur l'arbre. Il est ajouté à `js:lint` (donc à
+  `task lint`, au hook de pré-commit et au job `front-lint`, dont les
+  chemins couvrent maintenant `**/package.json` et `pnpm-lock.yaml`). La
+  menace T7 (rétrogradation pour un peer exact) ne dépendait pas de ce
+  refus : les plages de la phase 0 l'écartent.
+
+Bilan à la livraison (2026-10-19) :
+
+- §6.P, observé : point 1 et 2 en phase 1 (jobs `repo-checks`,
+  `back-clippy`, `back-dep-audit`) ; 3 et 4 en phase 3, site publié
+  compris ; **5** rejoué sur v0.20.0 : un `checksum:` faux pour `rust.yaml`
+  fait sortir `task rust:lint` en 111 sur « The checksum of the Taskfile …
+  does not match! », avant toute commande `cargo` ; 6 et 8 en phase 1 ; 7
+  par `pnpm peers check` (ci-dessus) ; 9 et 10 en phase 4. Les lignes de
+  `tests/integration/MATRIX.md` disent où chaque point est porté.
+- §7 : T1 → point 5 ; T2 → `--frozen-lockfile` dans `docs-deploy.yml` et
+  `front-lint` ; T3 sans objet ; T4 → workflows en
+  `permissions: contents: read`, aucun secret aux jobs `task rust:*`/`repo:*` ;
+  T5 → RFC 0001 ; T6 → contenu déplacé, rien de neuf publié ; T7 → peers en
+  plages + `pnpm peers check` ; T8 → point 8. Aucune ligne n'a cédé.
+- §8, livré : `@weebo/operator-docs` 0.20.0 (tarball de la release v0.20.0),
+  Taskfiles `rust.yaml`/`repo.yaml` v0.20.0 (contenu de v0.17.0, mêmes
+  checksums), `next` 16.4.2, `cargo-deny`, `hadolint` et `trivy` par mise ;
+  `crdoc` et `cargo-audit` retirés. `pnpm audit` : un avis déjà revu
+  (`GHSA-vfj7-8cjw-p6xm`, accepté dans `pnpm-workspace.yaml`).
+- Reste hors de cette RFC : porter au kit un point d'extension pour le hook
+  local, qui rendrait `kit:cog` utilisable ici (écart de la phase 4).
+

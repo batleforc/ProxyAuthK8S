@@ -7,9 +7,11 @@ version: "3"
 
 tasks:
   lint:
-    desc: "Lint every JS package of the workspace (pnpm -r run lint)"
+    desc: "Lint every JS package of the workspace (pnpm -r run lint), then fail on an unmet peer dependency (pnpm only warns at install)"
     cmds:
       - pnpm -r --if-present run lint
+      # A docs dependency below @weebo/operator-docs' peer ranges (RFC 0005 §6.P point 7).
+      - pnpm peers check
   typecheck:
     desc: "Type-check every JS package of the workspace (pnpm -r run typecheck)"
     cmds:

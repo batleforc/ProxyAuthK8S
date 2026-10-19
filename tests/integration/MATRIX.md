@@ -59,13 +59,13 @@ Statuts :
 | 0004 | 13    | suite       | `rfc0004::p13_without_an_exec_rule_nothing_changes` |
 | 0005 | 1     | hors suite  | job repo-checks (includes distants de `Taskfile.yaml`) |
 | 0005 | 2     | hors suite  | jobs repo-checks, back-clippy, back-dep-audit et back-cargo-test `coverage` |
-| 0005 | 3     | hors suite  | 0005 phases 2-5 (`task docs:crds`), pas encore livrées |
-| 0005 | 4     | hors suite  | 0005 phases 2-5, workflow docs-deploy |
+| 0005 | 3     | hors suite  | `task docs:crds` dans `task recu` (hook de pré-commit), export du site |
+| 0005 | 4     | hors suite  | workflow docs-deploy, site publié vérifié à la main (0005 §17) |
 | 0005 | 5     | hors suite  | `checksum:` des includes de `Taskfile.yaml`, refus vérifié à la main |
 | 0005 | 6     | hors suite  | `deny.toml` (`sources`), job back-dep-audit |
-| 0005 | 7     | hors suite  | 0005 phases 2-5 (`docs/`), pas encore livrées |
+| 0005 | 7     | hors suite  | `pnpm peers check` dans `js:lint` (`task lint`, job front-lint) |
 | 0005 | 8     | hors suite  | `task audit`, refus vérifié à la main |
-| 0005 | 9     | hors suite  | 0005 phases 2-5 (`task kit:sync`), pas encore livrées |
+| 0005 | 9     | hors suite  | `task kit-sync TAG=v0.20.0`, vérifié à la main (0005 §17) |
 | 0005 | 10    | hors suite  | `grep` à la main ; npm absent des Taskfiles et workflows |
 | 0006 | 1     | suite       | `rfc0006::p1_reads_and_watches_pass` |
 | 0006 | 2     | suite       | `rfc0006::p2_delete_is_refused_with_its_verb` |
