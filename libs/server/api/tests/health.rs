@@ -135,13 +135,28 @@ async fn oidc_discovery_keeps_retrying_while_the_idp_is_down() {
 
     let state = unreachable_state(idp.uri());
     state.oidc_ready.store(false, Ordering::Release);
-    let outcome = tokio::time::timeout(
-        Duration::from_millis(300),
-        state.discover_oidc_until_ready(Duration::from_millis(10), Duration::from_millis(20)),
-    )
-    .await;
-    assert!(outcome.is_err(), "discovery must not give up on its own");
+    let discovery = tokio::spawn({
+        let state = state.clone();
+        async move {
+            state
+                .discover_oidc_until_ready(Duration::from_millis(10), Duration::from_millis(20))
+                .await;
+        }
+    });
+    // Wait for the attempts rather than count what fits in a fixed window: a
+    // loaded runner may not even send the first one within 300 ms.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while idp.received_requests().await.unwrap_or_default().len() < 3 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "discovery stopped retrying"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        !discovery.is_finished(),
+        "discovery must not give up on its own"
+    );
     assert!(!state.is_oidc_ready());
-    let attempts = idp.received_requests().await.unwrap_or_default().len();
-    assert!(attempts >= 3, "expected several attempts, got {attempts}");
+    discovery.abort();
 }
