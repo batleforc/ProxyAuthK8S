@@ -1,7 +1,7 @@
 //! RFC 0007 §6.P, on the bench: the server on axum and its upgrade tunnel on
-//! hyper, driven by kubectl and raw clients through the Ingress. Points 1, 2
-//! and 9 are proven off the bench (the contract, the `swagger.json` diff, a
-//! manual throughput run).
+//! hyper, driven by kubectl and raw clients through the Ingress. Points 1 and
+//! 2 are proven off the bench (the contract, the `swagger.json` diff); point 9
+//! is a throughput run started by hand (`p9_exec_throughput`).
 
 use std::time::Duration;
 
@@ -279,4 +279,39 @@ async fn p8_the_http_metrics_keep_their_route_label() {
         })
         .unwrap_or_else(|| panic!("no GET series on the proxy route:\n{metrics}"));
     assert!(line.contains("http_response_status_code"), "{line}");
+}
+
+/// Point 9, by hand (`cargo nextest run --profile it --run-ignored only
+/// p9_exec_throughput --no-capture`): 1 GiB out of `kubectl exec` through the
+/// tunnel. The rate goes to the RFC's §17, beside the actix server's.
+#[tokio::test]
+#[ignore = "manual throughput run (RFC 0007 §6.P point 9)"]
+async fn p9_exec_throughput() {
+    const GIB: u64 = 1 << 30;
+    let p = unrestricted("rfc0007-p9").await;
+    let ns = p.ns.name.as_str();
+    let size = GIB.to_string();
+    let start = std::time::Instant::now();
+    let (bytes, code) = p
+        .reader
+        .kubectl_count(&[
+            "exec",
+            "web",
+            "-n",
+            ns,
+            "-c",
+            "app",
+            "--",
+            "head",
+            "-c",
+            &size,
+            "/dev/zero",
+        ])
+        .await;
+    let secs = start.elapsed().as_secs_f64();
+    assert_eq!((bytes, code), (GIB, Some(0)), "exec ended early");
+    println!(
+        "p9: {bytes} bytes in {secs:.1} s, {:.1} MiB/s",
+        bytes as f64 / secs / (1u64 << 20) as f64
+    );
 }

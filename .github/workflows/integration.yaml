@@ -18,19 +18,11 @@ on:
       - "Cargo.lock"
       - "pnpm-lock.yaml"
       - ".github/workflows/integration.yaml"
+  # Every PR: `integration` is a required check, and a paths filter would
+  # leave a docs-only PR waiting on a check that never reports. The `changes`
+  # job skips the suite instead, and a skipped job counts as passed.
   pull_request:
     branches: ["main"]
-    paths:
-      - "apps/**"
-      - "libs/**"
-      - "deploy/**"
-      - "tests/integration/**"
-      - ".it/**"
-      - ".tasks/integration.yaml"
-      - ".config/nextest.toml"
-      - "Cargo.lock"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/integration.yaml"
   schedule:
     - cron: "15 2 * * *" # nightly on main
   workflow_dispatch:
@@ -43,7 +35,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.diff.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Does the change touch what the suite tests?
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        # The same paths as the push filter above.
+        run: |
+          if [ "$EVENT" != pull_request ] || git diff --name-only "$BASE" HEAD | grep -qE \
+            '^(apps/|libs/|deploy/|tests/integration/|\.it/|\.tasks/integration\.yaml$|\.config/nextest\.toml$|Cargo\.lock$|pnpm-lock\.yaml$|\.github/workflows/integration\.yaml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   integration:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

@@ -85,7 +85,7 @@ Statuts :
 | 0007 | 6     | suite       | `rfc0007::p6_a_spdy_upgrade_is_refused` |
 | 0007 | 7     | suite       | `rfc0007::p7_a_foreign_cors_preflight_is_refused` |
 | 0007 | 8     | suite       | `rfc0007::p8_the_http_metrics_keep_their_route_label` |
-| 0007 | 9     | hors suite  | manuel : débit `kubectl exec … cat /dev/zero`, et 7 jours en recette |
+| 0007 | 9     | hors suite  | manuel : `rfc0007::p9_exec_throughput` (ignoré, lancé à la main, 0007 §17), et 7 jours en recette |
 | 0008 | 1     | suite       | `rfc0008::p1_rust_log_does_not_silence_the_audit` |
 | 0008 | 2     | suite       | `rfc0008::p2_a_watch_is_audited_with_its_ids` |
 | 0008 | 3     | suite       | `rfc0008::p3_a_login_is_audited` (auth_login, auth_callback) ; flux OAuth médié prouvé hors banc par libs/server/api/tests/audit_trail.rs, aucun client réel ne le pilote (0008 §17, #277) |

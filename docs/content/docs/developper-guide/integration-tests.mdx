@@ -107,3 +107,7 @@ chaque nuit sur `main`, et à la demande. Il publie les logs du cluster et le ra
 en artefact (7 jours), et la durée de chaque phase dans le résumé du job. Un échec de nuit
 ouvre ou commente l'issue `it-nightly`. La release exige un passage vert de la suite sur le
 commit tagué.
+
+`integration` est un check requis pour fusionner sur `main`. Le workflow démarre donc sur
+toutes les PR ; son job `changes` saute la suite quand aucun de ces chemins ne change, et un
+job sauté compte comme réussi.

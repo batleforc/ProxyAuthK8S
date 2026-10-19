@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review                                                              |
+| Status      | Implemented (2026-10-18)                                               |
 | Short       | Filtrage des ports, angles morts                                       |
 | Settles     | `allowed_ports` s'applique à tous les chemins qui ouvrent un port d'un pod, d'un service ou d'un nœud, pas seulement `pods/{name}/portforward`, et une règle sans `allowed_ports` ne lève plus une restriction |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -612,3 +612,6 @@ Preuve sur le banc de la RFC 0009 (k3s 1.35, kubectl 1.37, 2026-10-18) :
   80 : `services/web:http/proxy` est refusé (port nommé) et
   `services/web:80/proxy` passe, ce qui isole la règle du port nommé.
 
+Livraison (2026-10-19) : phases 1 à 3 sur `main` (étape 2 du PLAN), #265
+fermée. §6.P points 1 à 7 verts sur le banc, avec l'écart du point 2
+ci-dessus.

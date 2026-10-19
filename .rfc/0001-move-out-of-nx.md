@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                 |
 | ----------- | --------------------------------------------------------------------- |
-| Status      | In review                                                             |
+| Status      | Implemented (2026-10-17)                                              |
 | Short       | Sortie de NX, workspace pnpm                                          |
 | Settles     | NX et Monodon sont retirés ; un workspace pnpm de paquets autonomes, orchestré par Taskfile, remplace Yarn et NX |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                               |
@@ -706,3 +706,8 @@ pnpm qu'ils protègent.
   vérifie.
 - **CI** : `go-task/setup-task` (nouveau nom d'`arduino/setup-task`, déjà
   épinglé dans le dépôt) ; `postmortem` lit `pnpm-lock.yaml`.
+
+Livraison (2026-10-19) : PR1 et PR2 sur `main` (étapes 1 et 4 du PLAN). Les
+points du §6.P sont `hors suite` dans `tests/integration/MATRIX.md`, chacun
+renvoyé au job CI ou à la vérification qui le porte ; aucun écart de plus que
+ceux ci-dessus.

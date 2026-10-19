@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review                                                              |
+| Status      | Implemented (2026-10-17 à 2026-10-19)                                  |
 | Short       | Suite d'intégration                                                    |
 | Settles     | Chaque point §6.P des RFC 0001 à 0008 est prouvé par un test automatisé contre la pile déployée (k3d, Dex, chart, images), ou marqué hors suite avec son renvoi, et cette suite verte conditionne le tag 0.2.0 |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -824,7 +824,21 @@ Phases 1 et 2, 2026-10-17.
   de `main` en ait un, le workflow tourne aussi sur `push` vers `main` (mêmes
   filtres de chemins) ; un tag hors de ces chemins se débloque par
   `gh workflow run integration.yaml --ref <tag>`, que l'erreur indique.
-- **Reste, hors du dépôt** : ajouter `integration` aux checks requis de `main`
-  après trois passages verts consécutifs (§13), et reporter ici la durée
-  mesurée en CI (§10.3 ; en local, `it:up` 342 s avec le cache d'images,
-  `it:test` 25 s).
+- **Check requis (2026-10-19)** : trois passages verts consécutifs
+  d'`integration.yaml` sur `main` (`808d8c4`, `dceb3f3`, `df8b153`), puis
+  `integration` ajouté aux checks requis de `main` par un ruleset dédié
+  (`main-integration`), à côté du ruleset `main` (signatures, pas de force
+  push), qui reste sans contournement. **Écart** : le ruleset laisse les
+  administrateurs le contourner, pour le seul commit de version que
+  `task bump` pousse sur `main` ; le tag reste gardé par
+  `release-prepare.yml`. Le filtre de chemins de `pull_request` aurait
+  laissé une PR de doc attendre un check qui ne vient jamais : le workflow
+  démarre sur toute PR, et un job `changes` (`git diff` contre la base, même
+  liste que le filtre de `push`) saute `integration` quand rien de testé ne
+  change ; un job sauté compte comme réussi. Un workflow « complémentaire »
+  en `paths-ignore` a été essayé et retiré : il tourne dès qu'un seul fichier
+  sort de la liste, donc à côté du vrai job, et son succès sous le même nom
+  aurait pu masquer un échec.
+- **Durée en CI** (§10.3), les trois passages ci-dessus : 22, 20 et 21 min
+  (`ubuntu-latest`, construction des images comprise). En local, `it:up`
+  342 s avec le cache d'images, `it:test` 25 s.

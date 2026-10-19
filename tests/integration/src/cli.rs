@@ -217,6 +217,25 @@ impl Session {
         }
     }
 
+    /// `kubectl` whose stdout is counted, not kept (a throughput run moves a
+    /// gigabyte): the bytes it printed and its exit code.
+    pub async fn kubectl_count(&self, args: &[&str]) -> (u64, Option<i32>) {
+        let mut child = self
+            .command(&PathBuf::from("kubectl"))
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn kubectl");
+        let mut out = child.stdout.take().expect("piped stdout");
+        let bytes = tokio::io::copy(&mut out, &mut tokio::io::sink())
+            .await
+            .expect("read kubectl stdout");
+        (bytes, child.wait().await.ok().and_then(|s| s.code()))
+    }
+
     /// `kubectl port-forward -n <ns> <target> <local>:<remote>`, once kubectl
     /// says it is forwarding; `Err` with what it printed when it exits first.
     pub async fn port_forward(
