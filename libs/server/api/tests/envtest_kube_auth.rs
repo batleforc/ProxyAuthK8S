@@ -168,11 +168,7 @@ async fn get_user_info_with_proxy_dispatches_to_the_kubernetes_mode() {
 
     // Identity declared in the envtest `--token-auth-file`.
     assert_eq!(user.username, "envtest-admin");
-    assert!(
-        user.is_in_group("system:masters"),
-        "not in system:masters ({} groups)",
-        user.groups.len()
-    );
+    assert!(user.is_in_group("system:masters"), "not in system:masters");
 }
 
 #[tokio::test]
