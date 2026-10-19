@@ -62,7 +62,7 @@ You don't have the right to commit directly has all commit should be signed and 
 
 ## JS workspace
 
-The JS side is a pnpm workspace (`pnpm-workspace.yaml`) of standalone packages: `apps/front`, `libs/front/front-api` (consumed from source) and `.docs`. Each package exposes the same script names when it has the use (`dev`, `build`, `typecheck`, `test`, `lint`); Taskfile aggregates them with `pnpm -r --if-present run <script>` (`.tasks/js.yaml`), so a new package needs no Taskfile change. Nothing is hoisted: declare every import in the package's own `package.json`. A new install script must be reviewed into `allowBuilds`. There is no NX: Cargo is the only Rust build graph.
+The JS side is a pnpm workspace (`pnpm-workspace.yaml`) of standalone packages: `apps/front`, `libs/front/front-api` (consumed from source) and `docs`. Each package exposes the same script names when it has the use (`dev`, `build`, `typecheck`, `test`, `lint`); Taskfile aggregates them with `pnpm -r --if-present run <script>` (`.tasks/js.yaml`), so a new package needs no Taskfile change. Nothing is hoisted: declare every import in the package's own `package.json`. A new install script must be reviewed into `allowBuilds`. There is no NX: Cargo is the only Rust build graph.
 
 ## Skills
 
@@ -97,7 +97,7 @@ As much as possible, use a multi-staged build in order to reduce the final image
 <!-- rtk-instructions v2 -->
 ## RFC proofs (RFC 0009)
 
-Every numbered point of an RFC's `§6.P` needs a row in `tests/integration/MATRIX.md`; `task lint` runs `task it:matrix` and fails otherwise. An RFC ships its tests in the PR of its code: `tests/integration/tests/rfcNNNN.rs` (one `pN_subject` test per point, through the proxy, never the admin kubeconfig for the action under test) or a spec in `apps/front/e2e-it/` (no `page.route`), its personas in `.it/personas.yaml`, and removes itself from `PENDING` in `.it/matrix.py`. Run them with `task it:up` then `task it:test` (see `.docs/content/docs/developper-guide/integration-tests.mdx`).
+Every numbered point of an RFC's `§6.P` needs a row in `tests/integration/MATRIX.md`; `task lint` runs `task it:matrix` and fails otherwise. An RFC ships its tests in the PR of its code: `tests/integration/tests/rfcNNNN.rs` (one `pN_subject` test per point, through the proxy, never the admin kubeconfig for the action under test) or a spec in `apps/front/e2e-it/` (no `page.route`), its personas in `.it/personas.yaml`, and removes itself from `PENDING` in `.it/matrix.py`. Run them with `task it:up` then `task it:test` (see `docs/content/docs/developper-guide/integration-tests.mdx`).
 
 # Command output
 

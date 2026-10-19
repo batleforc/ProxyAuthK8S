@@ -2,7 +2,7 @@
 //! [`Config`].
 //!
 //! The groups mirror the configuration documentation page
-//! (`.docs/content/docs/configuration.mdx`): HTTP/TLS listener, OIDC, Redis,
+//! (`docs/content/docs/configuration.mdx`): HTTP/TLS listener, OIDC, Redis,
 //! leader election, proxy limits & security, observability.
 //!
 //! Parsing is deliberately lenient, exactly like the scattered readers it

@@ -46,9 +46,9 @@ tasks:
       - cd apps/front && FRONT_IMAGE_URL=http://127.0.0.1:14201 pnpm exec playwright test csp
 
   screenshots:
-    desc: "Regenerate the docs' screenshots (.docs/public/screenshots, both themes) and the README's flow GIF, from the front with a mocked API (Playwright, Chromium, ffmpeg, ImageMagick)"
+    desc: "Regenerate the docs' screenshots (docs/public/screenshots, both themes) and the README's flow GIF, from the front with a mocked API (Playwright, Chromium, ffmpeg, ImageMagick)"
     vars:
-      OUT: '{{.ROOT_DIR}}/.docs/public/screenshots'
+      OUT: '{{.ROOT_DIR}}/docs/public/screenshots'
     cmds:
       - mkdir -p "{{.OUT}}"
       - cd apps/front && pnpm exec playwright install chromium && SCREENSHOTS_DIR="{{.OUT}}" pnpm exec playwright test screenshots --project=chromium

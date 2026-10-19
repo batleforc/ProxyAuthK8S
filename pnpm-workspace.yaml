@@ -1,7 +1,7 @@
 packages:
   - apps/front
   - libs/front/front-api
-  - .docs
+  - docs
 
 # A version must have been published for 25 hours before it is installed
 # (pnpm >= 11 default: 1440, i.e. 1 day).

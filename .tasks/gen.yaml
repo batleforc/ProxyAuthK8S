@@ -43,7 +43,7 @@ tasks:
     silent: true
     cmds:
       - task gen:swagger > swagger.json
-      - cp swagger.json .docs/swagger.json
+      - cp swagger.json docs/swagger.json
   request-info-reference:
     desc: "Regenerate the apiserver RequestInfo reference the crd request_info test compares against (needs Go and network; not run in CI)"
     dir: libs/server/crd/tests/request_info_reference
@@ -86,7 +86,7 @@ tasks:
     silent: true
     vars:
       CRD_YAML: deploy/crds.yaml
-      CRD_MDX: .docs/content/docs/crds.mdx
+      CRD_MDX: docs/content/docs/crds.mdx
       CRDOC_IMAGE: ghcr.io/fybrik/crdoc:latest
     cmds:
       - echo "Generating documentation for Custom Resource Definitions"
@@ -123,4 +123,4 @@ tasks:
       # which MDX would otherwise parse as the start of a JSX element.
       - perl -i -pe 'my @p=split /(`[^`]*`)/,$_,-1; for(@p){next if /^`.*`$/s; s/(?<!\\)\{/\\{/g; s/(?<!\\)\}/\\}/g; s/(?<!\\)<(?![A-Za-z\/])/\\</g} $_=join("",@p);' {{.CRD_MDX}}
       - echo "Add front matter to the generated documentation"
-      - .docs/scripts/add-frontmatter.sh --title "Custom Resource Definitions" --icon DraftingCompass --output {{.CRD_MDX}} {{.CRD_MDX}}
+      - docs/scripts/add-frontmatter.sh --title "Custom Resource Definitions" --icon DraftingCompass --output {{.CRD_MDX}} {{.CRD_MDX}}

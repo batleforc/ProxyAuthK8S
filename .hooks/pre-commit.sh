@@ -18,7 +18,7 @@ fi
 # Outputs of `task recu` (see Taskfile.yaml / .taskfile/gen.yaml).
 GENERATED_PATHS="
 swagger.json
-.docs/swagger.json
+docs/swagger.json
 deploy/crds.yaml
 deploy/chart-crd/templates/crds.yaml
 libs/cli/client_api

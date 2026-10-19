@@ -15,7 +15,7 @@ export default [
       '**/vite.config.*.timestamp*',
       '**/playwright-report',
       '**/test-results',
-      '.docs/**',
+      'docs/**',
     ],
   },
   {

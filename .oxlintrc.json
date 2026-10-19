@@ -27,7 +27,7 @@
     "**/dist",
     "**/out-tsc",
     "**/vite.config.*.timestamp*",
-    ".docs/**",
+    "docs/**",
     "**/playwright-report",
     "**/test-results"
   ],

@@ -18,7 +18,7 @@ on:
       - "pnpm-workspace.yaml"
       - "apps/front/package.json"
       - "libs/front/front-api/package.json"
-      - ".docs/package.json"
+      - "docs/package.json"
       - ".github/workflows/postmortem-scan.yaml"
   pull_request:
     paths:
@@ -29,7 +29,7 @@ on:
       - "pnpm-workspace.yaml"
       - "apps/front/package.json"
       - "libs/front/front-api/package.json"
-      - ".docs/package.json"
+      - "docs/package.json"
       - ".github/workflows/postmortem-scan.yaml"
   schedule:
     - cron: "15 5 * * 1" # weekly — catch newly-published advisories on pinned deps

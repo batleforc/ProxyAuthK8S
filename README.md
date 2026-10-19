@@ -3,7 +3,7 @@
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/batleforc/ProxyAuthK8S/badge)](https://scorecard.dev/viewer/?uri=github.com/batleforc/ProxyAuthK8S)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-![ProxyAuthK8s Logo](.docs/public/art.png)
+![ProxyAuthK8s Logo](docs/public/art.png)
 
 ProxyAuthK8S is part of the Weebo SI project. It exposes Kubernetes API servers
 behind a single authenticating proxy, with a focus on security and ease of use,
@@ -11,9 +11,9 @@ and makes it easy to share kubeconfig files between users and teams.
 
 **Documentation (French): <https://batleforc.github.io/ProxyAuthK8S/>**
 
-![ProxyAuthK8s Demo](.docs/public/demo-1.gif)
+![ProxyAuthK8s Demo](docs/public/demo-1.gif)
 
-![The dashboard: pick a cluster, switch the theme, copy its proxy URL](.docs/public/screenshots/flow.gif)
+![The dashboard: pick a cluster, switch the theme, copy its proxy URL](docs/public/screenshots/flow.gif)
 
 More screenshots, in both themes, on the
 [Dashboard page](https://batleforc.github.io/ProxyAuthK8S/docs/ui) of the documentation.
@@ -88,7 +88,7 @@ as alternatives.
 
 The roadmap (done, in progress and planned work) is maintained in a single place:
 [the Roadmap page of the documentation](https://batleforc.github.io/ProxyAuthK8S/docs/roadmap)
-(source: [`.docs/content/docs/roadmap.mdx`](.docs/content/docs/roadmap.mdx)).
+(source: [`docs/content/docs/roadmap.mdx`](docs/content/docs/roadmap.mdx)).
 Design decisions are written as RFCs in [`.rfc/`](.rfc/README.md).
 
 ## Contributing, security and license

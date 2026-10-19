@@ -12,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("Failed to install default CryptoProvider");
-    println!(include_str!("../../../.docs/public/banner.art"));
+    println!(include_str!("../../../docs/public/banner.art"));
     // Read the whole configuration once; it is installed (and its fallback
     // warnings logged) only once tracing is up.
     let config = common::config::Config::from_env();

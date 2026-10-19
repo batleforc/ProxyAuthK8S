@@ -10,7 +10,7 @@ updates:
     schedule:
       interval: daily
 
-  # One entry for the whole pnpm workspace (front, front-api, .docs).
+  # One entry for the whole pnpm workspace (front, front-api, docs).
   - package-ecosystem: npm
     directory: /
     schedule:

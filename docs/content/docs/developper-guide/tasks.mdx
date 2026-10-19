@@ -11,7 +11,7 @@ complète avec leur description ; cette page regroupe les plus utiles.
 
 Le front, son client d'API et ce site forment un workspace pnpm de trois paquets
 (`pnpm-workspace.yaml`) : `@proxy-auth-k8s/front` (`apps/front`), `@proxy-auth-k8s/front-api`
-(`libs/front/front-api`, consommé en source) et `@proxy-auth-k8s/docs` (`.docs`). Un seul
+(`libs/front/front-api`, consommé en source) et `@proxy-auth-k8s/docs` (`docs`). Un seul
 `pnpm install` à la racine installe les trois, avec un seul lockfile. Chaque paquet expose les
 mêmes noms de scripts (`dev`, `build`, `typecheck`, `test`, `lint`) ; les tâches `js:*` les
 lancent partout avec `pnpm -r --if-present`. Rien n'est hoisté : un paquet doit déclarer ce
@@ -20,7 +20,7 @@ qu'il importe.
 Une version doit être publiée depuis 25 heures pour être installée (`minimumReleaseAge`), et
 seuls les paquets listés dans `allowBuilds` exécutent leurs scripts d'installation.
 
-Après la migration depuis Yarn et NX : supprimez `node_modules` et `.docs/node_modules`, puis
+Après la migration depuis Yarn et NX : supprimez `node_modules` et `docs/node_modules`, puis
 lancez `task init`.
 
 ## Lancer le projet
@@ -70,7 +70,7 @@ puis `task it:test`, voir [Suite d'intégration](/docs/developper-guide/integrat
 | ------------------------- | ---------------------------------------------------------------------- |
 | `task recu`               | Lance toutes les générations ci-dessous                                |
 | `task gen:crds-file`      | Régénère `deploy/crds.yaml` et le chart des CRD                         |
-| `task gen:swagger-file`   | Régénère `swagger.json` (et sa copie dans `.docs`)                      |
+| `task gen:swagger-file`   | Régénère `swagger.json` (et sa copie dans `docs`)                      |
 | `task gen:client`         | Régénère les clients API : TypeScript (`front-api`) et Rust (`client_api`) |
 | `task docs:api`           | Régénère les pages de [référence API](/docs/api) depuis `swagger.json`  |
 | `task gen:docs:crd`       | Régénère la page [CRDs](/docs/crds)                                     |

@@ -4,7 +4,7 @@ on:
   push:
     branches: ["main", "feat/init-doc"]
     paths:
-      - ".docs/**" # Only trigger on changes to documentation files
+      - "docs/**" # Only trigger on changes to documentation files
       - ".github/workflows/docs-deploy.yml" # Trigger if the workflow file itself is changed
       - "pnpm-lock.yaml" # The docs dependencies are locked in the workspace lockfile
   workflow_dispatch:
@@ -44,7 +44,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: .docs/out
+          path: docs/out
 
   # Deployment job
   deploy:

@@ -21,6 +21,6 @@ tasks:
     silent: true
     cmds:
       - echo "Auditing JS dependencies with pnpm audit"
-      # One lockfile covers front, front-api and .docs. Accepted advisories
+      # One lockfile covers front, front-api and docs. Accepted advisories
       # live in pnpm-workspace.yaml (auditConfig.ignoreGhsas).
       - pnpm audit

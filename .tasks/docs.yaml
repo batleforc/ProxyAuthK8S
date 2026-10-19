@@ -10,13 +10,13 @@ tasks:
       - echo "Running the documentation server"
       - pnpm --filter @proxy-auth-k8s/docs dev
   build:
-    desc: "Build the documentation site into .docs/out"
+    desc: "Build the documentation site into docs/out"
     cmds:
       - pnpm --filter @proxy-auth-k8s/docs build
   api:
-    desc: "Regenerate the API reference pages (.docs/content/docs/api) from .docs/swagger.json"
+    desc: "Regenerate the API reference pages (docs/content/docs/api) from docs/swagger.json"
     silent: true
-    dir: .docs
+    dir: docs
     cmds:
       - echo "Generating API reference pages from swagger.json"
       - bun scripts/generate-docs.ts

@@ -2,7 +2,7 @@
 
 HTTP surface of the server (axum + utoipa). The full, generated reference is
 served by the server at `/api/docs` (Scalar) and published in the docs site
-(`.docs/content/docs/api`, regenerated with `task gen:swagger-file && task docs:api`).
+(`docs/content/docs/api`, regenerated with `task gen:swagger-file && task docs:api`).
 
 - `/management`
   - `GET /health` => liveness (always 200 while the process serves HTTP)
@@ -32,4 +32,4 @@ Each `ProxyKubeApi` chooses how the caller's bearer token is validated
 
 The resolved user (name, email, groups) then goes through the cluster's
 authorization rules (`proxy_group`, `allowed_resources`, namespace rules,
-quotas / fail2login). See `.docs/content/docs/security.mdx`.
+quotas / fail2login). See `docs/content/docs/security.mdx`.

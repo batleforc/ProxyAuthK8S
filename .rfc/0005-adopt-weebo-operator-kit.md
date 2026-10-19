@@ -693,3 +693,19 @@ Phase 1 (2026-10-17) :
   bloquant `task rust:lint` ; `back-dep-audit` lance `task rust:audit
   audit:fuzz` ; nouveau `repo-checks.yaml` pour `repo:lint` et `repo:audit`.
   Chaque job n'installe que ses outils (`MISE_EXEC_AUTO_INSTALL=false`).
+
+Phase 2 (2026-10-18) :
+
+- `.docs` devient `docs/` (`git mv`, historique conservé), sans toucher au
+  site : les chemins suivent dans les tâches (`docs`, `gen`, `ui`, `audit`),
+  les workflows (`docs-deploy`, `postmortem-scan`), `pnpm-workspace.yaml` et le
+  lockfile, les configurations d'ESLint, d'oxlint et de TypeScript,
+  `.dockerignore`, `cog.toml`, le hook de pré-commit, README, CLAUDE.md, les
+  deux `include_str!` de la bannière (serveur et CLI) et le `basePath` des liens
+  « modifier sur GitHub » du site. Les RFC gardent `.docs` : elles décrivent
+  l'état du dépôt à leur date.
+- La phase 0 est sortie dans le kit **v0.18.0** (2026-10-18) : peers en
+  plages, `NPM_CLIENT`, repli `KIT_TAG`. Les phases 3 et 4 la visent.
+- Vérifié : `task lint`, typecheck et export de la doc depuis `docs/`
+  (108 pages), `cargo check -p server -p cli`.
+

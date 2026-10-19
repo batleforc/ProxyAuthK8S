@@ -14,14 +14,14 @@ tmp
 /.vscode
 /.git
 /target
-# Docs-site build output (see .docs/.gitignore): several GB, never used by an
-# image. The back image still needs .docs/public/banner.art.
-/.docs/node_modules
-/.docs/.next
-/.docs/out
-/.docs/.source
-/.docs/build
-/.docs/coverage
+# Docs-site build output (see docs/.gitignore): several GB, never used by an
+# image. The back image still needs docs/public/banner.art.
+/docs/node_modules
+/docs/.next
+/docs/out
+/docs/.source
+/docs/build
+/docs/coverage
 .env
 /kubeconfig.*.yaml
 /deploy

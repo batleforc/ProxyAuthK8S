@@ -5,7 +5,7 @@ export const gitConfig = {
   user: 'batleforc',
   repo: 'proxyAuthK8s',
   branch: 'main',
-  basePath: '.docs',
+  basePath: 'docs',
 };
 
 export function baseOptions(): BaseLayoutProps {
