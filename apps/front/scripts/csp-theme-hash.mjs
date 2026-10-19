@@ -5,7 +5,11 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const html = readFileSync(process.argv[2], 'utf8');
-const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+// Every <script> element, whatever its case, attributes or closing-tag
+// spacing; the inline ones are those without `src`.
+const inline = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)].filter(
+  ([, attributes]) => !/\bsrc\s*=/i.test(attributes),
+);
 if (inline.length !== 1) {
   console.error(
     `expected one inline <script> in ${process.argv[2]}, found ${inline.length}`,
@@ -13,5 +17,5 @@ if (inline.length !== 1) {
   process.exit(1);
 }
 process.stdout.write(
-  `'sha256-${createHash('sha256').update(inline[0][1]).digest('base64')}'`,
+  `'sha256-${createHash('sha256').update(inline[0][2]).digest('base64')}'`,
 );
