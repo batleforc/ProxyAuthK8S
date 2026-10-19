@@ -560,7 +560,7 @@ mod tests {
     fn a_rewritten_body_is_sent_as_json_and_a_verbatim_one_keeps_its_type() {
         let client = reqwest::Client::new();
         let mut req = client
-            .post("http://k/x")
+            .post("https://k/x")
             .header("content-type", "text/plain")
             .build()
             .unwrap();

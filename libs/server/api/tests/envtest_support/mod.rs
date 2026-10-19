@@ -201,8 +201,10 @@ impl EnvTest {
     }
 
     async fn wait_until_ready(&self) -> Result<(), String> {
+        let ca = reqwest::Certificate::from_pem(self.serving_cert_pem.as_bytes())
+            .map_err(|err| format!("invalid serving CA: {err}"))?;
         let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .add_root_certificate(ca)
             .build()
             .map_err(|err| err.to_string())?;
         let healthz = format!("{}/healthz", self.apiserver_url);

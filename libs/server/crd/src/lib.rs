@@ -257,8 +257,15 @@ mod tests {
         });
 
         let printed = format!("{:?}", proxy(spec));
-        for secret in ["oidc-s3cr3t", "cert-s3cr3t", "key-s3cr3t"] {
-            assert!(!printed.contains(secret), "{secret} leaked: {printed}");
+        for (field, secret) in [
+            ("oidc", "oidc-s3cr3t"),
+            ("cert", "cert-s3cr3t"),
+            ("key", "key-s3cr3t"),
+        ] {
+            assert!(
+                !printed.contains(secret),
+                "the {field} secret leaked into Debug output"
+            );
         }
     }
 

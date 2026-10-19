@@ -284,17 +284,17 @@ async fn issued_tokens_are_audited_without_the_tokens() {
         .filter(|line| line["ns"] == ns.as_str())
         .map(Value::to_string)
         .collect();
-    for secret in [
-        "upstream-access-token",
-        "upstream-refresh-token",
-        "upstream-id-token",
-        "good-code",
-        "the-code",
-        VERIFIER,
+    for (what, secret) in [
+        ("upstream access token", "upstream-access-token"),
+        ("upstream refresh token", "upstream-refresh-token"),
+        ("upstream id token", "upstream-id-token"),
+        ("authorization code", "good-code"),
+        ("upstream code", "the-code"),
+        ("PKCE verifier", VERIFIER),
     ] {
         assert!(
             !everything.contains(secret),
-            "{secret} leaked into the audit"
+            "the {what} leaked into the audit"
         );
     }
     delete_proxy(&pool, &ns, &cluster).await;

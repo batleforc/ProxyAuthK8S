@@ -322,7 +322,7 @@ async fn a_proxy_without_an_auth_config_resolves_to_no_user_without_calling_the_
     .await
     .expect("an unauthenticated proxy is not an error");
 
-    assert!(user.is_none(), "expected no user, got {user:?}");
+    assert!(user.is_none(), "expected no user");
     assert!(
         server
             .received_requests()

@@ -1,6 +1,5 @@
 use client_api::{
-    apis::{api_clusters_api::get_all_visible_cluster, configuration::Configuration},
-    models::GetAllVisibleClusterBody,
+    apis::api_clusters_api::get_all_visible_cluster, models::GetAllVisibleClusterBody,
 };
 use std::{
     io::{self, Write},
@@ -16,7 +15,8 @@ mod tofu;
 use crate::{
     cli_config::browser::{BrowserConfig, effective_browser},
     cli_config::cli_server_config::{
-        CliServerConfig, http_client, load_certificate_authority, require_secure_server_url,
+        CliServerConfig, api_configuration, http_client, load_certificate_authority,
+        require_secure_server_url,
     },
     ctx::CliCtx,
     error::ProxyAuthK8sError,
@@ -522,12 +522,11 @@ impl CliCtx {
                 return Err(e);
             }
         };
-        get_all_visible_cluster(&Configuration {
-            bearer_access_token: Some(token.to_string()),
-            base_path: server_url.to_string(),
+        get_all_visible_cluster(&api_configuration(
+            server_url,
+            Some(token.to_string()),
             client,
-            ..Default::default()
-        })
+        ))
         .await
         .map_err(|e| {
             // Reuse the client_api -> ProxyAuthK8sError From boundary rather

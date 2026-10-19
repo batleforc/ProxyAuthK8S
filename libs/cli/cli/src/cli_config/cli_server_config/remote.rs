@@ -13,17 +13,35 @@ use url::{Host, Url};
 
 use crate::{cli_config::cli_server_config::CliServerConfig, error::ProxyAuthK8sError};
 
+/// The `client_api` configuration for `url`, built field by field: the
+/// generated `Default` starts from `http://localhost` and a generator user
+/// agent, neither of which a request of ours should carry.
+pub fn api_configuration(
+    url: &str,
+    bearer_access_token: Option<String>,
+    client: reqwest::Client,
+) -> Configuration {
+    Configuration {
+        base_path: url.to_string(),
+        user_agent: Some(concat!("kubectl-proxyauth/", env!("CARGO_PKG_VERSION")).to_string()),
+        client,
+        basic_auth: None,
+        oauth_access_token: None,
+        bearer_access_token,
+        api_key: None,
+    }
+}
+
 impl CliServerConfig {
     pub fn base_configuration(&self) -> Result<Configuration, ProxyAuthK8sError> {
         // Checked before the keyring is read: a refused URL never sees the token.
         require_secure_server_url(&self.url)?;
         let token = self.server_token()?;
-        Ok(Configuration {
-            base_path: self.url.clone(),
-            bearer_access_token: Some(token),
-            client: http_client(self.certificate_authority_data.as_deref())?,
-            ..Default::default()
-        })
+        Ok(api_configuration(
+            &self.url,
+            Some(token),
+            http_client(self.certificate_authority_data.as_deref())?,
+        ))
     }
 
     pub async fn clusters_from_remote(

@@ -228,17 +228,23 @@ mod tests {
         let rendered = format!("{:?}", provider_with_secret(Some("s3cr3t-value")));
         assert!(
             !rendered.contains("s3cr3t-value"),
-            "client_secret leaked into Debug output: {rendered}"
+            "client_secret leaked into Debug output"
         );
-        assert!(rendered.contains("***REDACTED***"), "{rendered}");
+        assert!(rendered.contains("***REDACTED***"), "no redaction marker");
     }
 
     #[test]
     fn debug_still_distinguishes_a_set_secret_from_an_unset_one() {
         let with = format!("{:?}", provider_with_secret(Some("s3cr3t-value")));
         let without = format!("{:?}", provider_with_secret(None));
-        assert!(with.contains("client_secret: Some("), "{with}");
-        assert!(without.contains("client_secret: None"), "{without}");
+        assert!(
+            with.contains("client_secret: Some("),
+            "a set secret is not shown as Some"
+        );
+        assert!(
+            without.contains("client_secret: None"),
+            "an unset secret is not shown as None"
+        );
     }
 
     fn overrides(pairs: &[(&str, &str)]) -> OidcProviderOverrides {
@@ -413,7 +419,7 @@ mod tests {
         ] {
             assert!(
                 rendered.contains(expected),
-                "missing {expected} in {rendered}"
+                "missing {expected} in the Debug output"
             );
         }
     }
