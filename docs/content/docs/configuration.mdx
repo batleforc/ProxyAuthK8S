@@ -133,6 +133,7 @@ Le chart Helm les remplit depuis la configuration OIDC (`oidc.value` ou le secre
 | ------------------------- | ------- | --------------------------------------------------------------------------- |
 | `KUBECONFIG`              | `~/.kube/config` | Kubeconfig(s) lus ; le plugin écrit dans le premier fichier existant |
 | `PROXYAUTH_CALLBACK_PORT` | `18000` | Port local du callback SSO (enregistrez la redirect URI correspondante)     |
+| `PROXYAUTH_KEYRING_SERVICE` | `proxyauthk8s` | Service du trousseau où les tokens sont rangés ; un autre nom sépare deux profils sur le même serveur |
 
 Le fichier de configuration du plugin est `~/.kube/proxyauth_config.yaml` (modifiable avec
 `-p, --proxy-auth-config`). Les tokens sont stockés dans le trousseau du système, voir

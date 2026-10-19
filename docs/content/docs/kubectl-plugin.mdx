@@ -44,6 +44,10 @@ noyau (keyutils) : les tokens y sont protégés mais ne survivent pas à un red�
 faudra alors se reconnecter.
 </Callout>
 
+Les tokens sont rangés sous le service `proxyauthk8s`, par URL de serveur. Pour garder deux
+profils sur le même serveur (deux comptes, deux `HOME`), donnez à chacun son service avec
+`PROXYAUTH_KEYRING_SERVICE=<nom>` : sans cela, le dernier login remplace le token de l'autre.
+
 ## Usage
 
 ### Se connecter au serveur

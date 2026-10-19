@@ -314,6 +314,13 @@ impl Session {
         let path = std::env::var("PATH").unwrap_or_default();
         command
             .env("HOME", self.home.path())
+            // Tokens are keyed by server URL in a keyring every test shares:
+            // without a service of its own, a `nogroup` login running alongside
+            // would replace this persona's server token.
+            .env(
+                "PROXYAUTH_KEYRING_SERVICE",
+                format!("proxyauthk8s-it-{}", self.home.path().display()),
+            )
             .env("KUBECONFIG", self.home.path().join(".kube/config"))
             .env("PATH", format!("{}:{path}", self.bin.path().display()))
             .env_remove("DBUS_SESSION_BUS_ADDRESS")

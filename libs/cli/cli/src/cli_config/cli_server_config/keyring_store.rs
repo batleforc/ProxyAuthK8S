@@ -16,6 +16,16 @@ use crate::{
 /// Keyring service every server and cluster token is stored under.
 const KEYRING_SERVICE: &str = "proxyauthk8s";
 
+/// [`KEYRING_SERVICE`], unless `PROXYAUTH_KEYRING_SERVICE` names another one:
+/// the entries are keyed by server URL, so two profiles of one OS user on the
+/// same server (or the integration suite's personas) would otherwise
+/// overwrite each other's tokens.
+fn keyring_service(from_env: Option<String>) -> String {
+    from_env
+        .filter(|service| !service.is_empty())
+        .unwrap_or_else(|| KEYRING_SERVICE.to_string())
+}
+
 impl CliServerConfig {
     pub fn server_token(&self) -> Result<String, ProxyAuthK8sError> {
         self.read_token(&self.url)
@@ -65,14 +75,15 @@ impl CliServerConfig {
         format!("{}::{}", self.url, key)
     }
 
-    /// Open the keyring entry for `user` under [`KEYRING_SERVICE`], mapping a
+    /// Open the keyring entry for `user` under [`keyring_service`], mapping a
     /// failure to the caller's error variant (`err`).
     fn keyring_entry(
         &self,
         user: &str,
         err: fn(String) -> ProxyAuthK8sError,
     ) -> Result<Entry, ProxyAuthK8sError> {
-        keystore::entry(KEYRING_SERVICE, user).map_err(|e| {
+        let service = keyring_service(std::env::var("PROXYAUTH_KEYRING_SERVICE").ok());
+        keystore::entry(&service, user).map_err(|e| {
             debug!("Keyring entry creation error: {}", e);
             err(format!(
                 "Failed to create keyring entry for server URL: {}",
@@ -138,6 +149,9 @@ mod tests {
         // Tokens already in users' keyrings are looked up under this exact
         // service/user pair; a format change would make them unreadable.
         assert_eq!(KEYRING_SERVICE, "proxyauthk8s");
+        assert_eq!(keyring_service(None), "proxyauthk8s");
+        assert_eq!(keyring_service(Some(String::new())), "proxyauthk8s");
+        assert_eq!(keyring_service(Some("work".to_string())), "work");
         let config = CliServerConfig::new("https://localhost:5437".to_string());
         assert_eq!(
             config.cluster_keyring_user("team-a/prod"),
