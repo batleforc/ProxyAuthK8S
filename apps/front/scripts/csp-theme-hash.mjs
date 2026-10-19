@@ -5,9 +5,9 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const html = readFileSync(process.argv[2], 'utf8');
-// Every <script> element, whatever its case, attributes or closing-tag
-// spacing; the inline ones are those without `src`.
-const inline = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)].filter(
+// Every <script> element, whatever the case or attributes of either tag;
+// the inline ones are those without `src`.
+const inline = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script[^>]*>/gi)].filter(
   ([, attributes]) => !/\bsrc\s*=/i.test(attributes),
 );
 if (inline.length !== 1) {
