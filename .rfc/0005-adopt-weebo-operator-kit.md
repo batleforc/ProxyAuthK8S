@@ -722,3 +722,40 @@ Phase 3, en attente (2026-10-19) :
   texte échappé) et la release qui la porte. Les patchs déjà écrits de la
   phase 3 (`docs:crds`, `deploy/crd/`, retrait de crdoc) restent valables.
 
+Phase 3 (2026-10-19), sur le kit **v0.19.0** :
+
+- Le site suit l'arborescence du kit (modèle weebo-forgejo) : `next.config.mjs`
+  (`withOperatorDocs`, `basePath` par `DOCS_BASE_PATH`, posé à
+  `/ProxyAuthK8S` dans `docs-deploy.yml` avec `DOCS_SITE_URL`),
+  `src/lib/{shared,source}.ts`, `src/components/mdx.tsx`, routes fines
+  (recherche, `llms*`, OG par `next/og`), accueil `OperatorHome`, thème du kit
+  (polices Silkscreen et JetBrains Mono, thèmes de code à contraste élevé).
+- Gardés : `ProxyKubeApiGenerator`, qui remplace le `CrdForm` du kit pour
+  `ProxyKubeApi` dans `mdx.tsx` (décision 2) ; l'OpenAPI (`openapiPlugin`
+  ajouté aux plugins du kit, CSS `fumadocs-openapi`) ; Mermaid ;
+  `remark-variables`. Retirés : takumi, zbsearch, simple-icons, le feedback,
+  la recherche maison, `src/components/ui`, `lastModified`, `cli.json`.
+- `gen:crds-file` écrit aussi `deploy/crd/proxykubeapi.yaml` ; `docs:crds`
+  (`weebo-crd-docs`, `crd-docs.config.mjs`) remplace `gen:docs:crd` (crdoc,
+  `perl`, `add-frontmatter.sh`) ; crdoc sort de `mise.toml`. `task recu` lance
+  `docs:crds` après `gen:crds-file` : le hook de pré-commit garde la
+  référence alignée sur la CRD, comme `regen-and-diff` dans les dépôts du
+  kit.
+- Écart : les URLs prennent une barre finale (`trailingSlash` du kit),
+  `/docs/crds` devient l'index de la section et la page est
+  `/docs/crds/proxykubeapi/`.
+- Observé (export avec `DOCS_BASE_PATH=/ProxyAuthK8S`, 111 pages, 18 s ;
+  Chromium 1248 à 1440 px sur l'accueil, la page CRD, Architecture et une
+  page API : aucune erreur JS, aucun 404) :
+  - point 3 : `docs:crds` écrit la page `ProxyKubeApi` (48 sections) et
+    `public/crd-schemas/index.json` ; le générateur s'affiche sous « Build a
+    manifest » ;
+  - RFC 0004 du kit, point 3 : section `spec.security_config.allowed_resources`
+    liée depuis sa ligne, `/apis/{group}/{version}/namespaces/{namespace}/`
+    littéral (aucun `\`), « Exactly one of `Secret`, `Cert`, `ConfigMap`,
+    `SystemRoots`, `Insecure` » sous `spec.cert` ; point 4 : l'index de
+    recherche contient `allowed_ressources` ; point 5 : `llms-full.txt` porte
+    la règle `!has(self.dashboard_group) || self.dashboard_group != ''` ;
+  - point 4 (site publié) : à constater après le déploiement.
+- Vérifié : `task lint`, typecheck et lint du site, `pnpm audit` (un avis
+  déjà revu).

@@ -1,6 +1,7 @@
 import { HomeLayout } from 'fumadocs-ui/layouts/home';
-import { baseOptions } from '@/lib/layout.shared';
+import { baseOptions } from '@weebo/operator-docs/site';
+import { site } from '@/lib/shared';
 
 export default function Layout({ children }: LayoutProps<'/'>) {
-  return <HomeLayout {...baseOptions()}>{children}</HomeLayout>;
+  return <HomeLayout {...baseOptions(site)}>{children}</HomeLayout>;
 }

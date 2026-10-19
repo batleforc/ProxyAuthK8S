@@ -36,6 +36,11 @@ tasks:
     silent: true
     cmds:
       - task gen:crds > deploy/crds.yaml
+      # One file per CRD for weebo-crd-docs (docs:crds). shortcut: crdgen prints
+      # the single ProxyKubeApi CRD; a second kind needs a split here (js-yaml
+      # then refuses the multi-document file, so it fails loudly).
+      - mkdir -p deploy/crd
+      - cp deploy/crds.yaml deploy/crd/proxykubeapi.yaml
       - cp deploy/crds.yaml deploy/chart-crd/templates/crds.yaml
       - sed -i -e 's/{{ "{{" }}/\\{\\{/g' -e 's/{{ "}}" }}/\\}\\}/g' deploy/chart-crd/templates/crds.yaml
   swagger-file:
@@ -81,46 +86,3 @@ tasks:
     cmds:
       - echo "Linting the OpenAPI specification with Spectral"
       - pnpm exec spectral lint -f sarif -o ./spectral-report.sarif ./swagger.json
-  docs:crd:
-    desc: "Generate documentation for Custom Resource Definitions"
-    silent: true
-    vars:
-      CRD_YAML: deploy/crds.yaml
-      CRD_MDX: docs/content/docs/crds.mdx
-      CRDOC_IMAGE: ghcr.io/fybrik/crdoc:latest
-    cmds:
-      - echo "Generating documentation for Custom Resource Definitions"
-      # The native binary is preferred and pinned in mise.toml
-      # ("go:fybrik.io/crdoc"). The container image is only a fallback for an
-      # environment without it: `{{.CRDOC_IMAGE}}` has not been rebuilt since
-      # January 2023 and produces visibly worse output than a current crdoc — it
-      # drops the x-kubernetes-validations lists and links to the v1.20 API docs
-      # — so regenerating through it would silently regress the committed page.
-      - |
-        if command -v crdoc >/dev/null 2>&1; then
-          echo "Using the crdoc binary from mise"
-          crdoc --resources "{{.CRD_YAML}}" --output "{{.CRD_MDX}}"
-        elif command -v docker >/dev/null 2>&1; then
-          echo "No crdoc binary found; falling back to docker + the (stale) crdoc image"
-          docker run -u "$(id -u):$(id -g)" --rm -v "${PWD}:/workdir" {{.CRDOC_IMAGE}} --resources "/workdir/{{.CRD_YAML}}" --output "/workdir/{{.CRD_MDX}}"
-        elif command -v podman >/dev/null 2>&1; then
-          echo "No crdoc binary found; falling back to podman + the (stale) crdoc image"
-          # --userns=keep-id: rootless podman otherwise maps the caller to a
-          # different uid inside the container, and writing the output file onto
-          # the bind mount fails with "permission denied".
-          podman run --userns=keep-id -u "$(id -u):$(id -g)" --rm -v "${PWD}:/workdir" {{.CRDOC_IMAGE}} --resources "/workdir/{{.CRD_YAML}}" --output "/workdir/{{.CRD_MDX}}"
-        else
-          echo "Error: need a 'crdoc' binary (run 'mise install'), or docker/podman" >&2
-          exit 1
-        fi
-      - echo "Escaping braces outside inline code spans for MDX/JSX safety"
-      # MDX (fumadocs) treats any unescaped '{' as a JSX expression. crdoc emits
-      # raw braces from CRD descriptions: double braces ({{username}}/{{group}}),
-      # path templates like /apis/{group}/..., and CEL validation regexes. Escape
-      # every { and } to \{ \}, but only OUTSIDE inline `code` spans, whose braces
-      # must stay raw (a \{ inside backticks would render the backslash literally).
-      # Likewise escape any '<' that does not open an HTML tag (e.g. CEL '<='),
-      # which MDX would otherwise parse as the start of a JSX element.
-      - perl -i -pe 'my @p=split /(`[^`]*`)/,$_,-1; for(@p){next if /^`.*`$/s; s/(?<!\\)\{/\\{/g; s/(?<!\\)\}/\\}/g; s/(?<!\\)<(?![A-Za-z\/])/\\</g} $_=join("",@p);' {{.CRD_MDX}}
-      - echo "Add front matter to the generated documentation"
-      - docs/scripts/add-frontmatter.sh --title "Custom Resource Definitions" --icon DraftingCompass --output {{.CRD_MDX}} {{.CRD_MDX}}

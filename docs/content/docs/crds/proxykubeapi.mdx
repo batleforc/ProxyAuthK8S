@@ -1,0 +1,588 @@
+---
+title: ProxyKubeApi
+description: ProxyKubeApi spec.
+full: true
+---
+
+- **API version:** `weebo.si.rs/v1`
+- **Scope:** Namespaced
+- **Short names:** none
+- **Guide:** [Exposer un cluster](/docs/expose-cluster)
+
+ProxyKubeApi spec.
+
+## Example
+
+```yaml
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+metadata:
+  name: my-proxykubeapi
+  namespace: team-a
+spec:
+  cert:
+    SystemRoots: true
+  service:
+    KubernetesService:
+      name: kubernetes
+      namespace: default
+      port: 443
+```
+
+## Spec fields
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`auth_config`](#spec.auth_config) | `object` | no |  | Main configuration for authentication |
+| [`cert`](#spec.cert) | `object` | yes |  | Certificate for the Kubernetes API |
+| [`client_cert`](#spec.client_cert) | `object` | no |  | Client certificate presented to the Kubernetes API for mutual TLS Leave unset when the cluster does not require client certificates |
+| `dashboard_group` | `string` | no |  | If the proxy exposition is accessible via the dashboard the oidc group that allow access to the dashboard, should be unique Default: to the resource namespace + resource name |
+| `enabled` | `boolean` | no | `true` | Enable or disable the proxy |
+| `expose_via_dashboard` | `boolean` | no | `false` | If the proxy exposition should be accessible via the Dashboard Default: false |
+| `proxy_group` | `string` | no |  | The oidc group required to proxy requests to this cluster Set it to decouple proxy access from dashboard access Default: the dashboard group when `expose_via_dashboard` is true, otherwise no group is required |
+| [`security_config`](#spec.security_config) | `object` | no |  | Security configuration |
+| [`service`](#spec.service) | `object` | yes |  | Service to expose the proxy |
+| [`virtual_apis`](#spec.virtual_apis) | `object[]` | no | `[]` | Virtual APIs to expose on top of this cluster A virtual API is an API the cluster does not serve, that the proxy synthesises by translating requests and responses |
+
+**Rules**
+
+- dashboard_group must not be empty when it is set — `!has(self.dashboard_group) || self.dashboard_group != ''`
+- proxy_group must not be empty when it is set — `!has(self.proxy_group) || self.proxy_group != ''`
+
+### `spec.auth_config` [#spec.auth_config]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `disable_validation` | `boolean` | no | `false` | Disable validation of the token against the configured JWT authenticators, OIDC provider or Kubernetes API If the `AuthenticationConfiguration` is not provided, does not validate the token against any of the configured JWT authenticators, OIDC provider or Kubernetes API Default : false |
+| [`jwt`](#spec.auth_config.jwt) | `object[]` | no | `[]` | Bounded so the quadratic uniqueness rule above stays inside the apiserver's CEL cost budget — the estimator multiplies this bound by the bound on `issuer.url`, and an unbounded pair is rejected outright. Still far above any real deployment, which trusts a handful of issuers.<br /><br />Constraints: `maxItems: 8` |
+| [`oidc_provider`](#spec.auth_config.oidc_provider) | `object` | yes |  | An enabled provider that cannot be contacted is a cluster that never authenticates anyone, so the apiserver refuses the CR outright. |
+| `validate_against` | `string` | no | `"Kubernetes"` | Validate against the configured JWT authenticators, OIDC provider or Kubernetes API Default : `Kubernetes` — the fail-closed choice, valid for every cluster. Selecting `OidcProvider` or `JwtAuthenticators` is always explicit, so a cluster never silently changes how it authenticates because a field was added elsewhere in the spec.<br /><br />Values: `"OidcProvider"`, `"Kubernetes"`, `"JwtAuthenticators"` |
+
+**Rules**
+
+- validate_against is set to OidcProvider but the OIDC provider is not enabled — `self.validate_against != 'OidcProvider' || self.oidc_provider.enabled`
+- validate_against is set to JwtAuthenticators but no jwt authenticator is configured — `self.validate_against != 'JwtAuthenticators' || size(self.jwt) > 0`
+- two jwt authenticators are configured for the same issuer; only the first would ever apply — `self.jwt.all(a, self.jwt.exists_one(b, b.issuer.url == a.issuer.url))`
+
+### `spec.auth_config.jwt[]` [#spec.auth_config.jwt]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`claim_mappings`](#spec.auth_config.jwt.claim_mappings) | `object` | yes |  | How the claims become a username, groups, uid and extra. |
+| [`claim_validation_rules`](#spec.auth_config.jwt.claim_validation_rules) | `object[]` | no | `[]` | Rules the raw claims must satisfy before any mapping happens. |
+| [`issuer`](#spec.auth_config.jwt.issuer) | `object` | yes |  | The token issuer a [`super::JWTAuthenticator`] trusts, mirroring the apiserver's `issuer`. |
+| [`user_validation_rules`](#spec.auth_config.jwt.user_validation_rules) | `object[]` | no | `[]` | Rules the *mapped* user must satisfy — e.g. refusing a `system:` prefix. |
+
+### `spec.auth_config.jwt[].claim_mappings` [#spec.auth_config.jwt.claim_mappings]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`extra`](#spec.auth_config.jwt.claim_mappings.extra) | `object[]` | no | `[]` |  |
+| [`groups`](#spec.auth_config.jwt.claim_mappings.groups) | `object` | no |  | Either a claim (with an optional prefix) or a CEL expression, never both.<br /><br />`prefix` exists to keep an external identity provider from minting a username that collides with a local one; it applies only to the `claim` form, since an `expression` can prepend whatever it likes itself. |
+| [`uid`](#spec.auth_config.jwt.claim_mappings.uid) | `object` | no |  | Either a claim or a CEL expression, never both. |
+| [`username`](#spec.auth_config.jwt.claim_mappings.username) | `object` | no |  | Required — a token that validates but maps to no username authenticates nobody, so the apiserver requires it too. |
+
+**Rules**
+
+- claim_mappings.username is required: without it a validated token maps to no user — `has(self.username)`
+
+### `spec.auth_config.jwt[].claim_mappings.extra[]` [#spec.auth_config.jwt.claim_mappings.extra]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `value_expression` | `string` | no | `""` | A CEL expression over `claims` producing the value(s) for `key`. |
+
+### `spec.auth_config.jwt[].claim_mappings.groups` [#spec.auth_config.jwt.claim_mappings.groups]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `claim` | `string` | no |  | Constraints: `maxLength: 253` |
+| `expression` | `string` | no |  | Constraints: `maxLength: 4096` |
+| `prefix` | `string` | no |  | Prepended to the claim's value. Only valid with `claim`.<br /><br />Constraints: `maxLength: 253` |
+
+**Rules**
+
+- exactly one of claim or expression must be set — `has(self.claim) != has(self.expression)`
+- prefix may only be set together with claim — `!has(self.prefix) || has(self.claim)`
+- prefix is required with claim (use "" to opt out of prefixing deliberately) — `!has(self.claim) || has(self.prefix)`
+
+### `spec.auth_config.jwt[].claim_mappings.uid` [#spec.auth_config.jwt.claim_mappings.uid]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `claim` | `string` | no |  | Constraints: `maxLength: 253` |
+| `expression` | `string` | no |  | Constraints: `maxLength: 4096` |
+
+**Rules**
+
+- exactly one of claim or expression must be set — `has(self.claim) != has(self.expression)`
+
+### `spec.auth_config.jwt[].claim_mappings.username` [#spec.auth_config.jwt.claim_mappings.username]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `claim` | `string` | no |  | Constraints: `maxLength: 253` |
+| `expression` | `string` | no |  | Constraints: `maxLength: 4096` |
+| `prefix` | `string` | no |  | Prepended to the claim's value. Only valid with `claim`.<br /><br />Constraints: `maxLength: 253` |
+
+**Rules**
+
+- exactly one of claim or expression must be set — `has(self.claim) != has(self.expression)`
+- prefix may only be set together with claim — `!has(self.prefix) || has(self.claim)`
+- prefix is required with claim (use "" to opt out of prefixing deliberately) — `!has(self.claim) || has(self.prefix)`
+
+### `spec.auth_config.jwt[].claim_validation_rules[]` [#spec.auth_config.jwt.claim_validation_rules]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `claim` | `string` | no |  | The claim whose value must equal `required_value`.<br /><br />Constraints: `maxLength: 253` |
+| `expression` | `string` | no |  | A CEL expression over `claims` that must evaluate to `true`.<br /><br />Constraints: `maxLength: 4096` |
+| `message` | `string` | no | `""` | Shown when `expression` rejects a token. Required with `expression`: a rejection nobody can explain is a support ticket, not a security control.<br /><br />Constraints: `maxLength: 1024` |
+| `required_value` | `string` | no | `""` | The value `claim` must hold. Absent means "the claim must merely be present", which is how the apiserver reads an empty `requiredValue`.<br /><br />Constraints: `maxLength: 1024` |
+
+**Rules**
+
+- exactly one of claim or expression must be set — `has(self.claim) != has(self.expression)`
+- required_value may only be set together with claim — `self.required_value == '' || has(self.claim)`
+- an expression rule requires a message explaining what it rejects — `!has(self.expression) || self.message != ''`
+
+### `spec.auth_config.jwt[].issuer` [#spec.auth_config.jwt.issuer]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `audience_match_policy` | `string` | no | `"MatchAny"` | Values: `"MatchAny"` |
+| `audiences` | `string[]` | no | `[]` | Accepted `aud` values. At least one — an authenticator that accepts any audience is the audience-confusion hole this whole area exists to close. |
+| `certificate_authority` | `string` | no |  | PEM bundle used to verify the issuer's TLS certificate. Absent means the system trust store. |
+| `discovery_url` | `string` | no |  | Where the discovery document lives, when it is not `url` + `/.well-known/openid-configuration`.<br /><br />Constraints: `maxLength: 253` |
+| `egress_selector` | `string` | no | `"controlplane"` | Values: `"controlplane"`, `"cluster"` |
+| `url` | `string` | yes |  | The `iss` claim every token must carry, and the base for OIDC discovery unless `discovery_url` overrides it.<br /><br />Constraints: `maxLength: 253` |
+
+**Rules**
+
+- issuer.url must be an https:// URL — `self.url.startsWith('https://')`
+- issuer.audiences must list at least one audience — `size(self.audiences) > 0`
+- issuer.discovery_url must be an https:// URL — `!has(self.discovery_url) || self.discovery_url.startsWith('https://')`
+
+### `spec.auth_config.jwt[].user_validation_rules[]` [#spec.auth_config.jwt.user_validation_rules]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `expression` | `string` | no | `""` | A CEL expression over `user` that must evaluate to `true`.<br /><br />Constraints: `maxLength: 4096` |
+| `message` | `string` | no | `""` | Shown when the rule rejects a user.<br /><br />Constraints: `maxLength: 1024` |
+
+**Rules**
+
+- a user validation rule requires both an expression and a message — `self.expression != '' && self.message != ''`
+
+### `spec.auth_config.oidc_provider` [#spec.auth_config.oidc_provider]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `accept_authorized_party` | `boolean` | no | `false` | Accept a token whose `aud` does not name this service but whose `azp`/`client_id` does.<br /><br />Off by default: `azp`/`client_id` identify the client the token was issued to, not the resource, so accepting them weakens audience validation. Enable only for providers (e.g. Keycloak) that mint self-audience tokens carrying the client only in `azp`. |
+| `audience` | `string` | no | `""` | Audience the access token must carry (its `aud` claim) to be accepted.<br /><br />When empty, `client_id` is used — correct for providers that put the client id in `aud`. Set it explicitly when the provider mints tokens for a distinct resource audience, so `client_id` (who the token is for) and the expected audience (what the token is for) are configured independently. |
+| `client_id` | `string` | no | `""` | Ignored when the `config_from` Secret carries a `client_id` key. See `issuer_url` for why it is optional. |
+| `client_secret` | `string` | no |  | The OAuth client secret, inline.<br /><br />Prefer `config_from`: a value here is readable by anyone with `get` on this resource, shows up in `kubectl get -o yaml`, and is copied into every backup of it. |
+| [`config_from`](#spec.auth_config.oidc_provider.config_from) | `object` | no |  | Read the provider block from an external Secret instead of inlining it here.<br /><br />The Secret's keys are the snake_case field names of this struct — `issuer_url`, `client_id`, `client_secret`, `audience`, `extra_scope` — and any key it carries wins over the inline value; keys it does not carry fall back to the inline value, so a partial Secret (the common case: just `client_secret`) works. Keys outside that set are ignored, since a Secret managed by external-secrets is routinely shared with other consumers.<br /><br />The policy toggles (`enabled`, `accept_authorized_party`, `expose_oauth_authorization_server`) are deliberately *not* readable from the Secret: they decide how strictly tokens are validated and who may reach this cluster, so they must stay visible in the CR that admission and review look at. |
+| `enabled` | `boolean` | no | `false` |  |
+| `expose_oauth_authorization_server` | `boolean` | no | `false` | Expose a mediated OAuth 2.0 Authorization Server (RFC 6749 + PKCE) for this cluster, advertised at `/.well-known/oauth-authorization-server` (RFC 8414), like OpenShift does for its own OAuth server.<br /><br />The proxy itself becomes the authorization server an external caller talks to — `issuer`, `authorization_endpoint`, `token_endpoint`, and `jwks_uri` are all this cluster's own proxy URLs — mediating the whole exchange with the configured `issuer_url` server-side. A caller (e.g. `oc login`, or any RFC-8414-aware tool) never needs to be registered with — or even learn the hostname of — the upstream provider, and no companion `oauth2-proxy` is needed to serve this document.<br /><br />Off by default and unauthenticated by nature (discovery, and the authorization/token endpoints it advertises, must be reachable before a caller has a token): enabling it lets anonymous callers learn that this cluster exists and start a login against it. `redirect_uri` at `/oauth/authorize` is restricted to loopback addresses (`http://localhost`/`http://127.0.0.1`, RFC 8252) since callers are not pre-registered — accepting an arbitrary `redirect_uri` would be an open redirect. Requires `enabled: true`. |
+| `extra_scope` | `string` | no | `""` |  |
+| `issuer_url` | `string` | no | `""` | Ignored when the `config_from` Secret carries an `issuer_url` key. Optional only so a `config_from`-only block need not restate it; an enabled provider must end up with a non-empty value from one side or the other. |
+
+**Rules**
+
+- an enabled OIDC provider requires a non-empty issuer_url and client_id, or a config_from reference supplying them — `!self.enabled || has(self.config_from) || (self.issuer_url != '' && self.client_id != '')`
+- expose_oauth_authorization_server requires the OIDC provider to be enabled — `!self.expose_oauth_authorization_server || self.enabled`
+
+### `spec.auth_config.oidc_provider.config_from` [#spec.auth_config.oidc_provider.config_from]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`Secret`](#spec.auth_config.oidc_provider.config_from.Secret) | `object` | yes |  | Read the provider block from the keys of a Secret. |
+
+### `spec.auth_config.oidc_provider.config_from.Secret` [#spec.auth_config.oidc_provider.config_from.Secret]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  | Defaults to the `ProxyKubeApi`'s own namespace. Honoured only when `PROXYAUTH_ALLOW_CROSS_NS_OIDC` is set — see [`cross_namespace_oidc_allowed`]. |
+
+### `spec.cert` [#spec.cert]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `Cert` | `string` | one of |  | Base64 encoded cert |
+| [`ConfigMap`](#spec.cert.ConfigMap) | `object` | one of |  | Configmap |
+| `Insecure` | `boolean` | one of |  | Deprecated, use `SystemRoots`. Despite its name this never disabled TLS verification: it behaves exactly like `SystemRoots`. The value is ignored. |
+| [`Secret`](#spec.cert.Secret) | `object` | one of |  | Use a cert from a secret |
+| `SystemRoots` | `boolean` | one of |  | Verify the target with the system trust store (no custom CA). The value is ignored. |
+
+Exactly one of `Secret`, `Cert`, `ConfigMap`, `SystemRoots`, `Insecure`.
+
+### `spec.cert.ConfigMap` [#spec.cert.ConfigMap]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  |  |
+
+### `spec.cert.Secret` [#spec.cert.Secret]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  |  |
+
+### `spec.client_cert` [#spec.client_cert]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`cert`](#spec.client_cert.cert) | `object` | yes |  | PEM client certificate chain |
+| [`key`](#spec.client_cert.key) | `object` | yes |  | PEM private key matching the certificate |
+
+### `spec.client_cert.cert` [#spec.client_cert.cert]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `Cert` | `string` | one of |  | Base64 encoded cert |
+| [`ConfigMap`](#spec.client_cert.cert.ConfigMap) | `object` | one of |  | Configmap |
+| `Insecure` | `boolean` | one of |  | Deprecated, use `SystemRoots`. Despite its name this never disabled TLS verification: it behaves exactly like `SystemRoots`. The value is ignored. |
+| [`Secret`](#spec.client_cert.cert.Secret) | `object` | one of |  | Use a cert from a secret |
+| `SystemRoots` | `boolean` | one of |  | Verify the target with the system trust store (no custom CA). The value is ignored. |
+
+Exactly one of `Secret`, `Cert`, `ConfigMap`, `SystemRoots`, `Insecure`.
+
+### `spec.client_cert.cert.ConfigMap` [#spec.client_cert.cert.ConfigMap]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  |  |
+
+### `spec.client_cert.cert.Secret` [#spec.client_cert.cert.Secret]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  |  |
+
+### `spec.client_cert.key` [#spec.client_cert.key]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `Cert` | `string` | one of |  | Base64 encoded cert |
+| [`ConfigMap`](#spec.client_cert.key.ConfigMap) | `object` | one of |  | Configmap |
+| `Insecure` | `boolean` | one of |  | Deprecated, use `SystemRoots`. Despite its name this never disabled TLS verification: it behaves exactly like `SystemRoots`. The value is ignored. |
+| [`Secret`](#spec.client_cert.key.Secret) | `object` | one of |  | Use a cert from a secret |
+| `SystemRoots` | `boolean` | one of |  | Verify the target with the system trust store (no custom CA). The value is ignored. |
+
+Exactly one of `Secret`, `Cert`, `ConfigMap`, `SystemRoots`, `Insecure`.
+
+### `spec.client_cert.key.ConfigMap` [#spec.client_cert.key.ConfigMap]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  |  |
+
+### `spec.client_cert.key.Secret` [#spec.client_cert.key.Secret]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  |  |
+
+### `spec.security_config` [#spec.security_config]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`allowed_resources`](#spec.security_config.allowed_resources) | `object[]` | no | `[]` | Allowed resources, limit the access to the proxy to only these resources, if empty all resources are allowed<br /><br />The bound keeps the estimated cost of the per-item CEL rules within the budget the apiserver allows for a whole CRD schema.<br /><br />Constraints: `maxItems: 128` |
+| [`allowed_ressources`](#spec.security_config.allowed_ressources) | `object[]` | no | `[]` | Deprecated misspelling of `allowed_resources`, merged with it<br /><br />Kept as a real field rather than a serde alias on purpose: the apiserver prunes fields absent from the schema, so an alias alone would silently drop the security configuration of every existing resource. Remove it in the next major, once resources have been migrated.<br /><br />Constraints: `maxItems: 128` |
+| `enabled` | `boolean` | no | `true` | Whether the token is validated beforehand |
+| [`fail2login_equal_ban`](#spec.security_config.fail2login_equal_ban) | `object` | no | `{"ban_duration":300,"enabled":false,"exponential_backoff":false,"max_failed_logins":5}` | Configuration for banning callers after multiple failed authentications |
+| `mask_exec_secrets` | `boolean` | no | `false` | Mask secrets in the command lines the audit records for exec (RFC 0004)<br /><br />When true, `-pSECRET`, `--password=SECRET`, `--token=SECRET` and the element that follows `-p`, `--password` or `--token` are written as `***`. A heuristic, not a guarantee: off by default, so the audit keeps the command exactly as it ran. |
+| [`per_user_group_rate_limiting`](#spec.security_config.per_user_group_rate_limiting) | `object[]` | no | `[]` | Per group rate limiting configuration This takes precedence over the global rate limiting configuration |
+| [`rate_limiting`](#spec.security_config.rate_limiting) | `object` | no | `{"enabled":false,"max_requests_per_minute":60}` | Global rate limiting configuration |
+
+### `spec.security_config.allowed_resources[]` [#spec.security_config.allowed_resources]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`Crd`](#spec.security_config.allowed_resources.Crd) | `object` | one of |  | Allowed crd configuration, used in conjunction with the `allowed_paths` configuration /apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/ |
+| [`Path`](#spec.security_config.allowed_resources.Path) | `object` | one of |  | Allowed path configuration, used in conjunction with the `allowed_paths` configuration<br /><br />The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed rule is refused at admission rather than at reconcile time.<br /><br />The placeholder regex matches braces through character classes (`[{]`) rather than backslash escapes, for two independent reasons: CEL string literals reject `\{` outright, and the CRD is also shipped as a Helm template where two consecutive `{` would be read as a Go template action. |
+
+Exactly one of `Path`, `Crd`.
+
+### `spec.security_config.allowed_resources[].Crd` [#spec.security_config.allowed_resources.Crd]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `allowed_ports` | `string[]` | no |  | Ports this rule grants on the port-bearing subresources of a `Pod` (`portforward`, `{name}:{port}/proxy`) or a `Service` (`{name}:{port}/proxy`, a Service port, not its `targetPort`), as single ports (`"8080"`) or inclusive ranges (`"9000-9100"`)<br /><br />Same meaning as on a `Path` rule: once any rule a caller is subject to lists ports, a rule without `allowed_ports` grants no port at all.<br /><br />Constraints: `maxItems: 64` |
+| [`exec`](#spec.security_config.allowed_resources.Crd.exec) | `object` | no |  | Commands, containers and streams this `Pod` rule allows on exec and attach (same meaning as on a `Path` rule; RFC 0004) |
+| `group` | `string` | yes |  | The group of the crd |
+| `kind` | `string` | yes |  | The kind of the crd |
+| [`namespace`](#spec.security_config.allowed_resources.Crd.namespace) | `object` | yes |  | Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource |
+| `namespaced` | `boolean` | no | `true` | Namespaced or not default: true |
+| `plural` | `string` | no |  | Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind for example, if the kind is "`MyResource`" and the plural form is "`MyResources`" the path will be /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresources/ instead of       /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresource/ In case of cluster-scoped crd the path will be /apis/\{group\}/\{version\}/myresources/ instead of       /apis/\{group\}/\{version\}/myresource/ |
+| `verbs` | `string[]` | no |  | Kubernetes verbs this rule allows on the resource and all its subresources (same values and meaning as on a `Path` rule)<br /><br />A `Pod` rule with `patch` or `update` also allows `ephemeralcontainers`, that is `kubectl debug`.<br /><br />Values: `"get"`, `"list"`, `"watch"`, `"create"`, `"update"`, `"patch"`, `"delete"`, `"deletecollection"`, `"*"`<br /><br />Constraints: `minItems: 1`, `maxItems: 9` |
+| `version` | `string` | yes |  | The version of the crd |
+
+**Rules**
+
+- allowed_ports only applies to the Pod and Service kinds — `!has(self.allowed_ports) || self.kind in ['Pod', 'Service']`
+- exec only applies to the Pod kind — `!has(self.exec) || self.kind == 'Pod'`
+- `allowed_ports[]`: ports must be within 1-65535 and a range must not be reversed — `self.split('-').all(p, int(p) >= 1 && int(p) <= 65535) && (!self.contains('-') || int(self.split('-')[0]) <= int(self.split('-')[1]))`
+- `verbs`: "*" already allows every verb and must stand alone — `!self.exists(v, v == '*') || size(self) == 1`
+
+### `spec.security_config.allowed_resources[].Crd.exec` [#spec.security_config.allowed_resources.Crd.exec]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `attach` | `boolean` | no | `false` | Whether this rule allows `pods/{name}/attach` (its `commands` are ignored there) default: false |
+| `commands` | `string[][]` | no |  | Commands this rule allows, element by element (`["ls", "**"]`); absent or empty: none<br /><br />A pattern starting with a shell or an interpreter and holding a wildcard allows anything, and is reported in `status.warnings`.<br /><br />Constraints: `maxItems: 64` |
+| `containers` | `string[]` | no |  | Containers this rule allows (`*` allowed in a pattern); absent: all, empty: none<br /><br />Under a container restriction, a request must name its container (`kubectl exec -c`); kubectl always does.<br /><br />Constraints: `maxItems: 32` |
+| `stdin` | `boolean` | no | `false` | Whether stdin may be attached default: false |
+| `tty` | `boolean` | no | `false` | Whether a tty may be allocated (needs `stdin`) default: false |
+
+**Rules**
+
+- tty needs stdin — `!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin)`
+- `commands[]`: "**" may only be the last element of a command — `self.all(e, e != '**') || (self[size(self) - 1] == '**' && self.filter(e, e == '**').size() == 1)`
+
+### `spec.security_config.allowed_resources[].Crd.namespace` [#spec.security_config.allowed_resources.Crd.namespace]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | `boolean` | no | `false` | If the feature is enabled default: false |
+| [`rule_kind`](#spec.security_config.allowed_resources.Crd.namespace.rule_kind) | `object` | yes |  | The kind of the namespace access rule |
+
+### `spec.security_config.allowed_resources[].Crd.namespace.rule_kind` [#spec.security_config.allowed_resources.Crd.namespace.rule_kind]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `AllowedNamespaces` | `string[]` | one of |  |  |
+| `DeniedNamespaces` | `string[]` | one of |  |  |
+| `ParametisedRule` | `string` | one of |  | The parametised rule is a string that can contain the \{\{username\}\} parameter which will be replaced by the username of the user making the request, and the \{\{group\}\} parameter which will be replaced by the groups of the user making the request allowed parameters are : \{\{username\}\} and \{\{group\}\} |
+
+Exactly one of `AllowedNamespaces`, `DeniedNamespaces`, `ParametisedRule`.
+
+### `spec.security_config.allowed_resources[].Path` [#spec.security_config.allowed_resources.Path]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `allowed_ports` | `string[]` | no |  | Ports this rule grants on the port-bearing paths it matches, as single ports (`"8080"`) or inclusive ranges (`"9000-9100"`)<br /><br />Port-bearing paths are `.../pods/{name}/portforward`, `.../pods/{name}:{port}/proxy` and `.../services/{name}:{port}/proxy` (a Service port). Once any rule lists ports, every caller is restricted: the ports of the matching rules that list some are combined, and a rule without `allowed_ports` grants none. An empty list grants no port.<br /><br />Constraints: `maxItems: 64` |
+| [`exec`](#spec.security_config.allowed_resources.Path.exec) | `object` | no |  | Commands, containers and streams this rule allows on the `pods/{name}/exec` and `/attach` paths it matches (RFC 0004)<br /><br />Once any rule a caller is subject to declares `exec`, only the rules that match the path and declare `exec` allow exec or attach, and a request is accepted when one of them accepts it entirely. A `Path` rule has no subject: one with `exec` restricts every caller. |
+| `parametised` | `boolean` | no | `false` | Wether or not the path is parametised if true, the path will be treated as a template, it either handle wildcard parameters, like "*" or "dev-*", or mustache-like parameters, like "\{\{username\}\}" or "\{\{group\}\}" for example, if the path is "/api/v1/namespaces/*/pods", it will allow all requests to pods in any namespace if the path is "/api/v1/namespaces/dev-*/pods", it will allow all requests to pods in namespaces that start with "dev-" It will also try to detect mustache-like parameters, for example, if the path is "/api/v1/namespaces/\{\{username\}\}/pods" it will allow all requests to pods in namespaces carrying the username as a parameter if the selected field is an array, like the groups claim, it will try to match any of the values in the array for example, if the groups claim is ["dev-alice", "dev-bob"] and the path is "/api/v1/namespaces/\{\{group\}\}/pods", it will allow all requests to pods in namespaces that match either "dev-alice" or "dev-bob" Allowed parameters are : \{\{username\}\} and \{\{group\}\} A `*` only matches inside a single path segment; use a `**` segment to match any number of remaining segments (needed for subresources such as "/api/v1/namespaces/dev/pods/mypod/log") default: false |
+| `path` | `string` | yes |  | The path to allow, if the request path equals this path, it will be allowed<br /><br />The length bound is not cosmetic: without it the apiserver assumes an unbounded string and refuses the CEL rule above as too expensive.<br /><br />Constraints: `maxLength: 512` |
+| `verbs` | `string[]` | no |  | Kubernetes verbs this rule allows, computed as the apiserver does (`get`, `list`, `watch`, `create`, `update`, `patch`, `delete`, `deletecollection`, or `*` alone)<br /><br />Once any rule a caller is subject to lists verbs, a rule without `verbs` only grants `get`, `list` and `watch`. `exec`, `attach` and `portforward` are `create`; `allowed_ports` implies `create` on `portforward`.<br /><br />Values: `"get"`, `"list"`, `"watch"`, `"create"`, `"update"`, `"patch"`, `"delete"`, `"deletecollection"`, `"*"`<br /><br />Constraints: `minItems: 1`, `maxItems: 9` |
+
+**Rules**
+
+- path must start with '/' — `self.path.startsWith('/')`
+- a parametised path only accepts the username and group placeholders — `!self.parametised || self.path.matches('^[^{}]*(([{][{](username|group)[}][}])[^{}]*)*$')`
+- `allowed_ports[]`: ports must be within 1-65535 and a range must not be reversed — `self.split('-').all(p, int(p) >= 1 && int(p) <= 65535) && (!self.contains('-') || int(self.split('-')[0]) <= int(self.split('-')[1]))`
+- `verbs`: "*" already allows every verb and must stand alone — `!self.exists(v, v == '*') || size(self) == 1`
+
+### `spec.security_config.allowed_resources[].Path.exec` [#spec.security_config.allowed_resources.Path.exec]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `attach` | `boolean` | no | `false` | Whether this rule allows `pods/{name}/attach` (its `commands` are ignored there) default: false |
+| `commands` | `string[][]` | no |  | Commands this rule allows, element by element (`["ls", "**"]`); absent or empty: none<br /><br />A pattern starting with a shell or an interpreter and holding a wildcard allows anything, and is reported in `status.warnings`.<br /><br />Constraints: `maxItems: 64` |
+| `containers` | `string[]` | no |  | Containers this rule allows (`*` allowed in a pattern); absent: all, empty: none<br /><br />Under a container restriction, a request must name its container (`kubectl exec -c`); kubectl always does.<br /><br />Constraints: `maxItems: 32` |
+| `stdin` | `boolean` | no | `false` | Whether stdin may be attached default: false |
+| `tty` | `boolean` | no | `false` | Whether a tty may be allocated (needs `stdin`) default: false |
+
+**Rules**
+
+- tty needs stdin — `!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin)`
+- `commands[]`: "**" may only be the last element of a command — `self.all(e, e != '**') || (self[size(self) - 1] == '**' && self.filter(e, e == '**').size() == 1)`
+
+### `spec.security_config.allowed_ressources[]` [#spec.security_config.allowed_ressources]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`Crd`](#spec.security_config.allowed_ressources.Crd) | `object` | one of |  | Allowed crd configuration, used in conjunction with the `allowed_paths` configuration /apis/\{group\}/\{version\}/namespaces/\{namespace\}/\{kind\}/ |
+| [`Path`](#spec.security_config.allowed_ressources.Path) | `object` | one of |  | Allowed path configuration, used in conjunction with the `allowed_paths` configuration<br /><br />The CEL rules mirror [`AllowedPathConfiguration::validate`] so a malformed rule is refused at admission rather than at reconcile time.<br /><br />The placeholder regex matches braces through character classes (`[{]`) rather than backslash escapes, for two independent reasons: CEL string literals reject `\{` outright, and the CRD is also shipped as a Helm template where two consecutive `{` would be read as a Go template action. |
+
+Exactly one of `Path`, `Crd`.
+
+### `spec.security_config.allowed_ressources[].Crd` [#spec.security_config.allowed_ressources.Crd]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `allowed_ports` | `string[]` | no |  | Ports this rule grants on the port-bearing subresources of a `Pod` (`portforward`, `{name}:{port}/proxy`) or a `Service` (`{name}:{port}/proxy`, a Service port, not its `targetPort`), as single ports (`"8080"`) or inclusive ranges (`"9000-9100"`)<br /><br />Same meaning as on a `Path` rule: once any rule a caller is subject to lists ports, a rule without `allowed_ports` grants no port at all.<br /><br />Constraints: `maxItems: 64` |
+| [`exec`](#spec.security_config.allowed_ressources.Crd.exec) | `object` | no |  | Commands, containers and streams this `Pod` rule allows on exec and attach (same meaning as on a `Path` rule; RFC 0004) |
+| `group` | `string` | yes |  | The group of the crd |
+| `kind` | `string` | yes |  | The kind of the crd |
+| [`namespace`](#spec.security_config.allowed_ressources.Crd.namespace) | `object` | yes |  | Wether or not the ressource is namespaced, if true, the namespace access rules will be applied to this resource |
+| `namespaced` | `boolean` | no | `true` | Namespaced or not default: true |
+| `plural` | `string` | no |  | Wether or not the kind has a specific plural form, if true, the plural form will be used in the path instead of the kind for example, if the kind is "`MyResource`" and the plural form is "`MyResources`" the path will be /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresources/ instead of       /apis/\{group\}/\{version\}/namespaces/\{namespace\}/myresource/ In case of cluster-scoped crd the path will be /apis/\{group\}/\{version\}/myresources/ instead of       /apis/\{group\}/\{version\}/myresource/ |
+| `verbs` | `string[]` | no |  | Kubernetes verbs this rule allows on the resource and all its subresources (same values and meaning as on a `Path` rule)<br /><br />A `Pod` rule with `patch` or `update` also allows `ephemeralcontainers`, that is `kubectl debug`.<br /><br />Values: `"get"`, `"list"`, `"watch"`, `"create"`, `"update"`, `"patch"`, `"delete"`, `"deletecollection"`, `"*"`<br /><br />Constraints: `minItems: 1`, `maxItems: 9` |
+| `version` | `string` | yes |  | The version of the crd |
+
+**Rules**
+
+- allowed_ports only applies to the Pod and Service kinds — `!has(self.allowed_ports) || self.kind in ['Pod', 'Service']`
+- exec only applies to the Pod kind — `!has(self.exec) || self.kind == 'Pod'`
+- `allowed_ports[]`: ports must be within 1-65535 and a range must not be reversed — `self.split('-').all(p, int(p) >= 1 && int(p) <= 65535) && (!self.contains('-') || int(self.split('-')[0]) <= int(self.split('-')[1]))`
+- `verbs`: "*" already allows every verb and must stand alone — `!self.exists(v, v == '*') || size(self) == 1`
+
+### `spec.security_config.allowed_ressources[].Crd.exec` [#spec.security_config.allowed_ressources.Crd.exec]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `attach` | `boolean` | no | `false` | Whether this rule allows `pods/{name}/attach` (its `commands` are ignored there) default: false |
+| `commands` | `string[][]` | no |  | Commands this rule allows, element by element (`["ls", "**"]`); absent or empty: none<br /><br />A pattern starting with a shell or an interpreter and holding a wildcard allows anything, and is reported in `status.warnings`.<br /><br />Constraints: `maxItems: 64` |
+| `containers` | `string[]` | no |  | Containers this rule allows (`*` allowed in a pattern); absent: all, empty: none<br /><br />Under a container restriction, a request must name its container (`kubectl exec -c`); kubectl always does.<br /><br />Constraints: `maxItems: 32` |
+| `stdin` | `boolean` | no | `false` | Whether stdin may be attached default: false |
+| `tty` | `boolean` | no | `false` | Whether a tty may be allocated (needs `stdin`) default: false |
+
+**Rules**
+
+- tty needs stdin — `!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin)`
+- `commands[]`: "**" may only be the last element of a command — `self.all(e, e != '**') || (self[size(self) - 1] == '**' && self.filter(e, e == '**').size() == 1)`
+
+### `spec.security_config.allowed_ressources[].Crd.namespace` [#spec.security_config.allowed_ressources.Crd.namespace]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | `boolean` | no | `false` | If the feature is enabled default: false |
+| [`rule_kind`](#spec.security_config.allowed_ressources.Crd.namespace.rule_kind) | `object` | yes |  | The kind of the namespace access rule |
+
+### `spec.security_config.allowed_ressources[].Crd.namespace.rule_kind` [#spec.security_config.allowed_ressources.Crd.namespace.rule_kind]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `AllowedNamespaces` | `string[]` | one of |  |  |
+| `DeniedNamespaces` | `string[]` | one of |  |  |
+| `ParametisedRule` | `string` | one of |  | The parametised rule is a string that can contain the \{\{username\}\} parameter which will be replaced by the username of the user making the request, and the \{\{group\}\} parameter which will be replaced by the groups of the user making the request allowed parameters are : \{\{username\}\} and \{\{group\}\} |
+
+Exactly one of `AllowedNamespaces`, `DeniedNamespaces`, `ParametisedRule`.
+
+### `spec.security_config.allowed_ressources[].Path` [#spec.security_config.allowed_ressources.Path]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `allowed_ports` | `string[]` | no |  | Ports this rule grants on the port-bearing paths it matches, as single ports (`"8080"`) or inclusive ranges (`"9000-9100"`)<br /><br />Port-bearing paths are `.../pods/{name}/portforward`, `.../pods/{name}:{port}/proxy` and `.../services/{name}:{port}/proxy` (a Service port). Once any rule lists ports, every caller is restricted: the ports of the matching rules that list some are combined, and a rule without `allowed_ports` grants none. An empty list grants no port.<br /><br />Constraints: `maxItems: 64` |
+| [`exec`](#spec.security_config.allowed_ressources.Path.exec) | `object` | no |  | Commands, containers and streams this rule allows on the `pods/{name}/exec` and `/attach` paths it matches (RFC 0004)<br /><br />Once any rule a caller is subject to declares `exec`, only the rules that match the path and declare `exec` allow exec or attach, and a request is accepted when one of them accepts it entirely. A `Path` rule has no subject: one with `exec` restricts every caller. |
+| `parametised` | `boolean` | no | `false` | Wether or not the path is parametised if true, the path will be treated as a template, it either handle wildcard parameters, like "*" or "dev-*", or mustache-like parameters, like "\{\{username\}\}" or "\{\{group\}\}" for example, if the path is "/api/v1/namespaces/*/pods", it will allow all requests to pods in any namespace if the path is "/api/v1/namespaces/dev-*/pods", it will allow all requests to pods in namespaces that start with "dev-" It will also try to detect mustache-like parameters, for example, if the path is "/api/v1/namespaces/\{\{username\}\}/pods" it will allow all requests to pods in namespaces carrying the username as a parameter if the selected field is an array, like the groups claim, it will try to match any of the values in the array for example, if the groups claim is ["dev-alice", "dev-bob"] and the path is "/api/v1/namespaces/\{\{group\}\}/pods", it will allow all requests to pods in namespaces that match either "dev-alice" or "dev-bob" Allowed parameters are : \{\{username\}\} and \{\{group\}\} A `*` only matches inside a single path segment; use a `**` segment to match any number of remaining segments (needed for subresources such as "/api/v1/namespaces/dev/pods/mypod/log") default: false |
+| `path` | `string` | yes |  | The path to allow, if the request path equals this path, it will be allowed<br /><br />The length bound is not cosmetic: without it the apiserver assumes an unbounded string and refuses the CEL rule above as too expensive.<br /><br />Constraints: `maxLength: 512` |
+| `verbs` | `string[]` | no |  | Kubernetes verbs this rule allows, computed as the apiserver does (`get`, `list`, `watch`, `create`, `update`, `patch`, `delete`, `deletecollection`, or `*` alone)<br /><br />Once any rule a caller is subject to lists verbs, a rule without `verbs` only grants `get`, `list` and `watch`. `exec`, `attach` and `portforward` are `create`; `allowed_ports` implies `create` on `portforward`.<br /><br />Values: `"get"`, `"list"`, `"watch"`, `"create"`, `"update"`, `"patch"`, `"delete"`, `"deletecollection"`, `"*"`<br /><br />Constraints: `minItems: 1`, `maxItems: 9` |
+
+**Rules**
+
+- path must start with '/' — `self.path.startsWith('/')`
+- a parametised path only accepts the username and group placeholders — `!self.parametised || self.path.matches('^[^{}]*(([{][{](username|group)[}][}])[^{}]*)*$')`
+- `allowed_ports[]`: ports must be within 1-65535 and a range must not be reversed — `self.split('-').all(p, int(p) >= 1 && int(p) <= 65535) && (!self.contains('-') || int(self.split('-')[0]) <= int(self.split('-')[1]))`
+- `verbs`: "*" already allows every verb and must stand alone — `!self.exists(v, v == '*') || size(self) == 1`
+
+### `spec.security_config.allowed_ressources[].Path.exec` [#spec.security_config.allowed_ressources.Path.exec]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `attach` | `boolean` | no | `false` | Whether this rule allows `pods/{name}/attach` (its `commands` are ignored there) default: false |
+| `commands` | `string[][]` | no |  | Commands this rule allows, element by element (`["ls", "**"]`); absent or empty: none<br /><br />A pattern starting with a shell or an interpreter and holding a wildcard allows anything, and is reported in `status.warnings`.<br /><br />Constraints: `maxItems: 64` |
+| `containers` | `string[]` | no |  | Containers this rule allows (`*` allowed in a pattern); absent: all, empty: none<br /><br />Under a container restriction, a request must name its container (`kubectl exec -c`); kubectl always does.<br /><br />Constraints: `maxItems: 32` |
+| `stdin` | `boolean` | no | `false` | Whether stdin may be attached default: false |
+| `tty` | `boolean` | no | `false` | Whether a tty may be allocated (needs `stdin`) default: false |
+
+**Rules**
+
+- tty needs stdin — `!(has(self.tty) && self.tty) || (has(self.stdin) && self.stdin)`
+- `commands[]`: "**" may only be the last element of a command — `self.all(e, e != '**') || (self[size(self) - 1] == '**' && self.filter(e, e == '**').size() == 1)`
+
+### `spec.security_config.fail2login_equal_ban` [#spec.security_config.fail2login_equal_ban]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `ban_duration` | `integer` | no | `300` | The duration of the ban in seconds default: 300 (5 minutes) 0 means permanent ban<br /><br />Constraints: `minimum: 0` |
+| `enabled` | `boolean` | no | `false` | If the feature is enabled default: false |
+| `exponential_backoff` | `boolean` | no | `false` | If the time is exponentially increased with each failed login attempt default: false |
+| `max_failed_logins` | `integer` | no | `5` | The number of failed login attempts before the user is banned default: 5<br /><br />Constraints: `minimum: 0` |
+
+### `spec.security_config.per_user_group_rate_limiting[]` [#spec.security_config.per_user_group_rate_limiting]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `group` | `string` | yes |  | Group name |
+| `max_requests_per_minute` | `integer` | yes |  | The maximum number of requests per minute for this group This setting overrides the global rate limiting setting 0 disables the rate limiting for this group<br /><br />Constraints: `minimum: 0` |
+
+### `spec.security_config.rate_limiting` [#spec.security_config.rate_limiting]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | `boolean` | no | `false` | If the feature is enabled default: false |
+| `max_requests_per_minute` | `integer` | no | `60` | The maximum number of requests per minute default: 60 0 disables the rate global rate limiting<br /><br />Constraints: `minimum: 0` |
+
+### `spec.service` [#spec.service]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`ExternalService`](#spec.service.ExternalService) | `object` | one of |  | External service |
+| [`KubernetesService`](#spec.service.KubernetesService) | `object` | one of |  | Kubernetes service |
+
+Exactly one of `KubernetesService`, `ExternalService`.
+
+### `spec.service.ExternalService` [#spec.service.ExternalService]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `url` | `string` | yes |  | URL of the external service (e.g. `https://example.com`) |
+
+### `spec.service.KubernetesService` [#spec.service.KubernetesService]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `name` | `string` | yes |  | Name of the service |
+| `namespace` | `string` | no |  | If not set, will use the resource namespace |
+| `port` | `integer` | no |  | Port of the service<br /><br />Constraints: `minimum: 0`, `maximum: 65535` |
+| `port_name` | `string` | no |  | Port name of the service |
+
+### `spec.virtual_apis[]` [#spec.virtual_apis]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `enabled` | `boolean` | no | `true` | Enable or disable this virtual API Default: true |
+| `kind` | `string` | yes |  | Which virtual API to expose<br /><br />Values: `"OpenShiftProject"` |
+| [`list_fallback_token`](#spec.virtual_apis.list_fallback_token) | `object` | no |  | A least-privilege bearer token (`list` only on `namespaces`, nothing else) used to enumerate candidate namespaces so `OpenShiftProject`'s `LIST projects` can be filtered to what the caller can individually `get`, matching `OpenShift`'s per-project visibility model.<br /><br />Unset by default: `LIST projects` then behaves as a plain, unfiltered `LIST namespaces`. Only meaningful for `VirtualApiKind::OpenShiftProject`. |
+
+### `spec.virtual_apis[].list_fallback_token` [#spec.virtual_apis.list_fallback_token]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `Cert` | `string` | one of |  | Base64 encoded cert |
+| [`ConfigMap`](#spec.virtual_apis.list_fallback_token.ConfigMap) | `object` | one of |  | Configmap |
+| `Insecure` | `boolean` | one of |  | Deprecated, use `SystemRoots`. Despite its name this never disabled TLS verification: it behaves exactly like `SystemRoots`. The value is ignored. |
+| [`Secret`](#spec.virtual_apis.list_fallback_token.Secret) | `object` | one of |  | Use a cert from a secret |
+| `SystemRoots` | `boolean` | one of |  | Verify the target with the system trust store (no custom CA). The value is ignored. |
+
+Exactly one of `Secret`, `Cert`, `ConfigMap`, `SystemRoots`, `Insecure`.
+
+### `spec.virtual_apis[].list_fallback_token.ConfigMap` [#spec.virtual_apis.list_fallback_token.ConfigMap]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  |  |
+
+### `spec.virtual_apis[].list_fallback_token.Secret` [#spec.virtual_apis.list_fallback_token.Secret]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  |  |
+
+## Build a manifest
+
+Answer the questions and fill in the fields: the YAML preview updates as you type, ready to copy or download and `kubectl apply`.
+
+<CrdForm kind="ProxyKubeApi" />

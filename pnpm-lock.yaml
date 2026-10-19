@@ -285,21 +285,9 @@ importers:
 
   docs:
     dependencies:
-      '@icons-pack/react-simple-icons':
-        specifier: ^13.15.1
-        version: 13.15.1(react@19.3.1)
-      '@radix-ui/react-collapsible':
-        specifier: ^1.2.1
-        version: 1.2.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@radix-ui/react-popover':
-        specifier: ^1.3.1
-        version: 1.3.1(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      '@takumi-rs/image-response':
-        specifier: 2.16.3
-        version: 2.16.3(csstype@3.2.3)(react@19.3.1)
-      class-variance-authority:
-        specifier: ^0.7.1
-        version: 0.7.1
+      '@weebo/operator-docs':
+        specifier: https://github.com/batleforc/weebo-operator-kit/releases/download/v0.19.0/weebo-operator-docs-0.19.0.tgz
+        version: https://github.com/batleforc/weebo-operator-kit/releases/download/v0.19.0/weebo-operator-docs-0.19.0.tgz(eafad79c83e465b7219a8cbd15922172)
       fumadocs-core:
         specifier: 16.17.5
         version: 16.17.5(@mdx-js/mdx@3.1.1(supports-color@7.2.0))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.3.0)(lucide-react@1.59.0(@types/react@19.3.0)(react@19.3.1))(next@16.4.2(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.64.1)(@types/node@26.6.5)(babel-plugin-macros@3.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(sass@1.105.2))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@7.2.0)(zod@4.6.7)
@@ -333,24 +321,12 @@ importers:
       shiki:
         specifier: ^4.5.0
         version: 4.5.0
-      tailwind-merge:
-        specifier: ^3.7.0
-        version: 3.7.0
-      takumi-js:
-        specifier: ^2.16.3
-        version: 2.16.3(csstype@3.2.3)(react@19.3.1)
       unist-util-visit:
         specifier: ^5.1.0
         version: 5.1.0
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
-      zbsearch:
-        specifier: ^4.0.1
-        version: 4.0.1
-      zod:
-        specifier: ^4.6.7
-        version: 4.6.7
     devDependencies:
       '@tailwindcss/postcss':
         specifier: ^4.3.3
@@ -958,11 +934,6 @@ packages:
 
   '@iconify/utils@3.1.7':
     resolution: {integrity: sha512-JZHlwdID+dy+lTgbYC8NEC4zeugqeYsc6jewvzb4c58kHauJn+X7rNwQjxz5p2qSjqaEeQoLkCIQ9v/H4PK0/w==}
-
-  '@icons-pack/react-simple-icons@13.15.1':
-    resolution: {integrity: sha512-S35E7vJlJzMeoqjwwI7ZmQUJ2W+2KspnB6bc49KdoDGwp5mCgAy9L3sscfWMewQSMgBdPU8KWWwpSGq5DJyAFw==}
-    peerDependencies:
-      react: ^16.13 || ^17 || ^18 || ^19
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -2310,10 +2281,6 @@ packages:
       react:
         optional: true
 
-  '@takumi-rs/image-response@2.16.3':
-    resolution: {integrity: sha512-Zt1bhqYSFQQu9wKCsImL5+vhYNQsX8WdeKMkBHc94+zVgASrLj50FaCrg0dPLIjPQ1HsPpqu3IJXAjlBrXQR0Q==}
-    engines: {node: '>=20.19'}
-
   '@takumi-rs/wasm@2.16.3':
     resolution: {integrity: sha512-5Qjbqdj27YlNm1EB/NaqMyAR4wRrCXffTWo5j79rFrvqUyl3U2wnPrmEibE5IAo+KwENduQpXcNp2OLSvJ8cDw==}
     engines: {node: '>=20.19'}
@@ -2818,6 +2785,21 @@ packages:
     peerDependencies:
       vue: ^3.5.0
 
+  '@weebo/operator-docs@https://github.com/batleforc/weebo-operator-kit/releases/download/v0.19.0/weebo-operator-docs-0.19.0.tgz':
+    resolution: {integrity: sha512-dUNReIDcpxnk6t9MWLbTAIv9I3d4rhCRdNqbTZPjJahgCAPKoV7sJVPMgfLgAXuwzUXgVYsu9Ly8jA5W18YZrg==, tarball: https://github.com/batleforc/weebo-operator-kit/releases/download/v0.19.0/weebo-operator-docs-0.19.0.tgz}
+    version: 0.19.0
+    hasBin: true
+    peerDependencies:
+      '@types/mdx': ^2.0.14
+      fumadocs-core: ^16.16.2
+      fumadocs-mdx: ^15.4.6
+      fumadocs-ui: ^16.16.2
+      lucide-react: ^1.24.0
+      next: ^16.4.1
+      react: ^19.3.0
+      react-dom: ^19.3.0
+      shiki: ^4.3.1
+
   '@yuku-core/binding-android-arm64@0.17.0':
     resolution: {integrity: sha512-Uge3U7s9vdCcYb9IiIWBIQmGEttlvWkvWYb9Qu6iUNS2IhAu4/D/g4ucbEmjemkflWYGpWsKZlX+JxcacIlR+g==}
     cpu: [arm64]
@@ -2967,6 +2949,9 @@ packages:
 
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
+
+  argparse@3.0.3:
+    resolution: {integrity: sha512-Sn98ftV3KfsO8xfLPHG6oT8y+b0yvbrLgZjgPDXsharNY15tTAjqIsIju4S32nl6/iEUNNE4v+yL2Zhm8ooP3w==}
 
   aria-hidden@1.2.6:
     resolution: {integrity: sha512-ik3ZgC9dY/lYVVM++OISsaYDeg1tb0VtP5uL3ouh1koGOaUMDPpbFIei4JkFimWUFPn90sbMNMXQAIVOlnYKJA==}
@@ -4588,6 +4573,10 @@ packages:
 
   js-yaml@4.3.2:
     resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
+    hasBin: true
+
+  js-yaml@5.5.0:
+    resolution: {integrity: sha512-paNr4LFIFPjeeSmwNYdrb8FafLLG/Cr2Af3GjbsHJ5CxIjH4r0c2emlmRdAtpPAieP1gRVzk6buBbVP5gBMGAg==}
     hasBin: true
 
   jsdom@30.1.3:
@@ -6975,10 +6964,6 @@ snapshots:
       '@iconify/types': 2.0.0
       import-meta-resolve: 4.2.0
 
-  '@icons-pack/react-simple-icons@13.15.1(react@19.3.1)':
-    dependencies:
-      react: 19.3.1
-
   '@img/colour@1.1.0':
     optional: true
 
@@ -8236,18 +8221,12 @@ snapshots:
     transitivePeerDependencies:
       - preact
       - react
+    optional: true
 
   '@takumi-rs/helpers@2.16.3(react@19.3.1)':
     optionalDependencies:
       react: 19.3.1
-
-  '@takumi-rs/image-response@2.16.3(csstype@3.2.3)(react@19.3.1)':
-    dependencies:
-      takumi-js: 2.16.3(csstype@3.2.3)(react@19.3.1)
-    transitivePeerDependencies:
-      - csstype
-      - preact
-      - react
+    optional: true
 
   '@takumi-rs/wasm@2.16.3(csstype@3.2.3)(react@19.3.1)':
     dependencies:
@@ -8257,6 +8236,7 @@ snapshots:
     transitivePeerDependencies:
       - preact
       - react
+    optional: true
 
   '@tanstack/virtual-core@3.19.6': {}
 
@@ -8799,6 +8779,19 @@ snapshots:
     dependencies:
       vue: 3.5.44(typescript@6.0.3)
 
+  '@weebo/operator-docs@https://github.com/batleforc/weebo-operator-kit/releases/download/v0.19.0/weebo-operator-docs-0.19.0.tgz(eafad79c83e465b7219a8cbd15922172)':
+    dependencies:
+      '@types/mdx': 2.0.14
+      fumadocs-core: 16.17.5(@mdx-js/mdx@3.1.1(supports-color@7.2.0))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.3.0)(lucide-react@1.59.0(@types/react@19.3.0)(react@19.3.1))(next@16.4.2(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.64.1)(@types/node@26.6.5)(babel-plugin-macros@3.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(sass@1.105.2))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@7.2.0)(zod@4.6.7)
+      fumadocs-mdx: 15.4.7(@types/mdast@4.0.4)(@types/mdx@2.0.14)(@types/react@19.3.0)(fumadocs-core@16.17.5(@mdx-js/mdx@3.1.1(supports-color@7.2.0))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.3.0)(lucide-react@1.59.0(@types/react@19.3.0)(react@19.3.1))(next@16.4.2(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.64.1)(@types/node@26.6.5)(babel-plugin-macros@3.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(sass@1.105.2))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@7.2.0)(zod@4.6.7))(next@16.4.2(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.64.1)(@types/node@26.6.5)(babel-plugin-macros@3.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(sass@1.105.2))(react@19.3.1)(rolldown@1.2.14)(supports-color@7.2.0)(vite@8.3.4(@types/node@26.6.5)(esbuild@0.28.2)(jiti@2.7.0)(sass@1.105.2)(yaml@2.9.1))
+      fumadocs-ui: 16.17.5(@types/mdx@2.0.14)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(fumadocs-core@16.17.5(@mdx-js/mdx@3.1.1(supports-color@7.2.0))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.3.0)(lucide-react@1.59.0(@types/react@19.3.0)(react@19.3.1))(next@16.4.2(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.64.1)(@types/node@26.6.5)(babel-plugin-macros@3.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(sass@1.105.2))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@7.2.0)(zod@4.6.7))(next@16.4.2(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.64.1)(@types/node@26.6.5)(babel-plugin-macros@3.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(sass@1.105.2))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@7.2.0)(tailwindcss@4.3.3)(takumi-js@2.16.3(csstype@3.2.3)(react@19.3.1))
+      js-yaml: 5.5.0
+      lucide-react: 1.59.0(@types/react@19.3.0)(react@19.3.1)
+      next: 16.4.2(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.64.1)(@types/node@26.6.5)(babel-plugin-macros@3.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(sass@1.105.2)
+      react: 19.3.1
+      react-dom: 19.3.1(react@19.3.1)
+      shiki: 4.5.0
+
   '@yuku-core/binding-android-arm64@0.17.0':
     optional: true
 
@@ -8909,6 +8902,8 @@ snapshots:
   arg@5.0.2: {}
 
   argparse@2.0.1: {}
+
+  argparse@3.0.3: {}
 
   aria-hidden@1.2.6:
     dependencies:
@@ -10817,6 +10812,10 @@ snapshots:
     dependencies:
       argparse: 2.0.1
 
+  js-yaml@5.5.0:
+    dependencies:
+      argparse: 3.0.3
+
   jsdom@30.1.3:
     dependencies:
       '@asamuzakjp/css-color': 7.1.6
@@ -12561,6 +12560,7 @@ snapshots:
       - csstype
       - preact
       - react
+    optional: true
 
   tapable@2.3.3: {}
 

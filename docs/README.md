@@ -1,47 +1,23 @@
-# proxyauthk8s-docs
+# ProxyAuthK8S docs
 
-This is a Next.js application generated with
-[Create Fumadocs](https://github.com/fuma-nama/fumadocs).
+The documentation site, published at <https://batleforc.github.io/ProxyAuthK8S>.
+It is built on [`@weebo/operator-docs`](https://github.com/batleforc/weebo-operator-kit)
+(layout, theme, routes, search, CRD reference), the shared format of the weebo
+operators' sites; only the content and a few components are this project's:
 
-It is a Next.js app with [Static Export](https://nextjs.org/docs/app/guides/static-exports) configured.
-
-Run development server:
+- `src/components/proxykubeapi-generator.*`: the ProxyKubeApi manifest builder,
+  shown in place of the kit's `CrdForm` (which cannot render serde `oneOf`
+  unions);
+- `src/components/api-page*` and `scripts/generate-docs.ts`: the API reference
+  from `swagger.json`;
+- `src/components/mdx/mermaid.tsx` and `lib/remark-variables.mjs`.
 
 ```bash
-npm run dev
-# or
-pnpm dev
-# or
-yarn dev
+task docs:dev     # local server, at the root
+task docs:crds    # CRD reference (content/docs/crds, public/crd-schemas) from deploy/crd/
+task docs:api     # API reference (content/docs/api) from swagger.json
+task docs:build   # static export into out/ (DOCS_BASE_PATH=/ProxyAuthK8S in CI)
 ```
 
-Open http://localhost:3000 with your browser to see the result.
-
-## Explore
-
-In the project, you can see:
-
-- `lib/source.ts`: Code for content source adapter, [`loader()`](https://fumadocs.dev/docs/headless/source-api) provides the interface to access your content.
-- `lib/layout.shared.tsx`: Shared options for layouts, optional but preferred to keep.
-
-| Route                     | Description                                            |
-| ------------------------- | ------------------------------------------------------ |
-| `app/(home)`              | The route group for your landing page and other pages. |
-| `app/docs`                | The documentation layout and pages.                    |
-| `app/api/search/route.ts` | The Route Handler for search.                          |
-
-### Fumadocs MDX
-
-A `source.config.ts` config file has been included, you can customise different options like frontmatter schema.
-
-Read the [Introduction](https://fumadocs.dev/docs/mdx) for further details.
-
-## Learn More
-
-To learn more about Next.js and Fumadocs, take a look at the following
-resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js
-  features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-- [Fumadocs](https://fumadocs.dev) - learn about Fumadocs
+The CRD pages and schemas are generated: never edit them by hand, re-run
+`task docs:crds` (`task recu` does).

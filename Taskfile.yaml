@@ -133,6 +133,8 @@ tasks:
       - gen:crds-file
     cmds:
       - task gen:client
+      # After gen:crds-file: the CRD reference follows deploy/crd/ in the same commit.
+      - task docs:crds
 
   lint:
     desc: "Run all linters"

@@ -1,6 +1,5 @@
 import { defineConfig, defineDocs } from 'fumadocs-mdx/config';
 import { metaSchema, pageSchema } from 'fumadocs-core/source/schema';
-import lastModified from 'fumadocs-mdx/plugins/last-modified';
 import { remarkMdxMermaid } from 'fumadocs-core/mdx-plugins';
 import { remarkVariables } from './lib/remark-variables.mjs';
 
@@ -20,9 +19,15 @@ export const docs = defineDocs({
 });
 
 export default defineConfig({
-  plugins: [lastModified()],
   mdxOptions: {
-    // MDX options
     remarkPlugins: [remarkMdxMermaid, remarkVariables],
+    // The default github-light/dark themes miss WCAG AA on the BatleHub
+    // grounds the kit's theme uses; the high-contrast pair passes.
+    rehypeCodeOptions: {
+      themes: {
+        light: 'github-light-high-contrast',
+        dark: 'github-dark-high-contrast',
+      },
+    },
   },
 });

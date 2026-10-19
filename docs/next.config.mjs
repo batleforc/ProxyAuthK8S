@@ -1,16 +1,8 @@
-import { createMDX } from 'fumadocs-mdx/next';
+import { withOperatorDocs } from '@weebo/operator-docs/next';
 
-const withMDX = createMDX();
-
-/** @type {import('next').NextConfig} */
-const config = {
-  serverExternalPackages: ['@takumi-rs/image-response', 'takumi-js', '@takumi-rs/core'],
-  output: 'export',
-  reactStrictMode: true,
-  basePath: '/ProxyAuthK8S',
-  images: {
-    unoptimized: true,
-  },
-};
-
-export default withMDX(config);
+// Fully static export (see withOperatorDocs). Served from a sub-path on GitHub
+// Pages (`/ProxyAuthK8S`); set by the docs-deploy workflow. Empty locally, so
+// `task docs:dev` stays at the root.
+export default withOperatorDocs({
+  basePath: process.env.DOCS_BASE_PATH ?? '',
+});

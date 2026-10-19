@@ -13,6 +13,10 @@ tasks:
     desc: "Build the documentation site into docs/out"
     cmds:
       - pnpm --filter @proxy-auth-k8s/docs build
+  crds:
+    desc: "Regenerate the CRD reference (docs/content/docs/crds, docs/public/crd-schemas) from deploy/crd with weebo-crd-docs"
+    cmds:
+      - pnpm --filter @proxy-auth-k8s/docs gen:crds
   api:
     desc: "Regenerate the API reference pages (docs/content/docs/api) from docs/swagger.json"
     silent: true

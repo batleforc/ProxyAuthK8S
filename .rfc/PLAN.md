@@ -71,9 +71,9 @@ mergée.
 | 12b | **0008** (phases 1-3) | B | 0, 5 | schéma d'audit v1, couche audit insensible à `RUST_LOG`, évènements d'authentification et OAuth, `client_banned`, `upstream_reason` | lignes 0008 points 1 à 7 vertes ; peut avancer en parallèle de l'étape 10 | fait (phases 1 à 3, 0008 §17) ; le flux OAuth médié du point 3 attend un client réel |
 | 12c | **0008** (phase 4) | B | 10, 12b | `session_closed` sur le tunnel hyper | ligne 0008 point 8 verte | fait (0008 §17, phase 4) |
 | 12 | **0004** (phases 1-3) | B | 10, 12c | politique `exec`, `restricts_exec`, `ExecChannelFilter`, audit de session, `mask_exec_secrets`, cibles fuzz | lignes 0004 points 1 à 13 vertes | fait (0004 §17) |
-| 11 | **0005 phases 2-5** | C | 0, 9, 12 (G3) | `.docs` → `docs/`, `@weebo/operator-docs`, `kit:sync` | §6.P de la 0005 (hors suite, jobs CI) | phase 2 faite (`6a0d46b`) ; la phase 3 attend la release du kit qui rend les champs CRD imbriqués (RFC 0004 du kit, PR kit #12), puis phases 4 et 5 |
+| 11 | **0005 phases 2-5** | C | 0, 9, 12 (G3) | `.docs` → `docs/`, `@weebo/operator-docs`, `kit:sync` | §6.P de la 0005 (hors suite, jobs CI) | phases 2 et 3 faites (kit v0.19.0) ; restent les phases 4 et 5 |
 | 8 | **tag 0.2.0** | — | 11, 12 | — | `integration.yaml` vert sur le commit tagué, aucune ligne de matrice `à écrire` hors des RFC de `PENDING` (`.it/matrix.py` : la 0010, prévue pour la 0.3.0) | à faire |
-| 13 | **RFC crates `weebo-kit-*`** | C | 10 (G6) | à écrire | — | après la 0.2.0 |
+| 13 | **0011** (RFC crates `weebo-kit-*`) | C | 10 (G6), 11 | kit sans feature `k8s-openapi` dans ses bibliothèques, crates par git, conditions, Events, codes de raison, métriques de reconcile | §6.P de la 0011 | acceptée ; phase 0 par une RFC du kit ; pour la 0.3.0 |
 | 14 | **v1.0.0** | — | 8 | bascules de défauts (§ « v1.0.0 ») | — | après la 0.2.0 |
 
 Les numéros d'étape sont gardés pour les renvois des RFC ; la table suit
@@ -116,7 +116,7 @@ refontes, à la place d'une release intermédiaire.
 | Release | Contenu | Nature |
 | --- | --- | --- |
 | 0.2.0 | 0001 à 0009 | `feat!:` : règles sans `allowed_ports` ou sans `verbs` restreintes sous restriction, `nodes/proxy` refusé, politique `exec`, schéma d'audit v1 ; serveur sur axum ; nouvelle UI |
-| 0.3.0 | 0010 | échange de jetons (0010, décision 3) |
+| 0.3.0 | 0010, 0011 | échange de jetons (0010, décision 3) ; conditions, Events et codes de raison (0011) |
 | 1.0.0 | bascules | voir ci-dessous |
 
 ## v1.0.0 : bascules de défauts
