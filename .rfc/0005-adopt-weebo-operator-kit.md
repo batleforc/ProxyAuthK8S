@@ -756,6 +756,31 @@ Phase 3 (2026-10-19), sur le kit **v0.19.0** :
     `SystemRoots`, `Insecure` » sous `spec.cert` ; point 4 : l'index de
     recherche contient `allowed_ressources` ; point 5 : `llms-full.txt` porte
     la règle `!has(self.dashboard_group) || self.dashboard_group != ''` ;
-  - point 4 (site publié) : à constater après le déploiement.
+  - point 4 (site publié, après le merge de #253) : sur
+    `https://batleforc.github.io/ProxyAuthK8S`, `/docs/crds/proxykubeapi/`,
+    `/docs/crds/` et l'ancienne `/docs/crds`, `/llms.txt`,
+    `/llms-full.txt`, `/api/search` et `/crd-schemas/index.json` répondent
+    200 ; l'index de recherche contient `allowed_ressources`.
 - Vérifié : `task lint`, typecheck et lint du site, `pnpm audit` (un avis
   déjà revu).
+
+Phase 4 (2026-10-19), sur le kit **v0.20.0** :
+
+- `.tasks/kit.yaml` est la copie de `templates/kit.yaml`, incluse comme
+  `kit:` avec `NPM_CLIENT: pnpm` ; `KIT_TAG` est une variable du Taskfile.
+- **Écart : `cog.toml` reste celui du dépôt.** Le `cog.toml` rendu par
+  `kit:cog` remplace `.hooks/pre-commit.sh` par un hook qui lance aussi
+  `task test` (Redis requis) et `task audit` à chaque commit, et perd la
+  vérification watermarks-remover et le re-staging des fichiers générés ;
+  son `pre_bump_hooks` attend un `.hooks/bump-versions.sh` absent ici. Décidé
+  avec le mainteneur le 2026-10-19 : `task kit-sync TAG=vX.Y.Z` lance
+  `kit:sync`, puis restaure `cog.toml` et réinstalle les hooks. À porter au
+  kit plus tard (un point d'extension pour le hook local).
+- Point 9 : `task kit-sync TAG=v0.20.0`, sans crate du kit dans
+  `Cargo.toml`, réussit et met à jour `KIT_TAG`, les includes `rust`/`repo`
+  (leur contenu est identique de v0.17.0 à v0.20.0 : checksums inchangés),
+  la tarball de `docs/package.json` et `pnpm-lock.yaml`. `docs:crds` avec la
+  v0.20.0 produit des pages identiques octet pour octet.
+- Point 10 : `grep -rn "npm \(ci\|install\|audit\)"` ne trouve que la branche
+  `npm` de `.tasks/kit.yaml` (copie du kit, non exécutée avec
+  `NPM_CLIENT=pnpm`) et les workflows retirés de `.github/workflows/.bck/`.
