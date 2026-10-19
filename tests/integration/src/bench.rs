@@ -136,7 +136,12 @@ impl Bench {
 
     /// `kubectl apply -f -` as the admin; panics with kubectl's message.
     pub fn apply(&self, yaml: &str) {
-        let out = self.admin_with_stdin(&["apply", "-f", "-"], Some(yaml));
+        let mut out = self.admin_with_stdin(&["apply", "-f", "-"], Some(yaml));
+        // Two tests applying the same cluster-scoped object (`allow_nodes_proxy`)
+        // race on its creation; the loser's second apply updates it instead.
+        if !out.status.success() && String::from_utf8_lossy(&out.stderr).contains("AlreadyExists") {
+            out = self.admin_with_stdin(&["apply", "-f", "-"], Some(yaml));
+        }
         assert!(
             out.status.success(),
             "admin apply failed: {}",
