@@ -20,6 +20,8 @@ on:
       - ".github/workflows/integration.yaml"
   pull_request:
     branches: ["main"]
+    # integration-skipped.yaml carries the same list as paths-ignore: keep both
+    # identical, or a PR waits forever on the required check.
     paths:
       - "apps/**"
       - "libs/**"

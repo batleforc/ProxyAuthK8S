@@ -26,13 +26,12 @@ import { Callout } from 'fumadocs-ui/components/callout';
       Krew Plugin      : Publication sur Krew Index
       Redesign UI      : Design system BatleHub (RFC 0002)
       Outillage        : Sortie de NX, workspace pnpm (RFC 0001)
-    section v0.3.0 📋
+                       : weebo-operator-kit, suite d'intégration (RFC 0005, 0009)
       Sécurité         : Contournements des ports (RFC 0003)
                        : Règles par verbe (RFC 0006)
-    section v0.4.0 📋
+                       : Filtrage exec et attach (RFC 0004)
+                       : Trace d'audit (RFC 0008)
       Serveur          : Migration actix vers axum (RFC 0007)
-    section v0.5.0 📋
-      Sécurité         : Filtrage exec et attach (RFC 0004)
     section v1.0.0 🚧
       Production       : Redis cluster HA ✅, bloc sécurité ✅
                        : Bascules de défauts, tests front
@@ -184,17 +183,18 @@ de la refonte UI). Voir la RFC 0001.
 
 ---
 
-## v0.3.0 à v0.5.0 — Durcissement du proxy {"\uD83D\uDCCB"}
+## v0.2.0 — Durcissement du proxy {"\uD83D\uDEA7"}
 
 <Callout>
-  Numéros de version proposés ; l'ordre et les points de synchronisation sont
-  dans le [plan de livraison des RFC](https://github.com/batleforc/ProxyAuthK8S/blob/main/.rfc/PLAN.md).
+  Prévu en v0.3.0 à v0.5.0, tout est finalement livré dans la 0.2.0 ; l'ordre
+  et les points de synchronisation sont dans le
+  [plan de livraison des RFC](https://github.com/batleforc/ProxyAuthK8S/blob/main/.rfc/PLAN.md).
 </Callout>
 
 <Steps>
 
 <Step>
-### v0.3.0 — Ports et verbes (breaking)
+### Ports et verbes (breaking)
 
 - ✅ Contournements du filtrage des ports fermés : proxy `pods|services/x:port/proxy`, `nodes/proxy`, règles sans `allowed_ports` (RFC 0003)
 - ✅ Règles sensibles au verbe Kubernetes (`verbs`), lecture seule implicite sous restriction (RFC 0006)
@@ -203,17 +203,17 @@ de la refonte UI). Voir la RFC 0001.
 </Step>
 
 <Step>
-### v0.4.0 — Serveur sur axum
+### Serveur sur axum
 
 - ✅ Migration d'actix-web vers axum (hyper 1), iso-fonctionnelle, tunnel d'upgrade sur `hyper::upgrade` (RFC 0007) ; reste la recette de 7 jours
 
 </Step>
 
 <Step>
-### v0.5.0 — Exec et attach (breaking)
+### Exec, attach et audit (breaking)
 
-- 📋 Trace d'audit : schéma versionné, émission garantie, authentification, jetons OAuth, bannissements, fin de session (RFC 0008)
-- ⏳ Liste blanche des commandes, conteneurs et flux pour `exec`/`attach`, filtre de canaux, audit de session (RFC 0004)
+- ✅ Trace d'audit : schéma versionné, émission garantie, authentification, jetons OAuth, bannissements, fin de session (RFC 0008)
+- ✅ Liste blanche des commandes, conteneurs et flux pour `exec`/`attach`, filtre de canaux, audit de session (RFC 0004)
 
 </Step>
 

@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review                                                                  |
+| Status      | Accepted : code livré (2026-10-18), recette en cours (§13)                 |
 | Short       | actix-web vers axum                                                    |
 | Settles     | Le serveur (API, OAuth, proxy, upgrades) passe d'actix-web 4 à axum 0.8 sur hyper 1, à comportement constant, et le tunnel d'upgrade utilise `hyper::upgrade` au lieu de HTTP écrit à la main |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -602,5 +602,21 @@ Phases 2 à 6 (2026-10-18), une PR, un commit par phase :
   et les vraies routes (`harness::app`) : les corps et les assertions des
   tests portés n'ont pas changé. `proxy_upgrade.rs` démarre le serveur par
   `serve`, comme en production.
-- **Reste, hors du dépôt** : la mesure de débit du point 9 et les 7 jours de
-  recette.
+- **Reste, hors du dépôt** : les 7 jours de recette (§13). La RFC passe
+  `Implemented` à leur issue.
+
+Point 9 (2026-10-19), sur le banc de la RFC 0009 (k3s 1.35.5, kubectl
+1.35.9, podman rootless, un seul poste) : `rfc0007::p9_exec_throughput`
+(ignoré par défaut, lancé à la main) fait sortir 1 Gio de `head -c` par
+`kubectl exec` à travers l'Ingress et le tunnel, puis compte les octets reçus.
+Trois passages par serveur, le même banc, l'image actix construite depuis
+`77c9ece` (dernier commit sur actix) et posée par `kubectl set image` :
+
+| Serveur | MiB/s | Médiane |
+| --- | --- | --- |
+| axum (`df8b153`) | 182,6 · 207,8 · 194,4 | 194 |
+| actix (`77c9ece`) | 193,3 · 79,8 · 191,3 | 191 |
+
+Le débit sur axum est au moins égal à celui d'actix ; le passage à 79,8 MiB/s
+est isolé (le suivant, même image, revient à 191). La mesure porte sur un
+poste, pas sur le cluster de recette.

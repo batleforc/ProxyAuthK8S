@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review                                                              |
+| Status      | Implemented (2026-10-18)                                               |
 | Short       | Règles par verbe                                                       |
 | Settles     | Une règle d'`allowed_resources` peut limiter les verbes Kubernetes (get, list, watch, create, update, patch, delete…) qu'elle autorise, calculés comme le fait l'apiserver ; sous restriction, une règle sans `verbs` est en lecture seule |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -621,3 +621,7 @@ implicite, puisque c'est elle qui ouvre T8.
   - Point 9 : le test prouve le `create` refusé ; que l'upstream ne voie
     jamais l'en-tête reste prouvé par `tests/proxy_security.rs` (boîte noire
     oblige).
+
+Livraison (2026-10-19) : phases 1 à 4 sur `main` (étape 5 du PLAN). Points
+1 à 9 en `suite` dans `MATRIX.md`, avec les écarts des points 5 et 8
+ci-dessus.

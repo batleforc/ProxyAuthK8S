@@ -107,3 +107,7 @@ chaque nuit sur `main`, et à la demande. Il publie les logs du cluster et le ra
 en artefact (7 jours), et la durée de chaque phase dans le résumé du job. Un échec de nuit
 ouvre ou commente l'issue `it-nightly`. La release exige un passage vert de la suite sur le
 commit tagué.
+
+`integration` est un check requis pour fusionner sur `main`. Une PR qui ne touche aucun de
+ces chemins reçoit à la place le job du même nom d'`integration-skipped.yaml`, qui passe sans
+rien lancer : les deux listes de chemins doivent rester identiques.

@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review                                                              |
+| Status      | Implemented (2026-10-17)                                               |
 | Short       | UI sur le design system BatleHub                                       |
 | Settles     | Le front adopte « The Proof Sheet » (tokens, typo, composants) de BatleHub sans toucher à sa logique, avec oxlint, un format appliqué et une CSP |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -798,3 +798,9 @@ RFC :
   (`Content-Security-Policy`).
 - **Captures** : `task ui:screenshots` régénère `.docs/public/screenshots/`
   (8 PNG, les deux thèmes, et `flow.gif` du README), API simulée, Chromium.
+
+Livraison (2026-10-19) : phases 1 à 6 sur `main` (étape 7 du PLAN) ; la
+suite de la RFC 0009 porte les points du §6.P (`rfc0002.rs`,
+`e2e-it/csp.spec.ts`, lignes de `MATRIX.md`). Restent hors de cette RFC, comme
+noté plus haut : le contenu d'`ArchitectureDiagram` dans `architecture.mdx`
+et l'affichage furtif de `/cli` déconnecté (garde du store).
