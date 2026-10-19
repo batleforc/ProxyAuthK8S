@@ -60,7 +60,7 @@ mergée.
 | --- | --- | --- | --- | --- | --- | --- |
 | 1 | **0001 PR1** (phases 1-3) | A | — | workspace pnpm, `allowBuilds`, `minimumReleaseAge`, CI sous pnpm | CI verte, NX encore présent | fait |
 | 2 | **0003** (phases 1-3) | B | — | `port_target`, nouvelle union (R2), `restricts_ports`, `nodes/proxy`, politiques avant le contrôle websocket, `status.warnings`, workspace `fuzz/` + `.tasks/fuzz.yaml` + job nightly, compteur `proxyauth_policy_decisions_total` | §6.P points 1 à 7 ; `task fuzz:check` vert ; #265 fermée | fait |
-| 3 | **PR kit** (0005 phase 0) | C | — | peers de la doc en plages, `NPM_CLIENT`, repli `KIT_TAG` ; release du kit | release publiée | en attente : les includes sont épinglés sur v0.17.0, contenu identique (0005 §17) |
+| 3 | **PR kit** (0005 phase 0) | C | — | peers de la doc en plages, `NPM_CLIENT`, repli `KIT_TAG` ; release du kit | release publiée | fait : kit v0.18.0 ; les includes restent épinglés sur v0.17.0, au contenu identique, jusqu'à `kit:sync` (phase 4, 0005 §17) |
 | 4 | **0001 PR2** (phases 4-8) | A | 1 | contrat de scripts, `task js:*`, retrait de NX | CI verte sans NX | fait |
 | 5 | **0006** (phases 1-4) | B | 2 | `request_info`, `verbs`, `restricts_verbs`, lecture seule implicite, `nodes/proxy` sous verbes, cible fuzz `request_info` | §6.P points 1 à 10 | fait |
 | 6 | **0007 phase 1** | B | 5 | `serve(listener, state)` sur actix, `http_contract.rs` | contrat vert sur actix, mergé seul sur `main` | fait |
@@ -71,8 +71,8 @@ mergée.
 | 12b | **0008** (phases 1-3) | B | 0, 5 | schéma d'audit v1, couche audit insensible à `RUST_LOG`, évènements d'authentification et OAuth, `client_banned`, `upstream_reason` | lignes 0008 points 1 à 7 vertes ; peut avancer en parallèle de l'étape 10 | fait (phases 1 à 3, 0008 §17) ; le flux OAuth médié du point 3 attend un client réel |
 | 12c | **0008** (phase 4) | B | 10, 12b | `session_closed` sur le tunnel hyper | ligne 0008 point 8 verte | fait (0008 §17, phase 4) |
 | 12 | **0004** (phases 1-3) | B | 10, 12c | politique `exec`, `restricts_exec`, `ExecChannelFilter`, audit de session, `mask_exec_secrets`, cibles fuzz | lignes 0004 points 1 à 13 vertes | fait (0004 §17) |
-| 11 | **0005 phases 2-5** | C | 0, 9, 12 (G3) | `.docs` → `docs/`, `@weebo/operator-docs`, `kit:sync` | §6.P de la 0005 (hors suite, jobs CI) | à faire |
-| 8 | **tag 0.2.0** | — | 11, 12 | — | `integration.yaml` vert sur le commit tagué, aucune ligne de matrice `à écrire` | à faire |
+| 11 | **0005 phases 2-5** | C | 0, 9, 12 (G3) | `.docs` → `docs/`, `@weebo/operator-docs`, `kit:sync` | §6.P de la 0005 (hors suite, jobs CI) | phase 2 faite (`6a0d46b`) ; la phase 3 attend la release du kit qui rend les champs CRD imbriqués (RFC 0004 du kit, PR kit #12), puis phases 4 et 5 |
+| 8 | **tag 0.2.0** | — | 11, 12 | — | `integration.yaml` vert sur le commit tagué, aucune ligne de matrice `à écrire` hors des RFC de `PENDING` (`.it/matrix.py` : la 0010, prévue pour la 0.3.0) | à faire |
 | 13 | **RFC crates `weebo-kit-*`** | C | 10 (G6) | à écrire | — | après la 0.2.0 |
 | 14 | **v1.0.0** | — | 8 | bascules de défauts (§ « v1.0.0 ») | — | après la 0.2.0 |
 
@@ -116,6 +116,7 @@ refontes, à la place d'une release intermédiaire.
 | Release | Contenu | Nature |
 | --- | --- | --- |
 | 0.2.0 | 0001 à 0009 | `feat!:` : règles sans `allowed_ports` ou sans `verbs` restreintes sous restriction, `nodes/proxy` refusé, politique `exec`, schéma d'audit v1 ; serveur sur axum ; nouvelle UI |
+| 0.3.0 | 0010 | échange de jetons (0010, décision 3) |
 | 1.0.0 | bascules | voir ci-dessous |
 
 ## v1.0.0 : bascules de défauts
