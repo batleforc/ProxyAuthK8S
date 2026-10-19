@@ -14,9 +14,32 @@ includes:
   mise: .tasks/mise.yaml
   claude: .tasks/claude.yaml
   template: .tasks/template.yaml
+  fuzz: .tasks/fuzz.yaml
+  js: .tasks/js.yaml
+  front: .tasks/front.yaml
+  docs: .tasks/docs.yaml
+  ui: .tasks/ui.yaml
+  it: .tasks/integration.yaml
+  # weebo-operator-kit's shared tasks, pinned to a kit release and to their
+  # sha256 (Task refuses a file whose hash differs). `task --offline` runs
+  # from Task's cache. RFC 0005.
+  rust:
+    taskfile: https://raw.githubusercontent.com/batleforc/weebo-operator-kit/v0.17.0/tasks/rust.yaml
+    checksum: 75360142235715643265ae41de1f531dda6562a2472e8d9af21ad65f7d753d63
+  repo:
+    taskfile: https://raw.githubusercontent.com/batleforc/weebo-operator-kit/v0.17.0/tasks/repo.yaml
+    checksum: 162d15bf9c41f494efcb6d73e089ac685d23bc98269a41daf62db26534f52f72
+    vars:
+      CONTAINERFILES: deploy/build/back/Containerfile deploy/build/front/Containerfile
+      # The JS part of repo:audit is skipped; audit:js (pnpm audit) covers it.
+      NPM_DIR: ""
 
 dotenv:
   - .env
+
+env:
+  # repo:lint's actionlint: shellcheck findings from `warning` up only.
+  SHELLCHECK_OPTS: "--severity=warning"
 
 tasks:
   init:
@@ -24,11 +47,11 @@ tasks:
     silent: true
     cmds:
       - echo "Initializing the project"
+      - git submodule update --init --recursive
       - task mise:install
       - task claude:install
       - cargo install cargo-set-version cargo-machete
-      - yarn install
-      - cd .docs && yarn install
+      - pnpm install
       - cog install-hook -a -o
   back:
     desc: "Run the backend"
@@ -59,24 +82,12 @@ tasks:
     desc: "Run a second instance if the backend with TLS"
     cmds:
       - HOSTNAME="BACK2" SERVER_PORT="5438" task back:tls
-  front:
-    desc: "Run the frontend in development mode"
-    silent: true
-    cmds:
-      - echo "Running the frontend in development mode"
-      - yarn nx run front:dev
-  front:tls:
-    desc: "Run the frontend in development mode with TLS"
-    silent: true
-    cmds:
-      - echo "Running the frontend in development mode with TLS"
-      - VITE_TLS_ENABLE=true yarn nx run front:dev
   aio:
     desc: "Run the backend and frontend in development mode"
     silent: true
     deps:
       - back:tls
-      - front:tls
+      - front:dev:tls
       - service
       - k3d:start
   service:
@@ -114,15 +125,6 @@ tasks:
       - echo "Initializing the service task"
       - echo "Generating self-signed certificates for local development"
       - docker run --rm -u "$(id -u):$(id -g)" -v "$(pwd)/.compose/authelia":/keys authelia/authelia:latest authelia crypto pair rsa generate --directory /keys
-  docs:
-    desc: "Run the documentation server"
-    dir: .docs
-    silent: true
-    env:
-      PROXY_AUTH_K8S_VERSION: 0.1.8
-    cmds:
-      - echo "Running the documentation server"
-      - yarn && yarn dev
   recu:
     desc: "Run all gen jobs"
     silent: true
@@ -131,16 +133,19 @@ tasks:
       - gen:crds-file
     cmds:
       - task gen:client
+      # After gen:crds-file: the CRD reference follows deploy/crd/ in the same commit.
+      - task docs:crds
 
   lint:
     desc: "Run all linters"
     silent: true
     deps:
-      - lint:rust
+      - rust:lint
+      - repo:lint
       - lint:helm
-      - lint:actions
-    cmds:
-      - task lint:all
+      - js:lint
+      - fuzz:check
+      - it:matrix
 
   cli:
     desc: "Run kubectl_proxyauth with args"

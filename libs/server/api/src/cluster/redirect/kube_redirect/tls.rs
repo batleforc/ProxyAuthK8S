@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use actix_web::web;
 use common::{
     State,
     upstream_cache::{UPSTREAM_TLS_CONFIGS, UpstreamCacheKey, upstream_client_ttl},
@@ -18,13 +17,13 @@ use rustls_platform_verifier::BuilderVerifierExt;
 /// re-read the cluster's certificates from Kubernetes every time.
 pub(super) async fn cached_tls_config(
     proxy: &ProxyKubeApi,
-    state: &web::Data<State>,
+    state: &State,
 ) -> Result<Arc<ClientConfig>, String> {
     UPSTREAM_TLS_CONFIGS
         .get_or_try_insert_with(
             &UpstreamCacheKey::for_proxy(proxy),
             upstream_client_ttl(),
-            || async { build_tls_config(proxy, state).await.map(Arc::new) },
+            || async { build_tls_config(proxy, state, true).await.map(Arc::new) },
         )
         .await
 }
@@ -32,11 +31,15 @@ pub(super) async fn cached_tls_config(
 /// TLS configuration used to reach the target cluster.
 ///
 /// The trust anchor comes from the cluster's `cert` (or the platform store when
-/// it has none), and a client certificate is attached when the cluster is
-/// configured for mutual TLS.
+/// it has none). A client certificate is attached when the cluster is
+/// configured for mutual TLS and `attach_client_cert` is `true`; pass `false`
+/// to build a CA-only connection (e.g. a privileged bearer-token call, which
+/// must authenticate unambiguously as the token and never be conflated with
+/// the front-proxy mTLS identity used for impersonated calls).
 pub(super) async fn build_tls_config(
     proxy: &ProxyKubeApi,
-    state: &web::Data<State>,
+    state: &State,
+    attach_client_cert: bool,
 ) -> Result<ClientConfig, String> {
     let namespace = proxy.namespace().unwrap_or_default();
     let cert_pem = proxy
@@ -62,7 +65,12 @@ pub(super) async fn build_tls_config(
             .map_err(|e| e.to_string())?
     };
 
-    let Some(client_cert) = &proxy.spec.client_cert else {
+    let client_cert = if attach_client_cert {
+        proxy.spec.client_cert.as_ref()
+    } else {
+        None
+    };
+    let Some(client_cert) = client_cert else {
         return Ok(builder.with_no_client_auth());
     };
 

@@ -288,7 +288,7 @@ mod tests {
         );
         assert_ne!(
             key,
-            UpstreamCacheKey::for_proxy(&proxy("ns", "a", CertSource::Insecure(true)))
+            UpstreamCacheKey::for_proxy(&proxy("ns", "a", CertSource::SystemRoots(true)))
         );
 
         // mTLS client certificate added.

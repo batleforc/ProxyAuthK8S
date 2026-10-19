@@ -104,9 +104,17 @@ export type GetAllVisibleClusterErrors = {
      */
     401: unknown;
     /**
+     * Rate limited or banned (see UNSCOPED_* environment knobs).
+     */
+    429: unknown;
+    /**
      * Internal server error.
      */
     500: unknown;
+    /**
+     * Redis is unavailable.
+     */
+    503: unknown;
 };
 
 export type GetAllVisibleClusterResponses = {
@@ -191,13 +199,25 @@ export type CallbackLoginData = {
 
 export type CallbackLoginErrors = {
     /**
+     * Missing or already-used CSRF state.
+     */
+    400: unknown;
+    /**
      * Cluster not found or disabled.
      */
     404: unknown;
     /**
+     * Rate limited or banned for this cluster.
+     */
+    429: unknown;
+    /**
      * Internal server error.
      */
     500: unknown;
+    /**
+     * Redis is unavailable.
+     */
+    503: unknown;
 };
 
 export type CallbackLoginResponses = {
@@ -237,13 +257,25 @@ export type ClusterLoginData = {
 
 export type ClusterLoginErrors = {
     /**
+     * Missing, malformed, or unresolvable bearer token.
+     */
+    401: unknown;
+    /**
      * Cluster not found or disabled.
      */
     404: unknown;
     /**
+     * Rate limited or banned for this cluster.
+     */
+    429: unknown;
+    /**
      * Internal server error.
      */
     500: unknown;
+    /**
+     * Redis is unavailable.
+     */
+    503: unknown;
 };
 
 export type ClusterLoginResponses = {

@@ -63,18 +63,14 @@ tasks:
       # https://docs.siderolabs.com/talos/v1.6/reference/configuration/v1alpha1/config#extrahostentries%5B%5D
   upgrade-docs:
     desc: "Upgrade documentation dependencies"
-    dir: .docs
     cmds:
-      # Yarn 4 has no `yarn upgrade`: bump package.json within the current
-      # majors (patch/minor), then refresh the lockfile. Majors stay a manual,
-      # reviewed change.
-      - npx -y npm-check-updates -t minor -u
-      - yarn install
+      # Within the current ranges (no --latest): majors stay a manual,
+      # reviewed change. minimumReleaseAge still applies.
+      - pnpm --filter @proxy-auth-k8s/docs up
   upgrade-front:
     desc: "Upgrade frontend dependencies"
     cmds:
-      - npx -y npm-check-updates -t minor -u
-      - yarn install
+      - pnpm --filter '!@proxy-auth-k8s/docs' -r --include-workspace-root up
   upgrade-back:
     desc: "Upgrade backend dependencies"
     cmds:

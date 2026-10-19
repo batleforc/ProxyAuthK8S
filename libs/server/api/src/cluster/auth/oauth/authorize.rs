@@ -1,5 +1,11 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
-use common::State;
+use crate::cluster::redirect::audit::{Event, HandlerAudit};
+use std::sync::Arc;
+
+use axum::{
+    extract::{Path, Query, State},
+    http::{StatusCode, request::Parts},
+    response::{IntoResponse, Response},
+};
 use crd_runtime::ProxyKubeApiRuntime;
 use openidconnect::{CsrfToken, Nonce, PkceCodeChallenge, Scope, core::CoreAuthenticationFlow};
 use serde::Deserialize;
@@ -17,7 +23,7 @@ use crate::cluster::auth::{
     },
     throttle_oauth_as,
 };
-use crate::helper::extract_ns_cluster;
+use crate::helper::NsCluster;
 
 #[derive(Deserialize, ToSchema, IntoParams)]
 pub struct AuthorizeQuery {
@@ -42,6 +48,8 @@ pub struct AuthorizeQuery {
 /// Redirects the caller's browser to the cluster's upstream OIDC provider. If
 /// the cluster is not found, disabled, or discovery is not enabled, return 404.
 #[utoipa::path(
+    get,
+    path = "/{ns}/{cluster}/oauth/authorize",
     tag = "auth_clusters",
     responses(
         (status = 302, description = "Redirect to the upstream identity provider."),
@@ -55,19 +63,28 @@ pub struct AuthorizeQuery {
         AuthorizeQuery,
     )
 )]
-#[get("/{ns}/{cluster}/oauth/authorize")]
-#[instrument(name = "oauth_as_authorize", skip(data, query))]
+#[instrument(name = "oauth_as_authorize", skip(req, data, query))]
 pub async fn authorize(
-    req: HttpRequest,
-    data: web::Data<State>,
-    query: web::Query<AuthorizeQuery>,
-) -> impl Responder {
-    let (ns, cluster) = if let Some(parts) = extract_ns_cluster(&req) {
-        parts
-    } else {
-        error!(path = %req.path(), "missing ns/cluster path parameters");
-        return HttpResponse::NotFound().finish();
-    };
+    req: Parts,
+    State(data): State<Arc<common::State>>,
+    Path(NsCluster { ns, cluster }): Path<NsCluster>,
+    query: Query<AuthorizeQuery>,
+) -> Response {
+    let mut audit = HandlerAudit::new(&ns, &cluster);
+    let response = authorize_inner(req, data, ns, cluster, query, &mut audit).await;
+    audit.finish(Event::OauthAuthorize, Event::OauthAuthorize, &response);
+    response
+}
+
+/// The handler itself; [`authorize`] writes its audit line.
+async fn authorize_inner(
+    req: Parts,
+    data: Arc<common::State>,
+    ns: String,
+    cluster: String,
+    query: Query<AuthorizeQuery>,
+    audit: &mut HandlerAudit,
+) -> Response {
     let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
         Ok(proxy) => proxy,
         Err(gate) => return gate.into_response(),
@@ -77,10 +94,15 @@ pub async fn authorize(
     }
 
     let Some(redirect_uri) = parse_loopback_redirect_uri(&query.redirect_uri) else {
-        return HttpResponse::BadRequest()
-            .body("invalid_request: redirect_uri must be a loopback URI (http://localhost, http://127.0.0.1 or http://[::1])");
+        audit.deny("redirect_uri is not a loopback URI");
+        return (
+            StatusCode::BAD_REQUEST,
+            "invalid_request: redirect_uri must be a loopback URI (http://localhost, http://127.0.0.1 or http://[::1])",
+        )
+            .into_response();
     };
 
+    audit.redirect_uri(redirect_uri.as_str());
     if query.response_type != "code" {
         return redirect_with_error(
             &redirect_uri,
@@ -99,11 +121,16 @@ pub async fn authorize(
         return redirect_with_error(&redirect_uri, "invalid_request", query.state.as_deref());
     }
 
-    let oauth_conf = if let Some(conf) = proxy.get_oauth_as_oidc_conf(data.clone().into_inner()) {
-        conf
-    } else {
-        error!("OIDC config not found");
-        return HttpResponse::InternalServerError().finish();
+    let oauth_conf = match proxy.get_oauth_as_oidc_conf(data.clone()).await {
+        Ok(Some(conf)) => conf,
+        Ok(None) => {
+            error!("OIDC config not found");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        Err(e) => {
+            error!(error = %e, "couldn't resolve the OIDC config");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
     let client = match oauth_conf.oidc_core().await {
         Ok(client) => client,
@@ -149,7 +176,7 @@ pub async fn authorize(
         Ok(json) => json,
         Err(e) => {
             error!(error = %e, "couldn't serialize pending authorization");
-            return HttpResponse::InternalServerError().finish();
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
     if let Err(e) = data
@@ -161,10 +188,8 @@ pub async fn authorize(
         .await
     {
         error!(error = %e, "couldn't store pending authorization");
-        return HttpResponse::ServiceUnavailable().finish();
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
 
-    HttpResponse::Found()
-        .insert_header(("Location", auth_url.to_string()))
-        .finish()
+    super::found(auth_url.as_str())
 }

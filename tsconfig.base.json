@@ -2,10 +2,9 @@
   "compileOnSave": false,
   "compilerOptions": {
     "rootDir": ".",
-    "ignoreDeprecations": "6.0",
     "sourceMap": true,
     "declaration": false,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "importHelpers": true,
@@ -13,10 +12,7 @@
     "module": "esnext",
     "lib": ["es2020", "dom"],
     "skipLibCheck": true,
-    "skipDefaultLibCheck": true,
-    "paths": {
-      "@proxy-auth-k8s/front-api": ["./libs/front/front-api/src/index.ts"]
-    }
+    "skipDefaultLibCheck": true
   },
-  "exclude": ["node_modules", "tmp", ".docs"]
+  "exclude": ["node_modules", "tmp", "docs"]
 }

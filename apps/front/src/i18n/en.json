@@ -1,0 +1,402 @@
+{
+  "a11y": {
+    "skip": "Skip to content",
+    "tableScroll": "Scrollable table"
+  },
+  "app": {
+    "initializing": "Starting up…"
+  },
+  "common": {
+    "copy": "Copy",
+    "backHome": "Back to home"
+  },
+  "copy": {
+    "done": "{label} copied to the clipboard.",
+    "failed": "Could not copy the {label}."
+  },
+  "nav": {
+    "label": "Main",
+    "home": "Home",
+    "cli": "CLI",
+    "about": "About"
+  },
+  "notices": {
+    "dismiss": "Dismiss"
+  },
+  "prefs": {
+    "open": "Settings",
+    "title": "Settings",
+    "theme": "Theme",
+    "locale": "Language",
+    "themes": {
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark"
+    },
+    "locales": {
+      "system": "System",
+      "en": "English",
+      "fr": "Français"
+    },
+    "systemTheme": "System follows your device — currently {value}.",
+    "systemLocale": "System follows your browser — currently {value}."
+  },
+  "user": {
+    "fallback": "User",
+    "signedInAs": "Signed in as",
+    "login": "Log in",
+    "logout": "Log out"
+  },
+  "cluster": {
+    "name": "Cluster",
+    "namespace": "Namespace",
+    "user": "User",
+    "statusLabel": "Status",
+    "proxyUrl": "Proxy URL",
+    "apiUrl": "API URL",
+    "status": {
+      "available": "Available",
+      "unreachable": "Unreachable",
+      "disabled": "Disabled",
+      "unknown": "Unknown state"
+    },
+    "sso": {
+      "on": "SSO on",
+      "off": "No SSO"
+    },
+    "selected": "Selected",
+    "choose": "Select",
+    "selection": "Selection"
+  },
+  "home": {
+    "greeting": "Hello {name}",
+    "intro": "Reach your Kubernetes clusters safely. Select a cluster to get started.",
+    "clustersTitle": "Your clusters",
+    "count": "{count} cluster | {count} clusters",
+    "empty": {
+      "title": "No cluster available",
+      "description": "You do not have access to any Kubernetes cluster yet. Ask your administrator for the permissions you need."
+    },
+    "detail": "Cluster {name}",
+    "connect": "Connect to the cluster",
+    "copyUrl": "Copy the URL",
+    "connecting": "Connecting to the cluster {name}…",
+    "redirectNoSso": "Opening the cluster {name} (no SSO)…"
+  },
+  "landing": {
+    "tagline": "Your secure gateway to Kubernetes: centralise and secure access to your Kubernetes APIs, one place for every cluster.",
+    "login": "Log in",
+    "why": "Why ProxyAuthK8S",
+    "features": {
+      "security": {
+        "title": "Stronger security",
+        "text": "Centralised authentication, with permissions you can narrow for every Kubernetes cluster."
+      },
+      "unified": {
+        "title": "One interface",
+        "text": "One place to reach all your clusters, instead of juggling tools and logins. It can also plug into other portals."
+      },
+      "instant": {
+        "title": "Instant access",
+        "text": "Automatic redirection to the APIs with SSO. No impersonation: access stays scoped and partitioned."
+      },
+      "teams": {
+        "title": "Team management",
+        "text": "Control who reaches what, per user and per cluster, with RBAC delegation."
+      },
+      "audit": {
+        "title": "Audit",
+        "text": "Follow access as it happens and audit how your Kubernetes resources are used."
+      },
+      "flexible": {
+        "title": "Flexible configuration",
+        "text": "Fit ProxyAuthK8S to your infrastructure, with several identity providers and configurations."
+      }
+    },
+    "how": "How it works",
+    "steps": {
+      "login": {
+        "title": "Log in",
+        "text": "Sign in to ProxyAuthK8S, which lists the clusters your permissions give you."
+      },
+      "explore": {
+        "title": "Explore your clusters",
+        "text": "See the Kubernetes APIs you can reach and whether they support SSO."
+      },
+      "access": {
+        "title": "Connect in one step",
+        "text": "Pick a cluster: the proxy sends you to that cluster's own SSO."
+      },
+      "use": {
+        "title": "Talk to the Kubernetes API",
+        "text": "Use kubectl, k9s or any other Kubernetes client."
+      }
+    },
+    "more": "Documentation, the kubectl plugin and the source code:",
+    "aboutLink": "about ProxyAuthK8S"
+  },
+  "about": {
+    "title": "About",
+    "lead": "ProxyAuthK8S is an authenticating reverse proxy for Kubernetes: it puts your clusters behind your OIDC provider and applies your authorisation rules to every request.",
+    "featuresTitle": "What it does",
+    "features": {
+      "entry": {
+        "title": "One entry point",
+        "text": "Every cluster sits behind ProxyAuthK8S: one URL, one identity provider."
+      },
+      "oidc": {
+        "title": "OIDC authentication",
+        "text": "Sign in through your IdP; tokens are validated (userinfo, audience, introspection) before any call reaches the cluster."
+      },
+      "authz": {
+        "title": "Fine-grained authorisation",
+        "text": "Groups allowed per cluster, filtered resources, namespaces, ports and verbs, quotas, bans and an audit trail."
+      },
+      "kubectl": {
+        "title": "Native kubectl",
+        "text": "The kubectl proxyauth plugin handles login, the keyring and the kubeconfig for you."
+      }
+    },
+    "linksTitle": "Go further",
+    "links": {
+      "docs": {
+        "label": "Documentation",
+        "text": "Installation, configuration, security"
+      },
+      "plugin": {
+        "label": "kubectl plugin",
+        "text": "Install and use kubectl proxyauth"
+      },
+      "architecture": {
+        "label": "Architecture",
+        "text": "How the proxy, the IdP and the clusters fit together"
+      },
+      "api": {
+        "label": "API reference",
+        "text": "The interactive API of this server"
+      },
+      "source": {
+        "label": "Source code",
+        "text": "GitHub — issues and contributions"
+      }
+    }
+  },
+  "callback": {
+    "title": "Signing you in",
+    "text": "Finishing your secure login, please wait.",
+    "state": "In progress"
+  },
+  "clusterCallback": {
+    "title": "Cluster login",
+    "description": "Finishing the login to the cluster {cluster} in the namespace {ns}.",
+    "waiting": "Fetching your tokens from the identity provider…",
+    "info": "Cluster",
+    "tokens": "Tokens",
+    "failed": "Login failed",
+    "failedText": "The authentication tokens could not be retrieved. Try again or contact your administrator.",
+    "fetching": "Fetching the clusters…",
+    "finishing": "Finishing the authentication…",
+    "failedToast": "The authentication could not be completed."
+  },
+  "noSso": {
+    "title": "Cluster without SSO",
+    "description": "Configuration for the cluster {cluster} in the namespace {ns}.",
+    "loading": "Loading the cluster…",
+    "info": "Cluster",
+    "explanation": "This cluster does not use SSO/OIDC. It is reached through the proxy with your current token, and the generated kubeconfig points every request at the proxy.",
+    "kubeconfigText": "This kubeconfig uses the proxy as its endpoint and your token, valid while your ProxyAuth session is.",
+    "notFound": "Cluster not found",
+    "notFoundText": "The requested cluster cannot be found or reached. Check the URL or contact your administrator.",
+    "missingParams": "Parameters are missing from the URL.",
+    "loadingClusters": "Loading the clusters…",
+    "notFoundToast": "Cluster not found.",
+    "usesSso": "This cluster uses SSO, taking you back home…"
+  },
+  "kubeconfig": {
+    "title": "Kubernetes configuration",
+    "download": "Download the kubeconfig",
+    "copy": "Copy",
+    "downloaded": "{name} downloaded.",
+    "tabs": {
+      "standard": "Standard kubeconfig",
+      "plugin": "Plugin kubeconfig",
+      "cli": "Plugin CLI"
+    },
+    "standardText": "A kubeconfig with a static token: use it to connect directly with the token you received.",
+    "pluginText": "A kubeconfig for the kubectl-proxyauth plugin, which manages and refreshes the tokens.",
+    "cliText": "Connect from the command line with the kubectl-proxyauth plugin, the recommended way with kubectl."
+  },
+  "pluginSteps": {
+    "install": "Install the plugin",
+    "connect": "Configure and connect",
+    "verify": "Check the configuration"
+  },
+  "tokens": {
+    "copy": "Copy the {label}"
+  },
+  "cli": {
+    "title": "kubectl plugin",
+    "description": "Install and use the kubectl-proxyauth plugin to manage your Kubernetes logins across clusters.",
+    "quickStart": "Quick start",
+    "steps": {
+      "install": "Install the plugin with Krew or by hand.",
+      "configure": "Point it at this ProxyAuthK8S server.",
+      "use": "Log in, then use kubectl as usual."
+    },
+    "installation": "Installation",
+    "usage": "Usage",
+    "workflow": "Full workflow",
+    "workflowText": "From the installation to day-to-day use.",
+    "copyWorkflow": "Copy the workflow",
+    "resources": "Resources",
+    "links": {
+      "readme": {
+        "label": "Plugin README",
+        "text": "Every feature of the plugin"
+      },
+      "releases": {
+        "label": "GitHub releases",
+        "text": "Binaries for every OS"
+      },
+      "krew": {
+        "label": "Krew index",
+        "text": "The plugin in the official Krew index"
+      }
+    },
+    "data": {
+      "install": {
+        "krew": {
+          "title": "Krew (recommended)",
+          "description": "Install through the official Kubernetes plugin manager",
+          "badge": "Recommended",
+          "c1": "# Install Krew if needed",
+          "c2": "# Install the proxyauth plugin"
+        },
+        "manual": {
+          "title": "Manual install",
+          "description": "Download the binary directly",
+          "badge": "Manual",
+          "c1": "# Download the binary for your OS",
+          "c2": "# Make it executable",
+          "c3": "# Move it to a directory on your PATH",
+          "c4": "# Check the installation"
+        },
+        "homebrew": {
+          "title": "Homebrew (macOS)",
+          "description": "Install with Homebrew on macOS",
+          "badge": "macOS",
+          "c1": "# Add the tap",
+          "c2": "# Install the plugin",
+          "c3": "# Check the installation"
+        }
+      },
+      "usage": {
+        "config": {
+          "title": "Configuration",
+          "description": "Set the plugin up for your environment",
+          "e1": {
+            "title": "Set the default server",
+            "description": "Sets the default ProxyAuthK8s server"
+          },
+          "e2": {
+            "title": "Add a server",
+            "description": "Adds a server by its URL"
+          },
+          "e3": {
+            "title": "Set the default namespace",
+            "description": "Sets the default namespace of a server"
+          },
+          "e4": {
+            "title": "Show the configuration",
+            "description": "Prints the whole current configuration"
+          }
+        },
+        "auth": {
+          "title": "Authentication",
+          "description": "Log in and manage tokens",
+          "e1": {
+            "title": "Log in to the server",
+            "description": "Authenticates to the server with a token (asked for when missing)"
+          },
+          "e2": {
+            "title": "Log in to a cluster",
+            "description": "Gets the token of one cluster"
+          },
+          "e3": {
+            "title": "Get a stored token",
+            "description": "Prints the stored token of a cluster"
+          },
+          "e4": {
+            "title": "Log out",
+            "description": "Removes the token of a cluster"
+          },
+          "e5": {
+            "title": "Clear the token cache",
+            "description": "Removes every cached token"
+          }
+        },
+        "clusters": {
+          "title": "Clusters",
+          "description": "List and manage the available clusters",
+          "e1": {
+            "title": "List every cluster",
+            "description": "Prints every available cluster"
+          },
+          "e2": {
+            "title": "Show a cluster",
+            "description": "Prints the details of a cluster"
+          },
+          "e3": {
+            "title": "Filter by namespace",
+            "description": "Lists the clusters of one namespace only"
+          }
+        },
+        "contexts": {
+          "title": "Contexts",
+          "description": "Manage kubectl contexts with the plugin",
+          "e1": {
+            "title": "List the contexts",
+            "description": "Prints every context and marks the ones ProxyAuth manages"
+          },
+          "e2": {
+            "title": "Switch context",
+            "description": "Sets the current context"
+          },
+          "e3": {
+            "title": "Show the current context",
+            "description": "Prints the active context"
+          }
+        }
+      },
+      "workflow": {
+        "c1": "# 1. Initial configuration",
+        "c2": "# 2. Authentication",
+        "c3": "# Or with your current token",
+        "c4": "# 3. List the available clusters",
+        "c5": "# 4. Log in to a cluster",
+        "c6": "# 5. Use kubectl as usual",
+        "c7": "# 6. Switch cluster"
+      },
+      "callback": {
+        "c1": "# 1. Authenticate with your current token",
+        "c2": "# 2. Log in to this cluster",
+        "c3": "# Or with your token",
+        "c4": "# 3. Use kubectl as usual",
+        "c5": "# 4. Optional: switch the kubectl context to this cluster"
+      },
+      "tokenPlaceholder": "<token>"
+    }
+  },
+  "toast": {
+    "loggedIn": "Successfully logged in",
+    "loginRequired": "Please log in to access this page",
+    "loginCallbackFailed": "Error during login callback. Please try again.",
+    "noClusterData": "No cluster data received from server",
+    "unauthorized": "Unauthorized access. Please log in again.",
+    "unexpectedResponse": "Unexpected response: {status}",
+    "callbackMissingParams": "Missing parameters in callback URL",
+    "clusterAuthenticated": "Successfully authenticated with the cluster",
+    "clusterCallbackUnauthorized": "Unauthorized access during callback login",
+    "clusterCallbackFailed": "Error during callback login: {error}"
+  }
+}

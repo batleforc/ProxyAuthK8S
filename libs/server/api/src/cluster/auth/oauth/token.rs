@@ -1,5 +1,12 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, post, web};
-use common::State;
+use crate::cluster::redirect::audit::{Event, HandlerAudit};
+use std::sync::Arc;
+
+use axum::{
+    Form, Json,
+    extract::{Path, State, rejection::FormRejection},
+    http::{StatusCode, header, request::Parts},
+    response::{IntoResponse, Response},
+};
 use serde::{Deserialize, Serialize};
 use tracing::{error, instrument};
 use utoipa::ToSchema;
@@ -9,7 +16,7 @@ use crate::cluster::auth::{
     oauth::model::{CODE_PREFIX, IssuedCode, redirect_uri_matches, verify_pkce_s256},
     throttle_oauth_as,
 };
-use crate::helper::extract_ns_cluster;
+use crate::helper::NsCluster;
 
 #[derive(Deserialize, ToSchema)]
 pub struct TokenRequest {
@@ -40,17 +47,27 @@ pub struct TokenErrorBody {
     pub error: String,
 }
 
-fn token_error(status: actix_web::http::StatusCode, error: &str) -> HttpResponse {
-    HttpResponse::build(status).json(TokenErrorBody {
-        error: error.to_string(),
-    })
+fn token_error(status: StatusCode, error: &str) -> Response {
+    (
+        status,
+        Json(TokenErrorBody {
+            error: error.to_string(),
+        }),
+    )
+        .into_response()
 }
+
+/// The largest form body the token endpoint reads: actix's `Form` default,
+/// kept by the move to axum (RFC 0007 contract).
+pub const TOKEN_FORM_LIMIT: usize = 16 * 1024;
 
 /// Exchange a proxy-minted authorization code for the upstream tokens
 ///
 /// RFC 6749 §4.1.3 token endpoint. If the cluster is not found, disabled, or
 /// discovery is not enabled, return 404.
 #[utoipa::path(
+    post,
+    path = "/{ns}/{cluster}/oauth/token",
     tag = "auth_clusters",
     request_body(content = TokenRequest, content_type = "application/x-www-form-urlencoded"),
     responses(
@@ -64,18 +81,36 @@ fn token_error(status: actix_web::http::StatusCode, error: &str) -> HttpResponse
         ("cluster" = String, description = "Cluster name that should exist in the namespace."),
     )
 )]
-#[post("/{ns}/{cluster}/oauth/token")]
-#[instrument(name = "oauth_as_token", skip(data, form))]
+#[instrument(name = "oauth_as_token", skip(req, data, form))]
 pub async fn token(
-    req: HttpRequest,
-    data: web::Data<State>,
-    form: web::Form<TokenRequest>,
-) -> impl Responder {
-    let (ns, cluster) = if let Some(parts) = extract_ns_cluster(&req) {
-        parts
-    } else {
-        error!(path = %req.path(), "missing ns/cluster path parameters");
-        return HttpResponse::NotFound().finish();
+    req: Parts,
+    State(data): State<Arc<common::State>>,
+    Path(NsCluster { ns, cluster }): Path<NsCluster>,
+    form: Result<Form<TokenRequest>, FormRejection>,
+) -> Response {
+    let mut audit = HandlerAudit::new(&ns, &cluster);
+    let response = token_inner(req, data, ns, cluster, form, &mut audit).await;
+    audit.finish(Event::OauthTokenIssued, Event::OauthTokenDenied, &response);
+    response
+}
+
+/// The handler itself; [`token`] writes its audit line.
+async fn token_inner(
+    req: Parts,
+    data: Arc<common::State>,
+    ns: String,
+    cluster: String,
+    form: Result<Form<TokenRequest>, FormRejection>,
+    audit: &mut HandlerAudit,
+) -> Response {
+    // As under actix: a body over the limit is a 413, any other unreadable
+    // form a 400 (axum's own answer would be a 422).
+    let form = match form {
+        Ok(form) => form,
+        Err(rejection) if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+            return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+        }
+        Err(rejection) => return (StatusCode::BAD_REQUEST, rejection.body_text()).into_response(),
     };
     let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
         Ok(proxy) => proxy,
@@ -85,11 +120,10 @@ pub async fn token(
         return response;
     }
 
+    audit.redirect_uri(&form.redirect_uri);
     if form.grant_type != "authorization_code" {
-        return token_error(
-            actix_web::http::StatusCode::BAD_REQUEST,
-            "unsupported_grant_type",
-        );
+        audit.deny("unsupported_grant_type");
+        return token_error(StatusCode::BAD_REQUEST, "unsupported_grant_type");
     }
 
     let code_key = format!("{CODE_PREFIX}:{ns}/{cluster}/{}", form.code);
@@ -101,31 +135,51 @@ pub async fn token(
             Ok(issued) => issued,
             Err(e) => {
                 error!(error = %e, "couldn't parse issued code");
-                return token_error(actix_web::http::StatusCode::BAD_REQUEST, "invalid_grant");
+                audit.deny("invalid_grant");
+                return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
             }
         },
-        Ok(None) => return token_error(actix_web::http::StatusCode::BAD_REQUEST, "invalid_grant"),
+        Ok(None) => {
+            audit.deny("invalid_grant");
+            return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
+        }
         Err(e) => {
             error!(error = %e, "couldn't get issued code");
-            return HttpResponse::ServiceUnavailable().finish();
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
+    if !issued.subject.is_empty() {
+        audit.user(&issued.subject, &[]);
+    }
     if !redirect_uri_matches(&form.redirect_uri, &issued.redirect_uri) {
-        return token_error(actix_web::http::StatusCode::BAD_REQUEST, "invalid_grant");
+        audit.deny("redirect_uri does not match the code");
+        return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
     }
     if !verify_pkce_s256(&form.code_verifier, &issued.code_challenge) {
-        return token_error(actix_web::http::StatusCode::BAD_REQUEST, "invalid_grant");
+        audit.deny("PKCE verification failed");
+        return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
     }
 
-    HttpResponse::Ok()
-        .insert_header(("Cache-Control", "no-store"))
-        .insert_header(("Pragma", "no-cache"))
-        .json(TokenResponseBody {
+    audit.grant(
+        "authorization_code",
+        issued
+            .expires_in
+            .and_then(|seconds| u64::try_from(seconds).ok()),
+    );
+    (
+        StatusCode::OK,
+        [
+            (header::CACHE_CONTROL, "no-store"),
+            (header::PRAGMA, "no-cache"),
+        ],
+        Json(TokenResponseBody {
             access_token: issued.access_token,
             token_type: "Bearer".to_string(),
             expires_in: issued.expires_in,
             refresh_token: issued.refresh_token,
             id_token: issued.id_token,
             scope: issued.scope,
-        })
+        }),
+    )
+        .into_response()
 }

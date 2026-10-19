@@ -18,7 +18,9 @@ use serde::{Deserialize, Serialize, de::Error as _};
 #[serde(untagged)]
 pub enum GetAllVisibleClusterError {
     Status401(),
+    Status429(),
     Status500(),
+    Status503(),
     UnknownValue(serde_json::Value),
 }
 

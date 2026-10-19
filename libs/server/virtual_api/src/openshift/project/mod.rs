@@ -1,0 +1,369 @@
+//! `project.openshift.io/v1` Projects mapped onto core Namespaces.
+//!
+//! An `OpenShift` Project *is* a Namespace with a different name and a couple of
+//! annotations, which is why this mapping is faithful enough to be useful:
+//!
+//! | virtual                                              | upstream                        |
+//! |------------------------------------------------------|---------------------------------|
+//! | `GET/WATCH /apis/project.openshift.io/v1/projects`   | `GET/WATCH /api/v1/namespaces`  |
+//! | `GET/DELETE .../projects/{name}`                     | `.../namespaces/{name}`         |
+//! | `POST .../projectrequests`                           | `POST /api/v1/namespaces`       |
+//!
+//! `OpenShift`'s `LIST projects` returns only the projects the caller can see,
+//! because the apiserver filters them per user. A plain `LIST namespaces` has
+//! no such behaviour: it is all-or-nothing on cluster-wide list rights.
+//!
+//! When the cluster's `list_fallback_token` is configured, `LIST projects` is
+//! filtered to match: a least-privilege credential (`list` only on
+//! `namespaces`, see `ProxyKubeApi`'s virtual API configuration) enumerates the
+//! candidates, and each one is kept only if the caller can individually `get`
+//! it. This is unconditional — it applies even when the caller could also
+//! have listed namespaces directly, matching `OpenShift`'s model where there
+//! is no unfiltered path at all. Without the token configured, the behaviour
+//! is unchanged: `LIST namespaces` is forwarded as-is, unfiltered on success,
+//! and the apiserver's own 403 passes through untouched on failure.
+//!
+//! The per-candidate check itself is a `SelfSubjectAccessReview`, but that
+//! doesn't run once per namespace on every request: a `SelfSubjectRulesReview`
+//! first tries to resolve every candidate in one call, and the outcome is
+//! cached per caller for a short TTL, so a repeatedly-polled `LIST projects`
+//! (dashboards, `oc projects`) does not re-run access reviews at all within
+//! that window. See `list_fallback` (the `api` crate) for the mechanics and
+//! why trusting the rules review for an *allow* decision is safe here
+//! specifically.
+//!
+//! Known limitation: `WATCH` is not filtered either way — a watched project
+//! list still streams every namespace event unfiltered.
+
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::{APIResource, APIResourceList};
+use serde_json::Value;
+
+use crate::VirtualApiMapper;
+use crate::route::{AccessProbe, UpstreamRequest, VirtualRoute, segments};
+
+pub const GROUP: &str = "project.openshift.io";
+pub const VERSION: &str = "v1";
+pub const PROJECT_KIND: &str = "Project";
+pub const PROJECT_LIST_KIND: &str = "ProjectList";
+pub const PROJECTS_RESOURCE: &str = "projects";
+pub const PROJECT_REQUESTS_RESOURCE: &str = "projectrequests";
+
+const NAMESPACE_KIND: &str = "Namespace";
+const NAMESPACE_LIST_KIND: &str = "NamespaceList";
+const CORE_API_VERSION: &str = "v1";
+const NAMESPACES_PATH: &str = "/api/v1/namespaces";
+
+const DISPLAY_NAME_ANNOTATION: &str = "openshift.io/display-name";
+const DESCRIPTION_ANNOTATION: &str = "openshift.io/description";
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct OpenShiftProjectMapper;
+
+mod translate;
+
+impl VirtualApiMapper for OpenShiftProjectMapper {
+    fn group_version(&self) -> (&str, &str) {
+        (GROUP, VERSION)
+    }
+
+    fn api_resources(&self) -> APIResourceList {
+        APIResourceList {
+            group_version: format!("{GROUP}/{VERSION}"),
+            resources: vec![
+                APIResource {
+                    name: PROJECTS_RESOURCE.to_string(),
+                    singular_name: "project".to_string(),
+                    namespaced: false,
+                    kind: PROJECT_KIND.to_string(),
+                    verbs: vec![
+                        "get".to_string(),
+                        "list".to_string(),
+                        "watch".to_string(),
+                        "delete".to_string(),
+                    ],
+                    short_names: Some(vec!["proj".to_string()]),
+                    ..Default::default()
+                },
+                APIResource {
+                    name: PROJECT_REQUESTS_RESOURCE.to_string(),
+                    singular_name: "projectrequest".to_string(),
+                    namespaced: false,
+                    kind: "ProjectRequest".to_string(),
+                    verbs: vec!["create".to_string(), "list".to_string()],
+                    ..Default::default()
+                },
+            ],
+        }
+    }
+
+    fn matches(&self, path: &str) -> Option<VirtualRoute> {
+        let segments = segments(path);
+        // /apis/{group}/{version}/{resource}[/{name}[/{subresource}]]
+        match segments.as_slice() {
+            ["apis", GROUP, VERSION, resource, rest @ ..] => {
+                let resource = *resource;
+                if resource != PROJECTS_RESOURCE && resource != PROJECT_REQUESTS_RESOURCE {
+                    return None;
+                }
+                // `matches` only sees the path; the caller fills in the method
+
+                let mut route = VirtualRoute::new("", resource);
+                if let Some(name) = rest.first() {
+                    route = route.with_name(name);
+                }
+                if let Some(subresource) = rest.get(1) {
+                    route = route.with_subresource(subresource);
+                }
+                Some(route)
+            }
+            _ => None,
+        }
+    }
+
+    fn method_not_allowed(&self, route: &VirtualRoute) -> Option<String> {
+        // Verbs each resource actually supports, expressed as HTTP methods (see
+        // `api_resources`). Anything else must not be mapped onto a namespace
+        // operation: e.g. `DELETE projectrequests` would otherwise become a
+        // namespace deletecollection.
+        let allowed: &[&str] = match route.resource.as_str() {
+            // projectrequests: create (POST), list (GET).
+            PROJECT_REQUESTS_RESOURCE => &["GET", "POST"],
+            // projects: get/list/watch (GET), delete (DELETE).
+            PROJECTS_RESOURCE => &["GET", "DELETE"],
+            _ => return None,
+        };
+        if allowed.contains(&route.method.as_str()) {
+            None
+        } else {
+            Some(allowed.join(", "))
+        }
+    }
+
+    fn map_request(&self, route: &VirtualRoute) -> UpstreamRequest {
+        if route.resource == PROJECT_REQUESTS_RESOURCE {
+            // A project request creates a namespace; listing them is not
+            // something a vanilla cluster can answer, so it maps to the
+            // namespace list and comes back as a ProjectList.
+            return UpstreamRequest::new(&route.method, Self::projects_path(None));
+        }
+
+        let mut path = Self::projects_path(route.name.as_deref());
+        if let Some(subresource) = &route.subresource {
+            path.push('/');
+            path.push_str(subresource);
+        }
+        UpstreamRequest::new(&route.method, path)
+    }
+
+    fn map_request_body(&self, route: &VirtualRoute, body: Value) -> Value {
+        match body.get("kind").and_then(Value::as_str) {
+            Some("ProjectRequest" | PROJECT_KIND) => self.project_request_to_namespace(body),
+            // An unrecognised body on a projectrequests create is still meant to
+            // become a namespace; anything else goes through untouched.
+            _ if route.resource == PROJECT_REQUESTS_RESOURCE => {
+                self.project_request_to_namespace(body)
+            }
+            _ => body,
+        }
+    }
+
+    fn map_response(&self, body: Value) -> Value {
+        self.namespace_to_project(body)
+    }
+
+    fn map_watch_event(&self, mut event: Value) -> Value {
+        if let Some(object) = event.get_mut("object") {
+            let mapped = self.namespace_to_project(object.take());
+            *object = mapped;
+        }
+        event
+    }
+
+    fn list_access_probe(&self, route: &VirtualRoute) -> Option<AccessProbe> {
+        if route.resource == PROJECTS_RESOURCE && route.name.is_none() && route.method == "GET" {
+            Some(AccessProbe {
+                group: "",
+                resource: "namespaces",
+                verb: "get",
+            })
+        } else {
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    fn mapper() -> OpenShiftProjectMapper {
+        OpenShiftProjectMapper
+    }
+
+    fn route(method: &str, path: &str) -> VirtualRoute {
+        let mut route = mapper().matches(path).expect("path should be recognised");
+        route.method = method.to_ascii_uppercase();
+        route
+    }
+
+    #[test]
+    fn recognises_the_project_paths() {
+        let mapper = mapper();
+        assert_eq!(
+            mapper.matches("/apis/project.openshift.io/v1/projects"),
+            Some(VirtualRoute::new("", "projects"))
+        );
+        assert_eq!(
+            mapper.matches("/apis/project.openshift.io/v1/projects/dev"),
+            Some(VirtualRoute::new("", "projects").with_name("dev"))
+        );
+        assert_eq!(
+            mapper.matches("/apis/project.openshift.io/v1/projectrequests"),
+            Some(VirtualRoute::new("", "projectrequests"))
+        );
+    }
+
+    #[test]
+    fn ignores_everything_else() {
+        let mapper = mapper();
+        assert!(mapper.matches("/api/v1/namespaces").is_none());
+        assert!(mapper.matches("/apis/apps/v1/deployments").is_none());
+        assert!(
+            mapper
+                .matches("/apis/project.openshift.io/v1/projecthelpers")
+                .is_none()
+        );
+        assert!(
+            mapper
+                .matches("/apis/project.openshift.io/v2/projects")
+                .is_none()
+        );
+        assert!(mapper.matches("/apis/project.openshift.io/v1").is_none());
+    }
+
+    #[test]
+    fn maps_a_list_onto_the_namespace_collection() {
+        let request = mapper().map_request(&route("GET", "/apis/project.openshift.io/v1/projects"));
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/api/v1/namespaces");
+        assert_eq!(request.body, None);
+    }
+
+    #[test]
+    fn maps_a_single_project_onto_its_namespace() {
+        let request =
+            mapper().map_request(&route("GET", "/apis/project.openshift.io/v1/projects/dev"));
+        assert_eq!(request.path, "/api/v1/namespaces/dev");
+
+        let request = mapper().map_request(&route(
+            "DELETE",
+            "/apis/project.openshift.io/v1/projects/dev",
+        ));
+        assert_eq!(request.method, "DELETE");
+        assert_eq!(request.path, "/api/v1/namespaces/dev");
+    }
+
+    #[test]
+    fn maps_a_project_request_onto_a_namespace_creation() {
+        let request = mapper().map_request(&route(
+            "POST",
+            "/apis/project.openshift.io/v1/projectrequests",
+        ));
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/api/v1/namespaces");
+    }
+
+    #[test]
+    fn unsupported_verbs_are_refused_not_mapped() {
+        let mapper = mapper();
+        // projectrequests supports create (POST) and list (GET) only.
+        assert_eq!(
+            mapper.method_not_allowed(&route(
+                "DELETE",
+                "/apis/project.openshift.io/v1/projectrequests"
+            )),
+            Some("GET, POST".to_string())
+        );
+        assert_eq!(
+            mapper.method_not_allowed(&route(
+                "PUT",
+                "/apis/project.openshift.io/v1/projectrequests"
+            )),
+            Some("GET, POST".to_string())
+        );
+        assert!(
+            mapper
+                .method_not_allowed(&route(
+                    "POST",
+                    "/apis/project.openshift.io/v1/projectrequests"
+                ))
+                .is_none()
+        );
+        // projects supports get/list/watch (GET) and delete (DELETE).
+        assert!(
+            mapper
+                .method_not_allowed(&route(
+                    "DELETE",
+                    "/apis/project.openshift.io/v1/projects/dev"
+                ))
+                .is_none()
+        );
+        assert_eq!(
+            mapper.method_not_allowed(&route("POST", "/apis/project.openshift.io/v1/projects")),
+            Some("GET, DELETE".to_string())
+        );
+    }
+
+    #[test]
+    fn list_access_probe_is_only_offered_for_the_list_route() {
+        let mapper = mapper();
+
+        let probe = mapper
+            .list_access_probe(&route("GET", "/apis/project.openshift.io/v1/projects"))
+            .expect("LIST projects should offer a probe");
+        assert_eq!(probe.group, "");
+        assert_eq!(probe.resource, "namespaces");
+        assert_eq!(probe.verb, "get");
+
+        assert!(
+            mapper
+                .list_access_probe(&route("GET", "/apis/project.openshift.io/v1/projects/dev"))
+                .is_none()
+        );
+        assert!(
+            mapper
+                .list_access_probe(&route(
+                    "DELETE",
+                    "/apis/project.openshift.io/v1/projects/dev"
+                ))
+                .is_none()
+        );
+        assert!(
+            mapper
+                .list_access_probe(&route(
+                    "GET",
+                    "/apis/project.openshift.io/v1/projectrequests"
+                ))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn advertises_its_resources_in_discovery() {
+        let resources = mapper().api_resources();
+        assert_eq!(resources.group_version, "project.openshift.io/v1");
+
+        let names: Vec<&str> = resources
+            .resources
+            .iter()
+            .map(|resource| resource.name.as_str())
+            .collect();
+        assert_eq!(names, vec!["projects", "projectrequests"]);
+
+        let projects = &resources.resources[0];
+        assert_eq!(projects.kind, "Project");
+        assert!(!projects.namespaced);
+        assert!(projects.verbs.contains(&"watch".to_string()));
+    }
+}

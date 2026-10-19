@@ -1,7 +1,11 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
-use actix_web::{HttpResponse, Responder, get, web};
-use common::State;
+use axum::{
+    Json,
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use serde::Serialize;
 use tracing::{debug, instrument, warn};
 use utoipa::ToSchema;
@@ -15,16 +19,17 @@ const READINESS_REDIS_TIMEOUT: Duration = Duration::from_secs(2);
 /// Kubernetes restart otherwise-healthy pods. Use `/management/ready` to decide
 /// whether a pod should receive traffic.
 #[utoipa::path(
+    get,
+    path = "/health",
     tag = "health",
     responses(
         (status = 200, description = "The server process is up."),
     )
 )]
-#[get("/health")]
 #[instrument(name = "health", level = "debug")]
-pub async fn health() -> impl Responder {
+pub async fn health() -> Response {
     debug!("Health check OK");
-    HttpResponse::Ok().finish()
+    StatusCode::OK.into_response()
 }
 
 /// Body of the readiness probe.
@@ -32,35 +37,51 @@ pub async fn health() -> impl Responder {
 pub struct ReadinessBody {
     /// `ok` when Redis answered a `PING`, `unavailable` otherwise.
     pub redis: &'static str,
+    /// `ok` once the service-wide OIDC provider has been discovered, `pending`
+    /// while the boot-time discovery is still retrying.
+    pub oidc: &'static str,
 }
 
 /// Readiness: the pod can serve proxied traffic.
 ///
 /// Every proxied request needs Redis (cluster registry, sessions, throttling),
-/// so the pod is only ready when Redis answers a `PING` within 2 seconds.
+/// so the pod is only ready when Redis answers a `PING` within 2 seconds, and
+/// once the boot-time OIDC discovery has succeeded (it retries with backoff
+/// instead of crashing the pod while the IdP is down).
 #[utoipa::path(
+    get,
+    path = "/ready",
     tag = "health",
     responses(
         (status = 200, description = "Ready to serve traffic.", body = ReadinessBody),
-        (status = 503, description = "A required dependency (Redis) is unavailable.", body = ReadinessBody),
+        (status = 503, description = "A required dependency (Redis, or the OIDC provider at boot) is unavailable.", body = ReadinessBody),
     )
 )]
-#[get("/ready")]
 #[instrument(name = "ready", level = "debug", skip(state))]
-pub async fn ready(state: web::Data<State>) -> impl Responder {
-    match tokio::time::timeout(READINESS_REDIS_TIMEOUT, state.redis_ping()).await {
-        Ok(Ok(())) => HttpResponse::Ok().json(ReadinessBody { redis: "ok" }),
+pub async fn ready(State(state): State<Arc<common::State>>) -> Response {
+    let redis_ok = match tokio::time::timeout(READINESS_REDIS_TIMEOUT, state.redis_ping()).await {
+        Ok(Ok(())) => true,
         Ok(Err(err)) => {
             warn!("Readiness check failed: Redis error: {}", err);
-            HttpResponse::ServiceUnavailable().json(ReadinessBody {
-                redis: "unavailable",
-            })
+            false
         }
         Err(_) => {
             warn!("Readiness check failed: Redis PING timed out");
-            HttpResponse::ServiceUnavailable().json(ReadinessBody {
-                redis: "unavailable",
-            })
+            false
         }
+    };
+    let oidc_ok = state.is_oidc_ready();
+    if !oidc_ok {
+        warn!("Readiness check failed: OIDC discovery has not succeeded yet");
     }
+    let body = ReadinessBody {
+        redis: if redis_ok { "ok" } else { "unavailable" },
+        oidc: if oidc_ok { "ok" } else { "pending" },
+    };
+    let status = if redis_ok && oidc_ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (status, Json(body)).into_response()
 }

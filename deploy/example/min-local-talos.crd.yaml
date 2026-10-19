@@ -21,7 +21,7 @@ metadata:
   namespace: default
 spec:
   cert:
-    Insecure: true
+    SystemRoots: true
   service:
     ExternalService:
       url: "https://10.5.0.2:6444"
@@ -49,7 +49,7 @@ metadata:
   namespace: default
 spec:
   cert:
-    Insecure: false
+    SystemRoots: true
   service:
     ExternalService:
       url: "https://localhost:33695"

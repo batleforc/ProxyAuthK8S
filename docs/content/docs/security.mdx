@@ -1,0 +1,928 @@
+---
+title: Sécurité du proxy
+description: Autorisation, filtrage des ressources, quotas et journal d'audit
+icon: ShieldCheck
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Ce que ProxyAuthK8S applique, dans l'ordre, sur chaque requête proxifiée.
+
+## 1. Bannissement (fail2login)
+
+Vérifié avant toute chose, à partir de l'adresse du client — à ce stade aucun utilisateur
+n'est encore résolu.
+
+```yaml
+security_config:
+  enabled: true
+  fail2login_equal_ban:
+    enabled: true
+    max_failed_logins: 5
+    ban_duration: 300 # secondes ; 0 = bannissement permanent
+    exponential_backoff: false
+```
+
+Chaque échec d'authentification incrémente un compteur Redis (fenêtre d'une heure). Au seuil,
+l'adresse est bannie et reçoit un `429` avec un en-tête `Retry-After`. Une authentification
+réussie remet le compteur à zéro.
+
+<Callout type="warn">
+Derrière un ingress/LB, l'adresse du pair TCP est celle de l'ingress, partagée par tous les
+clients : sans réglage, un attaquant bannirait donc tout le monde. Positionnez
+`TRUSTED_PROXY_COUNT` au nombre de proxies de confiance devant le service (ex. `1`) pour que
+l'identité de bannissement/quota soit prise ce nombre de sauts en arrière dans
+`X-Forwarded-For`. Défaut `0` : on n'accorde aucune confiance à `X-Forwarded-For` et on
+utilise le pair direct.
+</Callout>
+
+Avec `exponential_backoff`, chaque échec au-delà du seuil double la durée, plafonnée pour
+qu'un compteur ancien ne produise pas un bannissement quasi permanent par accident.
+
+<Callout type="info">
+Les compteurs vivent dans Redis, pas en mémoire : sinon un client multiplierait son budget par
+le nombre de réplicas, et un bannissement ne s'appliquerait qu'au pod qui a vu les échecs.
+L'incrément et son TTL sont posés de façon **atomique** (script Lua `INCR`+`EXPIRE`), pour qu'une
+panne transitoire ne laisse jamais un compteur sans expiration (qui verrouillerait le sujet
+indéfiniment).
+</Callout>
+
+<Callout type="warn">
+Si Redis est indisponible, bans et quotas **laissent passer** par défaut (une panne Redis ne doit
+pas devenir une panne totale). Positionnez `THROTTLE_FAIL_CLOSED=true` pour au contraire refuser la
+requête (`429`) tant que Redis est injoignable, sur les déploiements qui préfèrent perdre en
+disponibilité plutôt qu'en protection anti-brute-force.
+</Callout>
+
+## 2. Authentification
+
+Selon `auth_config.validate_against` :
+
+- `OidcProvider` : le jeton est présenté au endpoint `userinfo` du provider ;
+- `Kubernetes` : le jeton est validé par un `SelfSubjectReview` sur le cluster cible ;
+- `JwtAuthenticators` : le jeton est validé **localement** contre les authenticators
+  `auth_config.jwt` (voir [Validation JWT locale](#validation-jwt-locale-jwtauthenticators)).
+
+Défaut : `Kubernetes`, le choix qui échoue en fermé et vaut pour n'importe quel cluster. Les deux
+autres modes se choisissent toujours explicitement, pour qu'un cluster ne change jamais de mode
+d'authentification parce qu'un champ a été ajouté ailleurs dans le spec.
+
+`auth_config.disable_validation: true` désactive complètement cette étape — le proxy relaie
+alors sans savoir qui appelle.
+
+### Validation JWT locale (`JwtAuthenticators`)
+
+Reproduit la *structured authentication configuration* de l'apiserver : le jeton est vérifié sur
+place, sans aucun aller-retour vers le provider ni vers le cluster cible sur le chemin de la
+requête.
+
+```yaml
+auth_config:
+  validate_against: JwtAuthenticators
+  jwt:
+    - issuer:
+        url: https://issuer.example.com
+        audiences: ["proxyauthk8s"]
+      claim_validation_rules:
+        - claim: hd
+          required_value: example.com
+        # ou, en CEL :
+        - expression: "claims.email.endsWith('@example.com')"
+          message: "seules les identités example.com sont acceptées"
+      claim_mappings:
+        username:
+          claim: sub
+          prefix: "oidc:"
+        groups:
+          claim: groups
+          prefix: ""
+        extra:
+          - key: email
+            value_expression: claims.email
+      user_validation_rules:
+        - expression: "!user.username.startsWith('system:')"
+          message: "un username ne peut pas utiliser le préfixe réservé system:"
+```
+
+L'ordre n'est pas un détail d'implémentation : **rien n'est cru avant la vérification de
+signature**, les `claim_validation_rules` s'appliquent à des claims déjà vérifiés, et les
+`user_validation_rules` s'appliquent à l'identité **déjà mappée** — c'est le seul moment où le
+username final est connu, donc le seul endroit où l'on peut empêcher un IdP de forger un nom
+privilégié.
+
+1. lecture de `iss` dans la charge utile **non vérifiée**, uniquement pour choisir l'authenticator
+   — `iss` est ensuite re-contrôlé pendant la vérification de signature, donc un `iss` forgé
+   sélectionne un authenticator dont la clé rejettera le jeton ;
+2. récupération de la JWKS de l'issuer (via son document de découverte), avec cache ;
+3. vérification de la signature, puis de `exp`, `nbf`, `iss` et `aud` ;
+4. `claim_validation_rules` ;
+5. `claim_mappings` → username, groups, uid, extra ;
+6. `user_validation_rules` sur l'utilisateur mappé.
+
+Les expressions CEL disposent de la bibliothèque d'extensions Kubernetes (`strings`, `lists`,
+`sets`, `regex`, `urls`, `ip`, …) : une expression copiée depuis une configuration d'apiserver s'y
+comporte de la même façon, plutôt que sur un sous-ensemble à découvrir à l'usage.
+
+<Callout type="warn">
+`prefix` est **obligatoire** dès que `claim` est utilisé (`""` pour y renoncer explicitement),
+comme chez l'apiserver. Sans préfixe, un username venu d'un IdP externe peut coïncider avec un
+username local existant, et l'identité externe se retrouve autorisée comme cet utilisateur local —
+la décision doit être consciente, pas un défaut.
+
+`issuer.discovery_url`, quand il est fourni, est soumis à la même contrainte `https://` que
+`issuer.url` : c'est lui que le proxy va réellement chercher, et la JWKS qu'il désigne décide des
+clés qui valident les jetons.
+</Callout>
+
+<Callout type="warn">
+Seuls les algorithmes **asymétriques** sont acceptés (RS/PS/ES/EdDSA). Une JWKS publie des clés
+*publiques* : accepter un algorithme HMAC laisserait quiconque sait la lire forger un jeton qui se
+vérifie — la confusion d'algorithme classique. `none` n'est pas représentable non plus.
+</Callout>
+
+<Callout type="info">
+Le compromis par rapport à `OidcProvider` : aucun appel à `/userinfo` signifie aussi qu'un jeton
+révoqué avant son expiration reste accepté jusqu'à celle-ci. À arbitrer selon la durée de vie des
+jetons émis par l'IdP.
+</Callout>
+
+<Callout type="info">
+La JWKS est mise en cache **en mémoire** (15 min), le document de découverte 1 h. Une rotation de
+clé est prise en compte sans redémarrage : un `kid` inconnu déclenche un rafraîchissement, limité
+à un par minute et par issuer — sans ce plancher, des jetons à `kid` aléatoire transformeraient
+chaque requête en appel sortant vers l'IdP.
+
+`issuer.egress_selector` est accepté pour rester compatible avec la configuration de l'apiserver
+mais n'est **pas** appliqué : le proxy n'a pas les chemins réseau `controlplane`/`cluster` d'un
+control plane.
+</Callout>
+
+### Validation d'audience (OIDC)
+
+`userinfo` prouve que le jeton est valide pour l'issuer, **mais pas** qu'il a été émis pour ce
+service : sans contrôle, n'importe quel access-token d'une autre application du même IdP serait
+accepté. Après `userinfo`, le proxy vérifie donc que l'audience du jeton correspond à l'audience
+attendue :
+
+1. par **introspection RFC 7662** si le provider expose un endpoint ;
+2. sinon en lisant le claim `aud` du JWT (sûr ici, puisque `userinfo` a déjà validé la signature).
+
+Seul le claim **`aud`** est comparé. `azp`/`client_id` désignent le *client* auquel le jeton a été
+délivré, pas la *ressource* visée ; les accepter rouvrirait le trou de confusion d'audience (un
+jeton `aud=["autre-api"], azp=<ce service>` passerait).
+
+| Valeur de `OIDC_AUDIENCE_VALIDATION` | Effet                                                        |
+| ------------------------------------ | ------------------------------------------------------------ |
+| `enforce` (défaut)                   | rejette si l'audience ne correspond pas ou est indéterminable |
+| `warn`                               | journalise mais laisse passer (observer avant d'appliquer)   |
+| `off`                                | désactive la vérification                                    |
+
+L'audience attendue et l'acceptation de `azp` se configurent **par cluster**, sur le provider OIDC
+du `ProxyKubeApi` :
+
+```yaml
+auth_config:
+  oidc_provider:
+    enabled: true
+    issuer_url: https://idp.example.com
+    client_id: proxy-auth-k8s
+    # audience attendue dans `aud`. Vide => on retombe sur `client_id`.
+    audience: proxy-auth-k8s
+    # accepte un jeton dont `aud` ne nomme pas ce service mais dont `azp`/`client_id` le fait.
+    # À n'activer que pour les IdP (ex. Keycloak) émettant des jetons « self-audience ».
+    accept_authorized_party: false
+```
+
+<Callout type="warn">
+Un jeton **opaque** (non-JWT) ne peut être validé que par introspection : si le provider n'en
+expose pas et que le mode est `enforce`, la requête est refusée. Configurez l'introspection ou
+passez temporairement en `warn` le temps de la migration.
+</Callout>
+
+<Callout type="warn">
+`client_id` (à qui le jeton est destiné) et `audience` (pour quelle ressource) sont désormais des
+champs distincts. Si votre IdP place le client dans `aud`, laissez `audience` vide. S'il émet des
+jetons « self-audience » sans `aud` nommant ce service, activez `accept_authorized_party: true`
+plutôt que d'affaiblir le mode global.
+</Callout>
+
+### Configuration OIDC dans un Secret externe (`config_from`)
+
+Le `client_secret` écrit directement dans le `ProxyKubeApi` est lisible par quiconque a le droit
+`get` sur la ressource, apparaît dans un `kubectl get -o yaml` et se retrouve dans chaque
+sauvegarde de l'objet. `oidc_provider.config_from` permet de ne garder qu'une **référence** dans
+le CR, le secret vivant dans l'objet que les opérateurs protègent déjà — et que
+[external-secrets](https://external-secrets.io/) sait alimenter :
+
+```yaml
+auth_config:
+  oidc_provider:
+    enabled: true
+    config_from:
+      Secret:
+        name: oidc-config
+        # namespace: shared   # voir l'encart ci-dessous
+```
+
+Les clés du Secret sont les noms de champs de `oidc_provider`, en snake_case :
+
+| Clé              | Remplace                       |
+| ---------------- | ------------------------------ |
+| `issuer_url`     | `oidc_provider.issuer_url`     |
+| `client_id`      | `oidc_provider.client_id`      |
+| `client_secret`  | `oidc_provider.client_secret`  |
+| `audience`       | `oidc_provider.audience`       |
+| `extra_scope`    | `oidc_provider.extra_scope`    |
+
+Règles de résolution :
+
+- **une clé présente dans le Secret l'emporte** sur la valeur en ligne ;
+- **une clé absente retombe sur la valeur en ligne**, donc un Secret partiel — le cas courant :
+  seulement `client_secret` — fonctionne, le reste restant lisible dans le CR ;
+- les clés hors de cette liste sont **ignorées** : un Secret géré par external-secrets est
+  couramment partagé avec d'autres consommateurs, une clé inconnue ne doit pas faire échouer le
+  bloc ;
+- un Secret ne portant **aucune** des clés ci-dessus est en revanche une **erreur** : c'est
+  presque toujours une faute de frappe, et retomber silencieusement sur le bloc en ligne que
+  l'opérateur cherchait justement à remplacer serait le pire des comportements ;
+- un Secret illisible ou absent est une **erreur** : la résolution échoue en fermé, elle ne
+  retombe jamais sur le bloc en ligne.
+
+Les interrupteurs de politique (`enabled`, `accept_authorized_party`,
+`expose_oauth_authorization_server`) ne sont **volontairement pas** lisibles depuis le Secret :
+ils décident de la sévérité de la validation des jetons et de qui atteint le cluster, ils doivent
+donc rester visibles dans le CR que l'admission et la revue regardent.
+
+<Callout type="info">
+Avec `config_from`, la règle CEL d'admission n'exige plus `issuer_url` et `client_id` en ligne —
+ils sont censés arriver du Secret. Le contrôle est donc reporté à l'exécution : si le bloc reste
+incomplet après fusion, la résolution échoue explicitement au lieu de construire un client OIDC
+qui rejetterait tous les jetons sans raison visible.
+</Callout>
+
+<Callout type="warn">
+`namespace` dans la référence est refusé par défaut et rabattu sur le namespace du
+`ProxyKubeApi`. La lecture utilise le `ServiceAccount` cluster-wide du contrôleur : autoriser un
+namespace arbitraire transformerait un tenant capable de créer un `ProxyKubeApi` en oracle de
+lecture de Secrets — et ici la valeur lue est un secret client OAuth. Mettre
+`PROXYAUTH_ALLOW_CROSS_NS_OIDC=true` uniquement sur un cluster mono-tenant. C'est un
+interrupteur **distinct** de `PROXYAUTH_ALLOW_CROSS_NS_CERT` : partager un bundle de CA entre
+namespaces n'est pas une raison de partager aussi des identifiants OIDC.
+</Callout>
+
+### OAuth Authorization Server médiée (RFC 8414 + RFC 6749/PKCE)
+
+À l'image d'OpenShift, un cluster peut exposer son propre serveur d'autorisation OAuth 2.0,
+sans passer par un `oauth2-proxy` dédié :
+
+```yaml
+auth_config:
+  oidc_provider:
+    enabled: true
+    issuer_url: https://idp.example.com
+    client_id: proxy-auth-k8s
+    expose_oauth_authorization_server: true
+```
+
+Une fois activé, le proxy devient lui-même le serveur d'autorisation vu par l'appelant : il
+**médie** tout l'échange avec `issuer_url`, l'appelant externe n'a jamais besoin d'être
+enregistré auprès du fournisseur d'identité réel — ni même d'en connaître le nom d'hôte.
+
+`GET /clusters/{ns}/{cluster}/.well-known/oauth-authorization-server` répond, **sans
+authentification** (la découverte doit être joignable avant qu'un appelant n'ait de jeton),
+avec un document RFC 8414 où `issuer`, `authorization_endpoint`, `token_endpoint` et
+`jwks_uri` sont tous des URLs du proxy lui-même :
+
+```
+GET  {issuer}/oauth/authorize   # démarre le flux, redirige vers le provider réel
+GET  {issuer}/oauth/callback    # reçoit le retour du provider (usage interne)
+POST {issuer}/oauth/token       # échange le code proxy contre les jetons du provider
+GET  {issuer}/oauth/jwks        # miroir passif du jwks_uri du provider
+```
+
+Déroulé du flux (RFC 6749, code d'autorisation + PKCE) :
+
+1. L'appelant ouvre `/oauth/authorize` avec son propre `code_challenge` (S256) et un
+   `redirect_uri` **loopback uniquement** (`http://localhost` ou `http://127.0.0.1`, RFC 8252) ;
+2. le proxy génère son propre couple PKCE, l'état de corrélation, mémorise l'appel (Redis, TTL
+   court) et redirige vers l'`authorization_endpoint` réel du provider ;
+3. après authentification, le provider redirige vers `/oauth/callback` ; le proxy échange le
+   code **côté serveur** (le `client_secret` du provider ne quitte jamais le proxy), vérifie le
+   jeton d'identité, puis émet son **propre** code à usage unique et redirige l'appelant vers son
+   `redirect_uri` d'origine ;
+4. l'appelant échange ce code contre les jetons du provider sur `/oauth/token`, en prouvant la
+   possession du `code_verifier` correspondant à son `code_challenge` initial.
+
+Le jeton obtenu est un jeton Bearer valide pour ce cluster, puisque le proxy valide déjà les
+jetons bruts du provider via `userinfo`.
+
+<Callout type="warn">
+Désactivé par défaut et requiert `oidc_provider.enabled: true` (refusé sinon par l'apiserver
+via une règle CEL). L'activer rend publiquement visible, pour un appelant non authentifié,
+l'existence du cluster `{ns}/{cluster}` et lui permet de démarrer une connexion — un
+compromis délibéré, inhérent à la découverte RFC 8414.
+
+Le proxy n'enregistrant pas les clients externes, `redirect_uri` est restreint aux adresses
+loopback : accepter une valeur arbitraire en ferait une redirection ouverte (l'attaquant
+construit lui-même toute l'URL `/oauth/authorize`, PKCE ne protège pas contre ce scénario).
+Restreindre au loopback ramène l'attaque à un scénario où l'attaquant contrôle déjà un
+processus sur la machine de la victime — une machine déjà compromise.
+</Callout>
+
+<Callout type="warn">
+Si le cluster proxifié est lui-même OpenShift (ou tout autre apiserver qui expose déjà
+`/.well-known/oauth-authorization-server` nativement), ce document **remplace** le sien sans
+fusion : la route explicite du proxy est enregistrée avant la route générique
+`/{ns}/{cluster}/{path:.*}` et gagne donc toujours. C'est voulu — l'appelant ne doit jamais
+avoir besoin de connaître le fournisseur réel, seulement le proxy — mais n'activez
+`expose_oauth_authorization_server` sur un tel cluster que si vous voulez délibérément masquer
+son propre serveur OAuth natif derrière celui du proxy ; sinon, deux serveurs d'autorisation
+incohérents coexisteront selon que l'appelant passe par le proxy ou par le cluster directement.
+</Callout>
+
+<Callout type="warn">
+`GET /clusters/{ns}/{cluster}/.well-known/openid-configuration` — le document de *Service
+Account Issuer Discovery* qu'un apiserver Kubernetes expose nativement, sans authentification,
+pour la vérification des jetons de compte de service — n'est **pas** intercepté par le proxy :
+faute de route dédiée, il tombe sur la route générique de redirection comme n'importe quelle
+autre ressource. Si le cluster requiert la validation des jetons (`oidc_provider.enabled` ou
+`jwt` configuré), cette requête devra donc, elle aussi, porter un jeton Bearer valide —
+contrairement à un apiserver direct, où ce document est public par défaut (RBAC
+`system:service-account-issuer-discovery` lié à `system:public-info-viewer`). Décision
+délibérée, pas un correctif : rendre ce chemin public par défaut réintroduirait exactement le
+risque d'énumération anonyme que `expose_oauth_authorization_server` rend opt-in ci-dessus. Un
+vérificateur externe de jetons de compte de service qui attend une découverte publique doit
+viser l'apiserver réel, pas ce chemin via le proxy.
+</Callout>
+
+## 3. Autorisation par cluster
+
+```yaml
+proxy_group: operators # groupe requis pour utiliser ce cluster
+dashboard_group: viewers # groupe requis pour le voir dans le dashboard
+expose_via_dashboard: true
+```
+
+L'ordre de résolution :
+
+1. `proxy_group` explicite → c'est lui qui s'applique ;
+2. sinon, si `expose_via_dashboard` est vrai → le `dashboard_group` s'applique aussi au proxy ;
+3. sinon → aucune restriction de groupe.
+
+<Callout type="warn">
+Un cluster qui exige un groupe alors que la validation des jetons est désactivée renvoie
+**403** systématiquement. Le groupe ne pourrait jamais être vérifié : refuser vaut mieux que
+faire semblant.
+</Callout>
+
+## 4. Liste des ressources autorisées
+
+```yaml
+security_config:
+  enabled: true
+  allowed_resources:
+    - Path:
+        path: /api/v1/namespaces/{{group}}/pods/**
+        parametised: true
+    - Path:
+        path: /api/v1/namespaces/dev/configmaps
+```
+
+Une liste vide (le défaut) autorise tout. Sinon la requête doit correspondre à au moins une
+règle, sans quoi elle reçoit un `403` avec un objet `Status` Kubernetes — ce que `kubectl` sait
+afficher lisiblement.
+
+**Sémantique des motifs**, uniquement quand `parametised: true` :
+
+| Motif           | Correspond à                                                             |
+| --------------- | ------------------------------------------------------------------------ |
+| `*`             | n'importe quoi **dans un seul segment** (`dev-*` → `dev-team`, pas `dev/x`) |
+| `**`            | n'importe quel nombre de segments restants (nécessaire pour les sous-ressources) |
+| `{{username}}`  | le nom d'utilisateur résolu                                              |
+| `{{group}}`     | chacun des groupes de l'utilisateur, testés un par un                    |
+
+Sans `parametised`, la comparaison est exacte : un `*` y est un caractère littéral.
+
+<Callout type="warn">
+`kubectl logs` frappe `/api/v1/namespaces/x/pods/y/log`. Une règle `/api/v1/namespaces/*/pods`
+ne l'autorise donc **pas** : il faut `/api/v1/namespaces/*/pods/**`.
+</Callout>
+
+### Règles par ressource (group/version/kind)
+
+Au lieu d'un chemin, une règle peut cibler une ressource et appliquer des restrictions par
+namespace :
+
+```yaml
+security_config:
+  enabled: true
+  allowed_resources:
+    - Crd:
+        group: example.com # "" pour le groupe core (/api/v1/...)
+        version: v1
+        kind: Widget
+        plural: widgets # sinon le kind en minuscules est utilisé
+        namespaced: true
+        namespace:
+          enabled: true
+          rule_kind:
+            ParametisedRule: 'dev-{{username}}' # ou AllowedNamespaces / DeniedNamespaces
+```
+
+Le chemin est reconnu sous ses formes namespacée (`.../namespaces/{ns}/{plural}`) et
+cluster-wide (`.../{plural}`). Les règles de namespace :
+
+| `rule_kind`         | Effet                                                            |
+| ------------------- | ---------------------------------------------------------------- |
+| `AllowedNamespaces` | n'autorise que les namespaces listés (default-deny)             |
+| `DeniedNamespaces`  | autorise tout sauf les namespaces listés                        |
+| `ParametisedRule`   | motif avec `{{username}}`/`{{group}}` (substitution littérale)   |
+
+<Callout type="warn">
+Une ressource namespacée atteinte **cluster-wide** (sans `/namespaces/{ns}/`, ex. un `list -A`)
+n'est autorisée que si aucune restriction de namespace n'est active — sinon la liste
+renverrait des namespaces que la règle refuse.
+</Callout>
+
+Ces règles sont aussi appliquées à l'admission par des règles CEL sur le CRD : un chemin
+relatif ou un placeholder inconnu est refusé par l'apiserver, pas seulement au reconcile.
+
+<Callout type="warn">
+Deux protections implicites du matcher :
+
+- les chemins contenant un segment de traversée (`..`, `.`, ou leurs encodages `%2e`/`%2f`)
+  sont refusés, sinon `/namespaces/dev/../prod/secrets` échapperait à une règle limitée à `dev`
+  alors que l'apiserver le résout vers `prod` ;
+- une valeur de claim substituée dans `{{username}}`/`{{group}}` est traitée **littéralement** :
+  si elle contient `*` ou `/`, elle ne peut pas se transformer en joker et l'utilisateur ne peut
+  pas s'auto-élever (ex. un claim valant `*`).
+</Callout>
+
+<Callout type="warn">
+Le champ s'appelait `allowed_ressources` (avec la faute). L'ancienne orthographe reste **un
+champ à part entière du schéma**, pas un simple alias : l'apiserver supprime les champs qu'il
+ne connaît pas, donc un alias aurait effacé silencieusement la configuration de sécurité des
+ressources existantes. Les deux listes sont fusionnées, et validées à l'identique.
+
+Migration : renommez le champ dans vos `ProxyKubeApi`, le champ déprécié disparaîtra à la
+prochaine version majeure.
+</Callout>
+
+### Ports autorisés
+
+`allowed_ports` limite les ports qu'un utilisateur peut ouvrir, sur une règle `Path` ou sur une
+règle `Crd` de kind `Pod` ou `Service` :
+
+```yaml
+security_config:
+  enabled: true
+  allowed_resources:
+    - Path:
+        path: /api/v1/namespaces/dev/pods/*/portforward
+        parametised: true
+        allowed_ports: ["8080", "9000-9100"]
+    - Crd:
+        group: ""
+        version: v1
+        kind: Service
+        plural: services
+        namespace: { enabled: true, rule_kind: { AllowedNamespaces: ["dev"] } }
+        allowed_ports: ["80"]
+```
+
+La politique s'applique à **tous les chemins qui ouvrent un port** :
+
+| Chemin | Port contrôlé |
+| --- | --- |
+| `.../pods/{nom}/portforward` | ports de la query (`ports`, `port`) ou de chaque flux SPDY |
+| `.../pods/[scheme:]{nom}:{port}/proxy[/...]` | `{port}`, un port de conteneur |
+| `.../services/[scheme:]{nom}:{port}/proxy[/...]` | `{port}`, un **port du Service** |
+| `/api/v1/nodes/{nœud}[:{port}]/proxy[/...]` | refusé, sauf règle explicite (voir plus bas) |
+
+- `allowed_ports` accepte des ports seuls (`"8080"`) ou des plages inclusives (`"9000-9100"`),
+  entre 1 et 65535. L'admission refuse un port hors bornes (`"0"`, `"70000"`), une plage
+  inversée (`"200-100"`) ou `allowed_ports` sur une règle `Crd` d'un autre kind que `Pod` et
+  `Service`. Une entrée invalide déjà stockée est signalée et n'autorise aucun port.
+- **Restriction.** Dès qu'une règle qui concerne l'utilisateur porte `allowed_ports`, quel que
+  soit son chemin, ses ports sont restreints. Une règle `Path` n'a pas de sujet : une seule
+  règle `Path` avec `allowed_ports` restreint **tous** les utilisateurs du cluster. Une règle
+  `Crd` dont la règle de namespace paramétrée ne donne aucun candidat pour l'utilisateur (un
+  `{{group}}` sans groupe) ne le restreint pas.
+- **Ports accordés.** Sous restriction, ce sont ceux des règles qui correspondent au chemin
+  **et** portent `allowed_ports`. Une règle sans `allowed_ports` (une `Crd` `Pod`, un
+  `.../pods/**`) **n'accorde aucun port**, mais continue d'autoriser ses autres chemins
+  (`get pods`, `logs`…). Une liste vide (`allowed_ports: []`) n'accorde aucun port.
+- **Sans aucune règle `allowed_ports`**, ou avec `security_config.enabled: false`, rien n'est
+  restreint, `nodes/proxy` compris.
+
+<Callout type="warn">
+**Changement de comportement.** Avant, une règle sans `allowed_ports` qui couvrait le
+chemin levait la restriction, et le sous-ressource `proxy` n'était pas filtré. Une
+configuration qui mélange une règle avec `allowed_ports` et une règle sans est désormais
+restreinte. Chaque règle concernée apparaît dans `status.warnings` du `ProxyKubeApi` (et dans
+le log du contrôleur) : ajoutez-lui `allowed_ports` si elle doit accorder des ports.
+</Callout>
+
+**Ports nommés ou absents.** `pods/web:http/proxy`, `services/web/proxy` ou un port illisible
+sont refusés sous restriction (`403 "named or missing port is not allowed on this cluster"`) :
+le proxy ne peut pas résoudre un nom sans lire l'objet, et un nom est choisi par qui écrit le
+pod. Le segment est décodé une fois, comme le fait l'apiserver : `web%3A5432` vaut
+`web:5432`, et `web%253A5432` est un nom sans port, donc refusé.
+
+**Ports d'un Service.** Sur `services/{nom}:{port}/proxy`, `{port}` est un port du Service, pas
+son `targetPort`, et seule une règle qui couvre `services/...` peut l'accorder (une règle
+`pods` n'accorde jamais rien sur un Service). Qui peut modifier un Service choisit son
+`targetPort` : limitez l'écriture des `services` par le RBAC du cluster cible.
+
+**`nodes/proxy`.** Ce chemin atteint l'API du kubelet (`/portForward`, `/exec`) sans passer par
+les contrôles de l'apiserver. Sous restriction de ports ou de [verbes](#verbes-autorisés), il est
+refusé
+(`403 "nodes/proxy is not allowed while ports, verbs or exec are restricted"`), sauf si une règle `Path` qui
+autorise le chemin le **vise explicitement**, avec `nodes` et `proxy` en segments littéraux :
+
+```yaml
+    - Path:
+        path: /api/v1/nodes/*/proxy/**
+        parametised: true
+```
+
+Une règle `Crd` `Node` ou un `Path` `/api/v1/nodes/**` ne comptent pas, et sont signalés dans
+`status.warnings`.
+
+**Où le proxy lit les ports d'un port-forward.** `kubectl` ne met pas les ports dans l'URL :
+il ouvre un flux SPDY par port, tunnelé dans la websocket (sous-protocole
+`SPDY/3.1+portforward.k8s.io`), et le port est un en-tête compressé de chaque flux. Le proxy
+décode donc le trafic client de la session et vérifie chaque nouveau flux avant de le
+transmettre. Avec les protocoles websocket « canal » (`v4.channel.k8s.io`), les ports sont dans
+le paramètre `ports` de l'URL et sont vérifiés avant de contacter le cluster (`403` sinon).
+Les politiques sont vérifiées **avant** le contrôle « websocket seulement » : le repli SPDY de
+kubectl reçoit le même `403` et sa raison, et non « SPDY is not supported ».
+
+**Au premier port refusé, toute la session est fermée** ; le flux refusé n'atteint jamais le
+cluster. Tout ce que le proxy ne sait pas lire (extension websocket comme
+`permessage-deflate`, sous-protocole inconnu, trame SPDY invalide) ferme aussi la session : un
+port illisible est traité comme un port refusé.
+
+**Traçabilité.** Chaque décision écrit une ligne d'audit `policy_decision` (`policy: port`,
+`decision` parmi `allowed`, `denied`, `node_proxy_denied`, `closed_by_filter`, et `port` quand
+il est lisible, voir [Journal d'audit](#journal-daudit)), et incrémente
+`proxyauth_policy_decisions_total{cluster, policy="port", decision}` sur l'endpoint Prometheus,
+avec les mêmes valeurs de `decision`.
+
+### Verbes autorisés
+
+`verbs` limite les verbes Kubernetes qu'une règle `Path` ou `Crd` autorise :
+
+```yaml
+allowed_resources:
+  - Path:
+      path: /api/v1/namespaces/dev/pods/**
+      parametised: true
+      verbs: [get, list, watch]          # lecture seule
+  - Crd:
+      group: ""
+      version: v1
+      kind: ConfigMap
+      plural: configmaps
+      namespace: { enabled: true, rule_kind: { AllowedNamespaces: ["dev"] } }
+      verbs: ["*"]                        # tous les verbes, explicitement
+```
+
+Valeurs : `get`, `list`, `watch`, `create`, `update`, `patch`, `delete`, `deletecollection`, ou
+`*` seul. L'admission refuse une liste vide, une valeur inconnue et `*` accompagné d'autres
+verbes.
+
+**Le verbe est calculé comme le fait l'apiserver**, pas à partir de la seule méthode HTTP :
+
+| Requête | Verbe |
+| --- | --- |
+| `GET`/`HEAD` sur un objet nommé | `get` |
+| `GET`/`HEAD` sur une collection | `list`, ou `watch` si `watch` est vrai (toute valeur sauf `0`/`false`) ou sous `/api/v1/watch/…` |
+| `POST` sur une collection | `create` |
+| `PUT` / `PATCH` | `update` / `patch` |
+| `DELETE` sur un objet nommé / une collection | `delete` / `deletecollection` |
+| `exec`, `attach`, `portforward` (**toute méthode**) | `create` |
+| sous-ressource `proxy`, `status`, `log`, `scale`, `ephemeralcontainers`, `eviction`… | verbe de la méthode (`PATCH …/ephemeralcontainers` = `patch`) |
+| chemin non ressource (`/version`, `/healthz`, `/openapi/*`, découverte) | `get` pour un `GET` |
+
+<Callout type="warn">
+Depuis kubectl 1.30, `exec`, `attach` et `port-forward` passent par un **`GET` websocket**, que
+l'apiserver autorise avec le verbe `create`. Le proxy fait de même : une règle en lecture seule
+n'ouvre jamais un shell.
+</Callout>
+
+- **Restriction.** Dès qu'une règle qui concerne l'utilisateur déclare `verbs`, ses verbes sont
+  restreints (même définition que pour les ports : une règle `Path` restreint tout le cluster).
+  Une règle **sans** `verbs` ne lui accorde alors que `get`, `list` et `watch`.
+- **`create` implicite.** `allowed_ports` accorde `create` sur `…/portforward` (pas sur
+  `…/proxy`, qui reste soumis aux `verbs`).
+- **Refus.** Sous restriction, un verbe qu'aucune règle n'accepte donne
+  `403 verb "delete" is not allowed on "<chemin>"`. Un verbe indéterminable (méthode
+  inconnue, ancien préfixe `/proxy/`, méthode autre que `GET` sur un chemin non ressource) est
+  refusé. Les politiques de ports ne regardent que les règles qui ont accepté chemin **et** verbe.
+- **Règles `Crd`.** Leurs `verbs` couvrent toutes les sous-ressources : une `Crd` `Pod` avec
+  `patch` ou `update` autorise aussi `PATCH …/ephemeralcontainers`, donc `kubectl debug`, et
+  `status.warnings` le signale. Une règle qui couvre `exec`/`attach`/`portforward` sans `create`
+  est signalée aussi.
+- **`nodes/proxy`.** Un `GET` sur `nodes/{n}/proxy/exec/…` vaut `get` : sous restriction de
+  verbes, il est refusé comme sous restriction de ports, sauf règle `Path` explicite
+  `nodes/*/proxy`.
+- **API virtuelles.** Le verbe est vérifié sur la requête d'origine **et** sur la requête
+  réécrite : `delete` sur un `Project` virtuel n'ouvre pas un `delete` sur le namespace.
+- L'en-tête `X-HTTP-Method-Override` est retiré de la requête relayée ; le verbe est toujours
+  calculé sur la méthode réelle.
+- Sans aucune règle `verbs`, rien ne change.
+
+<Callout type="info">
+**v1.0.0.** `verbs` absent vaudra `[get, list, watch]` pour **tous** les utilisateurs. Déclarez
+dès maintenant les verbes d'écriture dont vos règles ont besoin.
+</Callout>
+
+### Exec et attach
+
+Une règle `Path` ou `Crd` (`kind: Pod` seulement) peut porter une politique `exec` qui limite ce
+que `pods/{nom}/exec` et `pods/{nom}/attach` permettent :
+
+```yaml
+allowed_resources:
+  - Path:
+      path: "/api/v1/namespaces/dev/pods/*/exec"
+      parametised: true
+      exec:
+        commands:
+          - ["ls", "**"]                 # ls avec n'importe quels arguments
+          - ["cat", "/var/log/app/*"]    # cat d'un fichier de ce dossier
+          - ["/app/bin/healthcheck"]     # exactement cette commande
+        containers: ["app"]              # absent : tous ; [] : aucun
+        stdin: false                     # défaut false
+        tty: false                       # défaut false (tty demande stdin)
+  - Path:
+      path: "/api/v1/namespaces/dev/pods/*/attach"
+      parametised: true
+      exec: { containers: ["app"], attach: true }
+```
+
+| Garanti | Non garanti |
+| --- | --- |
+| La commande (`argv` complet), le conteneur, stdin et tty sont vérifiés **avant** toute connexion au cluster, avec la lecture exacte de l'apiserver | Ce que fait une commande autorisée : un shell, un interpréteur ou `find -exec` autorisés avec un joker autorisent tout |
+| Un message sur un canal interdit (stdin sans `stdin`, resize sans `tty`) ferme la session sans atteindre le cluster | Le contenu de stdin, d'un tty ou de stdout : jamais filtré ni enregistré |
+| Le repli SPDY de kubectl reçoit le même `403` avec la raison | Les accès qui ne passent pas par le proxy (voir Kyverno ci-dessous) |
+
+- **Une règle accepte entièrement, ou pas.** Une requête passe si **une** règle accepte à la fois
+  sa commande, son conteneur et ses flux. Deux règles ne se combinent jamais : `ls` dans `app` et
+  `env` dans `sidecar` n'autorisent ni `env` dans `app`, ni `ls` dans `sidecar`.
+- **Restriction par utilisateur.** Dès qu'une règle qui vous concerne déclare `exec`, seules les
+  règles qui correspondent au chemin **et** déclarent `exec` accordent un exec ou un attach. Une
+  règle large (`…/pods/**`, `/api/v1/namespaces/**`, `Crd` `Pod`) n'en accorde plus aucun, même
+  dans un autre namespace. Une règle `Path` n'a pas de sujet : **une seule règle `Path` avec
+  `exec` restreint tous les utilisateurs du cluster.**
+- **Commandes.** Comparées élément par élément ; `*` couvre un élément ou une partie, `**` (en
+  dernier seulement) zéro élément ou plus. Pas de normalisation : `ls` et `/bin/ls` diffèrent.
+  Un motif qui commence par un shell ou un interpréteur (`sh`, `bash`, `python*`, `env`, `find`,
+  `xargs`…) **et** contient un joker est signalé dans `status.warnings` : il autorise tout. Un
+  interpréteur avec un argv exact (`["sh", "-c", "/app/bin/rotate-logs"]`) est une commande exacte.
+- **Conteneur.** Sous restriction de `containers`, la requête doit nommer son conteneur ; kubectl
+  le fait toujours (`-c`, ou le conteneur par défaut qu'il résout lui-même).
+- **Attach.** Il faut une règle qui couvre `…/pods/*/attach`, déclare `exec` **et** a
+  `attach: true` (`commands` y est ignoré). Une règle `…/pods/*/exec` seule n'accorde pas l'attach.
+- **Protocoles.** Sous restriction, seuls `v5.channel.k8s.io` et `v4.channel.k8s.io` (binaires,
+  sans extension websocket) sont acceptés : le proxy doit pouvoir lire le canal de chaque message.
+- **Requêtes ambiguës.** Un paramètre `container`, `stdin`, `stdout`, `stderr` ou `tty` répété, ou un
+  `;` dans la query, reçoit un `400` : l'apiserver garderait la première valeur, le proxy refuse.
+  Une valeur vide (`stdin=`) vaut « vrai », comme pour l'apiserver.
+- **`nodes/proxy`.** Sous restriction d'exec, `nodes/{n}/proxy/**` (donc l'exec du kubelet) est
+  refusé, comme sous restriction de ports ou de verbes, sauf règle `Path` explicite `nodes/*/proxy`.
+
+**`kubectl cp`.** Copier **vers** le pod lance `tar -xmf -` avec stdin : il faut `stdin: true` et
+le motif `["tar", "**"]` (plus `["test", "**"]`, que kubectl lance avant). Copier **depuis** le pod
+lance `tar cf - <chemin>` sans stdin : `["tar", "cf", "-", "**"]` suffit. Piège : avec `--retries`,
+kubectl lance `sh -c "tar cf - … | tail -c+N"`, un shell, donc refusé sauf motif interpréteur.
+
+**Audit.** Chaque ligne d'un exec porte l'objet `exec` (voir [Journal d'audit](#journal-daudit)).
+Une décision écrit `policy_decision` (`policy: exec`, `allowed`, ou `denied` avec `reason` parmi
+`command`, `container`, `stdin`, `tty`, `attach`, `no_rule`), et `session_closed` porte les octets
+de chaque canal (`channel_bytes`) et, si le filtre a coupé, `channel`.
+
+<Callout type="info">
+**Complément côté cluster.** La politique du proxy ne voit que ce qui passe par lui. Une
+politique d'admission Kyverno sur `PodExecOptions` couvre les accès directs à l'apiserver.
+**v1.0.0** : `exec` absent vaudra « exec interdit sauf règle `exec` explicite ».
+</Callout>
+
+## 5. Quotas
+
+```yaml
+security_config:
+  enabled: true
+  rate_limiting:
+    enabled: true
+    max_requests_per_minute: 60
+  per_user_group_rate_limiting:
+    - group: power-users
+      max_requests_per_minute: 600
+    - group: admins
+      max_requests_per_minute: 0 # 0 = illimité
+```
+
+Le décompte se fait par utilisateur une fois celui-ci résolu (sinon par adresse), pour qu'un
+NAT partagé ne fasse pas partager un budget. Une entrée de groupe l'emporte sur le réglage
+global, et quand un utilisateur appartient à plusieurs groupes configurés, **le plus permissif
+gagne** : appartenir à un groupe de plus ne doit jamais restreindre.
+
+## En-têtes transmis
+
+Le proxy est seul maître de trois en-têtes, systématiquement retirés de la requête cliente
+puis reconstruits :
+
+| En-tête               | Contenu                                                    |
+| --------------------- | ---------------------------------------------------------- |
+| `x-forwarded-for`     | la chaîne reçue, à laquelle l'adresse du pair est ajoutée   |
+| `x-forwarded-user`    | le nom de l'utilisateur authentifié                         |
+| `x-forwarded-groups`  | ses groupes, séparés par des virgules                       |
+
+<Callout type="warn">
+Sans ce retrait, n'importe quel client pourrait envoyer `x-forwarded-user: cluster-admin` et
+usurper une identité auprès de tout ce qui se trouve derrière le proxy.
+</Callout>
+
+Sont également **retirés de la requête cliente** (sur le chemin standard comme *upgrade*) tous les
+en-têtes d'identité que l'apiserver interprète directement : `Impersonate-*` (impersonation native
+Kubernetes) et `X-Remote-*` (noms conventionnels de l'authentification *requestheader*). Sans quoi,
+si l'apiserver est câblé sur ces noms, un client pourrait envoyer `X-Remote-User: system:admin` ou
+`Impersonate-User: …` et usurper une identité à travers le certificat front-proxy de confiance. Le
+header `Authorization` du client, lui, **reste transmis** : c'est le seul credential amont en mode
+`validate_against: Kubernetes` sans mTLS.
+
+## Journal d'audit
+
+Chaque décision de sécurité écrit **une ligne JSON** sur stdout, dans un schéma versionné
+(`audit_schema: 1`, RFC 0008). Ces lignes sortent **toujours** : `RUST_LOG` ne les filtre pas,
+et elles restent en JSON même avec `LOG_FORMAT=text` (elles se mêlent alors aux logs texte ; le
+collecteur les reconnaît au champ `"audit_schema"`). Il n'existe aucun réglage pour les couper :
+le tri se fait au collecteur. L'écriture est synchrone : si stdout bloque, la requête attend
+plutôt que de passer sans trace.
+
+| `event` | Quand |
+| --- | --- |
+| `request` | une requête proxifiée reçoit sa réponse |
+| `policy_decision` | une décision de ports (`policy: port`) ou de verbes (`policy: verb`) |
+| `auth_login` | `/auth/login` : connexion à un cluster démarrée ou refusée |
+| `auth_callback` | `/auth/callback` : retour de l'IdP du cluster |
+| `oauth_authorize` | `/oauth/authorize` du serveur OAuth médié |
+| `oauth_callback` | retour de l'IdP vers le serveur OAuth médié |
+| `oauth_token_issued`, `oauth_token_denied` | `/oauth/token` : jetons remis ou refusés |
+| `client_banned` | un client est banni après trop d'échecs (`failures`, `ban_seconds`, `0` : permanent) |
+| `session_closed` | fin d'un tunnel (exec, attach, port-forward, proxy) : `duration_ms`, `bytes_in` (du client), `bytes_out` (vers le client), `close_reason` (`client`, `upstream`, `filter`, `error`) |
+
+Champs communs à chaque ligne :
+
+| Champ | Contenu |
+| --- | --- |
+| `audit_schema` | `1` |
+| `event`, `outcome` | l'évènement, et `allowed`, `denied` ou `error` |
+| `request_id` | l'`x-request-id` renvoyé au client, généré par le proxy (jamais celui que le client envoie) |
+| `trace_id` | la trace OpenTelemetry de la requête ; `null` quand `RUST_LOG` coupe les spans `info` (il n'y a alors pas de trace) |
+| `client_ip` | l'adresse du client, calculée comme pour les bannissements (`TRUSTED_PROXY_COUNT`) |
+| `user`, `groups` | l'utilisateur résolu (`-` s'il ne l'est pas) et ses groupes (tableau) |
+| `ns`, `cluster` | le cluster concerné |
+
+`request` et `policy_decision` ajoutent `http_method`, `k8s_verb` (le verbe Kubernetes, calculé
+comme l'apiserver), `path` (sans la query string), `status` et `latency_ms`. Pour une API
+virtuelle, `upstream_path` et `upstream_k8s_verb` décrivent la requête réécrite. Quand
+l'apiserver refuse un upgrade (exec, attach, port-forward), `upstream_reason` reprend le
+`message` de son `Status` (256 caractères au plus).
+
+Pour un `exec` ou un `attach`, chaque ligne de la requête (`request`, `policy_decision`,
+`session_closed`) porte un objet `exec` : `argv` (la commande, élément par élément), `container`,
+`stdin` et `tty`, tels que l'apiserver les lit dans la query. La commande est écrite **en entier**,
+y compris un mot de passe passé en argument (`mysql -pSECRET`). Avec
+`security_config.mask_exec_secrets: true`, ce qui ressemble à un secret est remplacé par `***`
+(`-pSECRET`, `--password=SECRET`, `--token=SECRET`, et l'élément qui suit `-p`, `--password` ou
+`--token`) : une heuristique, pas une garantie, désactivée par défaut.
+
+Une ligne ne contient **jamais** l'en-tête `Authorization`, un jeton (d'accès, de
+rafraîchissement, d'identité), un code d'autorisation, un `client_secret`, une query string ni
+un corps : ses champs sont une liste fermée.
+
+`proxyauth_audit_events_total{event, outcome}` compte les lignes écrites, et
+`proxyauth_session_duration_seconds{kind}` mesure la durée des tunnels (`kind` parmi `exec`,
+`attach`, `portforward`, `proxy`, `other`). Exemple de règle
+d'alerte : `increase(proxyauth_audit_events_total{event="client_banned"}[5m]) > 10`.
+
+<Callout type="warn">
+Changement de format en 0.2.0 : l'ancien évènement `proxied request` devient
+`event: "request"`, `response_status` devient `status`, et les décisions de ports et de verbes
+deviennent `policy_decision`. `verb` reste un alias de `http_method` jusqu'en v1.0.0.
+</Callout>
+
+## Connexions upgrade (exec, attach, port-forward)
+
+Seules les connexions **websocket** sont tunnelées. Un `Upgrade: SPDY/3.1` reçoit un `400`
+explicite sans que le cluster soit contacté : le serveur HTTP du proxy ne transmet pas au
+gestionnaire les octets qui suivent une poignée de main SPDY, la session mourrait juste après
+son `101`. Les versions récentes de `kubectl` utilisent la websocket par défaut pour `exec`,
+`attach` et `port-forward`.
+
+Quand l'apiserver refuse la websocket (un `exec` sur un pod `Pending`, par exemple), kubectl
+retente en SPDY et n'affiche que le `400` du proxy : la vraie raison est perdue pour
+l'utilisateur. Le message du `400` le dit (`kubectl -v=6` montre la raison amont), et la ligne
+d'audit `request` de la tentative websocket porte cette raison dans `upstream_reason`.
+
+Le proxy ne passe en mode tunnel qu'après un `101 Switching Protocols` de l'apiserver, et
+seulement pour les chemins qui en ont besoin (`exec`, `attach`, `portforward`, `proxy`, `watch`).
+Toute autre réponse est renvoyée telle quelle puis la connexion est fermée, sans transmettre au
+cluster les octets envoyés par le client après sa requête : sinon une seconde requête cachée
+derrière la première échapperait à l'authentification, à la liste des ressources autorisées et
+au filtrage des en-têtes d'identité.
+
+## mTLS vers le cluster cible
+
+```yaml
+cert:
+  Secret: { name: cluster-ca, key: ca.crt }
+client_cert:
+  cert:
+    Secret: { name: proxy-client-cert, key: tls.crt }
+  key:
+    Secret: { name: proxy-client-cert, key: tls.key }
+```
+
+Le certificat client est présenté à l'apiserver sur le chemin standard comme sur les
+connexions *upgrade* (`exec`, `attach`, `port-forward`).
+
+Un `Secret`/`ConfigMap` de certificat peut cibler un `namespace` explicite. Par défaut c'est
+**refusé** (sécurisé par défaut) : la lecture utilise le ServiceAccount cluster-wide du controller
+et les octets résolus finissent dans le `certificate_authority_data` du kubeconfig rendu, donc
+autoriser un `namespace` arbitraire ferait d'un tenant capable de créer un `ProxyKubeApi` un oracle
+de lecture de Secret cross-namespace. Chaque lecture est donc épinglée au namespace du CR. Sur un
+cluster mono-tenant où tous les auteurs de CR sont déjà de confiance, positionnez
+`PROXYAUTH_ALLOW_CROSS_NS_CERT=true` pour réautoriser le champ `namespace`.
+
+## Cible upstream (SSRF)
+
+La cible d'un cluster est définie par un **administrateur** dans le `ProxyKubeApi` (`Service`), pas
+par le client. Un `KubernetesService` résout une Service Kubernetes réelle ; un `ExternalService`
+prend une URL telle quelle (préférez `https` : en mode `validate_against: Kubernetes` le `Bearer`
+du client est transmis à cette URL, donc `http` l'exposerait en clair). Deux garde-fous limitent
+un détournement :
+
+- le client HTTP amont **ne suit aucune redirection** — un apiserver ne redirige pas les appels
+  API proxifiés, et suivre un `30x` laisserait une cible autorisée renvoyer la requête (et le jeton)
+  vers un hôte non prévu (ex. l'endpoint metadata) ;
+- la NetworkPolicy du chart exclut par défaut `169.254.0.0/16` (endpoint metadata cloud) et
+  `100.64.0.0/10` de l'egress externe.
+
+Comme la cible est administrée via CRD, restreignez qui peut créer/éditer des `ProxyKubeApi`
+(RBAC) sur un cluster multi-tenant.
+
+## Variables d'environnement de sécurité
+
+| Variable                       | Défaut    | Effet                                                              |
+| ------------------------------ | --------- | ----------------------------------------------------------------- |
+| `TRUSTED_PROXY_COUNT`          | `0`       | Nombre de proxies de confiance ; identité de ban/quota lue ce nombre de sauts en arrière dans `X-Forwarded-For` |
+| `OIDC_AUDIENCE_VALIDATION`     | `enforce` | `enforce` / `warn` / `off` — contrôle d'audience des access-tokens |
+| `PROXYAUTH_ALLOW_CROSS_NS_CERT`| `false`   | `true` réautorise un `namespace` de cert autre que celui du `ProxyKubeApi` (mono-tenant seulement) |
+| `PROXYAUTH_ALLOW_CROSS_NS_OIDC`| `false`   | `true` réautorise un `namespace` de Secret `config_from` autre que celui du `ProxyKubeApi` (mono-tenant seulement) — voir [Configuration OIDC dans un Secret externe](#configuration-oidc-dans-un-secret-externe-config_from) |
+| `THROTTLE_FAIL_CLOSED`         | `false`   | `true` refuse la requête quand Redis est indisponible (au lieu de laisser passer) — préserve bans/quotas au prix de la disponibilité |
+| `UNSCOPED_MAX_FAILED_LOGINS`   | *(désactivé)* | Nombre d'échecs d'authentification tolérés sur `/api/v1/clusters` avant bannissement. Vide ou `0` = pas de fail2login sur cette surface |
+| `UNSCOPED_BAN_DURATION_SECONDS`| `300`     | Durée du bannissement ci-dessus |
+| `UNSCOPED_RATE_LIMIT_PER_MINUTE`| *(désactivé)* | Quota par minute et par appelant sur `/api/v1/clusters`. Vide ou `0` = pas de quota |
+| `CORS_ALLOWED_ORIGINS`         | *(vide)*  | Liste d'origines autorisées (séparées par des virgules) ; vide = aucune origine tierce (même origine uniquement, défaut depuis la 0.2) ; `*` seul = toutes origines, à activer explicitement. Un `*` mêlé à d'autres origines est ignoré. La chart renseigne l'origine de l'Ingress |
+
+<Callout type="info">
+L'audience OIDC (`audience`) et l'acceptation de `azp` (`accept_authorized_party`) ne sont **pas**
+des variables d'environnement mais des champs par-cluster du `ProxyKubeApi` (voir
+[Validation d'audience](#validation-daudience-oidc)).
+</Callout>
+
+<Callout type="warn">
+Les trois knobs `UNSCOPED_*` sont **désactivés par défaut**, et c'est délibéré. `/api/v1/clusters`
+n'est rattaché à aucun cluster : il n'a donc pas de `SecurityConfiguration` pour porter une
+politique, et son budget est forcément global. Or, derrière un ingress dont
+`TRUSTED_PROXY_COUNT` n'a pas été configuré, tous les appelants se réduisent à une seule adresse —
+un bannissement actif par défaut laisserait alors un seul client fautif verrouiller tout le monde.
+Un opérateur qui a configuré la profondeur de proxy de confiance (ou qui termine TLS directement)
+peut les activer et obtenir un vrai quota ; sans cela, la situation reste celle d'avant.
+</Callout>
+
+## Limites de mémoire
+
+| Variable                        | Défaut | Effet                                                        |
+| ------------------------------- | ------ | ------------------------------------------------------------ |
+| `PROXY_DEBUG_BODY_MAX_BYTES`    | 10 MiB | Au-delà, les corps ne sont plus mis en tampon pour le log debug |
+| `PROXY_STREAM_CHANNEL_CAPACITY` | 32     | Chunks en vol entre le client et l'amont                     |
+| `PROXY_VIRTUAL_MAX_BODY_BYTES`  | 32 MiB | Plafond d'une réponse d'API virtuelle traduite               |
+
+## Risques acceptés / différés
+
+Décisions produit tracées pour les points de durcissement volontairement laissés en l'état.
+Chacun est un choix conscient, avec sa mitigation ; réévaluez-les selon votre modèle de menace.
+
+| Risque | Décision | Raison & mitigation |
+| ------ | -------- | ------------------- |
+| **Usurpation d'identité de ban/quota via `X-Forwarded-For` quand `TRUSTED_PROXY_COUNT > 0`** | **Accepté** | Dès qu'on fait confiance à `N` sauts de `X-Forwarded-For`, un client qui atteint le service **sans** traverser ces `N` proxies de confiance (topologie réseau incorrecte) peut forger l'en-tête et usurper — ou esquiver — l'identité de bannissement/quota. Mitigation : ne relever `TRUSTED_PROXY_COUNT` que si le réseau **garantit** que tout le trafic passe par exactement `N` proxies de confiance (NetworkPolicy/ingress interdisant l'accès direct au pod). Défaut `0` = aucune confiance accordée à `X-Forwarded-For`, on prend le pair TCP. |
+| **Allow-list vide = fail-open (tout est autorisé)** | **Accepté (défaut)** | Le proxy est d'abord une passerelle d'authentification ; l'autorisation fine par ressource est **opt-in** pour ne pas casser les déploiements existants au premier upgrade. Mitigation : définir au moins une règle dans `allowed_resources` fait basculer le cluster en default-deny (toute requête doit alors matcher une règle, sinon `403`). |
+| **NetworkPolicy désactivée par défaut dans le chart** | **Accepté** | Toutes les installations ne disposent pas d'un CNI appliquant les NetworkPolicy, et une policy d'egress par défaut casserait le trafic sur ces clusters. Mitigation : activer `networkPolicy.enabled` dans les values du chart — les exclusions egress (endpoint metadata `169.254.0.0/16`, CGNAT `100.64.0.0/10`) sont alors câblées automatiquement (cf. [Cible upstream (SSRF)](#cible-upstream-ssrf)). |
+| **`state` OIDC non lié à un cookie de session** | **Fermé — ne sera pas implémenté** | L'application est volontairement **sans cookie de session** (authentification par `Bearer`/token). Le `state` est **à usage unique** (supprimé de Redis après consommation) et le flux utilise **PKCE** ; le mainteneur juge cette combinaison suffisante. Résidu accepté : une fenêtre de login-CSRF résiduelle minime, sans élévation de privilège possible (le jeton obtenu reste celui de l'utilisateur qui termine le flux). |
+| **Authentification par certificat client (`admin.conf` kubeadm)** | **Fermé — ne sera pas implémenté** | Le proxy termine le TLS et n'a pas la clé privée de l'appelant : transmettre l'identité en amont exigerait que le credential du proxy se substitue à celui de l'utilisateur (impersonation, front-proxy ou `SubjectAccessReview` + credential du proxy). Le proxy ne doit jamais pouvoir fabriquer ni endosser une identité. Voir la [roadmap](/docs/roadmap), section « Hors périmètre ». |
+| **[RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) (`rsa` crate, Marvin Attack)** | **Accepté (aucun correctif disponible)** | Dépendance transitive via `openidconnect`, sans version corrigée à ce jour. Le canal de fuite temporelle touche les opérations **clé privée** (déchiffrement/signature) ; `openidconnect` ne l'utilise ici que pour **vérifier** la signature des ID tokens émis par l'IdP (opération clé publique), et l'application ne réalise aucune signature/déchiffrement RSA côté serveur. Ignoré explicitement dans `deny.toml` (`task rust:audit`, `back-dep-audit.yaml`) et `dependency-review` (`allow-ghsas`) ; à ré-auditer si un usage de clé privée RSA est introduit. |

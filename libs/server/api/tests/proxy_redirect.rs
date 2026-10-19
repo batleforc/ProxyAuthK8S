@@ -2,12 +2,18 @@
 //!
 //! The upstream Kubernetes API is a `wiremock` server; Redis is real (see
 //! `harness`). Upgrade (exec/attach) is not covered here because it needs a raw
-//! HTTP/1.1 101 exchange on a bound socket — that lives in the envtest tier.
+//! HTTP/1.1 101 exchange on a bound socket.
+//!
+//! That exchange has no integration coverage anywhere — the envtest tier does
+//! not touch it either, despite what this comment used to claim. What is covered
+//! are the two functions on that path which encode a security contract rather
+//! than an I/O shape: the request-smuggling guard and the request serializer,
+//! unit-tested in `kube_redirect/upgrade.rs` itself.
 
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::redirect;
+use axum::http::StatusCode;
+use harness::test;
 use harness::{
     delete_proxy, proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
     unreachable_state,
@@ -17,17 +23,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 macro_rules! proxy_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(redirect::get_redirect)
-                    .service(redirect::post_redirect)
-                    .service(redirect::put_redirect)
-                    .service(redirect::patch_redirect)
-                    .service(redirect::delete_redirect),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -41,7 +37,7 @@ macro_rules! redis_or_skip {
     };
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn forwards_a_request_to_the_upstream_cluster() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -78,7 +74,7 @@ async fn forwards_a_request_to_the_upstream_cluster() {
 
 /// Regression for the `.replace()` rewrite: only the routing prefix may be
 /// stripped, never an identical substring further down the path.
-#[actix_web::test]
+#[tokio::test]
 async fn strips_only_the_routing_prefix() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -107,7 +103,7 @@ async fn strips_only_the_routing_prefix() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn forwards_query_string_and_headers() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -138,7 +134,7 @@ async fn forwards_query_string_and_headers() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn streams_a_watch_response_without_compressing_it() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -163,7 +159,7 @@ async fn streams_a_watch_response_without_compressing_it() {
     let resp = test::call_service(&app, req).await;
 
     assert_eq!(resp.status(), StatusCode::OK);
-    // `identity` is what keeps actix' Compress middleware from buffering the stream.
+    // `identity` is what keeps the compression layer from buffering the stream.
     assert_eq!(
         resp.headers()
             .get("content-encoding")
@@ -175,7 +171,7 @@ async fn streams_a_watch_response_without_compressing_it() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn propagates_the_upstream_status_code() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -203,7 +199,7 @@ async fn propagates_the_upstream_status_code() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn forwards_a_request_body() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -232,7 +228,7 @@ async fn forwards_a_request_body() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn unknown_cluster_returns_404() {
     let _pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -247,7 +243,7 @@ async fn unknown_cluster_returns_404() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn disabled_cluster_returns_404() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -268,7 +264,7 @@ async fn disabled_cluster_returns_404() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn missing_token_returns_401_when_validation_is_required() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -297,7 +293,7 @@ async fn missing_token_returns_401_when_validation_is_required() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn invalid_token_returns_401_when_validation_is_required() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -320,7 +316,7 @@ async fn invalid_token_returns_401_when_validation_is_required() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn redis_outage_returns_503() {
     let upstream = MockServer::start().await;
     let (ns, cluster) = unique_cluster();

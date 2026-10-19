@@ -15,7 +15,13 @@ interface TokenKubeconfig {
   token: string;
 }
 
-function renderTokenKubeconfig({ clusterName, userName, contextName, server, token }: TokenKubeconfig) {
+function renderTokenKubeconfig({
+  clusterName,
+  userName,
+  contextName,
+  server,
+  token,
+}: TokenKubeconfig) {
   return `apiVersion: v1
 kind: Config
 clusters:
@@ -49,7 +55,9 @@ export function generateCallbackKubeconfig(data: ClusterCallbackData): string {
 }
 
 /** Kubeconfig delegating token retrieval to the `kubectl proxyauth` exec plugin. */
-export function generateCallbackPluginKubeconfig(data: ClusterCallbackData): string {
+export function generateCallbackPluginKubeconfig(
+  data: ClusterCallbackData,
+): string {
   if (!data.retour?.access_token) return '';
 
   const clusterName = `${data.ns}-${data.cluster}`;
@@ -89,24 +97,28 @@ current-context: ${contextName}`;
 }
 
 /** Shell commands configuring the `kubectl proxyauth` plugin for this cluster. */
-export function generateCallbackPluginCommands(data: ClusterCallbackData): string {
+export function generateCallbackPluginCommands(
+  data: ClusterCallbackData,
+  t: (key: string) => string,
+): string {
   if (!data.retour?.access_token) return '';
 
   const clusterUrl = new URL(data.retour.cluster_url).origin;
+  const c = (n: number) => t(`cli.data.callback.c${n}`);
 
-  return `# 1. S'authentifier avec votre token actuel
+  return `${c(1)}
 kubectl proxyauth login --server-url "${clusterUrl}" --token "${data.retour.access_token}"
 
-# 2. Se connecter au cluster spécifique
+${c(2)}
 kubectl proxyauth -n "${data.ns}" login "${data.cluster}"
-# Ou via votre token
+${c(3)}
 kubectl proxyauth -n "${data.ns}" login "${data.cluster}" --token "${data.retour.id_token}"
 
-# 3. Utiliser kubectl normalement
+${c(4)}
 kubectl get pods
 kubectl get services
 
-# 4. Optionnel: Changer le contexte kubectl vers ce cluster
+${c(5)}
 kubectl proxyauth ctx --set "${data.ns}-${data.cluster}-context"`;
 }
 

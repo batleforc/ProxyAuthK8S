@@ -1,0 +1,18 @@
+[package]
+name = "integration"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Black-box integration suite against the k3d bench (RFC 0009)"
+
+# No path dependency on the workspace, on purpose: a test can only reach the
+# product through what is deployed (RFC 0009 §5.3, checked by it:matrix).
+[dependencies]
+reqwest = { workspace = true, features = ["form"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+tempfile = "3"
+tokio = { workspace = true, features = ["process", "io-util", "time"] }
+url = "2"

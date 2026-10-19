@@ -2,31 +2,26 @@
 //!
 //! The wiremock server is a vanilla cluster: it only knows about Namespaces.
 //! Everything a client sees as a Project is synthesised by the proxy.
+//!
+//! This binary covers discovery, the mapped CRUD verbs, watch translation and
+//! error passthrough. The filtered `LIST` is split across
+//! `virtual_api_list_fallback.rs` and `virtual_api_rules_review.rs`; the
+//! allow-list interaction is `virtual_api_security.rs`.
 
 mod harness;
+mod virtual_api_support;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::redirect;
-use crd::virtual_api::VirtualApiKind;
-use harness::{
-    delete_proxy, proxy_fixture, security_config, seed_proxy, test_state, try_redis_pool,
-    unique_cluster, with_virtual_api,
-};
+use axum::http::StatusCode;
+use harness::test;
+use harness::{delete_proxy, test_state, try_redis_pool, unique_cluster};
 use serde_json::{Value, json};
+use virtual_api_support::seed_openshift_proxy;
 use wiremock::matchers::{body_json, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 macro_rules! proxy_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(redirect::get_redirect)
-                    .service(redirect::post_redirect)
-                    .service(redirect::delete_redirect),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -39,19 +34,7 @@ macro_rules! redis_or_skip {
     };
 }
 
-/// A proxy fixture with the OpenShift Project virtual API turned on.
-async fn seed_openshift_proxy(
-    pool: &deadpool_redis::Pool,
-    ns: &str,
-    cluster: &str,
-    upstream_url: &str,
-) {
-    let mut proxy = proxy_fixture(ns, cluster, upstream_url);
-    with_virtual_api(&mut proxy, VirtualApiKind::OpenShiftProject);
-    seed_proxy(pool, &proxy).await;
-}
-
-#[actix_web::test]
+#[tokio::test]
 async fn serves_group_discovery_without_touching_the_cluster() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -87,7 +70,7 @@ async fn serves_group_discovery_without_touching_the_cluster() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn serves_version_discovery_without_touching_the_cluster() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -112,7 +95,7 @@ async fn serves_version_discovery_without_touching_the_cluster() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn merges_the_virtual_group_into_the_cluster_group_list() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -151,7 +134,57 @@ async fn merges_the_virtual_group_into_the_cluster_group_list() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+/// kubectl asks for aggregated discovery first and reads its format from the
+/// media type: the merge must keep it, or kubectl reads an empty group list.
+#[tokio::test]
+async fn merges_the_virtual_group_into_aggregated_discovery() {
+    const AGGREGATED: &str = "application/json;g=apidiscovery.k8s.io;v=v2;as=APIGroupDiscoveryList";
+    let pool = redis_or_skip!();
+    let upstream = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/apis"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", AGGREGATED)
+                .set_body_raw(
+                    json!({
+                        "kind": "APIGroupDiscoveryList",
+                        "apiVersion": "apidiscovery.k8s.io/v2",
+                        "items": [{ "metadata": { "name": "apps" }, "versions": [] }],
+                    })
+                    .to_string(),
+                    AGGREGATED,
+                ),
+        )
+        .mount(&upstream)
+        .await;
+
+    let (ns, cluster) = unique_cluster();
+    seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
+
+    let app = proxy_app!(test_state(upstream.uri()));
+    let req = test::TestRequest::get()
+        .uri(&format!("/clusters/{ns}/{cluster}/apis"))
+        .insert_header(("accept", AGGREGATED))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.headers()["content-type"], AGGREGATED);
+    let body: Value = test::read_body_json(resp).await;
+    let names: Vec<&str> = body["items"]
+        .as_array()
+        .expect("items should be a list")
+        .iter()
+        .filter_map(|group| group["metadata"]["name"].as_str())
+        .collect();
+    assert_eq!(names, vec!["apps", "project.openshift.io"]);
+
+    delete_proxy(&pool, &ns, &cluster).await;
+}
+
+#[tokio::test]
 async fn lists_namespaces_as_projects() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -203,7 +236,7 @@ async fn lists_namespaces_as_projects() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn reads_a_single_namespace_as_a_project() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -241,7 +274,7 @@ async fn reads_a_single_namespace_as_a_project() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn a_project_request_creates_a_namespace() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -298,7 +331,7 @@ async fn a_project_request_creates_a_namespace() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn deleting_a_project_deletes_the_namespace() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -333,7 +366,7 @@ async fn deleting_a_project_deletes_the_namespace() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn translates_each_event_of_a_watch_stream() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -383,7 +416,7 @@ async fn translates_each_event_of_a_watch_stream() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn an_upstream_error_reaches_the_client_untranslated() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -417,115 +450,6 @@ async fn an_upstream_error_reaches_the_client_untranslated() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["kind"], "Status");
     assert_eq!(body["reason"], "Forbidden");
-
-    delete_proxy(&pool, &ns, &cluster).await;
-}
-
-#[actix_web::test]
-async fn a_cluster_without_virtual_apis_proxies_the_path_verbatim() {
-    let pool = redis_or_skip!();
-    let upstream = MockServer::start().await;
-
-    // No mapper enabled: the path goes upstream as typed and 404s there.
-    Mock::given(method("GET"))
-        .and(path("/apis/project.openshift.io/v1/projects"))
-        .respond_with(ResponseTemplate::new(404).set_body_string("no such api"))
-        .mount(&upstream)
-        .await;
-
-    let (ns, cluster) = unique_cluster();
-    seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream.uri())).await;
-
-    let app = proxy_app!(test_state(upstream.uri()));
-    let req = test::TestRequest::get()
-        .uri(&format!(
-            "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
-        ))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-    assert_eq!(test::read_body(resp).await, "no such api");
-
-    delete_proxy(&pool, &ns, &cluster).await;
-}
-
-/// A virtual path must not become a way around the resource allow-list.
-#[actix_web::test]
-async fn the_allow_list_also_covers_the_mapped_upstream_path() {
-    let pool = redis_or_skip!();
-    let upstream = MockServer::start().await;
-
-    Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(200).set_body_string("should not be reached"))
-        .mount(&upstream)
-        .await;
-
-    let (ns, cluster) = unique_cluster();
-    let mut proxy = proxy_fixture(&ns, &cluster, &upstream.uri());
-    with_virtual_api(&mut proxy, VirtualApiKind::OpenShiftProject);
-    // The virtual path is allowed, the namespace collection it maps to is not.
-    proxy.spec.security_config = Some(security_config(vec![(
-        "/apis/project.openshift.io/v1/projects",
-        false,
-    )]));
-    seed_proxy(&pool, &proxy).await;
-
-    let app = proxy_app!(test_state(upstream.uri()));
-    let req = test::TestRequest::get()
-        .uri(&format!(
-            "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
-        ))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-
-    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
-    assert!(
-        upstream
-            .received_requests()
-            .await
-            .unwrap_or_default()
-            .is_empty()
-    );
-
-    delete_proxy(&pool, &ns, &cluster).await;
-}
-
-#[actix_web::test]
-async fn an_allow_list_covering_both_paths_lets_the_request_through() {
-    let pool = redis_or_skip!();
-    let upstream = MockServer::start().await;
-
-    Mock::given(method("GET"))
-        .and(path("/api/v1/namespaces"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "kind": "NamespaceList",
-            "apiVersion": "v1",
-            "items": [],
-        })))
-        .mount(&upstream)
-        .await;
-
-    let (ns, cluster) = unique_cluster();
-    let mut proxy = proxy_fixture(&ns, &cluster, &upstream.uri());
-    with_virtual_api(&mut proxy, VirtualApiKind::OpenShiftProject);
-    proxy.spec.security_config = Some(security_config(vec![
-        ("/apis/project.openshift.io/v1/projects", false),
-        ("/api/v1/namespaces", false),
-    ]));
-    seed_proxy(&pool, &proxy).await;
-
-    let app = proxy_app!(test_state(upstream.uri()));
-    let req = test::TestRequest::get()
-        .uri(&format!(
-            "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
-        ))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-
-    assert_eq!(resp.status(), StatusCode::OK);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["kind"], "ProjectList");
 
     delete_proxy(&pool, &ns, &cluster).await;
 }

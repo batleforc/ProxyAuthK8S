@@ -77,7 +77,7 @@ pub fn path_has_no_traversal(path: &str) -> bool {
 }
 
 /// Match a single segment against a pattern segment that may contain `*`.
-fn segment_matches(pattern: &str, segment: &str) -> bool {
+pub(crate) fn segment_matches(pattern: &str, segment: &str) -> bool {
     if !pattern.contains('*') {
         return pattern == segment;
     }

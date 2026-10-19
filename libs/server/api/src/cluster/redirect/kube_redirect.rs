@@ -1,15 +1,25 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, dev::PeerAddr, http, web};
-use common::State;
+use std::sync::Arc;
+
+use axum::{
+    extract::{OriginalUri, Request},
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use crd::ProxyKubeApi;
 use crd::security::PortPolicy;
 use tracing::{debug, error, info, instrument, warn};
 
-use crate::cluster::redirect::audit::AuditContext;
-use crate::cluster::redirect::status_response::{forbidden, too_many_requests, unauthorized};
+use crate::cluster::redirect::audit::{AuditContext, PortDecision};
+use crate::cluster::redirect::status_response::{
+    bad_request, forbidden, too_many_requests, unauthorized,
+};
 use crate::cluster::redirect::throttle;
-use crate::helper::{extract_authorization_header, extract_ns_cluster};
+use crate::helper::{extract_authorization_header, forwarded_for, peer_ip};
 use crate::model::user::User;
 
+mod context;
+mod exec;
+mod list_fallback;
 mod port_forward;
 mod spdy_dictionary;
 mod standard;
@@ -17,76 +27,102 @@ mod tls;
 mod upgrade;
 mod upstream;
 mod virtual_redirect;
+mod websocket;
 
+use context::RedirectContext;
+// Public for the `fuzz_port_target` fuzz target.
+pub use exec::{ExecChannelFilter, parse_exec_query};
+pub use port_forward::{PortTarget, port_target};
 use standard::standard_redirect;
 use upgrade::{is_upgrade_request, upgrade_redirect};
 use virtual_api::MapperRegistry;
 use virtual_redirect::virtual_redirect as serve_virtual_api;
 
-/// What every redirect worker needs about the request being proxied, once it
-/// has been authenticated and authorized by [`redirect`].
-struct RedirectContext {
-    req: HttpRequest,
-    data: web::Data<State>,
-    payload: web::Payload,
-    method: http::Method,
-    peer_addr: Option<PeerAddr>,
-    proxy: ProxyKubeApi,
-    user: Option<User>,
-    audit: AuditContext,
-}
-
 /// Answer with `response`, recording the audit event for it first.
 macro_rules! audited {
     ($audit:expr_2021, $response:expr_2021) => {{
         let response = $response;
-        $audit.emit(response.status().as_u16());
+        $audit.emit_refusal(response.status().as_u16());
         return response;
     }};
 }
 
-#[instrument(name = "main_redirect",fields(http.method= ?method, http.response.status_code) ,skip(req, data, payload))]
+/// The proxy route: `ns` and `cluster` come from the router, the upstream
+/// path from the raw URI (never percent-decoded, see RFC 0007 T3).
+#[instrument(name = "main_redirect", fields(http.method = ?req.method(), http.response.status_code), skip(req, data))]
 pub async fn redirect(
-    req: HttpRequest,
-    data: web::Data<State>,
-    payload: web::Payload,
-    method: http::Method,
-    peer_addr: Option<PeerAddr>,
-) -> impl Responder {
-    let (ns, cluster) = if let Some(parts) = extract_ns_cluster(&req) {
-        parts
-    } else {
-        error!(path = %req.path(), "missing ns/cluster path parameters");
-        return HttpResponse::NotFound().finish();
-    };
+    data: Arc<common::State>,
+    ns: String,
+    cluster: String,
+    req: Request,
+) -> Response {
+    let (mut req, payload) = req.into_parts();
+    // Nested under `/clusters`, the router hands down the URI without that
+    // prefix; the original one is what every check below reads, raw.
+    if let Some(OriginalUri(original)) = req.extensions.get::<OriginalUri>().cloned() {
+        req.uri = original;
+    }
+    let method = req.method.clone();
 
     let proxy: ProxyKubeApi = match data
         .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
         .await
     {
         Ok(Some(proxy)) => proxy,
-        Ok(None) => return HttpResponse::NotFound().finish(),
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             error!(error = %e, "couldn't get proxy from redis");
-            return HttpResponse::ServiceUnavailable().finish();
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
 
     if !proxy.spec.enabled {
-        return HttpResponse::NotFound().finish();
+        return StatusCode::NOT_FOUND.into_response();
     }
 
     // Only strip the routing prefix, never an occurrence further down the path:
     // `/clusters/{ns}/{cluster}` may legitimately reappear inside the upstream path.
     let prefix = format!("/clusters/{ns}/{cluster}");
-    let upstream_path = if let Some(rest) = req.path().strip_prefix(&prefix) {
+    let upstream_path = if let Some(rest) = req.uri.path().strip_prefix(&prefix) {
         rest.to_string()
     } else {
-        error!(path = %req.path(), %prefix, "request path does not start with the cluster prefix");
-        return HttpResponse::NotFound().finish();
+        error!(path = %req.uri.path(), %prefix, "request path does not start with the cluster prefix");
+        return StatusCode::NOT_FOUND.into_response();
     };
 
     let mut audit = AuditContext::new(&ns, &cluster, method.as_str(), &upstream_path);
+    // The Kubernetes verb, computed as the apiserver does (RFC 0006): every
+    // audit line of this request carries it, refusals included.
+    let request_info = crd::security::request_info(
+        method.as_str(),
+        &upstream_path,
+        req.uri.query().unwrap_or_default(),
+    )
+    .ok();
+    audit.k8s_verb = request_info
+        .as_ref()
+        .map(|info| info.verb.as_str().to_string());
+    // What an exec or attach runs goes to every audit line of the request
+    // (RFC 0004); an unreadable query is left to the policy of phase 2.
+    if exec::is_exec_or_attach_path(&upstream_path)
+        && let Ok(request) = exec::parse_exec_query(req.uri.query().unwrap_or_default())
+    {
+        let mask = proxy
+            .spec
+            .security_config
+            .as_ref()
+            .is_some_and(|config| config.mask_exec_secrets);
+        audit.exec = Some(crate::cluster::redirect::audit::ExecAudit {
+            argv: if mask {
+                exec::mask_secrets(&request.argv)
+            } else {
+                request.argv
+            },
+            container: request.container,
+            stdin: request.stdin,
+            tty: request.tty,
+        });
+    }
 
     let is_upgrade = is_upgrade_request(&req, &upstream_path);
 
@@ -98,15 +134,14 @@ pub async fn redirect(
     // Honour `TRUSTED_PROXY_COUNT` so that, behind an ingress, bans and
     // unauthenticated rate limits target the real client instead of the shared
     // ingress IP (which would let one attacker ban every user).
-    let peer_ip = peer_addr.as_ref().map(|PeerAddr(addr)| addr.ip());
-    let forwarded_for = req
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok());
-    let peer_id = crate::cluster::redirect::forwarded::throttle_client_ip(forwarded_for, peer_ip);
+    let peer_ip = peer_ip(&req);
+    let peer_id = crate::cluster::redirect::forwarded::throttle_client_ip(
+        forwarded_for(&req.headers),
+        peer_ip,
+    );
 
-    if throttle::is_banned(data.get_ref(), &proxy, &peer_id).await {
-        let retry_after = throttle::ban_retry_after(data.get_ref(), &proxy, &peer_id).await;
+    if throttle::is_banned(&data, &proxy, &peer_id).await {
+        let retry_after = throttle::ban_retry_after(&data, &proxy, &peer_id).await;
         let throttled = throttle::Throttled::Banned { retry_after };
         warn!(peer = %peer_id, "refusing a banned client");
         audited!(
@@ -116,28 +151,24 @@ pub async fn redirect(
     }
 
     let user = if proxy.need_token_validation() {
-        let token = match extract_authorization_header(&req) {
+        let token = match extract_authorization_header(&req.headers) {
             Ok(token) => token,
             Err(e) => {
                 warn!("Authorization header extraction failed: {}", e);
-                throttle::record_auth_failure(data.get_ref(), &proxy, &peer_id).await;
+                throttle::record_auth_failure(&data, &proxy, &peer_id).await;
                 audited!(audit, unauthorized("no usable bearer token was provided"));
             }
         };
-        match User::get_user_info_with_proxy(
-            data.get_ref().clone(),
-            proxy.clone(),
-            token.to_string(),
-        )
-        .await
+        match User::get_user_info_with_proxy((*data).clone(), proxy.clone(), token.to_string())
+            .await
         {
             Ok(Some(user)) => {
-                throttle::clear_auth_failures(data.get_ref(), &proxy, &peer_id).await;
+                throttle::clear_auth_failures(&data, &proxy, &peer_id).await;
                 Some(user)
             }
             Ok(None) => {
                 warn!("User info not found in OIDC response");
-                throttle::record_auth_failure(data.get_ref(), &proxy, &peer_id).await;
+                throttle::record_auth_failure(&data, &proxy, &peer_id).await;
                 audited!(
                     audit,
                     unauthorized("the token could not be resolved to a user")
@@ -145,7 +176,16 @@ pub async fn redirect(
             }
             Err(e) => {
                 warn!("Error while getting user info from OIDC token: {}", e);
-                throttle::record_auth_failure(data.get_ref(), &proxy, &peer_id).await;
+                // Only a fault in the caller's own token counts toward a ban. A
+                // server-side failure (an unreadable `config_from` Secret, a
+                // Redis blip, an unreachable JWKS) is not something a different
+                // token would have avoided, and charging it to the caller would
+                // ban legitimate clients for an outage they did not cause.
+                if e.is_caller_fault() {
+                    throttle::record_auth_failure(&data, &proxy, &peer_id).await;
+                } else {
+                    warn!("not counting a server-side auth failure against the caller");
+                }
                 audited!(audit, unauthorized("the token could not be validated"));
             }
         }
@@ -162,7 +202,7 @@ pub async fn redirect(
         .map_or_else(|| peer_id.clone(), |user| user.username.clone());
     let user_groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
     if let Some(throttled) =
-        throttle::check_rate_limit(data.get_ref(), &proxy, &rate_limit_subject, user_groups).await
+        throttle::check_rate_limit(&data, &proxy, &rate_limit_subject, user_groups).await
     {
         audited!(
             audit,
@@ -215,39 +255,142 @@ pub async fn redirect(
     };
     let virtual_plan = virtual_redirect::plan(&registry, &upstream_path, method.as_str());
 
-    // Resource allow-list. An empty or disabled configuration allows everything.
+    // Resource allow-list, on the path and the Kubernetes verb (computed as the
+    // apiserver does). An empty or disabled configuration allows everything.
     // When a virtual API rewrites the request, the path that is really reached
     // on the cluster is checked too: allowing a virtual path must not become a
     // way around the allow-list on the API it maps to.
+    let mapped = virtual_plan
+        .as_ref()
+        .and_then(|plan| plan.upstream_path())
+        .map(|mapped| {
+            let info = crd::security::request_info(
+                method.as_str(),
+                mapped,
+                req.uri.query().unwrap_or_default(),
+            )
+            .ok();
+            (mapped, info)
+        });
+    if let Some((path, info)) = &mapped {
+        audit.upstream = Some((
+            (*path).to_string(),
+            info.as_ref().map(|info| info.verb.as_str().to_string()),
+        ));
+    }
     if let Some(security_config) = &proxy.spec.security_config {
         let username = user.as_ref().map_or("", |u| u.username.as_str());
         let groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
 
-        let mut checked_paths = vec![upstream_path.as_str()];
-        if let Some(mapped) = virtual_plan.as_ref().and_then(|plan| plan.upstream_path()) {
-            checked_paths.push(mapped);
-        }
+        let mut checked = vec![(upstream_path.as_str(), request_info.clone())];
+        checked.extend(mapped.clone());
 
-        for path in checked_paths {
-            if !security_config.is_path_allowed(path, username, groups) {
-                warn!(%path, "request path is not in the allowed resources");
+        for (path, info) in checked {
+            if security_config.is_request_allowed(path, info.as_ref(), username, groups) {
+                continue;
+            }
+            if security_config.matches_path(path, username, groups) {
+                let verb = info
+                    .as_ref()
+                    .map_or(method.as_str(), |info| info.verb.as_str());
+                warn!(%path, %verb, "request verb is not in the allowed resources");
+                audit.emit_verb_denied();
                 audited!(
                     audit,
-                    forbidden(&format!("path \"{path}\" is not allowed on this cluster"))
+                    forbidden(&format!("verb \"{verb}\" is not allowed on \"{path}\""))
                 );
             }
+            warn!(%path, "request path is not in the allowed resources");
+            audited!(
+                audit,
+                forbidden(&format!("path \"{path}\" is not allowed on this cluster"))
+            );
         }
     }
 
-    // Ports a port-forward may open, from the rules that allowed the path.
+    // Port policy, evaluated before any relay whatever the transport: every
+    // path that names a port goes through `port_target` once. A port-forward
+    // takes the policy along (its ports are in the query or the SPDY frames).
+    // `nodes/proxy` reaches the kubelet's own exec and port-forward as a `get`,
+    // so a port or a verb restriction closes it.
     let port_policy = match &proxy.spec.security_config {
-        Some(security_config) if port_forward::is_port_forward_path(&upstream_path) => {
+        Some(security_config) => {
             let username = user.as_ref().map_or("", |u| u.username.as_str());
             let groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
-            security_config.port_forward_policy(&upstream_path, username, groups)
+            let info = request_info.as_ref();
+            let target = port_forward::port_target(&upstream_path);
+            if target == PortTarget::NodeProxy
+                && security_config.restricts_node_proxy(username, groups)
+                && !security_config.node_proxy_explicitly_allowed(
+                    &upstream_path,
+                    info,
+                    username,
+                    groups,
+                )
+            {
+                let reason = "nodes/proxy is not allowed while ports, verbs or exec are restricted";
+                warn!(path = %upstream_path, %reason, "refusing a request outside the port policy");
+                audit.emit_port_decision(PortDecision::NodeProxyDenied, None);
+                audited!(audit, forbidden(reason));
+            }
+            if security_config.restricts_ports(username, groups) {
+                let policy = security_config.port_policy(&upstream_path, info, username, groups);
+                let refusal = match target {
+                    PortTarget::ProxyPort(port) if policy.allows(port) => {
+                        audit.emit_port_decision(PortDecision::Allowed, Some(port));
+                        None
+                    }
+                    PortTarget::ProxyPort(port) => Some((
+                        Some(port),
+                        format!("port {port} is not allowed on this cluster"),
+                    )),
+                    PortTarget::ProxyNamedOrMissing => Some((
+                        None,
+                        "named or missing port is not allowed on this cluster".to_string(),
+                    )),
+                    PortTarget::NodeProxy | PortTarget::PortForward | PortTarget::None => None,
+                };
+                if let Some((port, reason)) = refusal {
+                    warn!(path = %upstream_path, %reason, "refusing a request outside the port policy");
+                    audit.emit_port_decision(PortDecision::Denied, port);
+                    audited!(audit, forbidden(&reason));
+                }
+                policy
+            } else {
+                PortPolicy::Any
+            }
         }
-        _ => PortPolicy::Any,
+        None => PortPolicy::Any,
     };
+
+    // Exec policy (RFC 0004), on the query, before any byte reaches the
+    // cluster and before the websocket-only check: kubectl's SPDY fallback
+    // gets the same refusal and its reason.
+    let mut exec_streams = None;
+    if exec::is_exec_or_attach_path(&upstream_path)
+        && let Some(security_config) = &proxy.spec.security_config
+    {
+        let username = user.as_ref().map_or("", |u| u.username.as_str());
+        let groups: &[String] = user.as_ref().map(|u| u.groups.as_slice()).unwrap_or(&[]);
+        let rules =
+            security_config.exec_rules(&upstream_path, request_info.as_ref(), username, groups);
+        if matches!(rules, crd::security::ExecRules::Restricted(_)) {
+            let request = match exec::parse_exec_query(req.uri.query().unwrap_or_default()) {
+                Ok(request) => request,
+                Err(reason) => {
+                    warn!(path = %upstream_path, %reason, "refusing an unreadable exec query");
+                    audited!(audit, bad_request(&reason));
+                }
+            };
+            if let Err(denial) = rules.check(&request, exec::is_attach_path(&upstream_path)) {
+                warn!(path = %upstream_path, reason = denial.reason, "refusing an exec outside the policy");
+                audit.emit_exec_decision(Some(denial.reason));
+                audited!(audit, forbidden(&denial.message));
+            }
+            audit.emit_exec_decision(None);
+            exec_streams = Some((request.stdin, request.tty));
+        }
+    }
 
     // A `KubernetesService` without an explicit namespace lives next to the
     // proxy resource, exactly as the reachability check and the kubeconfig
@@ -261,48 +404,40 @@ pub async fn redirect(
         Ok(url) => url.trim_end_matches('/').to_string(),
         Err(err) => {
             error!(error = %err, "couldn't get url to call");
-            audited!(audit, HttpResponse::NotFound().finish());
+            audited!(audit, StatusCode::NOT_FOUND.into_response());
         }
     };
 
     let ctx = RedirectContext {
         req,
+        body: payload,
         data,
-        payload,
         method,
-        peer_addr,
+        peer_ip,
         proxy,
         user,
         audit,
+        base_url,
+        upstream_path,
     };
-
     if let Some(virtual_plan) = virtual_plan {
         // Path only at info: query strings can carry user-controlled or
         // sensitive values (label selectors, field selectors, exec commands).
-        info!(from = %ctx.req.path(), method = %ctx.method.as_str(), "Serving a virtual API request");
-        debug!(from = %ctx.req.uri(), "Virtual API request full URI");
-        return serve_virtual_api(ctx, base_url, registry, upstream_path, virtual_plan).await;
+        info!(from = %ctx.req.uri.path(), method = %ctx.method.as_str(), "Serving a virtual API request");
+        debug!(from = %ctx.req.uri, "Virtual API request full URI");
+        return serve_virtual_api(ctx, registry, virtual_plan).await;
     }
-
-    let url_to_call = {
-        let query_string = ctx.req.query_string();
-        if query_string.is_empty() {
-            format!("{base_url}{upstream_path}")
-        } else {
-            format!("{base_url}{upstream_path}?{query_string}")
-        }
-    };
 
     // Path only at info (no query string: it can carry user-controlled or
     // sensitive values such as exec commands or selectors); the full URLs are
     // kept at debug for troubleshooting.
-    info!(from = %ctx.req.path(), to = %format_args!("{base_url}{upstream_path}"),
+    info!(from = %ctx.req.uri.path(), to = %ctx.url_without_query(),
         method = %ctx.method.as_str(), "Forwarding request");
-    debug!(from = %ctx.req.uri(), to = %url_to_call, "Forwarding request (full URLs)");
+    debug!(from = %ctx.req.uri, to = %ctx.url_to_call(), "Forwarding request (full URLs)");
 
     if is_upgrade {
-        return upgrade_redirect(ctx, url_to_call, port_policy).await;
+        return upgrade_redirect(ctx, port_policy, exec_streams).await;
     }
 
-    standard_redirect(ctx, url_to_call).await
+    standard_redirect(ctx).await
 }

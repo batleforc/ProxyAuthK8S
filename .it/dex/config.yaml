@@ -1,0 +1,42 @@
+# Dex for the integration bench. `it:up` adds staticPasswords from
+# .it/personas.yaml before loading it.
+#
+# Every URL carries :8443: it is the port the host publishes (127.0.0.1 only)
+# and, through the HelmChartConfig in k3d.yaml.tpl, Traefik's port inside the
+# cluster too, so the browser, the proxy and the apiserver see one issuer.
+issuer: https://dex.k8s.localhost:8443
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+  # The dashboard reads discovery and exchanges its code from the browser.
+  allowedOrigins:
+    - https://proxyauth.k8s.localhost:8443
+
+oauth2:
+  responseTypes: [code]
+  skipApprovalScreen: true
+  # Lets a test obtain the dashboard token of a persona in one request; the
+  # cluster logins under test still go through the authorization-code flow.
+  passwordConnector: local
+
+staticClients:
+  # Dashboard and API (OIDC_CLIENT_ID of the back). Public: the SPA uses PKCE.
+  - id: proxyauthk8s
+    name: ProxyAuthK8S
+    public: true
+    redirectURIs:
+      - https://proxyauth.k8s.localhost:8443/auth/callback
+  # Cluster SSO (the ProxyKubeApi's oidc_provider, no client_secret: the
+  # proxy then uses PKCE alone). Public, because the kubectl plugin's redirect
+  # is http://localhost:<port>/auth/callback/<ns>/<cluster>, one per test
+  # namespace: Dex matches a confidential client's redirect URIs exactly, and
+  # accepts any loopback port and path for a public one (RFC 8252).
+  - id: kube_login
+    name: Kubernetes
+    public: true
+
+enablePasswordDB: true
+staticPasswords: []

@@ -1,0 +1,167 @@
+/* Ported from batlehub/ui/src/assets/index.css (commit 3f18ab70, Apache-2.0),
+   reduced to what this front uses. Values live in ../design/tokens.css only:
+   nothing below names a colour, it only maps token names onto utilities. */
+@import 'tailwindcss';
+@import '../design/tokens.css';
+
+/* Dark is the base rendition (bare `:root`), light overrides it: `dark:`
+   matches "not explicitly light", so a first paint without data-theme stays
+   coherent. */
+@custom-variant dark (&:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *));
+
+/* Self-hosted faces (DESIGN.md): no request leaves for a font CDN, so the CSP
+   keeps `font-src 'self'`. `swap`: a blank masthead is worse than a reflow. */
+@font-face {
+  font-family: 'Silkscreen';
+  src: url('/fonts/silkscreen-400.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Silkscreen';
+  src: url('/fonts/silkscreen-700.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/jetbrainsmono-latin.woff2') format('woff2');
+  font-weight: 100 800;
+  font-display: swap;
+}
+
+@theme {
+  /* No sans in this world: every fact is set in the mono text face. */
+  --font-sans: var(--face-text);
+  --font-mono: var(--face-text);
+  --font-display: var(--face-display);
+
+  /* DESIGN.md's data ramp (Row/Body/Meta are 15/13/12), on the utilities the
+     ported components use. */
+  --text-xs: var(--t-meta);
+  --text-sm: var(--t-body);
+  --text-base: var(--t-row);
+  --text-lg: var(--t-head);
+  --text-xl: var(--t-px-md);
+  --text-2xl: var(--t-px-md);
+  --text-sub: var(--t-sub);
+  --text-display: var(--t-display);
+
+  --radius-lg: var(--radius);
+  --radius-md: var(--radius);
+  --radius-sm: var(--radius);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--surface-hover);
+  --color-accent-foreground: var(--surface-hover-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-copper: var(--copper);
+  --color-ground-sunk: var(--ground-sunk);
+  --color-rule-soft: var(--rule-soft);
+}
+
+/* Bridge: the shadcn-style names the ported components use → the design
+   system's tokens (see batlehub's index.css for why each mapping is what it
+   is: --primary-foreground is --accent-ink for AA, borders are --rule-strong
+   for 1.4.11, the hover fill is only confirmation). */
+:root {
+  --background: var(--ground);
+  --foreground: var(--ink);
+  --primary: var(--accent);
+  --primary-foreground: var(--accent-ink);
+  --secondary: var(--ground-raised);
+  --secondary-foreground: var(--ink);
+  --muted: var(--ground-raised);
+  --muted-foreground: var(--ink-dim);
+  --surface-hover: var(--ground-raised);
+  --surface-hover-foreground: var(--ink);
+  --destructive: var(--accent);
+  --destructive-foreground: var(--accent-ink);
+  --border: var(--rule-strong);
+  --input: var(--rule-strong);
+  --ring: var(--focus);
+
+  /* The only two box-shadows in the system, both on the one primary action. */
+  --action-ring: 0 0 0 2px var(--ground), 0 0 0 3px var(--accent);
+  --pixel-step: 3px 0 0 var(--accent-ink), 6px 0 0 var(--accent);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--face-text);
+    font-size: var(--t-body);
+    line-height: 1.6;
+    /* The Own-Container Overflow Rule: the body never scrolls sideways. */
+    overflow-x: clip;
+  }
+  a {
+    color: var(--accent);
+    /* Tailwind's preflight drops it; a link in text must not rely on hue. */
+    text-decoration-line: underline;
+    text-underline-offset: 3px;
+  }
+  th,
+  td,
+  time,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* The one focus ring, on everything focusable, never suppressed. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* The one authored motion; removed outright under reduced motion. */
+@keyframes resolve {
+  from {
+    filter: blur(2.5px) contrast(1.7);
+    opacity: 0.55;
+  }
+  to {
+    filter: none;
+    opacity: 1;
+  }
+}
+.resolving {
+  animation: resolve var(--resolve) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

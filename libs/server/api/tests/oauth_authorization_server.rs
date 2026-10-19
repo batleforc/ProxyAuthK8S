@@ -3,8 +3,8 @@
 
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::auth::well_known;
+use axum::http::StatusCode;
+use harness::test;
 use harness::{
     delete_proxy, mount_oidc_provider, oidc_auth_config, oidc_auth_config_with_well_known,
     proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
@@ -13,12 +13,7 @@ use wiremock::MockServer;
 
 macro_rules! well_known_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new()
-                .app_data(web::Data::new($state))
-                .service(web::scope("/clusters").service(well_known::oauth_authorization_server)),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -31,7 +26,7 @@ macro_rules! redis_or_skip {
     };
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn serves_metadata_mirroring_the_upstream_provider_when_enabled() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -83,7 +78,7 @@ async fn serves_metadata_mirroring_the_upstream_provider_when_enabled() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn returns_404_when_discovery_is_not_enabled() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -108,7 +103,7 @@ async fn returns_404_when_discovery_is_not_enabled() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn returns_404_when_the_proxy_is_disabled() {
     let pool = redis_or_skip!();
     let idp = MockServer::start().await;
@@ -133,7 +128,7 @@ async fn returns_404_when_the_proxy_is_disabled() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn returns_404_for_an_unknown_cluster() {
     let _pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();

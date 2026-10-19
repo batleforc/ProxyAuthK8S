@@ -1,19 +1,27 @@
-name: 🌐 Frontend ESLint Analysis
+name: 🌐 Frontend lint, tests and browser checks
 
-# 🔍 This workflow runs ESLint static analysis on Vue.js and TypeScript files
-# to ensure code quality, consistency, and catch potential issues early.
-# Integrates with GitHub Security for centralized reporting.
+# 🔍 oxlint (SARIF to GitHub Security), then the JS gate (typecheck, ESLint for
+# Vue templates, Prettier, tests, build, i18n), then the browser suite
+# (Playwright + axe in Chromium, RFC 0002).
 on:
   push:
     branches: ["main"]
     paths:
       - "**/*.vue" # 🎨 Vue.js components
       - "**/*.ts" # 📘 TypeScript files
+      - "apps/front/**"
+      - ".oxlintrc.json"
+      - "eslint.config.mjs"
+      - ".github/workflows/front-lint.yaml"
   pull_request:
     branches: ["main"]
     paths:
       - "**/*.vue" # 🎨 Vue.js components
       - "**/*.ts" # 📘 TypeScript files
+      - "apps/front/**"
+      - ".oxlintrc.json"
+      - "eslint.config.mjs"
+      - ".github/workflows/front-lint.yaml"
   schedule:
     - cron: "50 23 * * *" # 🕚 Daily at 23:50 UTC for security scanning
   workflow_dispatch: # 🚀 Allow manual triggering
@@ -23,7 +31,7 @@ permissions:
 
 jobs:
   eslint:
-    name: 🔍 Run ESLint Scanning
+    name: 🔍 Run oxlint Scanning
     runs-on: ubuntu-latest
     permissions:
       contents: read # 📖 Read repository contents
@@ -31,37 +39,31 @@ jobs:
       actions: read # ⚡ Read action status (required for private repos)
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: 🧶 Enable Corepack
-        run: corepack enable
-        # 🔒 Honor the "packageManager" pin in package.json (Yarn Berry) instead
-        # of the runner's preinstalled Yarn Classic. Must run BEFORE setup-node,
-        # since setup-node's cache:"yarn" option shells out to `yarn` itself to
-        # resolve the cache directory.
+      - name: 📦 Setup pnpm
+        uses: ./.github/actions/setup-pnpm
 
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          cache: "yarn" # 🚀 Speed up builds with yarn cache
+          cache: "pnpm" # 🚀 Speed up builds with the pnpm store cache
           node-version: "24"
 
-      - name: 🛠️ Install ESLint SARIF Formatter
-        run: |
-          yarn add @microsoft/eslint-formatter-sarif -D
-        # 📋 Add SARIF formatter for GitHub Security integration
+      - name: 📦 Install dependencies
+        run: pnpm install --frozen-lockfile
+        # 📋 oxlint is a root devDependency: the lockfile never changes in CI
 
-      - name: 🔍 Run ESLint Analysis
-        run: npx nx run front:lint --
-          --format @microsoft/eslint-formatter-sarif
-          --output-file eslint-results.sarif
+      - name: 🔍 Run oxlint Analysis
+        working-directory: apps/front
+        run: pnpm exec oxlint -c ../../.oxlintrc.json --format=sarif . > oxlint-results.sarif
         continue-on-error: true
-        # 🎯 Lint frontend code using NX, output in SARIF format for GitHub
+        # 🎯 ESLint (Vue template rules) fails the check job below instead
 
       - name: 📤 Upload Results to GitHub Security
-        uses: github/codeql-action/upload-sarif@b8bb9f28b8d3f992092362369c57161b755dea45 # v4.35.0
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
-          sarif_file: apps/front/eslint-results.sarif
+          sarif_file: apps/front/oxlint-results.sarif
           wait-for-processing: true
         # 🔒 Upload linting results to GitHub Security tab for visibility
 
@@ -72,20 +74,69 @@ jobs:
       contents: read
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: 🧶 Enable Corepack
-        run: corepack enable
+      - name: 📦 Setup pnpm
+        uses: ./.github/actions/setup-pnpm
 
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          cache: "yarn"
+          cache: "pnpm"
           node-version: "24"
 
+      - name: 🛠️ Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+
       - name: 📦 Install dependencies
-        run: yarn install --immutable
+        run: pnpm install --frozen-lockfile
 
       - name: ✅ Typecheck, test and build
         # Unlike the ESLint job above (report-only), this one fails the run.
-        run: npx nx run-many -t typecheck test build -p front front-api
+        run: task js:ci
+
+      - name: 🔤 Lint, format and i18n keys
+        run: |
+          task js:lint
+          pnpm --filter @proxy-auth-k8s/front run i18n:check
+
+      - name: 🔒 Lockfile untouched
+        run: git diff --exit-code pnpm-lock.yaml
+
+  browser:
+    name: 🧭 Browser checks (Playwright, axe)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: 📦 Setup pnpm
+        uses: ./.github/actions/setup-pnpm
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          cache: "pnpm"
+          node-version: "24"
+
+      - name: 📦 Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: 🌐 Install Chromium
+        # No third-party action: the browser version follows the lockfile.
+        working-directory: apps/front
+        run: pnpm exec playwright install --with-deps chromium firefox
+
+      - name: ♿ axe in both themes, 360px overflow, fonts, theme flash, guard
+        working-directory: apps/front
+        run: pnpm exec playwright test
+
+      - name: 📤 Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report
+          path: apps/front/test-results/
+          if-no-files-found: ignore

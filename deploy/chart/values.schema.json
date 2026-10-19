@@ -218,6 +218,11 @@
             }
           },
           "additionalProperties": false
+        },
+        "publicUrl": {
+          "type": "string",
+          "description": "Base URL clients use when it is not <scheme>://<host>; empty derives it.",
+          "pattern": "^(https?://[^/]+/?)?$"
         }
       },
       "additionalProperties": false,
@@ -294,7 +299,7 @@
         },
         "corsAllowedOrigins": {
           "type": "string",
-          "description": "Comma-separated origins; empty = the ingress origin."
+          "description": "Comma-separated origins; empty = the ingress origin; \"*\" alone = any origin."
         },
         "shutdownTimeoutSeconds": {
           "type": "integer",
@@ -474,6 +479,24 @@
             }
           },
           "additionalProperties": false
+        },
+        "extraVolumes": {
+          "type": "array",
+          "description": "Extra pod volumes for the back.",
+          "items": {
+            "type": "object"
+          }
+        },
+        "extraVolumeMounts": {
+          "type": "array",
+          "description": "Extra volume mounts for the back container.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "mountPath"
+            ]
+          }
         }
       },
       "additionalProperties": false

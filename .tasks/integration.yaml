@@ -1,0 +1,82 @@
+version: "3"
+
+# Integration bench and suite against a real cluster (RFC 0009).
+
+vars:
+  IT_DIR: .it/run
+  IT_CLUSTER: proxyauth-it
+  IT_HTTPS_PORT: 8443
+
+env:
+  IT_DIR: "{{.IT_DIR}}"
+  IT_CLUSTER: "{{.IT_CLUSTER}}"
+  IT_HTTPS_PORT: "{{.IT_HTTPS_PORT}}"
+
+tasks:
+  up:
+    desc: "Create the integration cluster and deploy the stack (k3d, Dex, Redis, chart, local images)"
+    cmds:
+      - bash .it/up.sh
+
+  test:
+    desc: "Run the Rust then Playwright integration suites against the bench"
+    cmds:
+      - cargo build -p kubectl_proxyauth
+      # A dedicated session keyring and no D-Bus: the CLI falls back to
+      # keyutils, and nothing reaches the user's own keyring.
+      - |
+        status=0
+        env -u DBUS_SESSION_BUS_ADDRESS keyctl session - \
+          cargo nextest run -p integration --profile it || status=1
+        pnpm -C apps/front test:e2e:it || status=1
+        exit $status
+
+  reload:
+    desc: "Rebuild one image of the bench (IMAGE=server or front), import it and restart its deployment"
+    requires:
+      vars: [IMAGE]
+    cmds:
+      - |
+        set -eu
+        engine=docker
+        if [ -z "${CONTAINER_HOST:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/podman/podman.sock" ]; then
+          export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/podman/podman.sock" DOCKER_SOCK="$XDG_RUNTIME_DIR/podman/podman.sock"
+          engine=podman
+        fi
+        case "{{.IMAGE}}" in server) dir=back ;; front) dir=front ;; *) echo "IMAGE must be server or front" >&2; exit 1 ;; esac
+        image=localhost/proxyauthk8s/{{.IMAGE}}:it
+        "$engine" build -f "deploy/build/$dir/Containerfile" -t "$image" .
+        if [ "$engine" = podman ]; then podman save -m -o {{.IT_DIR}}/reload.tar "$image"; else docker save -o {{.IT_DIR}}/reload.tar "$image"; fi
+        k3d image import -c {{.IT_CLUSTER}} {{.IT_DIR}}/reload.tar
+        rm -f {{.IT_DIR}}/reload.tar
+        k() { kubectl --kubeconfig {{.IT_DIR}}/admin.kubeconfig -n proxyauth "$@"; }
+        k rollout restart "deployment/proxyauth-proxyauthk8s-$dir"
+        k rollout status "deployment/proxyauth-proxyauthk8s-$dir" --timeout=180s
+
+  matrix:
+    desc: "Check that every §6.P point has a row in MATRIX.md and an existing test"
+    cmds:
+      - uv run --script .it/matrix.py --self-test
+      - uv run --script .it/matrix.py
+
+  logs:
+    desc: "Dump the logs and events of every pod of the bench into .it/run/logs"
+    cmds:
+      - |
+        k() { kubectl --kubeconfig {{.IT_DIR}}/admin.kubeconfig "$@"; }
+        mkdir -p {{.IT_DIR}}/logs
+        k get events -A --sort-by=.lastTimestamp > {{.IT_DIR}}/logs/events.txt || true
+        k get pods -A --no-headers -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name |
+          while read -r ns pod; do
+            k -n "$ns" logs "$pod" --all-containers --prefix > "{{.IT_DIR}}/logs/$ns.$pod.log" 2>&1 || true
+          done
+
+  down:
+    desc: "Delete the integration cluster and its run directory"
+    cmds:
+      - |
+        if [ -z "${CONTAINER_HOST:-}" ] && [ -S "${XDG_RUNTIME_DIR:-/nonexistent}/podman/podman.sock" ]; then
+          export DOCKER_HOST="unix://$XDG_RUNTIME_DIR/podman/podman.sock"
+        fi
+        k3d cluster delete {{.IT_CLUSTER}}
+      - rm -rf {{.IT_DIR}}

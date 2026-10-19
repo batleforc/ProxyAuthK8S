@@ -2,6 +2,7 @@
 name = "common"
 version = "0.1.9"
 edition = "2024"
+license = "MIT"
 
 [features]
 # Exposes constructors that bypass the real Kubernetes/Redis/OIDC discovery a
@@ -24,10 +25,12 @@ k8s-openapi = { workspace = true }
 oauth2-reqwest = { workspace = true }
 
 crd = { path = "../crd", version = "0.1.9" }
-
-[dev-dependencies]
+jwt_validator = { path = "../jwt_validator", version = "0.1.9" }
 tokio = { workspace = true, features = ["time"] }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [package.metadata.cargo-machete]
 ignored = ["k8s-openapi"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "time"] }

@@ -1,0 +1,90 @@
+# Redis and Dex for the integration bench, in the chart's namespace. Images
+# come from .it/images.lock (`it:up` fills __REDIS__ and __DEX__); Dex's
+# configuration is the `dex-config` Secret `it:up` renders.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: proxyauth
+spec:
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: __REDIS__
+          args: ["--save", "", "--appendonly", "no"]
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: proxyauth
+spec:
+  selector: { app: redis }
+  ports:
+    - port: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dex
+  namespace: proxyauth
+spec:
+  selector:
+    matchLabels: { app: dex }
+  template:
+    metadata:
+      labels: { app: dex }
+    spec:
+      containers:
+        - name: dex
+          image: __DEX__
+          args: ["dex", "serve", "/etc/dex/config.yaml"]
+          ports:
+            - containerPort: 5556
+          readinessProbe:
+            httpGet: { path: /healthz, port: 5556 }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dex
+      volumes:
+        - name: config
+          secret:
+            secretName: dex-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dex
+  namespace: proxyauth
+spec:
+  selector: { app: dex }
+  ports:
+    - port: 5556
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dex
+  namespace: proxyauth
+spec:
+  tls:
+    - hosts: [dex.k8s.localhost]
+      secretName: proxyauthk8s-tls
+  rules:
+    - host: dex.k8s.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dex
+                port:
+                  number: 5556

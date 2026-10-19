@@ -1,546 +1,178 @@
 <script lang="ts" setup>
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { useI18n } from 'vue-i18n';
+import type { VisibleCluster } from '@proxy-auth-k8s/front-api';
 import { useClustersStore } from '../store/clusters.ts';
 import { useAuthStore } from '../store/auth.ts';
-import { useRouter } from 'vue-router';
-import MazCard from 'maz-ui/components/MazCard';
-import MazBtn from 'maz-ui/components/MazBtn';
-import MazIcon from 'maz-ui/components/MazIcon';
-import MazBadge from 'maz-ui/components/MazBadge';
-import MazSpinner from 'maz-ui/components/MazSpinner';
+import { useToast } from '../composables/useToast.ts';
+import { useCopyToClipboard } from '../composables/useCopyToClipboard.ts';
+import { PageHeader } from '@/components/ui/page-header';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
 import {
-  LazyMazServer as MazServer,
-  LazyMazShieldCheck as MazShieldCheck,
-  LazyMazExclamationTriangle as MazExclamationTriangle,
-  LazyMazCheckCircle as MazCheckCircle,
-  LazyMazXCircle as MazXCircle,
-  LazyMazArrowTopRightOnSquare as MazArrowTopRightOnSquare,
-  LazyMazCog6Tooth as MazCog6Tooth
-} from '@maz-ui/icons';
-import { useToast } from 'maz-ui/composables/useToast';
-import { VisibleCluster } from '@proxy-auth-k8s/front-api';
+  Table,
+  TableBody,
+  TableCaption,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import ClusterRow from '../features/cluster/ClusterRow.vue';
+import ClusterSummary from '../features/cluster/ClusterSummary.vue';
+import { clusterProxyUrl, clusterStatus } from '../features/cluster/status.ts';
 
+const { t } = useI18n();
 const clustersStore = useClustersStore();
 const authStore = useAuthStore();
 const toast = useToast();
 const router = useRouter();
+const copyToClipboard = useCopyToClipboard();
 
 onMounted(() => {
   if (authStore.inited && authStore.user && clustersStore.inited === false) {
     clustersStore.fetchClusters(toast);
   }
 });
+
 const clusters = computed(() => clustersStore.getClusters);
 const isLoading = computed(() => !clustersStore.isInited);
+const key = (cluster: VisibleCluster) => `${cluster.namespace}/${cluster.name}`;
 
-const getClusterStatusColor = (cluster: VisibleCluster) => {
-  if (!cluster.enabled) return 'destructive';
-  if (cluster.is_reachable === false) return 'warning';
-  if (cluster.is_reachable === true) return 'success';
-  return 'info';
-};
+// The selected cluster carries the view's one filled action; the first
+// reachable one is selected until the user picks another.
+const picked = ref<string | null>(null);
+const selected = computed(
+  () =>
+    clusters.value.find((cluster) => key(cluster) === picked.value) ??
+    clusters.value.find((cluster) => clusterStatus(cluster) === 'available') ??
+    clusters.value[0],
+);
+const canConnect = computed(
+  () =>
+    !!selected.value &&
+    selected.value.enabled &&
+    selected.value.is_reachable !== false,
+);
 
-const getClusterStatusText = (cluster: VisibleCluster) => {
-  if (!cluster.enabled) return 'Désactivé';
-  if (cluster.is_reachable === false) return 'Injoignable';
-  if (cluster.is_reachable === true) return 'Disponible';
-  return 'État inconnu';
-};
-
-const getClusterStatusIcon = (cluster: VisibleCluster) => {
-  if (!cluster.enabled) return MazXCircle;
-  if (cluster.is_reachable === false) return MazExclamationTriangle;
-  if (cluster.is_reachable === true) return MazCheckCircle;
-  return MazCog6Tooth;
-};
-
-const handleClusterAccess = (cluster: VisibleCluster) => {
-  console.log('Accessing cluster:', cluster.name);
-
+function connect(cluster: VisibleCluster) {
   if (cluster.sso_enabled) {
-    toast.warning(`Accès au cluster ${cluster.name} en cours...`);
+    toast.info(t('home.connecting', { name: cluster.name }));
     clustersStore.redirectToLogin(cluster.namespace, cluster.name);
   } else {
-    toast.info(`Redirection vers le cluster ${cluster.name} (sans SSO)...`);
+    toast.info(t('home.redirectNoSso', { name: cluster.name }));
     router.push({
       name: 'cluster-nosso',
-      params: {
-        ns: cluster.namespace,
-        cluster: cluster.name
-      }
+      params: { ns: cluster.namespace, cluster: cluster.name },
     });
-  }
-};
-
-const getClusterURL = (cluster: VisibleCluster) => {
-  return `${globalThis.location.origin}/clusters/${cluster.namespace}/${cluster.name}`;
-};
-
-const copyUrlToClipboard = async (cluster: VisibleCluster) => {
-  try {
-    await navigator.clipboard.writeText(getClusterURL(cluster));
-    toast.info("URL du cluster copiée dans le presse-papiers !");
-  } catch (error) {
-    toast.error("Échec de la copie de l'URL du cluster.");
-    console.error('Clipboard copy failed:', error);
   }
 }
 </script>
 
 <template>
-  <div class="home-logged-container">
-    <!-- Header Section -->
-    <section class="header-section">
-      <div class="header-content">
-        <h1 class="welcome-title">
-          Bonjour {{ authStore.user?.profile?.name || 'Utilisateur' }} !
-        </h1>
-        <p class="welcome-description">
-          Accédez à vos clusters Kubernetes en toute sécurité. Sélectionnez le cluster souhaité pour commencer.
-        </p>
-      </div>
-    </section>
+  <section class="border-b border-rule-soft px-4 pb-5 pt-10 sm:px-6">
+    <PageHeader
+      variant="poster"
+      :description="t('home.intro')"
+    >
+      <template #title>
+        {{
+          t('home.greeting', {
+            name: authStore.user?.profile?.name || t('user.fallback'),
+          })
+        }}
+      </template>
+    </PageHeader>
+  </section>
 
-    <!-- Clusters Section -->
-    <section class="clusters-section">
-      <div class="clusters-container">
-        <div class="section-header">
-          <h2 class="section-title">
-            <MazIcon
-              :icon="MazServer"
-              size="lg"
-              class="title-icon"
-            />
-            Vos Clusters Kubernetes
-          </h2>
-          <p class="section-subtitle">
-            {{ clusters.length }} cluster{{ clusters.length !== 1 ? 's' : '' }} disponible{{ clusters.length !== 1 ? 's'
-              : '' }}
-          </p>
-        </div>
+  <section
+    class="px-4 py-6 sm:px-6"
+    aria-labelledby="clusters-title"
+  >
+    <h2
+      id="clusters-title"
+      class="mb-4 mt-0 text-xs font-normal uppercase tracking-[0.16em] text-muted-foreground"
+    >
+      {{ t('home.clustersTitle') }}
+    </h2>
 
-        <!-- Loading State -->
-        <div
-          v-if="isLoading"
-          class="loading-container"
-        >
-          <MazSpinner
-            size="4em"
-            color="primary"
-          />
-          <p class="loading-text">
-            Chargement de vos clusters...
-          </p>
-        </div>
-
-        <!-- Empty State -->
-        <div
-          v-else-if="clusters.length === 0"
-          class="empty-state"
-        >
-          <MazIcon
-            :icon="MazServer"
-            size="xl"
-            class="empty-icon"
-          />
-          <h3 class="empty-title">
-            Aucun cluster disponible
-          </h3>
-          <p class="empty-description">
-            Vous n'avez actuellement accès à aucun cluster Kubernetes.
-            Contactez votre administrateur pour obtenir les permissions nécessaires.
-          </p>
-        </div>
-
-        <!-- Clusters Grid -->
-        <div
-          v-else
-          class="clusters-grid"
-        >
-          <MazCard
+    <Skeleton
+      v-if="isLoading"
+      :lines="4"
+    />
+    <EmptyState
+      v-else-if="clusters.length === 0"
+      :title="t('home.empty.title')"
+      :description="t('home.empty.description')"
+    />
+    <template v-else>
+      <Table :label="t('home.clustersTitle')">
+        <TableCaption>
+          {{ t('home.count', { count: clusters.length }, clusters.length) }}
+        </TableCaption>
+        <TableHeader>
+          <TableRow>
+            <TableHead class="w-[9rem] pl-3">
+              {{ t('cluster.statusLabel') }}
+            </TableHead>
+            <TableHead>{{ t('cluster.name') }}</TableHead>
+            <TableHead>{{ t('cluster.namespace') }}</TableHead>
+            <TableHead class="hidden md:table-cell"> SSO </TableHead>
+            <TableHead class="text-right">
+              <span class="sr-only">{{ t('cluster.selection') }}</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <ClusterRow
             v-for="cluster in clusters"
-            :key="`${cluster.namespace}-${cluster.name}`"
-            class="cluster-card"
-            :class="{
-              'cluster-disabled': !cluster.enabled,
-              'cluster-unreachable': cluster.is_reachable === false
-            }"
+            :key="key(cluster)"
+            :cluster="cluster"
+            :selected="selected !== undefined && key(selected) === key(cluster)"
+            @select="picked = key(cluster)"
+          />
+        </TableBody>
+      </Table>
+
+      <section
+        v-if="selected"
+        class="mt-6 border-t border-border pt-5"
+        aria-live="polite"
+        :aria-label="t('home.detail', { name: selected.name })"
+      >
+        <h3
+          class="m-0 mb-3 font-display text-sub font-bold uppercase tracking-[0.04em] text-foreground"
+        >
+          {{ selected.name }}
+        </h3>
+        <ClusterSummary
+          :name="selected.name"
+          :namespace="selected.namespace"
+          :url="clusterProxyUrl(selected)"
+          :url-label="t('cluster.proxyUrl')"
+          :user="
+            authStore.user?.profile?.preferred_username || t('user.fallback')
+          "
+          :status="clusterStatus(selected)"
+        />
+        <div class="mt-5 flex flex-wrap gap-3">
+          <Button
+            :disabled="!canConnect"
+            @click="connect(selected)"
           >
-            <template #content-title>
-              <div class="cluster-header">
-                <div class="cluster-info">
-                  <h3 class="cluster-name">
-                    {{ cluster.name }}
-                  </h3>
-                  <p class="cluster-namespace">
-                    Namespace: {{ cluster.namespace }}
-                  </p>
-                </div>
-                <div class="cluster-status">
-                  <MazBadge
-                    :color="getClusterStatusColor(cluster)"
-                    size="sm"
-                  >
-                    <MazIcon
-                      :icon="getClusterStatusIcon(cluster)"
-                      size="xs"
-                      class="status-icon"
-                    />
-                    {{ getClusterStatusText(cluster) }}
-                  </MazBadge>
-                </div>
-              </div>
-            </template>
-
-            <template #default>
-              <div class="cluster-features">
-                <div class="feature-item">
-                  <MazIcon
-                    :icon="MazShieldCheck"
-                    size="sm"
-                    :class="cluster.sso_enabled ? 'feature-enabled' : 'feature-disabled'"
-                  />
-                  <span class="feature-text">
-                    SSO {{ cluster.sso_enabled ? 'activé' : 'désactivé' }}
-                  </span>
-                </div>
-                <div
-                  class="feature-item cluster-url"
-                  style="cursor: pointer;"
-                  @click="copyUrlToClipboard(cluster)"
-                >
-                  <MazIcon
-                    :icon="MazArrowTopRightOnSquare"
-                    size="sm"
-                    class="url-icon"
-                  />
-                  <span class="url-text">
-                    {{ getClusterURL(cluster) }}
-                  </span>
-                </div>
-              </div>
-            </template>
-
-            <template #footer>
-              <div class="cluster-actions">
-                <MazBtn
-                  :disabled="!cluster.enabled || cluster.is_reachable === false"
-                  color="primary"
-                  size="sm"
-                  :right-icon="MazArrowTopRightOnSquare"
-                  class="access-button"
-                  @click="handleClusterAccess(cluster)"
-                >
-                  Accéder au cluster
-                </MazBtn>
-              </div>
-            </template>
-          </MazCard>
+            {{ t('home.connect') }}
+          </Button>
+          <Button
+            variant="outline"
+            @click="
+              copyToClipboard(clusterProxyUrl(selected), t('cluster.proxyUrl'))
+            "
+          >
+            {{ t('home.copyUrl') }}
+          </Button>
         </div>
-      </div>
-    </section>
-  </div>
+      </section>
+    </template>
+  </section>
 </template>
-
-<style scoped>
-.home-logged-container {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  font-family: var(--font-family-sans, 'Inter', sans-serif);
-}
-
-/* Header Section */
-.header-section {
-  background: linear-gradient(135deg, #1e40af 0%, #7c3aed 100%);
-  color: white;
-  padding: 3rem 2rem 2rem;
-  position: relative;
-  overflow: hidden;
-}
-
-.header-section::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background:
-    radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.4) 0%, transparent 50%),
-    radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.15) 0%, transparent 50%);
-  pointer-events: none;
-}
-
-.header-content {
-  max-width: 1200px;
-  margin: 0 auto;
-  position: relative;
-  z-index: 1;
-}
-
-.welcome-title {
-  font-size: 2.5rem;
-  font-weight: 700;
-  margin: 0 0 1rem 0;
-  letter-spacing: -0.025em;
-}
-
-.welcome-description {
-  font-size: 1.125rem;
-  color: rgba(255, 255, 255, 0.9);
-  margin: 0;
-  max-width: 600px;
-}
-
-/* Clusters Section */
-.clusters-section {
-  padding: 3rem 2rem;
-}
-
-.clusters-container {
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.section-header {
-  text-align: center;
-  margin-bottom: 3rem;
-}
-
-.section-title {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #f1f5f9;
-  margin: 0 0 0.5rem 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.75rem;
-}
-
-.title-icon {
-  color: #a78bfa;
-}
-
-.section-subtitle {
-  font-size: 1.125rem;
-  color: #94a3b8;
-  margin: 0;
-}
-
-/* Loading State */
-.loading-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 4rem 2rem;
-}
-
-.loading-text {
-  font-size: 1.125rem;
-  color: #94a3b8;
-  margin: 0;
-}
-
-/* Empty State */
-.empty-state {
-  text-align: center;
-  padding: 4rem 2rem;
-}
-
-.empty-icon {
-  color: #64748b;
-  margin-bottom: 1.5rem;
-}
-
-.empty-title {
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #cbd5e1;
-  margin: 0 0 1rem 0;
-}
-
-.empty-description {
-  font-size: 1.125rem;
-  color: #94a3b8;
-  margin: 0;
-  max-width: 500px;
-  margin-left: auto;
-  margin-right: auto;
-  line-height: 1.6;
-}
-
-/* Clusters Grid */
-.clusters-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 1.5rem;
-}
-
-.cluster-card {
-  transition: all 0.3s ease;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: #1e293b;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-}
-
-.cluster-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-  border-color: rgba(167, 139, 250, 0.3);
-}
-
-.cluster-card.cluster-disabled {
-  opacity: 0.7;
-  border-color: #ef4444;
-  background: #2d1b1b;
-}
-
-.cluster-card.cluster-unreachable {
-  border-color: #f59e0b;
-  background: #2d2317;
-}
-
-/* Cluster Header */
-.cluster-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-}
-
-.cluster-info {
-  flex: 1;
-}
-
-.cluster-name {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #f1f5f9;
-  margin: 0 0 0.25rem 0;
-}
-
-.cluster-namespace {
-  font-size: 0.875rem;
-  color: #94a3b8;
-  margin: 0;
-}
-
-.cluster-status {
-  flex-shrink: 0;
-}
-
-.status-icon {
-  margin-right: 0.25rem;
-}
-
-/* Cluster Features */
-.cluster-features {
-  padding: 1rem 0;
-}
-
-.feature-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.feature-enabled {
-  color: #34d399;
-}
-
-.feature-disabled {
-  color: #94a3b8;
-}
-
-.feature-text {
-  font-size: 0.875rem;
-  color: #cbd5e1;
-}
-
-/* Cluster URL */
-.cluster-url {
-  background: rgba(167, 139, 250, 0.1);
-  padding: 0.75rem;
-  border-radius: 8px;
-  border: 1px solid rgba(167, 139, 250, 0.2);
-  margin-top: 0.75rem;
-  transition: all 0.3s ease;
-}
-
-.cluster-url:hover {
-  background: rgba(167, 139, 250, 0.15);
-  border-color: rgba(167, 139, 250, 0.3);
-}
-
-.url-icon {
-  color: #a78bfa;
-  flex-shrink: 0;
-}
-
-.url-text {
-  font-size: 0.8rem;
-  color: #e2e8f0;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  font-weight: 500;
-  word-break: break-all;
-  line-height: 1.4;
-}
-
-/* Cluster Actions */
-.cluster-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.access-button {
-  min-width: 140px;
-}
-
-/* Responsive Design */
-@media (max-width: 768px) {
-  .welcome-title {
-    font-size: 2rem;
-  }
-
-  .section-title {
-    font-size: 1.75rem;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .clusters-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .cluster-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-  }
-
-  .cluster-actions {
-    justify-content: stretch;
-  }
-
-  .access-button {
-    width: 100%;
-  }
-}
-
-@media (max-width: 480px) {
-  .header-section {
-    padding: 2rem 1rem 1.5rem;
-  }
-
-  .clusters-section {
-    padding: 2rem 1rem;
-  }
-
-  .welcome-title {
-    font-size: 1.75rem;
-  }
-}
-</style>

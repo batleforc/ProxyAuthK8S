@@ -9,10 +9,10 @@
 
 mod harness;
 
-use actix_web::{App, test, web};
-use api::cluster::auth::oauth::{model::IssuedCode, token};
+use api::cluster::auth::oauth::model::IssuedCode;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use deadpool_redis::redis::AsyncTypedCommands;
+use harness::test;
 use harness::{
     delete_proxy, oidc_auth_config_with_well_known, proxy_fixture, seed_proxy, test_state,
     try_redis_pool, unique_cluster,
@@ -27,12 +27,7 @@ fn s256_challenge(verifier: &str) -> String {
 
 macro_rules! token_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new()
-                .app_data(web::Data::new($state))
-                .service(web::scope("/clusters").service(token::token)),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -64,6 +59,7 @@ async fn seed_code(
 
 fn issued_code(redirect_uri: &str) -> IssuedCode {
     IssuedCode {
+        subject: "alice".to_string(),
         redirect_uri: redirect_uri.to_string(),
         code_challenge: s256_challenge(VERIFIER),
         access_token: "upstream-access-token".to_string(),
@@ -74,7 +70,7 @@ fn issued_code(redirect_uri: &str) -> IssuedCode {
     }
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn exchanges_a_valid_code_for_the_upstream_tokens() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
@@ -115,7 +111,7 @@ async fn exchanges_a_valid_code_for_the_upstream_tokens() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn a_code_can_only_be_redeemed_once() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
@@ -167,7 +163,7 @@ async fn a_code_can_only_be_redeemed_once() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn rejects_a_mismatched_pkce_verifier() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
@@ -207,7 +203,7 @@ async fn rejects_a_mismatched_pkce_verifier() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn rejects_a_mismatched_redirect_uri() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
@@ -244,7 +240,7 @@ async fn rejects_a_mismatched_redirect_uri() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn rejects_an_unknown_code() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();
@@ -273,7 +269,7 @@ async fn rejects_an_unknown_code() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn rejects_an_unsupported_grant_type() {
     let pool = redis_or_skip!();
     let (ns, cluster) = unique_cluster();

@@ -207,9 +207,13 @@ fn env_filter(rust_log: Option<&str>) -> Result<EnvFilter, ParseError> {
 
 /// The filter applied to the stdout layer: same as [`env_filter`] (so
 /// `RUST_LOG` now drives stdout too), with the OpenTelemetry SDK's own logs
-/// capped at `info`.
+/// capped at `info`, and without the `audit` target: audit lines are written
+/// to stdout by the api crate itself, in their own schema (RFC 0008), and the
+/// `audit` events only feed the OpenTelemetry span.
 fn fmt_filter(rust_log: Option<&str>) -> Result<EnvFilter, ParseError> {
-    Ok(base_filter(rust_log)?.add_directive("opentelemetry=info".parse()?))
+    Ok(base_filter(rust_log)?
+        .add_directive("opentelemetry=info".parse()?)
+        .add_directive("audit=off".parse()?))
 }
 
 /// The stdout layer, in the requested `format`, writing to `writer`.
@@ -451,6 +455,21 @@ mod tests {
         let timestamp = event["timestamp"].as_str().unwrap();
         assert_eq!(timestamp.as_bytes()[10], b'T', "{timestamp}");
         assert!(timestamp.ends_with('Z'), "{timestamp}");
+    }
+
+    #[test]
+    fn the_audit_target_never_reaches_the_log_layer() {
+        // The api crate writes audit lines itself (RFC 0008); the `audit`
+        // events only feed the OpenTelemetry span, never a second stdout line.
+        let buffer = Buffer::default();
+        let subscriber = Registry::default().with(
+            fmt_layer(LogFormat::Json, buffer.clone())
+                .with_filter(fmt_filter(Some("trace")).unwrap()),
+        );
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(target: "audit", event = "request", "audit event");
+        });
+        assert!(buffer.0.lock().unwrap().is_empty());
     }
 
     #[test]

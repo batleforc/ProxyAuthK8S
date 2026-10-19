@@ -13,6 +13,7 @@ use std::time::Duration;
 use base64::{Engine, prelude::BASE64_STANDARD};
 use common::{State, oidc_conf::OidcConf};
 use crd::ProxyKubeApi;
+use crd::authentication_configuration::OidcProvider;
 use kube::{Client, ResourceExt, config::Kubeconfig};
 use reqwest::Url;
 use tracing::instrument;
@@ -37,6 +38,9 @@ pub enum ProxyRuntimeError {
     /// Building the kube client from the rendered kubeconfig failed.
     #[error("failed to build kube client: {0}")]
     KubeClient(#[from] kube::Error),
+    /// Resolving the OIDC provider block from its `config_from` Secret failed.
+    #[error(transparent)]
+    OidcConfig(#[from] crd::authentication_configuration::OidcConfigError),
     /// The resolved CA contains no PEM `CERTIFICATE` block.
     #[error("the cluster CA contains no PEM CERTIFICATE block")]
     CaWithoutPem,
@@ -63,18 +67,29 @@ pub trait ProxyKubeApiRuntime {
     ) -> String;
 
     /// Check whether the upstream service answers.
+    ///
+    /// `Ok(false)` when the target is down from here: the service can't be
+    /// resolved, the connection is refused or times out, the TLS handshake
+    /// fails, or it answers with a 5xx. `Err` only when the probe itself can't
+    /// be run (e.g. the `cert` can't be read or the client can't be built).
     async fn is_reachable(&self, ctx: Arc<State>) -> Result<bool, ProxyRuntimeError>;
 
     /// Build a `reqwest` client trusting this cluster's CA (if any).
     async fn get_client(&self, ctx: Arc<State>) -> Result<reqwest::Client, ProxyRuntimeError>;
 
     /// Derive the [`OidcConf`] for this cluster, if OIDC is enabled.
-    fn get_oidc_conf(
+    ///
+    /// `async` and fallible because the provider block may be stored in an
+    /// external Secret (`oidc_provider.config_from`), which has to be read from
+    /// the apiserver. `Ok(None)` still means "this cluster has no OIDC to
+    /// offer"; an `Err` means it has some and we could not resolve it, which
+    /// callers must not treat as the same thing.
+    async fn get_oidc_conf(
         &self,
         state: Arc<State>,
         redirect_front: bool,
         redirect_kubectl: Option<String>,
-    ) -> Option<OidcConf>;
+    ) -> Result<Option<OidcConf>, ProxyRuntimeError>;
 
     /// Derive the [`OidcConf`] used by the mediated OAuth Authorization Server
     /// flow (`/oauth/authorize`, `/oauth/callback`, `/oauth/token`).
@@ -83,7 +98,10 @@ pub trait ProxyKubeApiRuntime {
     /// cluster — distinct from the front/kubectl redirect variants — since the
     /// upstream provider must hand the code back to the proxy itself, not to
     /// an external caller.
-    fn get_oauth_as_oidc_conf(&self, state: Arc<State>) -> Option<OidcConf>;
+    async fn get_oauth_as_oidc_conf(
+        &self,
+        state: Arc<State>,
+    ) -> Result<Option<OidcConf>, ProxyRuntimeError>;
 
     /// Render a [`Kubeconfig`] targeting this cluster with the given token.
     async fn to_kubeconfig(
@@ -100,6 +118,37 @@ pub trait ProxyKubeApiRuntime {
         default_ns: Option<String>,
         token: Option<String>,
     ) -> Result<Client, ProxyRuntimeError>;
+}
+
+/// Resolve an [`OidcProvider`] block, reading its `config_from` Secret through
+/// [`State::oidc_config_cache`].
+///
+/// Split out of the trait method so the caching is in one place rather than
+/// duplicated between the front/kubectl and OAuth-AS derivations.
+async fn resolve_oidc_provider(
+    provider: &OidcProvider,
+    state: &State,
+    proxy: &ProxyKubeApi,
+) -> Result<OidcProvider, ProxyRuntimeError> {
+    let Some(source) = &provider.config_from else {
+        // No external reference: nothing to read, nothing to cache.
+        return Ok(provider.clone());
+    };
+
+    let cr_ns = proxy.namespace().unwrap_or_default();
+    let key = source.cache_key(&cr_ns);
+    if let Some(overrides) = state.oidc_config_cache.get(&key).await {
+        return Ok(provider.merge(overrides)?);
+    }
+
+    let overrides = source.resolve(state.client.clone(), &cr_ns).await?;
+    // Cache what the Secret actually said before merging. The merge still runs
+    // on every request, so an incomplete block is still reported every time —
+    // but without caching here a mistyped `config_from` would put an apiserver
+    // Secret GET behind every single proxied request for as long as the CR stays
+    // broken, which is exactly the load this cache exists to avoid.
+    state.oidc_config_cache.put(key, overrides.clone()).await;
+    Ok(provider.merge(overrides)?)
 }
 
 impl ProxyKubeApiRuntime for ProxyKubeApi {
@@ -167,6 +216,17 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
                 }
                 Ok(false)
             }
+            Err(err) if err.is_connect() || err.is_timeout() => {
+                // Refused / unroutable / TLS handshake failure, or no answer in
+                // time: the target is down from here, which is what `Ok(false)`
+                // means. `Err` stays reserved for failures on our side.
+                tracing::warn!(
+                    "ProxyKubeApi {} is unreachable: {}",
+                    self.to_identifier(),
+                    err
+                );
+                Ok(false)
+            }
             Err(err) => {
                 tracing::error!(
                     "Failed to reach ProxyKubeApi {}: {}",
@@ -215,12 +275,12 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
         Ok(reqwest_client.build()?)
     }
 
-    fn get_oidc_conf(
+    async fn get_oidc_conf(
         &self,
         state: Arc<State>,
         redirect_front: bool,
         redirect_kubectl: Option<String>,
-    ) -> Option<OidcConf> {
+    ) -> Result<Option<OidcConf>, ProxyRuntimeError> {
         if let Some(redirect_kubectl_uri) = redirect_kubectl.clone() {
             // Validate the redirect uri
             // The uri need to be have no path, no query and no fragment and uri should be localhost
@@ -228,7 +288,10 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
                 uri
             } else {
                 tracing::error!("Invalid redirect uri: {}", redirect_kubectl_uri);
-                return None;
+                // A rejected caller-supplied redirect, not a failure to resolve
+                // configuration — deliberately still `Ok(None)` so the callers'
+                // existing 4xx path is unchanged.
+                return Ok(None);
             };
             if parsed_uri.path() != "/"
                 || parsed_uri.query().is_some()
@@ -236,7 +299,7 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
                 || parsed_uri.host_str() != Some("localhost")
             {
                 tracing::error!("Invalid redirect uri: {}", redirect_kubectl_uri);
-                return None;
+                return Ok(None);
             }
             tracing::info!("Valid redirect uri: {}", redirect_kubectl_uri);
         }
@@ -248,7 +311,13 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
         match &self.spec.auth_config {
             Some(auth_config) => {
                 if auth_config.oidc_provider.enabled {
-                    let provider = &auth_config.oidc_provider;
+                    // Applies `config_from` over the inline block; a no-op clone
+                    // when the provider is configured inline. This runs on the
+                    // request path, so the Secret read behind it goes through a
+                    // short-lived cache rather than hitting the apiserver once
+                    // per proxied request.
+                    let provider =
+                        resolve_oidc_provider(&auth_config.oidc_provider, &state, self).await?;
                     // A distinct audience when configured, otherwise fall back to
                     // the client id (providers that put the client in `aud`).
                     let audience = if provider.audience.is_empty() {
@@ -256,31 +325,36 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
                     } else {
                         provider.audience.clone()
                     };
-                    return Some(OidcConf {
-                        client_id: provider.client_id.clone(),
-                        client_secret: provider.client_secret.clone(),
-                        issuer_url: provider.issuer_url.clone(),
-                        scopes: provider.extra_scope.clone(),
+                    return Ok(Some(OidcConf {
+                        client_id: provider.client_id,
+                        client_secret: provider.client_secret,
+                        issuer_url: provider.issuer_url,
+                        scopes: provider.extra_scope,
                         audience,
                         accept_authorized_party: provider.accept_authorized_party,
                         redirect_url,
-                    });
+                    }));
                 }
-                None
+                Ok(None)
             }
-            None => None,
+            None => Ok(None),
         }
     }
 
-    fn get_oauth_as_oidc_conf(&self, state: Arc<State>) -> Option<OidcConf> {
+    async fn get_oauth_as_oidc_conf(
+        &self,
+        state: Arc<State>,
+    ) -> Result<Option<OidcConf>, ProxyRuntimeError> {
         let redirect_url = format!(
             "{}/clusters/{}/oauth/callback",
             state.oidc_cluster_redirect_base_url,
             self.to_path()
         );
-        let mut conf = self.get_oidc_conf(state, false, None)?;
+        let Some(mut conf) = self.get_oidc_conf(state, false, None).await? else {
+            return Ok(None);
+        };
         conf.redirect_url = Some(redirect_url);
-        Some(conf)
+        Ok(Some(conf))
     }
 
     #[instrument(skip(self, state, token))]
@@ -397,7 +471,7 @@ mod tests {
             NAME,
             ProxyKubeApiSpec {
                 enabled: true,
-                cert: CertSource::Insecure(true),
+                cert: CertSource::SystemRoots(true),
                 client_cert: None,
                 service: Service::ExternalService {
                     url: UPSTREAM.to_string(),
@@ -426,6 +500,7 @@ mod tests {
                 audience: audience.to_string(),
                 accept_authorized_party: true,
                 expose_oauth_authorization_server: false,
+                config_from: None,
             },
             disable_validation: false,
             validate_against: ValidateAgainst::OidcProvider,
@@ -491,28 +566,68 @@ mod tests {
     #[tokio::test]
     async fn oidc_conf_is_none_without_an_auth_config() {
         let proxy = proxy(None);
-        assert!(proxy.get_oidc_conf(state(), false, None).is_none());
-        assert!(proxy.get_oidc_conf(state(), true, None).is_none());
+        assert!(
+            proxy
+                .get_oidc_conf(state(), false, None)
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
+        assert!(
+            proxy
+                .get_oidc_conf(state(), true, None)
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
         assert!(
             proxy
                 .get_oidc_conf(state(), false, Some("http://localhost:8000/".to_string()))
+                .await
+                .expect("no config_from to resolve")
                 .is_none()
         );
-        assert!(proxy.get_oauth_as_oidc_conf(state()).is_none());
+        assert!(
+            proxy
+                .get_oauth_as_oidc_conf(state())
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
     }
 
     #[tokio::test]
     async fn oidc_conf_is_none_when_the_provider_is_disabled() {
         let proxy = proxy(Some(oidc(false, "aud")));
-        assert!(proxy.get_oidc_conf(state(), false, None).is_none());
-        assert!(proxy.get_oidc_conf(state(), true, None).is_none());
-        assert!(proxy.get_oauth_as_oidc_conf(state()).is_none());
+        assert!(
+            proxy
+                .get_oidc_conf(state(), false, None)
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
+        assert!(
+            proxy
+                .get_oidc_conf(state(), true, None)
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
+        assert!(
+            proxy
+                .get_oauth_as_oidc_conf(state())
+                .await
+                .expect("no config_from to resolve")
+                .is_none()
+        );
     }
 
     #[tokio::test]
     async fn oidc_conf_default_mode_copies_the_provider_without_a_redirect() {
         let conf = with_oidc()
             .get_oidc_conf(state(), false, None)
+            .await
+            .expect("no config_from to resolve")
             .expect("enabled provider yields a conf");
         assert_eq!(conf.client_id, "cluster-client");
         assert_eq!(conf.client_secret.as_deref(), Some("cluster-secret"));
@@ -524,18 +639,28 @@ mod tests {
 
     #[tokio::test]
     async fn oidc_conf_audience_falls_back_to_the_client_id() {
-        let conf = with_oidc().get_oidc_conf(state(), false, None).unwrap();
+        let conf = with_oidc()
+            .get_oidc_conf(state(), false, None)
+            .await
+            .expect("no config_from to resolve")
+            .unwrap();
         assert_eq!(conf.audience, "cluster-client");
 
         let conf = proxy(Some(oidc(true, "kubernetes")))
             .get_oidc_conf(state(), false, None)
+            .await
+            .expect("no config_from to resolve")
             .unwrap();
         assert_eq!(conf.audience, "kubernetes");
     }
 
     #[tokio::test]
     async fn oidc_conf_front_mode_redirects_to_the_front() {
-        let conf = with_oidc().get_oidc_conf(state(), true, None).unwrap();
+        let conf = with_oidc()
+            .get_oidc_conf(state(), true, None)
+            .await
+            .expect("no config_from to resolve")
+            .unwrap();
         assert_eq!(
             conf.redirect_url.as_deref(),
             Some("https://front.example.com/auth/callback/team-a/prod")
@@ -546,6 +671,8 @@ mod tests {
     async fn oidc_conf_kubectl_mode_redirects_to_the_local_callback() {
         let conf = with_oidc()
             .get_oidc_conf(state(), false, Some("http://localhost:8000/".to_string()))
+            .await
+            .expect("no config_from to resolve")
             .unwrap();
         assert_eq!(
             conf.redirect_url.as_deref(),
@@ -568,6 +695,8 @@ mod tests {
             assert!(
                 proxy
                     .get_oidc_conf(state(), false, Some(uri.to_string()))
+                    .await
+                    .expect("no config_from to resolve")
                     .is_none(),
                 "{uri} must be rejected"
             );
@@ -575,6 +704,8 @@ mod tests {
             assert!(
                 proxy
                     .get_oidc_conf(state(), true, Some(uri.to_string()))
+                    .await
+                    .expect("no config_from to resolve")
                     .is_none(),
                 "{uri} must be rejected even in front mode"
             );
@@ -583,7 +714,11 @@ mod tests {
 
     #[tokio::test]
     async fn oauth_as_conf_redirects_to_the_proxy_oauth_callback() {
-        let conf = with_oidc().get_oauth_as_oidc_conf(state()).unwrap();
+        let conf = with_oidc()
+            .get_oauth_as_oidc_conf(state())
+            .await
+            .expect("no config_from to resolve")
+            .unwrap();
         assert_eq!(
             conf.redirect_url.as_deref(),
             Some("https://proxy.example.com/clusters/team-a/prod/oauth/callback")

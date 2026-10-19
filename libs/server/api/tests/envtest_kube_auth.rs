@@ -17,9 +17,8 @@
 mod envtest_support;
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::redirect;
 use api::model::user::{User, UserAuthError};
+use axum::http::StatusCode;
 use base64::Engine;
 use crd::{
     ProxyKubeApi,
@@ -27,6 +26,7 @@ use crd::{
     certificate::CertSource,
 };
 use envtest_support::EnvTest;
+use harness::test;
 use harness::{
     delete_proxy, proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
 };
@@ -106,6 +106,7 @@ fn kubernetes_mode_proxy(env_test: &EnvTest, ns: &str, cluster: &str) -> ProxyKu
             audience: String::new(),
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
+            config_from: None,
         },
         disable_validation: false,
         validate_against: ValidateAgainst::Kubernetes,
@@ -167,7 +168,7 @@ async fn get_user_info_with_proxy_dispatches_to_the_kubernetes_mode() {
 
     // Identity declared in the envtest `--token-auth-file`.
     assert_eq!(user.username, "envtest-admin");
-    assert!(user.is_in_group("system:masters"), "{:?}", user.groups);
+    assert!(user.is_in_group("system:masters"), "not in system:masters");
 }
 
 #[tokio::test]
@@ -221,20 +222,13 @@ async fn a_token_of_a_deleted_service_account_is_rejected() {
 
 macro_rules! proxy_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new().app_data(web::Data::new($state)).service(
-                web::scope("/clusters")
-                    .service(redirect::get_redirect)
-                    .service(redirect::post_redirect),
-            ),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
 /// End to end through the proxy: the token is validated against the cluster,
 /// then forwarded unchanged, so the upstream answers as that ServiceAccount.
-#[actix_web::test]
+#[tokio::test]
 async fn the_proxy_forwards_a_valid_kubernetes_token() {
     let pool = redis_or_skip!();
     let env_test = envtest_or_skip!();
@@ -264,7 +258,7 @@ async fn the_proxy_forwards_a_valid_kubernetes_token() {
 }
 
 /// The proxy must answer 401 itself, without leaking the review's detail.
-#[actix_web::test]
+#[tokio::test]
 async fn the_proxy_rejects_an_invalid_kubernetes_token_with_401() {
     let pool = redis_or_skip!();
     let env_test = envtest_or_skip!();

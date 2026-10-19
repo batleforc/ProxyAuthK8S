@@ -1,7 +1,6 @@
 {
   "compilerOptions": {
     "allowJs": true,
-    "esModuleInterop": false,
     "allowSyntheticDefaultImports": true,
     "allowImportingTsExtensions": true,
     "strict": true,
@@ -10,7 +9,10 @@
     "moduleResolution": "bundler",
     "module": "ESNext",
     "resolveJsonModule": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "files": [],
   "include": [],

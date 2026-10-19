@@ -1,157 +1,98 @@
 # ProxyAuthK8s
 
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/batleforc/ProxyAuthK8S/badge)](https://scorecard.dev/viewer/?uri=github.com/batleforc/ProxyAuthK8S)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-![ProxyAuthK8s Logo](.docs/public/art.png)
+![ProxyAuthK8s Logo](docs/public/art.png)
 
-ProxyAuthK8S is a part of the Weebo Si project, this project is focused on exposing Kube api server with focus on security and ease of use.
+ProxyAuthK8S is part of the Weebo SI project. It exposes Kubernetes API servers
+behind a single authenticating proxy, with a focus on security and ease of use,
+and makes it easy to share kubeconfig files between users and teams.
 
-In addition to the secured exposure, this project also eases the sharing of kubeconfig files between users and teams.
+**Documentation (French): <https://batleforc.github.io/ProxyAuthK8S/>**
 
-The base specification of the [project can be found here](https://batleforc.github.io/weebo-si/0.projects/reverse-api-kube-oidc-based.html).
+![ProxyAuthK8s Demo](docs/public/demo-1.gif)
 
-![ProxyAuthK8s Demo](.docs/public/demo-1.gif)
+![The dashboard: pick a cluster, switch the theme, copy its proxy URL](docs/public/screenshots/flow.gif)
+
+More screenshots, in both themes, on the
+[Dashboard page](https://batleforc.github.io/ProxyAuthK8S/docs/ui) of the documentation.
+
+## Features
+
+- **One entry point for many clusters**: each target cluster is a `ProxyKubeApi`
+  resource, reconciled by the built-in controller
+  ([expose a cluster](https://batleforc.github.io/ProxyAuthK8S/docs/expose-cluster)).
+- **OIDC login** for the UI and the CLI, with per-cluster group restrictions
+  ([security model](https://batleforc.github.io/ProxyAuthK8S/docs/security)).
+- **`kubectl proxyauth` plugin**: login, credential plugin and kubeconfig
+  generation ([kubectl plugin](https://batleforc.github.io/ProxyAuthK8S/docs/kubectl-plugin)).
+- **Request policy**: allow-listed resources, port-forward port filtering, rate
+  limiting, fail2login and an audit event per proxied request.
+- **Virtual APIs**, such as OpenShift project discovery
+  ([virtual APIs](https://batleforc.github.io/ProxyAuthK8S/docs/virtual-apis)).
+- **Web UI** listing the clusters you can reach and their kubeconfig, on the BatleHub
+  design system: light and dark themes, English and French, WCAG 2.2 AA, and a strict
+  Content-Security-Policy built at container start.
+
+## Install
+
+Two Helm charts are published as OCI artifacts: the CRDs, then the application.
+
+```sh
+helm upgrade --install proxyauthk8s-crd \
+  oci://ghcr.io/batleforc/proxyauthk8s/chart-crd:<version> --namespace <ns>
+helm upgrade --install proxyauthk8s \
+  oci://ghcr.io/batleforc/proxyauthk8s/chart:<version> --namespace <ns> \
+  --values proxyauthk8s-values.yaml
+```
+
+The [Quick start](https://batleforc.github.io/ProxyAuthK8S/docs/quick-started)
+covers Redis, the values file and a first cluster; the
+[Helm chart](https://batleforc.github.io/ProxyAuthK8S/docs/helm-chart) page lists
+every value. The kubectl plugin installs with krew; see the
+[kubectl plugin](https://batleforc.github.io/ProxyAuthK8S/docs/kubectl-plugin)
+page until it is published on the krew index.
+
+Put an ingress or reverse proxy (TLS termination) in front of ProxyAuthK8S.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  UF[Utilisateur Front] --> UI
-  UC[Utilisateur CLI] --> BE
+  UF[Web user] --> UI
+  UC[CLI user] --> BE
 
   subgraph PX[ProxyAuthK8S]
-    UI[UI ProxyAuthK8S]
-    BE[Backend + Controller]
+    UI[ProxyAuthK8S UI]
+    BE[Backend + controller]
     R[(Redis)]
   end
 
   UI --> BE
   BE <--> R
-  BE <--> KC[(Cluster Kubernetes Fédérateur)]
-  BE <--> IDP[Providers d'identité]
-  BE --> KX[Clusters Kubernetes accessibles]
+  BE <--> KC[(Host cluster: ProxyKubeApi CRDs, Lease)]
+  BE <--> IDP[Identity providers]
+  BE --> KX[Target Kubernetes clusters]
 ```
 
-N'oublier pas de mettre une brique d'exposition entre les utilisateurs et la brique ProxyAuthK8S.
+## Local development
 
-## Local dev with Keycloak (alternative IdP)
+The local stack (Traefik, Redis, an OIDC provider and a k3d cluster) is
+described in the
+[developer guide](https://batleforc.github.io/ProxyAuthK8S/docs/developper-guide/work-localy).
+Authelia is the default identity provider; Keycloak and Dex are documented there
+as alternatives.
 
-You can run ProxyAuthK8S with Keycloak instead of Authelia for local OIDC testing.
+## Roadmap
 
-1. Enable Keycloak include in [compose.yaml](compose.yaml) and disable Authelia include.
+The roadmap (done, in progress and planned work) is maintained in a single place:
+[the Roadmap page of the documentation](https://batleforc.github.io/ProxyAuthK8S/docs/roadmap)
+(source: [`docs/content/docs/roadmap.mdx`](docs/content/docs/roadmap.mdx)).
+Design decisions are written as RFCs in [`.rfc/`](.rfc/README.md).
 
-1. Use the Keycloak env file.
+## Contributing, security and license
 
-1. Start the stack.
-
-```sh
-cp .env.keycloak .env
-docker compose up -d
-```
-
-Keycloak URL (via Traefik): `https://keycloak.k8s.localhost`
-
-The imported realm is [realm-proxyauthk8s.json](.compose/keycloak/realm-proxyauthk8s.json) and already contains:
-
-- realm: `proxyauthk8s`
-- client `proxyauthk8s` (front login)
-- client `kube_login` (cluster OIDC)
-- users `dev-admin` / `dev-user`
-
-## Left to do
-
-### v0.1.0
-
-- [x] Create a CRD to store target cluster
-- [x] Validate the CRD against certain rules
-- [x] Authenticate users against an Oidc Provider for the UI and filter dashboard based on the user groups
-- [x] Create a UI
-  - [x] List User's accessible clusters
-  - [x] Login to cluster's OIDC if provider is OIDC and show kubeconfig
-  - [x] Show kubeconfig in case of non OIDC provider
-  - [x] Generate the Api client from the Swagger documentation of the API
-- [x] Controller
-  - [x] Reconcile CRD and update the status with the cluster accessibility for the user
-  - [x] Handle CallBack from OIDC provider and update the status
-  - [x] Handle HA of the controller with leader election
-- [x] Backend
-  - [x] Expose API for the UI
-  - [x] Redirect each request to the right cluster based on the user and the cluster accessibility
-  - [x] Validate the token either against the OIDC provider or kube itself before redirecting the request
-  - [x] Handle HA of the backend with state storage in Redis
-  - [x] Generate the Swagger documentation for the API
-- [x] CI/CD
-  - [x] On each commit
-    - [x] Run CodeQL analysis
-    - [x] Rust Deeper analysis including CVE
-    - [x] Front Lint and CVE
-  - [x] In case of TAG on main, if not ignored the tag and need to be in the format vX.X.X
-    - [x] Build and push Docker image to GHCR
-    - [x] Build and push Helm chart to GHCR
-    - [x] Create a draft-release on GitHub with the changelog
-- [x] PRE-TAG
-  - [x] Tag need to be in the format vX.X.X - Rules on repo
-  - [x] Tag need to be done with cog by a human contributor - Rules on repo
-  - [x] Each release need to have a name and a description in the changelog
-
-### v0.2.0
-
-- [ ] Add documentation
-  - [x] How to Deploy ProxyAuthK8s
-  - [ ] How to use Kubectl ProxyAuth plugin
-  - [ ] How to use the UI
-  - [ ] How to add new Kubernetes API to ProxyAuthK8S
-  - [x] Architecture overview
-  - [x] API documentation
-  - [x] How to contribute
-  - [x] How to setup development environment
-  - [x] How to Release a new version
-- [ ] Create Krew plugin for easier usage
-  - <https://github.com/davidB/kubectl-view-allocations/tree/master>
-  - <https://github.com/kubernetes-sigs/krew-index/blob/master/plugins/view-allocations.yaml>
-  - name: `proxyauthk8s`
-  - <https://docs.rs/clap/latest/clap/>
-  - [x] Use an auto generated client from the OpenAPI spec of the API to interact with the API
-- [ ] CI/CD
-  - [ ] In case of TAG
-    - [x] Build the plugin archives and render the Krew manifest
-    - [ ] Open the PR against the Krew Index
-  - [ ] Pin `actions/upload-artifact` and `actions/download-artifact` to a SHA in
-        `release-prepare.yml`, like every other action in the workflows
-- [ ] Have a clean git history
-
-### v1.0.0
-
-- [x] Add more tests
-  - [x] Unit tests on the CRD, the path matcher and the security policy
-  - [x] Fast integration tier (wiremock upstream + real Redis)
-  - [x] envtest tier against a real ephemeral kube-apiserver
-- [x] Add [redis cluster](https://docs.rs/deadpool-redis/latest/deadpool_redis/#example-cluster) support for HA and state storage
-- [ ] Add security features
-  - [x] Enforce `allowed_resources` on the proxy path
-  - [x] Per-cluster authorization (`proxy_group`)
-  - [x] Rate limiting and fail2login, backed by Redis counters
-  - [x] Audit trail on every proxied request
-  - [x] mTLS between the proxy and the target clusters
-  - [x] CEL admission rules on the CRD
-  - [ ] Local JWT validation against the `jwt` authenticators (signature, claim
-        validation rules and claim mappings, as the apiserver's structured
-        authentication configuration does)
-  - [ ] Allow getting oidc configuration from an external secrets
-- [x] Add Oidc token validation
-- [ ] Match allowed resources on group/version/kind (`AllowedCrdConfiguration`)
-      instead of only on paths
-- [ ] Drop the deprecated `allowed_ressources` spelling once resources have been
-      migrated to `allowed_resources` (breaking, hence the next major)
-- [ ] CI/CD
-  - [ ] In case of TAG
-    - [ ] Publish the documentation on GitHub Pages
-
-### v2.0.0
-
-- [ ] Redesign the UI (I hate the current look of it)
-- [ ] Setup Exchange token between IdP and ProxyAuthK8S main auth server
-- [ ] Add ability to go through a proxy (example with Netbird)
-- [ ] Virtual APIs: fall back to per-namespace `SelfSubjectAccessReview` when
-      `LIST namespaces` is denied, so `LIST projects` behaves like OpenShift's
-- [ ] Setup Agent Mode, Allow to not expose each cluster to the world and just have an agent doing a tunnel between the Cluster ApiServer and ProxyAuthK8S
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- Licensed under the [GNU GPL v3.0](LICENSE).

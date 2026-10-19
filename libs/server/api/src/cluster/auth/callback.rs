@@ -1,5 +1,12 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
-use common::State;
+use crate::cluster::redirect::audit::{Event, HandlerAudit};
+use std::sync::Arc;
+
+use axum::{
+    Json,
+    extract::{Path, Query, State},
+    http::{StatusCode, request::Parts},
+    response::{IntoResponse, Response},
+};
 use crd::ProxyKubeApi;
 use crd_runtime::ProxyKubeApiRuntime;
 use openidconnect::{AccessTokenHash, AuthorizationCode, OAuth2TokenResponse, TokenResponse};
@@ -7,8 +14,10 @@ use serde::Deserialize;
 use tracing::{error, info, instrument};
 use utoipa::{IntoParams, ToSchema};
 
-use crate::cluster::auth::{auth_model::LoginToCallBackModel, callback_model::CallbackModel};
-use crate::helper::extract_ns_cluster;
+use crate::cluster::auth::{
+    auth_model::LoginToCallBackModel, callback_model::CallbackModel, throttle_oauth_as,
+};
+use crate::helper::NsCluster;
 
 #[derive(Deserialize, ToSchema, IntoParams)]
 pub struct CallbackQuery {
@@ -22,11 +31,16 @@ pub struct CallbackQuery {
 ///
 /// If the cluster is not found or disabled, return 404.
 #[utoipa::path(
+    get,
+    path = "/{ns}/{cluster}/auth/callback",
     tag = "auth_clusters",
     responses(
         (status = 200, description = "Response from remote cluster.", body = CallbackModel),
+        (status = 400, description = "Missing or already-used CSRF state."),
         (status = 404, description = "Cluster not found or disabled."),
+        (status = 429, description = "Rate limited or banned for this cluster."),
         (status = 500, description = "Internal server error."),
+        (status = 503, description = "Redis is unavailable."),
     ),
     params(
         ("ns" = String, description = "Namespace containing the cluster."),
@@ -36,29 +50,37 @@ pub struct CallbackQuery {
         CallbackQuery,
     )
 )]
-#[get("/{ns}/{cluster}/auth/callback")]
-#[instrument(name = "cluster_callback", skip(data, callback))]
+#[instrument(name = "cluster_callback", skip(data, req, callback))]
 pub async fn callback_login(
-    req: HttpRequest,
-    data: web::Data<State>,
-    callback: web::Query<CallbackQuery>,
-) -> impl Responder {
-    let (ns, cluster) = if let Some(parts) = extract_ns_cluster(&req) {
-        parts
-    } else {
-        error!(path = %req.path(), "missing ns/cluster path parameters");
-        return HttpResponse::NotFound().finish();
-    };
+    State(data): State<Arc<common::State>>,
+    Path(NsCluster { ns, cluster }): Path<NsCluster>,
+    req: Parts,
+    callback: Query<CallbackQuery>,
+) -> Response {
+    let mut audit = HandlerAudit::new(&ns, &cluster);
+    let response = callback_login_inner(data, ns, cluster, req, callback, &mut audit).await;
+    audit.finish(Event::AuthCallback, Event::AuthCallback, &response);
+    response
+}
 
+/// The handler itself; [`callback_login`] writes its audit line.
+async fn callback_login_inner(
+    data: Arc<common::State>,
+    ns: String,
+    cluster: String,
+    req: Parts,
+    callback: Query<CallbackQuery>,
+    audit: &mut HandlerAudit,
+) -> Response {
     let proxy: ProxyKubeApi = match data
         .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
         .await
     {
         Ok(Some(proxy)) => proxy,
-        Ok(None) => return HttpResponse::NotFound().finish(),
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             error!(error = %e, "couldn't get proxy from redis");
-            return HttpResponse::ServiceUnavailable().finish();
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
 
@@ -69,34 +91,45 @@ pub async fn callback_login(
             .as_ref()
             .is_some_and(|auth_config| !auth_config.oidc_provider.enabled)
     {
-        return HttpResponse::NotFound().finish();
+        return StatusCode::NOT_FOUND.into_response();
     }
-    let redirect_front = req.headers().contains_key("x-front-callback");
-    let redirect_kubectl = req
-        .headers()
-        .get("x-kubectl-callback")
-        .and_then(|v| v.to_str().ok())
-        .map(std::string::ToString::to_string);
-    let oidc_conf = if let Some(conf) =
-        proxy.get_oidc_conf(data.clone().into_inner(), redirect_front, redirect_kubectl)
+    // Before any OIDC work: `oidc_core()` below performs an uncached discovery
+    // fetch against the provider, and this endpoint is unauthenticated, so
+    // without a gate here every anonymous request with a junk `state` turns into
+    // an outbound request to the cluster's IdP. The CSRF check that rejects such
+    // a request is further down, so the cheap rejection would otherwise sit
+    // behind the expensive call. Same helper, same position, as the `/oauth/*`
+    // siblings.
+    if let Some(response) = throttle_oauth_as(&req, &data, &proxy).await {
+        return response;
+    }
+    let (redirect_front, redirect_kubectl) = super::callback_target(&req);
+    let oidc_conf = match proxy
+        .get_oidc_conf(data.clone(), redirect_front, redirect_kubectl)
+        .await
     {
-        conf
-    } else {
-        error!("OIDC config not found or invalid");
-        return HttpResponse::InternalServerError().finish();
+        Ok(Some(conf)) => conf,
+        Ok(None) => {
+            error!("OIDC config not found or invalid");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        Err(e) => {
+            error!(error = %e, "couldn't resolve the OIDC config");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
     let client_reqwest = match oidc_conf.oidc_reqwest_client() {
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't build oidc http client");
-            return HttpResponse::InternalServerError().finish();
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
     let client_oidc = match oidc_conf.oidc_core().await {
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't get oidc client");
-            return HttpResponse::InternalServerError().finish();
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
     info!(%ns, %cluster, "Callback received for cluster");
@@ -116,16 +149,18 @@ pub async fn callback_login(
                 model
             } else {
                 error!("Couldn't parse nonce object");
-                return HttpResponse::BadRequest().body("Invalid state");
+                audit.deny("invalid or expired state");
+                return (StatusCode::BAD_REQUEST, "Invalid state").into_response();
             }
         }
         Ok(None) => {
             error!("Nonce not found in redis");
-            return HttpResponse::BadRequest().body("Invalid state");
+            audit.deny("invalid or expired state");
+            return (StatusCode::BAD_REQUEST, "Invalid state").into_response();
         }
         Err(e) => {
             error!(error = %e, "couldn't get nonce");
-            return HttpResponse::ServiceUnavailable().finish();
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
     let exchange_code =
@@ -133,7 +168,8 @@ pub async fn callback_login(
             Ok(code) => code,
             Err(e) => {
                 error!(error = %e, "couldn't exchange code");
-                return HttpResponse::InternalServerError().finish();
+                audit.fail("the code exchange with the identity provider failed");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
     let token_response = match exchange_code
@@ -145,7 +181,8 @@ pub async fn callback_login(
         Ok(token) => token,
         Err(e) => {
             error!(error = %e, "couldn't get token response");
-            return HttpResponse::InternalServerError().finish();
+            audit.fail("the code exchange with the identity provider failed");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
@@ -153,14 +190,15 @@ pub async fn callback_login(
         id_token
     } else {
         error!("No ID token received");
-        return HttpResponse::InternalServerError().body("No ID token received");
+        return (StatusCode::INTERNAL_SERVER_ERROR, "No ID token received").into_response();
     };
     let id_token_verifier = client_oidc.id_token_verifier();
     let claims = match id_token.claims(&id_token_verifier, &login_to_callback.nonce()) {
         Ok(claims) => claims,
         Err(e) => {
             error!(error = %e, "couldn't verify ID token");
-            return HttpResponse::InternalServerError().finish();
+            audit.fail("the ID token could not be verified");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
@@ -169,14 +207,14 @@ pub async fn callback_login(
             Ok(alg) => alg,
             Err(e) => {
                 error!(error = %e, "couldn't get signing alg");
-                return HttpResponse::InternalServerError().finish();
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
         let signing_key = match id_token.signing_key(&id_token_verifier) {
             Ok(key) => key,
             Err(e) => {
                 error!(error = %e, "couldn't get signing key");
-                return HttpResponse::InternalServerError().finish();
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
         let actual_access_token_hash = match AccessTokenHash::from_token(
@@ -187,13 +225,15 @@ pub async fn callback_login(
             Ok(hash) => hash,
             Err(e) => {
                 error!(error = %e, "couldn't get access token hash");
-                return HttpResponse::InternalServerError().finish();
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
         if actual_access_token_hash != *expected_access_token_hash {
-            return HttpResponse::BadRequest().body("Invalid access token");
+            audit.deny("the access token does not match the ID token");
+            return (StatusCode::BAD_REQUEST, "Invalid access token").into_response();
         }
     }
+    audit.user(claims.subject().as_str(), &[]);
     let callback_body = CallbackModel {
         id_token: id_token.to_string(),
         access_token: token_response.access_token().secret().clone(),
@@ -201,8 +241,8 @@ pub async fn callback_login(
             Some(refresh_token) => refresh_token.secret().clone(),
             None => String::new(),
         },
-        cluster_url: proxy.to_full_path(data.clone().into_inner()),
+        cluster_url: proxy.to_full_path(data.clone()),
         subject: claims.subject().to_string(),
     };
-    HttpResponse::Ok().json(callback_body)
+    (StatusCode::OK, Json(callback_body)).into_response()
 }

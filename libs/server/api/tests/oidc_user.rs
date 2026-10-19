@@ -116,22 +116,28 @@ async fn tolerates_missing_optional_claims() {
 }
 
 #[tokio::test]
-async fn rejects_a_response_without_the_groups_claim() {
+async fn resolves_a_user_from_a_response_without_the_groups_claim() {
     let server = MockServer::start().await;
     mount_discovery(&server).await;
-    // `groups` is required by `GroupsAdditionalClaims`; its absence must not
-    // silently yield a group-less user that later passes an authz check.
+    // Providers tag `groups` as `omitempty` (Dex and Authentik both do), so a
+    // user in no group gets a payload with no `groups` key. That must resolve to
+    // a group-less user rather than a parse failure — the group-restriction
+    // check downstream is what refuses access, and an empty list matches nothing.
     mount_userinfo(
         &server,
         json!({ "sub": "alice-sub", "preferred_username": "alice" }),
     )
     .await;
 
-    let result =
+    let user =
         User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
-            .await;
+            .await
+            .expect("user info should resolve")
+            .expect("user should be present");
 
-    assert!(result.is_err(), "expected an error, got {result:?}");
+    assert_eq!(user.username, "alice");
+    assert!(user.groups.is_empty());
+    assert!(!user.is_in_group("admins"));
 }
 
 #[tokio::test]

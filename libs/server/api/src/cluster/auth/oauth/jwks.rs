@@ -1,11 +1,17 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
-use common::State;
+use std::sync::Arc;
+
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::{StatusCode, request::Parts},
+    response::{IntoResponse, Response},
+};
 use crd_runtime::ProxyKubeApiRuntime;
 use serde_json::Value;
 use tracing::{error, instrument};
 
 use crate::cluster::auth::{load_discovery_enabled_proxy, throttle_oauth_as};
-use crate::helper::extract_ns_cluster;
+use crate::helper::NsCluster;
 
 /// The upstream identity provider's JSON Web Key Set, mirrored under the cluster's own path
 ///
@@ -14,6 +20,8 @@ use crate::helper::extract_ns_cluster;
 /// own hostname. If the cluster is not found, disabled, or does not have
 /// discovery enabled, return 404.
 #[utoipa::path(
+    get,
+    path = "/{ns}/{cluster}/oauth/jwks",
     tag = "auth_clusters",
     responses(
         (status = 200, description = "The upstream identity provider's JSON Web Key Set."),
@@ -25,15 +33,12 @@ use crate::helper::extract_ns_cluster;
         ("cluster" = String, description = "Cluster name that should exist in the namespace."),
     )
 )]
-#[get("/{ns}/{cluster}/oauth/jwks")]
-#[instrument(name = "oauth_as_jwks", skip(data))]
-pub async fn jwks(req: HttpRequest, data: web::Data<State>) -> impl Responder {
-    let (ns, cluster) = if let Some(parts) = extract_ns_cluster(&req) {
-        parts
-    } else {
-        error!(path = %req.path(), "missing ns/cluster path parameters");
-        return HttpResponse::NotFound().finish();
-    };
+#[instrument(name = "oauth_as_jwks", skip(req, data))]
+pub async fn jwks(
+    req: Parts,
+    State(data): State<Arc<common::State>>,
+    Path(NsCluster { ns, cluster }): Path<NsCluster>,
+) -> Response {
     let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
         Ok(proxy) => proxy,
         Err(gate) => return gate.into_response(),
@@ -42,17 +47,24 @@ pub async fn jwks(req: HttpRequest, data: web::Data<State>) -> impl Responder {
         return response;
     }
 
-    let oidc_conf = if let Some(conf) = proxy.get_oidc_conf(data.into_inner(), false, None) {
-        conf
-    } else {
-        error!("OIDC config not found");
-        return HttpResponse::InternalServerError().finish();
+    let oidc_conf = match proxy.get_oidc_conf(data.clone(), false, None).await {
+        Ok(Some(conf)) => conf,
+        Ok(None) => {
+            error!("OIDC config not found");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        Err(e) => {
+            // The cluster does have OIDC configured, we just could not read it
+            // (typically a `config_from` Secret that is missing or unreadable).
+            error!(error = %e, "couldn't resolve the OIDC config");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     };
     let client = match oidc_conf.reqwest_client() {
         Ok(client) => client,
         Err(e) => {
             error!(error = %e, "couldn't build oidc http client");
-            return HttpResponse::InternalServerError().finish();
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
 
@@ -65,30 +77,30 @@ pub async fn jwks(req: HttpRequest, data: web::Data<State>) -> impl Responder {
             Ok(json) => json,
             Err(e) => {
                 error!(error = %e, "couldn't parse upstream discovery document");
-                return HttpResponse::ServiceUnavailable().finish();
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
             }
         },
         Err(e) => {
             error!(error = %e, "couldn't reach upstream OIDC provider");
-            return HttpResponse::ServiceUnavailable().finish();
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
     };
     let Some(jwks_uri) = upstream.get("jwks_uri").and_then(Value::as_str) else {
         error!("upstream discovery document is missing jwks_uri");
-        return HttpResponse::ServiceUnavailable().finish();
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
 
     match client.get(jwks_uri).send().await {
         Ok(response) => match response.json::<Value>().await {
-            Ok(jwks) => HttpResponse::Ok().json(jwks),
+            Ok(jwks) => (StatusCode::OK, Json(jwks)).into_response(),
             Err(e) => {
                 error!(error = %e, "couldn't parse upstream jwks document");
-                HttpResponse::ServiceUnavailable().finish()
+                StatusCode::SERVICE_UNAVAILABLE.into_response()
             }
         },
         Err(e) => {
             error!(error = %e, "couldn't reach upstream jwks endpoint");
-            HttpResponse::ServiceUnavailable().finish()
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }
 }

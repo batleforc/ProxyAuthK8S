@@ -17,9 +17,9 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::redirect;
+use axum::http::StatusCode;
 use crd::certificate::CertSource;
+use harness::test;
 use harness::{
     delete_proxy, proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
 };
@@ -30,12 +30,7 @@ use tokio::{
 
 macro_rules! proxy_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new()
-                .app_data(web::Data::new($state))
-                .service(web::scope("/clusters").service(redirect::get_redirect)),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -97,7 +92,7 @@ macro_rules! get_ok {
     }};
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn consecutive_requests_reuse_one_upstream_connection() {
     common::upstream_cache::enable_for_tests();
     let pool = redis_or_skip!();
@@ -119,7 +114,7 @@ async fn consecutive_requests_reuse_one_upstream_connection() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn a_tls_relevant_spec_change_builds_a_new_client() {
     common::upstream_cache::enable_for_tests();
     let pool = redis_or_skip!();

@@ -28,7 +28,7 @@ spec:
             - name: ENV
               value: "production"
             - name: PROXYAUTHK8S_FRONT_API_BASE_URL
-              value: '{{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}'
+              value: '{{ include "proxyauthk8s.publicUrl" . }}'
             {{- if eq .Values.oidc.source "env" }}
             - name: PROXYAUTHK8S_FRONT_OIDC_ISSUER_URL
               value: '{{ .Values.oidc.value.issuer_url }}'
@@ -88,15 +88,20 @@ spec:
               port: {{ .Values.front.port }}
             initialDelaySeconds: 10
             periodSeconds: 20
-          # A static web server writes its cache and pid under /tmp and /var/run,
-          # which readOnlyRootFilesystem would otherwise deny.
+          # readOnlyRootFilesystem: nginx writes its cache and pid under /tmp
+          # and /var/run, the entrypoint renders its config into conf.d, and
+          # env.sh fills a copy of the bundle under /tmp/app.
           volumeMounts:
             - name: tmp
               mountPath: /tmp
             - name: run
               mountPath: /var/run
+            - name: conf
+              mountPath: /etc/nginx/conf.d
       volumes:
         - name: tmp
           emptyDir: {}
         - name: run
+          emptyDir: {}
+        - name: conf
           emptyDir: {}

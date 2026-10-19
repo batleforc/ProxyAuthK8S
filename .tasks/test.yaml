@@ -6,17 +6,39 @@ version: "3"
 #     provider are wiremock stubs and Redis is a real server.
 #
 # The Redis location comes from TEST_REDIS_URL (default redis://127.0.0.1:6379).
-# Without a reachable Redis the integration tests print "SKIPPED" and pass;
-# set REQUIRE_TEST_REDIS=1 (as CI does) to turn that into a failure instead.
+# Without a reachable Redis the integration tests print "SKIPPED" and pass, so
+# every task that claims to run them sets REQUIRE_TEST_REDIS=1 to turn that into
+# a failure: `all`, `server`, `integration` and the three `coverage*` tasks. Only
+# `unit` leaves it unset, because that tier genuinely has no Redis to skip.
 #
 # Nextest never runs doctests (none exist today, but `all` still checks for
 # them via a trailing `cargo test --doc` so a future one isn't silently
 # skipped).
+#
+# The `coverage*` tasks measure the same two tiers with cargo-llvm-cov. They
+# all force REQUIRE_TEST_REDIS=1: a coverage run whose integration tier quietly
+# skipped is not just incomplete, it is wrong — the whole mediated-OAuth surface
+# reads 0% and the total drops by ~14 points while the command still exits 0.
+# The envtest tier is not included (it needs the apiserver binaries and is
+# gated behind the `envtest` feature), so the figure covers the fast tiers only.
+
+vars:
+  # Line-coverage floor enforced by `coverage:ci` and by the CI gate.
+  # A ratchet: raise it as the real figure climbs, never lower it to turn a red
+  # build green. Last measured 63.18% (2026-08-29, workspace, fast tiers), after
+  # the CLI, Kubernetes-auth and controller test tiers landed.
+  COVERAGE_MIN: '{{ .COVERAGE_MIN | default "62" }}'
 
 tasks:
   all:
     desc: "Run every Rust test in the workspace"
     silent: true
+    # A suite that silently skips is worse than one that fails: `all` is the
+    # task whose name promises the most, so it is the one that must not exit 0
+    # having quietly dropped the ~97 `redis_or_skip!` call sites. Every other
+    # verification instruction in the codebase points here or at `server`.
+    env:
+      REQUIRE_TEST_REDIS: "1"
     cmds:
       - echo "Running the whole Rust test suite"
       - cargo nextest run --workspace --all-targets
@@ -24,6 +46,11 @@ tasks:
   server:
     desc: "Run the server-side Rust tests only (skips the CLI crates and their system dependencies)"
     silent: true
+    # Same reasoning as `all`: this tier runs the api and controller integration
+    # tests, which are exactly the Redis-dependent ones. Skipping the CLI crates
+    # is deliberate; skipping Redis silently is not.
+    env:
+      REQUIRE_TEST_REDIS: "1"
     cmds:
       - echo "Running the server-side Rust tests"
       - cargo nextest run -p common -p crd -p api -p controller -p server
@@ -32,7 +59,7 @@ tasks:
     silent: true
     cmds:
       - echo "Running unit tests"
-      - cargo nextest run -p crd -p api --lib
+      - cargo nextest run -p crd -p api -p controller --lib
   integration:
     desc: "Run the fast integration tier and fail if the test Redis is unreachable"
     silent: true
@@ -40,4 +67,43 @@ tasks:
       REQUIRE_TEST_REDIS: "1"
     cmds:
       - echo "Running the fast integration tier against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
-      - cargo nextest run -p api --test proxy_redirect --test oidc_user
+      - cargo nextest run -p api --test proxy_redirect --test oidc_user --test kubernetes_user
+      # Separate invocation: `--test` filters apply across every selected
+      # package, so the controller's tier cannot share the line above.
+      - cargo nextest run -p controller --test reconcile
+
+  coverage:
+    desc: "Measure workspace line coverage and print a per-file summary"
+    silent: true
+    env:
+      REQUIRE_TEST_REDIS: "1"
+    cmds:
+      - echo "Measuring coverage against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
+      - cargo llvm-cov nextest --workspace --all-targets --summary-only
+
+  coverage:html:
+    desc: "Write a browsable HTML coverage report to dist/coverage/html"
+    silent: true
+    env:
+      REQUIRE_TEST_REDIS: "1"
+    cmds:
+      - echo "Measuring coverage against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
+      # --output-dir appends its own html/ subdirectory.
+      - cargo llvm-cov nextest --workspace --all-targets --html --output-dir dist/coverage
+      - echo "Report written to dist/coverage/html/index.html"
+
+  coverage:ci:
+    desc: "Measure coverage, write lcov, and fail under the floor (what CI gates on)"
+    silent: true
+    env:
+      REQUIRE_TEST_REDIS: "1"
+    cmds:
+      # Measure once, then render twice from the same profile data: --lcov and
+      # --summary-only cannot be combined in a single invocation.
+      - echo "Measuring coverage against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
+      - cargo llvm-cov nextest --workspace --all-targets --no-report
+      # --output-path will not create the parent directory itself.
+      - mkdir -p dist/coverage
+      - cargo llvm-cov report --lcov --output-path dist/coverage/lcov.info
+      - echo "Enforcing a {{ .COVERAGE_MIN }}% line-coverage floor"
+      - cargo llvm-cov report --summary-only --fail-under-lines {{ .COVERAGE_MIN }}

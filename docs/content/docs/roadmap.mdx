@@ -1,0 +1,375 @@
+---
+title: Roadmap
+icon: Map
+description: Vue d'ensemble de la progression et des objectifs du projet ProxyAuthK8S
+---
+
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Callout } from 'fumadocs-ui/components/callout';
+
+## Vue d'ensemble
+
+<Mermaid chart={`timeline
+    title ProxyAuthK8S Roadmap
+    section v0.1.0 ✅
+      CRD & Controller : Création et validation des CRD
+                       : Reconciliation et leader election
+      Backend          : API, Proxy, Redis HA
+                       : Swagger, OIDC validation
+      Frontend         : Dashboard, Kubeconfig
+                       : Client API auto-généré
+      CI/CD            : CodeQL, CVE, Lint
+                       : Build Docker/Helm, Release
+    section v0.2.0 🚧
+      Documentation    : Guides d'utilisation
+                       : Architecture et API docs
+      Krew Plugin      : Publication sur Krew Index
+      Redesign UI      : Design system BatleHub (RFC 0002)
+      Outillage        : Sortie de NX, workspace pnpm (RFC 0001)
+    section v0.3.0 📋
+      Sécurité         : Contournements des ports (RFC 0003)
+                       : Règles par verbe (RFC 0006)
+    section v0.4.0 📋
+      Serveur          : Migration actix vers axum (RFC 0007)
+    section v0.5.0 📋
+      Sécurité         : Filtrage exec et attach (RFC 0004)
+    section v1.0.0 🚧
+      Production       : Redis cluster HA ✅, bloc sécurité ✅
+                       : Bascules de défauts, tests front
+    section v2.0.0 🔮
+      Exchange Token   : Federation IdP
+      Proxy & Agent    : Mode agent, tunnel
+      Device code      : Login SSO sans navigateur local
+`} />
+
+---
+
+## v0.1.0 — Fondations {"\u2705"}
+
+<Callout type="info">
+  Toutes les fonctionnalités de cette version sont terminées et livrées.
+</Callout>
+
+<Steps>
+
+<Step>
+### CRD & Validation
+
+Création d'une CRD pour stocker les clusters cibles et validation contre des règles définies.
+
+</Step>
+
+<Step>
+### Authentification OIDC
+
+Authentification des utilisateurs via un provider OIDC pour l'UI avec filtrage du dashboard basé sur les groupes utilisateurs.
+
+</Step>
+
+<Step>
+### Interface utilisateur
+
+- Liste des clusters accessibles par l'utilisateur
+- Connexion OIDC vers les clusters et affichage du kubeconfig
+- Affichage du kubeconfig pour les providers non-OIDC
+- Client API auto-généré depuis la documentation Swagger
+
+</Step>
+
+<Step>
+### Controller Kubernetes
+
+- Réconciliation des CRD et mise à jour du statut des clusters
+- Gestion des callbacks OIDC
+- Haute disponibilité via élection de leader
+
+</Step>
+
+<Step>
+### Backend & Proxy
+
+- API exposée pour l'UI
+- Redirection des requêtes vers le bon cluster selon les droits d'accès
+- Validation des tokens contre le provider OIDC ou Kubernetes
+- Haute disponibilité via stockage d'état dans Redis
+- Documentation Swagger auto-générée
+
+</Step>
+
+<Step>
+### CI/CD
+
+- **À chaque commit :** CodeQL, analyse CVE Rust, Lint front
+- **Sur TAG (vX.X.X) :** Build Docker → GHCR, Helm → GHCR, Draft release GitHub
+- **Pré-TAG :** Format vX.X.X, cog par contributeur humain, changelog obligatoire
+
+</Step>
+
+</Steps>
+
+---
+
+## v0.2.0 — Documentation & CLI {"\uD83D\uDEA7"}
+
+<Callout type="warn">
+  Cette version est en cours de développement.
+</Callout>
+
+<Steps>
+
+<Step>
+### Documentation
+
+| Guide | Statut |
+|-------|--------|
+| Comment déployer ProxyAuthK8S | ✅ Terminé |
+| Comment utiliser le plugin Kubectl ProxyAuth | ✅ Terminé |
+| Comment utiliser l'UI | ✅ Terminé |
+| Comment exposer un nouveau cluster (`ProxyKubeApi`) | ✅ Terminé |
+| Environnement de développement CDE (Eclipse Che) | ✅ Terminé |
+| Vue d'ensemble de l'architecture | ✅ Terminé |
+| Documentation API | ✅ Terminé |
+| Comment contribuer | ✅ Terminé |
+| Environnement de développement | ✅ Terminé |
+| Comment publier une nouvelle version | ✅ Terminé |
+
+</Step>
+
+<Step>
+### Plugin Krew
+
+Création d'un plugin Krew (`proxyauth`) pour faciliter l'utilisation en CLI.
+
+- ✅ Client auto-généré depuis l'OpenAPI spec
+- ⏳ Publication sur le Krew Index
+
+</Step>
+
+<Step>
+### CI/CD
+
+- ✅ Build du plugin et rendu du manifeste Krew, attachés à la release GitHub lors d'un TAG
+
+</Step>
+
+<Step>
+### Qualité
+
+- ⏳ Nettoyage de l'historique Git
+
+</Step>
+
+<Step>
+### Redesign de l'UI
+
+Refonte du front sur le design system BatleHub (« The Proof Sheet ») : tokens,
+polices auto-hébergées, thèmes clair et sombre, i18n en/fr, WCAG 2.2 AA et
+en-têtes de sécurité (CSP). Voir la RFC 0002.
+
+- ✅ Refonte UI
+
+</Step>
+
+<Step>
+### Outillage
+
+Sortie de NX et passage à un workspace pnpm orchestré par Taskfile (prérequis
+de la refonte UI). Voir la RFC 0001.
+
+- ✅ Sortie de NX et workspace pnpm
+
+</Step>
+
+</Steps>
+
+---
+
+## v0.3.0 à v0.5.0 — Durcissement du proxy {"\uD83D\uDCCB"}
+
+<Callout>
+  Numéros de version proposés ; l'ordre et les points de synchronisation sont
+  dans le [plan de livraison des RFC](https://github.com/batleforc/ProxyAuthK8S/blob/main/.rfc/PLAN.md).
+</Callout>
+
+<Steps>
+
+<Step>
+### v0.3.0 — Ports et verbes (breaking)
+
+- ✅ Contournements du filtrage des ports fermés : proxy `pods|services/x:port/proxy`, `nodes/proxy`, règles sans `allowed_ports` (RFC 0003)
+- ✅ Règles sensibles au verbe Kubernetes (`verbs`), lecture seule implicite sous restriction (RFC 0006)
+- ✅ Fuzzing des parseurs (workspace `fuzz/`, job nightly)
+
+</Step>
+
+<Step>
+### v0.4.0 — Serveur sur axum
+
+- ✅ Migration d'actix-web vers axum (hyper 1), iso-fonctionnelle, tunnel d'upgrade sur `hyper::upgrade` (RFC 0007) ; reste la recette de 7 jours
+
+</Step>
+
+<Step>
+### v0.5.0 — Exec et attach (breaking)
+
+- 📋 Trace d'audit : schéma versionné, émission garantie, authentification, jetons OAuth, bannissements, fin de session (RFC 0008)
+- ⏳ Liste blanche des commandes, conteneurs et flux pour `exec`/`attach`, filtre de canaux, audit de session (RFC 0004)
+
+</Step>
+
+</Steps>
+
+---
+
+## v1.0.0 — Production Ready {"\uD83D\uDEA7"}
+
+<Callout>
+  Objectif : rendre ProxyAuthK8S prêt pour la production avec des garanties de sécurité et de fiabilité.
+</Callout>
+
+<Steps>
+
+<Step>
+### Tests approfondis
+
+- ✅ Tests back (unitaires, intégration, envtest) avec un seuil de couverture en CI
+- ✅ Tests front : accessibilité et end-to-end (RFC 0002)
+
+</Step>
+
+<Step>
+### Redis Cluster HA
+
+- ✅ Support du [mode cluster Redis](https://docs.rs/deadpool-redis/latest/deadpool_redis/#example-cluster) pour la haute disponibilité et le stockage d'état (liste d'URLs ou `REDIS_CLUSTER=true`).
+
+</Step>
+
+<Step>
+### Sécurité renforcée
+
+- ✅ Application de `allowed_resources` sur le chemin proxy, y compris par group/version/kind (`AllowedCrdConfiguration`)
+- ✅ Autorisation par cluster (`proxy_group`)
+- ✅ Rate limiting et fail2login, adossés à des compteurs Redis
+- ✅ Audit de chaque requête proxifiée
+- ✅ mTLS entre le proxy et les clusters cibles
+- ✅ Règles d'admission CEL sur la CRD
+- ✅ Validation locale des JWT contre les authenticators `jwt` (`validate_against: JwtAuthenticators`)
+- ✅ Récupération de la configuration OIDC depuis des secrets externes (`oidc_provider.config_from`)
+- ✅ Validation des tokens OIDC renforcée
+
+</Step>
+
+<Step>
+### Bascules de défauts (breaking)
+
+- ⏳ Supprimer l'orthographe dépréciée `allowed_ressources` une fois les ressources migrées vers `allowed_resources`
+- ⏳ `verbs` absent vaut lecture seule (`get`, `list`, `watch`) pour tous (RFC 0006)
+- ⏳ `exec` absent : exec interdit sauf règle `exec` explicite (RFC 0004)
+
+</Step>
+
+<Step>
+### CI/CD
+
+- ⏳ Publication automatique de la documentation sur GitHub Pages lors d'un TAG
+
+</Step>
+
+</Steps>
+
+---
+
+## v2.0.0 — Évolutions majeures {"\uD83D\uDD2E"}
+
+<Callout>
+  Vision à long terme pour ProxyAuthK8S.
+</Callout>
+
+<Steps>
+
+<Step>
+### Exchange Token
+
+Mise en place de l'échange de tokens entre les IdP et le serveur d'authentification principal de ProxyAuthK8S.
+
+</Step>
+
+<Step>
+### Support Proxy
+
+Ajout de la possibilité de passer par un proxy (ex: Netbird) pour les connexions aux clusters.
+
+</Step>
+
+<Step>
+### Mode Agent
+
+Permet de ne pas exposer chaque cluster directement mais d'utiliser un agent qui crée un tunnel entre l'API Server du cluster et ProxyAuthK8S.
+
+</Step>
+
+<Step>
+### Politique fermée par défaut
+
+- Mode `default: deny` quand `allowed_resources` est vide (aujourd'hui : tout est autorisé, risque accepté documenté)
+- Sujets (`users`/`groups`) sur les règles `Path`, pour qu'une restriction ne vise pas tout le cluster
+
+</Step>
+
+<Step>
+### Login SSO par device code
+
+Prise en charge de l'*OAuth 2.0 Device Authorization Grant* ([RFC 8628](https://www.rfc-editor.org/rfc/rfc8628))
+pour le login SSO du plugin kubectl quand le navigateur n'est pas sur la machine du plugin
+(workspace Eclipse Che, session SSH, conteneur distant) : l'utilisateur ouvre une URL courte sur
+n'importe quel appareil et saisit un code, sans redirection vers `localhost` ni URL à recoller.
+
+Aujourd'hui, ce cas est couvert en collant l'URL de redirection dans le terminal (voir
+« Navigateur sur une autre machine » dans la page du plugin kubectl) ; le device code en serait
+la variante la plus confortable.
+
+- **IdP** : endpoint `device_authorization_endpoint` annoncé par la discovery (Keycloak,
+  Entra ID, Okta, Dex…) et *device grant* activé sur le client OIDC de chaque cluster.
+- **Serveur** : démarrage du flux et interrogation du token endpoint
+  (`authorization_pending`, `slow_down`, `expired_token`), le client secret restant côté serveur
+  comme pour l'échange de code actuel, avec le même contrôle `proxy_group` que `/auth/login`.
+- **Plugin** : `login --device-code`, ou automatiquement quand le provider le propose et qu'aucun
+  navigateur local n'est utilisable ; affichage de l'URL de vérification et du code.
+
+</Step>
+
+</Steps>
+
+---
+
+## Hors périmètre {"\u26D4"}
+
+Décisions prises pour ne pas avoir à les rediscuter.
+
+### Authentification par certificat client (`admin.conf` kubeadm)
+
+Décidé le 2026-10-10 : **non retenu**. Le cas d'usage était de pointer l'`admin.conf` généré par
+kubeadm (utilisateur `client-certificate-data`, ex. `CN=kubernetes-admin`,
+`O=kubeadm:cluster-admins`) vers `/clusters/{ns}/{cluster}`.
+
+Le proxy termine le TLS et n'a jamais la clé privée de l'utilisateur : il ne peut pas rejouer le
+certificat vers l'apiserver. Toutes les façons de transmettre l'identité en amont reviennent à
+ce que le **credential du proxy se substitue à celui de l'utilisateur** :
+
+- **Impersonation** (`Impersonate-User` / `Impersonate-Group`) ou **front-proxy**
+  (`X-Remote-User` / `X-Remote-Group` + certificat front-proxy) : le proxy affirme une identité
+  que l'apiserver ne vérifie pas lui-même, et son credential doit pouvoir endosser les identités
+  les plus privilégiées (`system:masters`).
+- **`SubjectAccessReview` puis requête avec le credential du proxy** : la décision d'accès
+  passe de l'apiserver au proxy (traduction URL → attributs RBAC), le credential du proxy doit
+  détenir tous les droits possibles, et l'audit du cluster ne voit que le proxy. Une
+  `SelfSubjectReview` ne règle rien : « self » est celui qui s'authentifie auprès de
+  l'apiserver, donc le proxy.
+- **TLS passthrough** : l'apiserver authentifie bien le certificat, mais le proxy ne voit plus ni
+  chemin ni en-têtes — plus de routage par cluster, plus de politique, de bannissement ni
+  d'audit.
+
+Aucune n'est acceptable : le proxy ne doit jamais pouvoir fabriquer ou endosser une identité.
+Les admins utilisent leur `admin.conf` directement contre l'apiserver, ou se connectent via le
+proxy avec OIDC. Les en-têtes `Impersonate-*` et `X-Remote-*` envoyés par un client restent
+systématiquement retirés (voir « En-têtes transmis » dans la page Sécurité).

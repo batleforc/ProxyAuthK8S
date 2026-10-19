@@ -1,0 +1,7 @@
+# Third-party images of the integration bench, pinned by digest (RFC 0009 §6.1).
+# `it:up` refuses a line without @sha256. Bump one per PR; never shipped, so
+# not scanned by `task audit`.
+k3s      docker.io/rancher/k3s:v1.35.9-k3s1@sha256:ec9868c6a38d4e8c1869832fb5fd1eb8473c39794a0b44d2b952e7ba911951bc
+dex      ghcr.io/dexidp/dex:v2.46.0@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777
+redis    docker.io/library/redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
+busybox  docker.io/library/busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e

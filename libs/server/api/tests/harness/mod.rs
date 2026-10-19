@@ -26,7 +26,18 @@ use deadpool_redis::{
     redis::{AsyncTypedCommands, RedisResult},
 };
 
+pub mod test;
+
 pub const REDIS_PREFIX: &str = crd::REDIS_PREFIX;
+
+/// Every route of the server, on `state`: what the tests call. A known path
+/// with another method answers 404, as under actix.
+pub fn app(state: State) -> axum::Router {
+    api::app_router()
+        .0
+        .method_not_allowed_fallback(|| async { axum::http::StatusCode::NOT_FOUND })
+        .with_state(std::sync::Arc::new(state))
+}
 
 static CLUSTER_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -126,7 +137,7 @@ pub fn install_crypto_provider() {
 }
 
 /// Build a `State` whose Kubernetes client is never contacted: every fixture
-/// uses `Service::ExternalService` and `CertSource::Insecure`.
+/// uses `Service::ExternalService` and `CertSource::SystemRoots`.
 pub fn test_state(oidc_issuer_url: String) -> State {
     install_crypto_provider();
 
@@ -165,7 +176,7 @@ pub fn proxy_fixture(ns: &str, cluster: &str, upstream_url: &str) -> ProxyKubeAp
         cluster,
         ProxyKubeApiSpec {
             enabled: true,
-            cert: CertSource::Insecure(true),
+            cert: CertSource::SystemRoots(true),
             client_cert: None,
             service: Service::ExternalService {
                 url: upstream_url.to_string(),
@@ -195,9 +206,34 @@ pub fn oidc_auth_config(issuer_url: &str) -> AuthenticationConfiguration {
             audience: String::new(),
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
+            config_from: None,
         },
         disable_validation: false,
         validate_against: ValidateAgainst::OidcProvider,
+    }
+}
+
+/// An `AuthenticationConfiguration` that forces token validation against the
+/// target cluster's own apiserver (`SelfSubjectReview`) rather than OIDC.
+///
+/// The OIDC provider block is still filled in but left disabled: it is what the
+/// `validate_against` CEL rule requires, and nothing on this path reads it.
+pub fn kubernetes_auth_config() -> AuthenticationConfiguration {
+    AuthenticationConfiguration {
+        jwt: Vec::new(),
+        oidc_provider: OidcProvider {
+            enabled: false,
+            issuer_url: String::new(),
+            client_id: "proxyauthk8s".to_string(),
+            client_secret: None,
+            extra_scope: String::new(),
+            audience: String::new(),
+            accept_authorized_party: false,
+            expose_oauth_authorization_server: false,
+            config_from: None,
+        },
+        disable_validation: false,
+        validate_against: ValidateAgainst::Kubernetes,
     }
 }
 
@@ -221,6 +257,8 @@ pub fn security_config(paths: Vec<(&str, bool)>) -> SecurityConfiguration {
                     path: path.to_string(),
                     parametised,
                     allowed_ports: None,
+                    exec: None,
+                    verbs: None,
                 })
             })
             .collect(),
@@ -311,6 +349,16 @@ pub async fn mount_oidc_provider(server: &wiremock::MockServer, username: &str, 
         )
         .mount(server)
         .await;
+}
+
+/// Read a cached object straight out of Redis, by its `to_identifier()` key.
+pub async fn cached_value(pool: &Pool, id: &str) -> Option<String> {
+    pool.get()
+        .await
+        .expect("redis connection")
+        .get(id)
+        .await
+        .expect("GET should succeed")
 }
 
 /// Cache a proxy the way the controller does, so `redirect()` can find it.
@@ -417,6 +465,43 @@ pub fn sign_id_token(issuer: &str, audience: &str, subject: &str, nonce: &str) -
     let key = EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_KEY_PEM.as_bytes())
         .expect("test RSA key should parse");
     encode(&header, &claims, &key).expect("test id_token should sign")
+}
+
+/// Sign arbitrary claims with [`TEST_RSA_PRIVATE_KEY_PEM`], as an issuer would.
+///
+/// The narrower [`sign_id_token`] covers the OIDC login flow; the local JWT
+/// authenticator tier needs to shape the whole payload (custom claims, a wrong
+/// audience, an expired `exp`), so it signs through this instead.
+pub fn sign_claims(claims: &serde_json::Value) -> String {
+    use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some(TEST_RSA_KID.to_string());
+    let key = EncodingKey::from_rsa_pem(TEST_RSA_PRIVATE_KEY_PEM.as_bytes())
+        .expect("test RSA key should parse");
+    encode(&header, claims, &key).expect("test token should sign")
+}
+
+/// Mount an issuer that publishes only discovery + JWKS, which is all a local
+/// `jwt` authenticator needs (no `/userinfo`, no `/token`).
+pub async fn mount_jwks_issuer(server: &wiremock::MockServer) {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, ResponseTemplate};
+
+    let issuer = server.uri();
+    Mock::given(method("GET"))
+        .and(path("/.well-known/openid-configuration"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "issuer": issuer,
+            "jwks_uri": format!("{issuer}/keys"),
+        })))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/keys"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(test_jwks()))
+        .mount(server)
+        .await;
 }
 
 /// Mount a full, signature-capable OIDC provider: discovery, a real JWKS

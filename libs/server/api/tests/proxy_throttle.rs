@@ -6,8 +6,8 @@
 
 mod harness;
 
-use actix_web::{App, http::StatusCode, test, web};
-use api::cluster::redirect;
+use axum::http::StatusCode;
+use harness::test;
 use harness::{
     delete_proxy, fail2login_config, mount_oidc_provider, oidc_auth_config, proxy_fixture,
     rate_limited_config, seed_proxy, test_state, try_redis_pool, unique_cluster,
@@ -24,12 +24,7 @@ const VALID_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJwcm94
 
 macro_rules! proxy_app {
     ($state:expr_2021) => {
-        test::init_service(
-            App::new()
-                .app_data(web::Data::new($state))
-                .service(web::scope("/clusters").service(redirect::get_redirect)),
-        )
-        .await
+        test::init_service(harness::app($state)).await
     };
 }
 
@@ -42,7 +37,7 @@ macro_rules! redis_or_skip {
     };
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn refuses_requests_past_the_rate_limit() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -89,7 +84,7 @@ async fn refuses_requests_past_the_rate_limit() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn a_cluster_without_rate_limiting_is_never_throttled() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -114,7 +109,7 @@ async fn a_cluster_without_rate_limiting_is_never_throttled() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn bans_a_client_after_repeated_authentication_failures() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;
@@ -171,7 +166,7 @@ async fn bans_a_client_after_repeated_authentication_failures() {
     delete_proxy(&pool, &ns, &cluster).await;
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn a_successful_authentication_clears_the_failure_counter() {
     let pool = redis_or_skip!();
     let upstream = MockServer::start().await;

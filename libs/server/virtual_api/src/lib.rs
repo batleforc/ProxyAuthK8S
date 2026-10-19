@@ -16,7 +16,7 @@ pub mod discovery;
 pub mod openshift;
 pub mod route;
 
-pub use route::{UpstreamRequest, VirtualRoute, segments};
+pub use route::{AccessProbe, UpstreamRequest, VirtualRoute, segments};
 
 use crd::virtual_api::VirtualApiKind;
 
@@ -72,6 +72,16 @@ pub trait VirtualApiMapper: Send + Sync {
     fn api_version(&self) -> String {
         let (group, version) = self.group_version();
         format!("{group}/{version}")
+    }
+
+    /// What to check, per item, to decide whether a caller may see it in a
+    /// LIST response — `None` (the default) means this route has no
+    /// per-item visibility filtering.
+    ///
+    /// Still pure: the probe only describes what a caller should ask the
+    /// upstream cluster; running the actual review is the caller's job.
+    fn list_access_probe(&self, _route: &VirtualRoute) -> Option<AccessProbe> {
+        None
     }
 }
 

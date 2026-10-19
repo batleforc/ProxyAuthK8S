@@ -282,18 +282,23 @@ impl OidcConf {
         token: &str,
     ) -> Result<Option<crate::token_audience::TokenAudiences>, ()> {
         let mut request = self.reqwest_client().map_err(|_| ())?.post(endpoint);
-        let mut body = openidconnect::url::form_urlencoded::Serializer::new(String::new());
-        body.append_pair("token", token);
-        body.append_pair("token_type_hint", "access_token");
         // RFC 7662 requires the caller to authenticate: HTTP Basic with the
         // client secret when we have one, otherwise send the client_id in the
         // body for a public client.
         if let Some(secret) = &self.client_secret {
             request = request.basic_auth(&self.client_id, Some(secret));
-        } else {
-            body.append_pair("client_id", &self.client_id);
         }
-        let body = body.finish();
+        // Built in its own scope: the serializer is not `Send`, and must not
+        // live across the `.await` below (axum handlers are `Send`).
+        let body = {
+            let mut body = openidconnect::url::form_urlencoded::Serializer::new(String::new());
+            body.append_pair("token", token);
+            body.append_pair("token_type_hint", "access_token");
+            if self.client_secret.is_none() {
+                body.append_pair("client_id", &self.client_id);
+            }
+            body.finish()
+        };
 
         let response = request
             .header("content-type", "application/x-www-form-urlencoded")

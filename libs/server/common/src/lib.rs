@@ -9,6 +9,7 @@ pub mod config;
 pub mod error;
 pub mod oidc_cache;
 pub mod oidc_conf;
+pub mod oidc_config_cache;
 pub mod oidc_error;
 pub mod redis_pool;
 pub mod server_config;

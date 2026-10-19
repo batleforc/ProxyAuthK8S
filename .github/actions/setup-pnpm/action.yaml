@@ -1,0 +1,16 @@
+name: Install pnpm
+description: >-
+  Puts pnpm on PATH through mise (mise.toml), before actions/setup-node so
+  its pnpm store cache works; pnpm then switches itself to the
+  packageManager pin of package.json. The repository allows only selected
+  actions, and pnpm/action-setup is not one of them: a workflow using it
+  fails to start.
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/setup-mise
+    - name: Install pnpm
+      shell: bash
+      run: |
+        mise install pnpm
+        mise bin-paths pnpm >> "$GITHUB_PATH"

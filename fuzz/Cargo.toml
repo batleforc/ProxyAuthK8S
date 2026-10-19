@@ -1,0 +1,48 @@
+# Separate workspace (its own Cargo.lock), never built by `cargo check
+# --workspace`: `task fuzz:check` compiles it on stable for each PR, and the
+# nightly `fuzz` job runs every target. Same model as batlehub.
+[workspace]
+
+[package]
+name = "proxyauthk8s-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.13"
+arbitrary = { version = "1.5.0", features = ["derive"] }
+api = { path = "../libs/server/api", default-features = false }
+crd = { path = "../libs/server/crd" }
+
+[[bin]]
+name = "fuzz_port_target"
+path = "fuzz_targets/fuzz_port_target.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_request_info"
+path = "fuzz_targets/fuzz_request_info.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_exec_query"
+path = "fuzz_targets/fuzz_exec_query.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_exec_channels"
+path = "fuzz_targets/fuzz_exec_channels.rs"
+test = false
+doc = false
+bench = false

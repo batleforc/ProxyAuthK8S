@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 /// ReadinessBody : Body of the readiness probe.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ReadinessBody {
+    /// `ok` once the service-wide OIDC provider has been discovered, `pending` while the boot-time discovery is still retrying.
+    #[serde(rename = "oidc")]
+    pub oidc: String,
     /// `ok` when Redis answered a `PING`, `unavailable` otherwise.
     #[serde(rename = "redis")]
     pub redis: String,
@@ -21,7 +24,7 @@ pub struct ReadinessBody {
 
 impl ReadinessBody {
     /// Body of the readiness probe.
-    pub fn new(redis: String) -> ReadinessBody {
-        ReadinessBody { redis }
+    pub fn new(oidc: String, redis: String) -> ReadinessBody {
+        ReadinessBody { oidc, redis }
     }
 }

@@ -1,0 +1,7 @@
+[
+  {
+    "kind": "ProxyKubeApi",
+    "singular": "proxykubeapi",
+    "scope": "Namespaced"
+  }
+]

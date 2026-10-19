@@ -26,7 +26,7 @@ pub(crate) fn redirect_with_error(
     redirect_uri: &Url,
     error: &str,
     state: Option<&str>,
-) -> actix_web::HttpResponse {
+) -> axum::response::Response {
     let mut url = redirect_uri.clone();
     {
         let mut pairs = url.query_pairs_mut();
@@ -35,7 +35,15 @@ pub(crate) fn redirect_with_error(
             pairs.append_pair("state", state);
         }
     }
-    actix_web::HttpResponse::Found()
-        .insert_header(("Location", url.to_string()))
-        .finish()
+    found(url.as_str())
+}
+
+/// A `302 Found` to `location`.
+pub(crate) fn found(location: &str) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    (
+        axum::http::StatusCode::FOUND,
+        [(axum::http::header::LOCATION, location)],
+    )
+        .into_response()
 }

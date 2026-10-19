@@ -1,7 +1,9 @@
 # front-api
 
-This library was generated with [Nx](https://nx.dev).
+`@proxy-auth-k8s/front-api`: the TypeScript client of the server API, generated
+from `swagger.json` by [Hey API](https://heyapi.dev) (`openapi-ts.config.ts`).
 
-## Building
-
-Run `nx build front-api` to build the library.
+- `pnpm --filter @proxy-auth-k8s/front-api generate` (or `task gen:api-client`)
+  regenerates `src/lib`; never edit it by hand.
+- The front consumes the package from source (`exports: ./src/index.ts`,
+  `workspace:*`): there is no build step.

@@ -39,7 +39,7 @@ jobs:
       actions: read # ⚡ Read action status (required for private repos)
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: 🦀 Install Rust Toolchain
         uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
@@ -57,8 +57,19 @@ jobs:
         # 🎯 Analyze all code with full features, convert to SARIF, and format output
 
       - name: 📤 Upload Results to GitHub Security
-        uses: github/codeql-action/upload-sarif@b8bb9f28b8d3f992092362369c57161b755dea45 # v4.35.0
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: rust-clippy-results.sarif
           wait-for-processing: true
         # 🔒 Upload analysis results to GitHub Security tab for visibility
+
+      - name: 🛠️ Install mise
+        uses: ./.github/actions/setup-mise
+      - name: 🛠️ Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      - name: 🚦 Gate on fmt and clippy (all targets)
+        # The report above never fails; this does (kit's rust:lint). Tools
+        # come from the runner's toolchain, not a full `mise install`.
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: task rust:lint

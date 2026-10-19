@@ -1,0 +1,35 @@
+name: 🧰 Repository checks
+
+# The kit's repository checks (RFC 0005): actionlint on the workflows,
+# hadolint and trivy config on the two Containerfiles.
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/**"
+      - "deploy/build/**"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/**"
+      - "deploy/build/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install mise
+        uses: ./.github/actions/setup-mise
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      - name: Install the tools
+        run: mise install actionlint shellcheck hadolint trivy
+      - name: Lint and audit
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: task repo:lint repo:audit

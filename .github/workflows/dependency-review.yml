@@ -24,5 +24,5 @@ jobs:
           # RUSTSEC-2023-0071 / GHSA-c38w-74pg-36hr / GHSA-4grx-2x9w-596c (rsa crate, Marvin
           # Attack): transitive via openidconnect, no fix available. Only affects RSA
           # private-key ops; we only verify IdP-signed ID tokens (public-key op).
-          # See .docs/content/docs/security.mdx#risques-acceptés-différés.
+          # See docs/content/docs/security.mdx#risques-acceptés-différés.
           allow-ghsas: GHSA-c38w-74pg-36hr, GHSA-4grx-2x9w-596c

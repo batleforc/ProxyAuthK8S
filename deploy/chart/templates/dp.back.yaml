@@ -40,7 +40,7 @@ spec:
             - name: ENV
               value: "production"
             - name: CORS_ALLOWED_ORIGINS
-              value: '{{ .Values.back.corsAllowedOrigins | default (printf "%s://%s" (ternary "https" "http" .Values.ingress.tls.enabled) .Values.ingress.host) }}'
+              value: '{{ .Values.back.corsAllowedOrigins | default (include "proxyauthk8s.publicUrl" .) }}'
             - name: SERVER_SHUTDOWN_TIMEOUT
               value: "{{ .Values.back.shutdownTimeoutSeconds }}"
             - name: LOG_FORMAT
@@ -57,9 +57,9 @@ spec:
                 fieldRef:
                   fieldPath: metadata.name
             - name: API_CLUSTER_OIDC_FRONT_REDIRECT_URL
-              value: '{{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}'
+              value: '{{ include "proxyauthk8s.publicUrl" . }}'
             - name: API_CLUSTER_OIDC_BASE_REDIRECT_URL
-              value: '{{ if .Values.ingress.tls.enabled }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}'
+              value: '{{ include "proxyauthk8s.publicUrl" . }}'
             {{- if .Values.otel.enabled }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: '{{ .Release.Name }}-otel-collector:4317'
@@ -125,6 +125,12 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- with .Values.back.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- with .Values.back.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

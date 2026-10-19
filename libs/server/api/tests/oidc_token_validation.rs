@@ -22,10 +22,11 @@ mod harness;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use actix_web::{App, HttpResponse, http::StatusCode, test, web};
 use api::model::user::{User, UserAuthError};
+use axum::{http::StatusCode, response::IntoResponse};
 use base64::Engine;
 use common::oidc_conf::OidcConf;
+use harness::test;
 use harness::{oidc_auth_config, proxy_fixture, unreachable_state};
 use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path};
@@ -533,15 +534,15 @@ async fn cluster_provider_disabled_means_no_oidc_configuration() {
 // HTTP: the `User` extractor collapses every rejection into a 401
 // ---------------------------------------------------------------------------
 
-async fn whoami(user: User) -> HttpResponse {
-    HttpResponse::Ok().body(user.username)
+async fn whoami(user: User) -> axum::response::Response {
+    (StatusCode::OK, user.username).into_response()
 }
 
 async fn call_whoami(issuer: String, token: &str) -> (StatusCode, String) {
     let app = test::init_service(
-        App::new()
-            .app_data(web::Data::new(unreachable_state(issuer)))
-            .route("/whoami", web::get().to(whoami)),
+        axum::Router::new()
+            .route("/whoami", axum::routing::get(whoami))
+            .with_state(std::sync::Arc::new(unreachable_state(issuer))),
     )
     .await;
     let req = test::TestRequest::get()
@@ -554,7 +555,7 @@ async fn call_whoami(issuer: String, token: &str) -> (StatusCode, String) {
     (status, String::from_utf8_lossy(&body).into_owned())
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn extractor_returns_200_for_a_valid_token() {
     let server = Provider::start().await;
     mount_discovery(&server, None, false).await;
@@ -567,7 +568,7 @@ async fn extractor_returns_200_for_a_valid_token() {
     assert_eq!(body, "alice");
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn extractor_returns_401_for_an_expired_token() {
     let server = Provider::start().await;
     mount_discovery(&server, None, false).await;
@@ -579,7 +580,7 @@ async fn extractor_returns_401_for_an_expired_token() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn extractor_returns_401_for_a_wrong_audience() {
     let server = Provider::start().await;
     mount_discovery(&server, None, false).await;
@@ -593,7 +594,7 @@ async fn extractor_returns_401_for_a_wrong_audience() {
     assert!(!body.contains("billing-api"), "leaked detail: {body}");
 }
 
-#[actix_web::test]
+#[tokio::test]
 async fn extractor_returns_401_for_a_wrong_issuer() {
     let server = Provider::start().await;
     mount_discovery(&server, Some("https://evil.example.com"), false).await;

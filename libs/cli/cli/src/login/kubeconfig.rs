@@ -107,6 +107,36 @@ pub fn upsert_proxy_context(
     names
 }
 
+/// Set `certificate_authority_data` on every cluster entry proxied through
+/// `server_url` (`<server_url>/clusters/...`), e.g. after its certificate was
+/// rotated, so kubectl keeps trusting it without a login per cluster.
+/// Returns how many entries changed.
+pub fn set_server_certificate_authority(
+    kubeconfig: &mut Kubeconfig,
+    server_url: &str,
+    certificate_authority_data: Option<&str>,
+) -> usize {
+    let prefix = format!("{}/clusters/", server_url.trim_end_matches('/'));
+    let mut changed = 0;
+    for cluster in kubeconfig
+        .clusters
+        .iter_mut()
+        .filter_map(|named| named.cluster.as_mut())
+        .filter(|cluster| {
+            cluster
+                .server
+                .as_deref()
+                .is_some_and(|server| server.starts_with(&prefix))
+        })
+    {
+        if cluster.certificate_authority_data.as_deref() != certificate_authority_data {
+            cluster.certificate_authority_data = certificate_authority_data.map(str::to_string);
+            changed += 1;
+        }
+    }
+    changed
+}
+
 fn upsert<T>(entries: &mut Vec<T>, matches: impl Fn(&T) -> bool, entry: T) {
     match entries.iter_mut().find(|e| matches(e)) {
         Some(existing) => *existing = entry,
@@ -294,5 +324,67 @@ current-context: other
         );
         let cluster = kubeconfig.clusters[0].cluster.as_ref().unwrap();
         assert_eq!(cluster.certificate_authority_data, None);
+    }
+
+    #[test]
+    fn a_new_server_ca_reaches_every_cluster_of_that_server_only() {
+        let mut kubeconfig = Kubeconfig::default();
+        upsert_proxy_context(
+            &mut kubeconfig,
+            "https://proxy.example/",
+            "team-a",
+            "prod",
+            Some("old"),
+        );
+        upsert_proxy_context(
+            &mut kubeconfig,
+            "https://proxy.example",
+            "team-b",
+            "dev",
+            Some("old"),
+        );
+        upsert_proxy_context(
+            &mut kubeconfig,
+            "https://other.example",
+            "team-a",
+            "prod2",
+            Some("old"),
+        );
+        // Same host, different path: not a cluster of this server.
+        kubeconfig.clusters.push(NamedCluster {
+            name: "lookalike".to_string(),
+            cluster: Some(Cluster {
+                server: Some("https://proxy.example/clustersX/a/b".to_string()),
+                certificate_authority_data: Some("old".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            set_server_certificate_authority(
+                &mut kubeconfig,
+                "https://proxy.example/",
+                Some("new")
+            ),
+            2
+        );
+        let ca = |name: &str| {
+            kubeconfig
+                .clusters
+                .iter()
+                .find(|c| c.name == name)
+                .and_then(|c| c.cluster.as_ref())
+                .and_then(|c| c.certificate_authority_data.clone())
+        };
+        assert_eq!(ca("team-a-prod").as_deref(), Some("new"));
+        assert_eq!(ca("team-b-dev").as_deref(), Some("new"));
+        assert_eq!(ca("team-a-prod2").as_deref(), Some("old"));
+        assert_eq!(ca("lookalike").as_deref(), Some("old"));
+        // Already up to date: nothing to rewrite.
+        assert_eq!(
+            set_server_certificate_authority(&mut kubeconfig, "https://proxy.example", Some("new")),
+            0
+        );
     }
 }

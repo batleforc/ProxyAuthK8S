@@ -3,10 +3,12 @@ import { safeRedirectTarget } from './redirect';
 
 describe('safeRedirectTarget', () => {
   it('accepts absolute http(s) URLs', () => {
-    expect(safeRedirectTarget('https://idp.example.com/authorize?state=x')).toBe(
-      'https://idp.example.com/authorize?state=x',
+    expect(
+      safeRedirectTarget('https://idp.example.com/authorize?state=x'),
+    ).toBe('https://idp.example.com/authorize?state=x');
+    expect(safeRedirectTarget('http://localhost:18000/callback')).toBe(
+      'http://localhost:18000/callback',
     );
-    expect(safeRedirectTarget('http://localhost:18000/callback')).toBe('http://localhost:18000/callback');
   });
 
   it.each([

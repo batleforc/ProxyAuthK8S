@@ -2,6 +2,9 @@
  * Static content and command builders for the `kubectl proxyauth` CLI guide (CliView).
  */
 
+/** A translation function (vue-i18n's `t`): keeps these builders free of Vue. */
+export type Translate = (key: string) => string;
+
 export interface InstallationMethod {
   title: string;
   description: string;
@@ -25,7 +28,10 @@ export interface UsageSection {
  * Backend base URL used in the CLI examples: the build-time `VITE_API_BASE_URL`
  * stripped of a trailing `/` or `/api`, or the front origin when unset/empty.
  */
-export function resolveBackendUrl(envUrl: string | undefined, origin: string): string {
+export function resolveBackendUrl(
+  envUrl: string | undefined,
+  origin: string,
+): string {
   if (envUrl && (envUrl.endsWith('/') || envUrl.endsWith('/api'))) {
     envUrl = envUrl.replace(/\/api\/?$/, '').replace(/\/$/, '');
   }
@@ -38,193 +44,141 @@ export function resolveBackendUrl(envUrl: string | undefined, origin: string): s
 
 /** Server name the CLI derives from a backend URL (scheme dropped, first `.`/`:` turned into `-`). */
 export function backendUrlToName(url: string): string {
-  return url.replace('http://', '').replace('https://', '').replace('.', '-').replace(':', '-');
+  return url
+    .replace('http://', '')
+    .replace('https://', '')
+    .replace('.', '-')
+    .replace(':', '-');
 }
 
-// Installation commands for different platforms
-export const installationCommands = {
-  krew: {
-    title: 'Krew (Recommandé)',
-    description: 'Installation via le gestionnaire de plugins Kubernetes officiel',
-    commands: [
-      '# Installer Krew si pas déjà fait',
-      'curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/krew-{linux_amd64,darwin_amd64,windows_amd64}.tar.gz"',
-      'tar zxvf krew-*.tar.gz',
-      './krew-* install krew',
-      '',
-      '# Installer le plugin proxyauth',
-      'kubectl krew install proxyauth'
-    ],
-    badge: 'Recommandé'
-  },
-  manual: {
-    title: 'Installation Manuelle',
-    description: 'Téléchargement direct du binaire',
-    commands: [
-      '# Télécharger le binaire pour votre OS',
-      'wget https://github.com/batleforc/proxyauthk8s/releases/latest/download/kubectl-proxyauth-linux-amd64',
-      '',
-      '# Rendre le fichier exécutable',
-      'chmod +x kubectl-proxyauth-linux-amd64',
-      '',
-      '# Déplacer vers un dossier dans PATH',
-      'sudo mv kubectl-proxyauth-linux-amd64 /usr/local/bin/kubectl-proxyauth',
-      '',
-      '# Vérifier l\'installation',
-      'kubectl proxyauth --help'
-    ],
-    badge: 'Manuel'
-  },
-  homebrew: {
-    title: 'Homebrew (macOS)',
-    description: 'Installation via Homebrew sur macOS',
-    commands: [
-      '# Ajouter le tap',
-      'brew tap batleforc/proxyauthk8s',
-      '',
-      '# Installer le plugin',
-      'brew install kubectl-proxyauth',
-      '',
-      '# Vérifier l\'installation',
-      'kubectl proxyauth --help'
-    ],
-    badge: 'macOS'
-  }
-} satisfies Record<string, InstallationMethod>;
+const D = 'cli.data';
 
-// Usage examples
-export function buildUsageExamples(backendUrl: string, backendUrlName: string) {
+/** Installation commands for each platform, in the current locale. */
+export function buildInstallationCommands(t: Translate) {
+  const i = (key: string) => t(`${D}.install.${key}`);
   return {
-    config: {
-      title: 'Configuration',
-      description: 'Configurer le plugin pour votre environnement',
-      examples: [
-        {
-          title: 'Définir le serveur par défaut',
-          command: `kubectl proxyauth config set-def --default-server "${backendUrlName}"`,
-          description: 'Configure le serveur ProxyAuthK8s par défaut'
-        },
-        {
-          title: 'Ajouter un nouveau serveur',
-          command: `kubectl proxyauth login --server-url "${backendUrl}"`,
-          description: 'Ajoute un nouveau serveur avec son URL'
-        },
-        {
-          title: 'Configurer le namespace par défaut',
-          command: `kubectl proxyauth config set-def --server "${backendUrlName}" --namespace "team-production"`,
-          description: 'Configure le namespace par défaut pour un serveur'
-        },
-        {
-          title: 'Voir la configuration',
-          command: 'kubectl proxyauth config get --list',
-          description: 'Affiche toute la configuration actuelle'
-        }
-      ]
+    krew: {
+      title: i('krew.title'),
+      description: i('krew.description'),
+      commands: [
+        i('krew.c1'),
+        'curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/krew-{linux_amd64,darwin_amd64,windows_amd64}.tar.gz"',
+        'tar zxvf krew-*.tar.gz',
+        './krew-* install krew',
+        '',
+        i('krew.c2'),
+        'kubectl krew install proxyauth',
+      ],
+      badge: i('krew.badge'),
     },
-    auth: {
-      title: 'Authentification',
-      description: 'Se connecter et gérer les tokens',
-      examples: [
-        {
-          title: 'Se connecter à l\'application',
-          command: 'kubectl proxyauth login --server-url <url> --token <jeton>',
-          description: 'Authentification au serveur avec un jeton (demandé si absent)'
-        },
-        {
-          title: 'Se connecter à un cluster spécifique',
-          command: 'kubectl proxyauth login my-cluster',
-          description: 'Récupère le token pour un cluster particulier'
-        },
-        {
-          title: 'Obtenir un token existant',
-          command: 'kubectl proxyauth get-token my-cluster',
-          description: 'Récupère le token stocké pour un cluster'
-        },
-        {
-          title: 'Se déconnecter',
-          command: 'kubectl proxyauth logout my-cluster',
-          description: 'Supprime le token pour un cluster'
-        },
-        {
-          title: 'Vider le cache des tokens',
-          command: 'kubectl proxyauth cache clear',
-          description: 'Supprime tous les tokens en cache'
-        }
-      ]
+    manual: {
+      title: i('manual.title'),
+      description: i('manual.description'),
+      commands: [
+        i('manual.c1'),
+        'wget https://github.com/batleforc/proxyauthk8s/releases/latest/download/kubectl-proxyauth-linux-amd64',
+        '',
+        i('manual.c2'),
+        'chmod +x kubectl-proxyauth-linux-amd64',
+        '',
+        i('manual.c3'),
+        'sudo mv kubectl-proxyauth-linux-amd64 /usr/local/bin/kubectl-proxyauth',
+        '',
+        i('manual.c4'),
+        'kubectl proxyauth --help',
+      ],
+      badge: i('manual.badge'),
     },
-    clusters: {
-      title: 'Gestion des Clusters',
-      description: 'Lister et gérer les clusters disponibles',
-      examples: [
-        {
-          title: 'Lister tous les clusters',
-          command: 'kubectl proxyauth get',
-          description: 'Affiche tous les clusters disponibles'
-        },
-        {
-          title: 'Obtenir les détails d\'un cluster',
-          command: 'kubectl proxyauth get my-cluster --format yaml',
-          description: 'Affiche les informations détaillées d\'un cluster'
-        },
-        {
-          title: 'Filtrer par namespace',
-          command: 'kubectl proxyauth get --namespace production',
-          description: 'Liste seulement les clusters du namespace spécifié'
-        }
-      ]
+    homebrew: {
+      title: i('homebrew.title'),
+      description: i('homebrew.description'),
+      commands: [
+        i('homebrew.c1'),
+        'brew tap batleforc/proxyauthk8s',
+        '',
+        i('homebrew.c2'),
+        'brew install kubectl-proxyauth',
+        '',
+        i('homebrew.c3'),
+        'kubectl proxyauth --help',
+      ],
+      badge: i('homebrew.badge'),
     },
-    contexts: {
-      title: 'Gestion des Contextes',
-      description: 'Gérer les contextes kubectl avec le plugin',
-      examples: [
-        {
-          title: 'Lister les contextes',
-          command: 'kubectl proxyauth ctx --list',
-          description: 'Affiche tous les contextes et indique ceux gérés par ProxyAuth'
-        },
-        {
-          title: 'Changer de contexte',
-          command: 'kubectl proxyauth ctx --set my-cluster',
-          description: 'Définit le contexte actuel'
-        },
-        {
-          title: 'Voir le contexte actuel',
-          command: 'kubectl proxyauth ctx',
-          description: 'Affiche le contexte actuellement actif'
-        }
-      ]
-    }
+  } satisfies Record<string, InstallationMethod>;
+}
+
+/** Usage examples, in the current locale. */
+export function buildUsageExamples(
+  backendUrl: string,
+  backendUrlName: string,
+  t: Translate,
+) {
+  const section = (key: string, commands: string[]): UsageSection => ({
+    title: t(`${D}.usage.${key}.title`),
+    description: t(`${D}.usage.${key}.description`),
+    examples: commands.map((command, index) => ({
+      title: t(`${D}.usage.${key}.e${index + 1}.title`),
+      command,
+      description: t(`${D}.usage.${key}.e${index + 1}.description`),
+    })),
+  });
+  return {
+    config: section('config', [
+      `kubectl proxyauth config set-def --default-server "${backendUrlName}"`,
+      `kubectl proxyauth login --server-url "${backendUrl}"`,
+      `kubectl proxyauth config set-def --server "${backendUrlName}" --namespace "team-production"`,
+      'kubectl proxyauth config get --list',
+    ]),
+    auth: section('auth', [
+      `kubectl proxyauth login --server-url <url> --token ${t(`${D}.tokenPlaceholder`)}`,
+      'kubectl proxyauth login my-cluster',
+      'kubectl proxyauth get-token my-cluster',
+      'kubectl proxyauth logout my-cluster',
+      'kubectl proxyauth cache clear',
+    ]),
+    clusters: section('clusters', [
+      'kubectl proxyauth get',
+      'kubectl proxyauth get my-cluster --format yaml',
+      'kubectl proxyauth get --namespace production',
+    ]),
+    contexts: section('contexts', [
+      'kubectl proxyauth ctx --list',
+      'kubectl proxyauth ctx --set my-cluster',
+      'kubectl proxyauth ctx',
+    ]),
   } satisfies Record<string, UsageSection>;
 }
 
 export type UsageExamples = ReturnType<typeof buildUsageExamples>;
 
-// Complete workflow example
+/** The complete workflow example, in the current locale. */
 export function buildWorkflowExample(
   backendUrl: string,
   backendUrlName: string,
   token: string | undefined,
+  t: Translate,
 ): string {
-  return `# 1. Configuration initiale
+  const c = (n: number) => t(`${D}.workflow.c${n}`);
+  return `${c(1)}
 kubectl proxyauth config set-def --default-server "${backendUrlName}"
 kubectl proxyauth config set-def --server "${backendUrl}" --namespace "default"
 
-# 2. Authentification
+${c(2)}
 kubectl proxyauth login
-# Or with your current token
+${c(3)}
 kubectl proxyauth login --server-url "${backendUrl}" --token "${token}"
 
-# 3. Lister les clusters disponibles
+${c(4)}
 kubectl proxyauth get
 
-# 4. Se connecter à un cluster spécifique
+${c(5)}
 kubectl proxyauth login my-production-cluster
 
-# 5. Utiliser kubectl normalement
+${c(6)}
 kubectl get pods
 kubectl get services
 
-# 6. Changer de cluster
+${c(7)}
 kubectl proxyauth ctx --set another-cluster
 kubectl get nodes`;
 }

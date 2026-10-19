@@ -1,0 +1,37 @@
+#!/bin/sh
+# Sourced by the nginx image's entrypoint before 20-envsubst-on-templates.sh:
+# exports what default.conf.template needs to build the CSP (RFC 0002 §6.6).
+#
+# T7: a value that is not a plain http(s) URL refuses the container start, so a
+# malformed variable can never widen the policy ("x; script-src *"). An unset
+# one, or a same-origin path such as `/api`, adds nothing: the directive
+# stays 'self' alone, stricter, never wider.
+# http:// is accepted with a warning: the chart sets it when the ingress has no
+# TLS (ingress.tls.enabled: false).
+
+csp_origin() {
+  # The scheme, host and port of $1, or nothing; exits on anything else.
+  [ -n "$1" ] || return 0
+  # A same-origin path (`/api`, the documented default) is covered by 'self'.
+  # `//host` is protocol-relative, another origin: refused below.
+  if printf '%s' "$1" | grep -Eq '^/([A-Za-z0-9._~%-][A-Za-z0-9._~%/-]*)?$'; then return 0; fi
+  if ! printf '%s' "$1" | grep -Eq '^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~%/-]*)?$'; then
+    echo "15-csp.envsh: $2 must be an http(s):// URL, got: $1" >&2
+    exit 1
+  fi
+  case "$1" in
+    http://*) echo "15-csp.envsh: warning: $2 is not https ($1): tokens travel in clear" >&2 ;;
+  esac
+  printf ' %s' "$(printf '%s' "$1" | sed -E 's#^(https?://[^/]+).*#\1#')"
+}
+
+csp_api=$(csp_origin "${PROXYAUTHK8S_FRONT_API_BASE_URL:-}" PROXYAUTHK8S_FRONT_API_BASE_URL) || exit 1
+csp_idp=$(csp_origin "${PROXYAUTHK8S_FRONT_OIDC_ISSUER_URL:-}" PROXYAUTHK8S_FRONT_OIDC_ISSUER_URL) || exit 1
+
+PROXYAUTHK8S_CSP_CONNECT="${csp_api}${csp_idp}"
+# The IdP origin also frames oidc-client-ts' silent renew.
+PROXYAUTHK8S_CSP_FRAME="${csp_idp}"
+# Written at build time from the built index.html (Containerfile).
+PROXYAUTHK8S_CSP_THEME_HASH=$(cat /etc/nginx/csp-theme-hash)
+export PROXYAUTHK8S_CSP_CONNECT PROXYAUTHK8S_CSP_FRAME PROXYAUTHK8S_CSP_THEME_HASH
+echo "15-csp.envsh: connect-src 'self'${PROXYAUTHK8S_CSP_CONNECT}"

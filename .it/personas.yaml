@@ -1,0 +1,20 @@
+# The bench's users: the only identities the integration suite knows. A test
+# picks one by name and never defines its own; an RFC adds the personas its
+# tests need here (RFC 0009 §6.1). `it:up` renders them into Dex's
+# staticPasswords, so this file is the single source.
+#
+# Fictitious users of a throwaway cluster published on 127.0.0.1 only: the
+# passwords are public on purpose. `hash` is bcrypt(password), cost 10.
+personas:
+  reader:
+    email: reader@it.local
+    password: reader-it
+    hash: "$2b$10$qC.N9fVkDfykkAjszlCjJ.RH27lNuyXbadXZSfS3Is6iJrPpkFiNu"
+    userID: 00000000-0000-4000-8000-000000000001
+    groups: [it-readers]
+  nogroup:
+    email: nogroup@it.local
+    password: nogroup-it
+    hash: "$2b$10$rLSogHJP2PThtvG6Hb/e/OQghdwEhPDHSuCYS/LepPZWTI2uVm3Ru"
+    userID: 00000000-0000-4000-8000-000000000002
+    groups: []

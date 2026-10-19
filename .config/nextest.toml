@@ -1,0 +1,14 @@
+# The integration suite (RFC 0009) needs the k3d bench: the default profile
+# (`task test`, CI's cargo jobs) keeps only its unit tests, the `it` profile
+# (`task it:test`) runs it alone.
+[profile.default]
+default-filter = "not package(integration) or kind(lib)"
+
+# No retry, tests isolated by namespace so a few run at once, and a slow test
+# is reported at 60 s (RFC 0009 §6.3).
+[profile.it]
+default-filter = "package(integration)"
+retries = 0
+test-threads = 4
+slow-timeout = { period = "60s", terminate-after = 5 }
+fail-fast = false

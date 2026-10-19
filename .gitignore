@@ -4,7 +4,6 @@
 dist
 tmp
 out-tsc
-.yarn
 .tls
 .compose/traefik/certs
 .compose/headlamp
@@ -33,7 +32,6 @@ node_modules
 /coverage
 /libpeerconnection.log
 npm-debug.log
-yarn-error.log
 testem.log
 /typings
 
@@ -43,10 +41,6 @@ Thumbs.db
 
 ec_key.pem
 
-.nx/cache
-.nx/workspace-data
-.cursor/rules/nx-rules.mdc
-.github/instructions/nx.instructions.md
 kubeconfig.*.yaml
 proxyauth_config.*.yaml
 
@@ -79,5 +73,11 @@ release.md
 # Claude Code per-user local settings
 .claude/settings.local.json
 
-# graphify incremental cache (the graph itself stays tracked)
-graphify-out/cache/
+# graphify knowledge graph output (local only)
+graphify-out/
+
+# Local working notes, never committed (public plan: docs/content/docs/roadmap.mdx)
+todo.md
+
+# Integration bench run state (RFC 0009): CA, kubeconfigs, logs
+.it/run

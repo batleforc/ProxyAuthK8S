@@ -1,15 +1,13 @@
 //! Upgrade (exec/attach/port-forward) path, driven over real sockets.
 //!
-//! The upgrade path writes the handshake onto a raw upstream socket, so both
-//! sides have to be real: an actix server bound on loopback, and a hand-rolled
-//! upstream that records every byte it receives on its connection.
+//! Both sides have to be real: the axum server bound on loopback (its
+//! upgrades are hyper's), and a hand-rolled upstream that records every byte
+//! it receives on its connection.
 
 mod harness;
 
 use std::time::Duration;
 
-use actix_web::{App, HttpServer, web};
-use api::cluster::redirect;
 use crd::security::{
     AllowedPathConfiguration, AllowedPathConfigurationEnum, PortSpec, SecurityConfiguration,
 };
@@ -33,24 +31,34 @@ macro_rules! redis_or_skip {
 
 const SMUGGLED_MARKER: &str = "smuggled-request-marker";
 
-/// Serve the redirect handlers on an ephemeral loopback port.
-fn start_proxy() -> (std::net::SocketAddr, actix_web::dev::ServerHandle) {
-    let state = web::Data::new(test_state("http://127.0.0.1:1".to_string()));
-    let server = HttpServer::new(move || {
-        App::new().app_data(state.clone()).service(
-            web::scope("/clusters")
-                .service(redirect::get_redirect)
-                .service(redirect::post_redirect),
-        )
-    })
-    .workers(1)
-    .bind(("127.0.0.1", 0))
-    .expect("proxy should bind");
-    let addr = server.addrs()[0];
-    let server = server.run();
-    let handle = server.handle();
-    actix_web::rt::spawn(server);
-    (addr, handle)
+/// The running proxy of a test.
+struct ServerHandle(tokio::task::JoinHandle<()>);
+
+impl ServerHandle {
+    /// Stop serving (actix's `ServerHandle::stop` shape).
+    async fn stop(self, _graceful: bool) {
+        self.0.abort();
+        let _ = self.0.await;
+    }
+}
+
+/// Serve the API on an ephemeral loopback port, through `serve` as in
+/// production (its HTTP/1 settings included).
+fn start_proxy() -> (std::net::SocketAddr, ServerHandle) {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("proxy should bind");
+    let addr = listener.local_addr().unwrap();
+    let app = api::server::AppState {
+        state: test_state("http://127.0.0.1:1".to_string()),
+        prometheus_registry: api::metrics::PrometheusRegistry(None),
+        http_metrics: api::metrics::HttpMetrics::new(&opentelemetry::global::meter("test")),
+        cors_allowed_origins: common::config::CorsOrigins::SameOriginOnly,
+        tls: None,
+        shutdown_timeout_secs: 1,
+    };
+    let server = tokio::spawn(async move {
+        let _ = api::server::serve(listener, app).await;
+    });
+    (addr, ServerHandle(server))
 }
 
 /// A one-connection upstream: answer the handshake with `response`, then
@@ -104,11 +112,11 @@ async fn start_upstream(
 }
 
 /// Regression: a handshake the upstream refuses must not turn into a tunnel.
-/// actix hands every byte after an `Upgrade: websocket` request to the handler
-/// as its payload; forwarding them after a non-101 answer lets the upstream
+/// The bytes a client sends after an `Upgrade: websocket` handshake must not
+/// reach the upstream after a non-101 answer: that would let the upstream
 /// parse them as a second request that skipped authorization, the allow-list
 /// and identity-header stripping.
-#[actix_web::test]
+#[tokio::test]
 async fn a_refused_upgrade_never_forwards_the_client_bytes() {
     let pool = redis_or_skip!();
     let (upstream_url, received) = start_upstream(
@@ -162,7 +170,7 @@ async fn a_refused_upgrade_never_forwards_the_client_bytes() {
 
 /// A request that merely carries an `Upgrade` header, on a path the apiserver
 /// never upgrades, goes through the standard path instead of a raw socket.
-#[actix_web::test]
+#[tokio::test]
 async fn an_upgrade_header_on_a_plain_path_does_not_open_a_raw_socket() {
     let pool = redis_or_skip!();
     let (upstream_url, received) = start_upstream(
@@ -206,8 +214,9 @@ async fn an_upgrade_header_on_a_plain_path_does_not_open_a_raw_socket() {
 }
 
 /// The fix must not break real upgrades: after a `101`, bytes flow both ways.
-#[actix_web::test]
+#[tokio::test]
 async fn an_accepted_upgrade_tunnels_both_ways() {
+    api::cluster::redirect::audit::capture::start();
     let pool = redis_or_skip!();
     let (upstream_url, received) = start_upstream(
         b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
@@ -262,6 +271,50 @@ async fn an_accepted_upgrade_tunnels_both_ways() {
     );
     assert!(!upstream_saw.contains("keep-alive"), "got: {upstream_saw}");
 
+    // RFC 0008 phase 4: the session's end is audited, with its bytes and who
+    // left first.
+    let closed = async {
+        loop {
+            if let Some(line) = api::cluster::redirect::audit::capture::lines()
+                .into_iter()
+                .find(|line| {
+                    line["cluster"] == cluster.as_str() && line["event"] == "session_closed"
+                })
+            {
+                return line;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    let closed = tokio::time::timeout(Duration::from_secs(5), closed)
+        .await
+        .expect("a session_closed line");
+    assert_eq!(closed["bytes_in"], 4, "{closed}");
+    assert_eq!(closed["bytes_out"], 4, "{closed}");
+    assert_eq!(closed["close_reason"], "client", "{closed}");
+    assert_eq!(closed["outcome"], "allowed", "{closed}");
+    // RFC 0004 phase 1: what the exec ran is on its lines.
+    assert_eq!(
+        closed["exec"]["argv"],
+        serde_json::json!(["sh"]),
+        "{closed}"
+    );
+    let opened = api::cluster::redirect::audit::capture::lines()
+        .into_iter()
+        .find(|line| {
+            line["cluster"] == cluster.as_str()
+                && line["event"] == "request"
+                && line["status"] == 101
+        })
+        .expect("the request line of the 101");
+    assert_eq!(
+        opened["exec"]["argv"],
+        serde_json::json!(["sh"]),
+        "{opened}"
+    );
+    assert_eq!(opened["exec"]["stdin"], false, "{opened}");
+    assert!(closed["duration_ms"].is_u64(), "{closed}");
+
     server.stop(false).await;
     delete_proxy(&pool, &ns, &cluster).await;
 }
@@ -288,9 +341,9 @@ async fn exchange(addr: std::net::SocketAddr, request: &[u8]) -> String {
     String::from_utf8_lossy(&response).into_owned()
 }
 
-/// Only websocket is tunnelled: actix-http cannot hand a SPDY session's bytes
-/// to the handler, so a SPDY handshake is refused before reaching the cluster.
-#[actix_web::test]
+/// Only websocket is tunnelled (RFC 0007, decision 1): a SPDY handshake is
+/// refused before reaching the cluster.
+#[tokio::test]
 async fn a_spdy_upgrade_is_refused_before_reaching_the_cluster() {
     let pool = redis_or_skip!();
     let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
@@ -338,6 +391,8 @@ fn port_forward_proxy(
                         .map(|port| PortSpec((*port).to_string()))
                         .collect(),
                 ),
+                verbs: None,
+                exec: None,
             },
         )],
         ..SecurityConfiguration::default()
@@ -347,7 +402,7 @@ fn port_forward_proxy(
 
 /// With the channel protocols the ports are in the query string: a port
 /// outside the rule is refused before the cluster is contacted.
-#[actix_web::test]
+#[tokio::test]
 async fn a_port_forward_query_outside_the_allowed_ports_is_refused() {
     let pool = redis_or_skip!();
     let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
@@ -381,6 +436,67 @@ async fn a_port_forward_query_outside_the_allowed_ports_is_refused() {
 
     server.stop(false).await;
     delete_proxy(&pool, &ns, &cluster).await;
+}
+
+/// RFC 0003 §6.P point 2: with a `Crd` `Pod` rule without ports next to the
+/// restricted one, port 5432 is refused with its reason in websocket and in
+/// kubectl's SPDY fallback alike (not "SPDY is not supported"), and the
+/// cluster never sees a connection.
+#[tokio::test]
+async fn a_rule_without_ports_does_not_lift_the_restriction() {
+    use crd::security::{
+        AllowedCrdConfiguration, NamespacedAccessConfiguration, NamespacedAccessRuleKind,
+    };
+    let pool = redis_or_skip!();
+    for upgrade in ["websocket", "SPDY/3.1"] {
+        let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
+        let (ns, cluster) = unique_cluster();
+        let mut proxy = port_forward_proxy(&ns, &cluster, &upstream_url, &["8080"]);
+        let config = proxy.spec.security_config.as_mut().unwrap();
+        config
+            .allowed_resources
+            .push(AllowedPathConfigurationEnum::Crd(AllowedCrdConfiguration {
+                group: String::new(),
+                version: "v1".to_string(),
+                kind: "Pod".to_string(),
+                plural: Some("pods".to_string()),
+                namespace: NamespacedAccessConfiguration {
+                    enabled: false,
+                    rule_kind: NamespacedAccessRuleKind::AllowedNamespaces(vec![]),
+                },
+                namespaced: true,
+                allowed_ports: None,
+                exec: None,
+                verbs: None,
+            }));
+        seed_proxy(&pool, &proxy).await;
+        let (addr, server) = start_proxy();
+
+        let handshake = format!(
+            "GET /clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/portforward?ports=5432 HTTP/1.1\r\n\
+             Host: proxy\r\n\
+             Upgrade: {upgrade}\r\n\
+             Connection: Upgrade\r\n\
+             Connection: close\r\n\
+             \r\n"
+        );
+        let response = exchange(addr, handshake.as_bytes()).await;
+        assert!(
+            response.starts_with("HTTP/1.1 403"),
+            "{upgrade}: {response}"
+        );
+        assert!(
+            response.contains("port 5432 is not allowed on this cluster"),
+            "{upgrade}: {response}"
+        );
+        assert!(
+            !contacted.await.unwrap(),
+            "{upgrade}: the cluster was contacted"
+        );
+
+        server.stop(false).await;
+        delete_proxy(&pool, &ns, &cluster).await;
+    }
 }
 
 mod spdy_dictionary {
@@ -437,8 +553,9 @@ fn ws_binary(payload: &[u8]) -> Vec<u8> {
 /// kubectl's transport: SPDY tunnelled in websocket. Streams to an allowed port
 /// go through; the first one to another port closes the session before its
 /// frame reaches the cluster.
-#[actix_web::test]
+#[tokio::test]
 async fn a_tunnelled_spdy_port_forward_is_filtered_per_stream() {
+    api::cluster::redirect::audit::capture::start();
     let pool = redis_or_skip!();
     let (upstream_url, received) = start_upstream(
         b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: SPDY/3.1+portforward.k8s.io\r\n\r\n",
@@ -505,6 +622,198 @@ async fn a_tunnelled_spdy_port_forward_is_filtered_per_stream() {
         "the allowed stream should reach the cluster"
     );
     assert!(!contains(&denied), "the denied stream reached the cluster");
+
+    // RFC 0008 phase 4: the filter's refusal is the session's close reason.
+    let closed = async {
+        loop {
+            if let Some(line) = api::cluster::redirect::audit::capture::lines()
+                .into_iter()
+                .find(|line| {
+                    line["cluster"] == cluster.as_str() && line["event"] == "session_closed"
+                })
+            {
+                return line;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    let closed = tokio::time::timeout(Duration::from_secs(5), closed)
+        .await
+        .expect("a session_closed line");
+    assert_eq!(closed["close_reason"], "filter", "{closed}");
+
+    server.stop(false).await;
+    delete_proxy(&pool, &ns, &cluster).await;
+}
+
+/// A proxy whose only exec rule allows `ls` (any arguments) in `app`, without
+/// stdin or tty (RFC 0004).
+fn exec_proxy(ns: &str, cluster: &str, upstream_url: &str) -> crd::ProxyKubeApi {
+    use crd::security::{CommandElement, CommandPattern, ExecPolicyConfiguration};
+    let mut proxy = proxy_fixture(ns, cluster, upstream_url);
+    proxy.spec.security_config = Some(SecurityConfiguration {
+        enabled: true,
+        allowed_resources: vec![AllowedPathConfigurationEnum::Path(
+            AllowedPathConfiguration {
+                path: "/api/v1/namespaces/dev/pods/*/exec".to_string(),
+                parametised: true,
+                allowed_ports: None,
+                verbs: None,
+                exec: Some(ExecPolicyConfiguration {
+                    commands: Some(vec![CommandPattern(vec![
+                        CommandElement("ls".into()),
+                        CommandElement("**".into()),
+                    ])]),
+                    containers: Some(vec![CommandElement("app".into())]),
+                    ..ExecPolicyConfiguration::default()
+                }),
+            },
+        )],
+        ..SecurityConfiguration::default()
+    });
+    proxy
+}
+
+/// Send `handshake` and read the whole answer (the client closes its side).
+async fn answer_to(addr: std::net::SocketAddr, handshake: &str) -> String {
+    let mut client = TcpStream::connect(addr).await.unwrap();
+    client.write_all(handshake.as_bytes()).await.unwrap();
+    client.shutdown().await.unwrap();
+    let mut response = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response)).await;
+    String::from_utf8_lossy(&response).into_owned()
+}
+
+/// RFC 0004 §6.P points 2 and 4, T1: an exec outside the policy is refused
+/// with its reason before any connection, and kubectl's SPDY fallback gets
+/// the same refusal, not "SPDY is not supported".
+#[tokio::test]
+async fn an_exec_outside_the_policy_never_reaches_the_cluster() {
+    let pool = redis_or_skip!();
+    let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
+    let (ns, cluster) = unique_cluster();
+    seed_proxy(&pool, &exec_proxy(&ns, &cluster, &upstream_url)).await;
+    let (addr, server) = start_proxy();
+
+    let path = format!("/clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/exec");
+    let websocket = answer_to(
+        addr,
+        &format!(
+            "GET {path}?command=sh&command=-c&command=id&container=app&stdout=true HTTP/1.1\r\n\
+             Host: proxy\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+             Sec-WebSocket-Protocol: v5.channel.k8s.io\r\n\r\n"
+        ),
+    )
+    .await;
+    assert!(websocket.starts_with("HTTP/1.1 403"), "got: {websocket}");
+    assert!(websocket.contains("command [sh -c id]"), "got: {websocket}");
+
+    let spdy = answer_to(
+        addr,
+        &format!(
+            "POST {path}?command=sh&command=-c&command=id&container=app&stdout=true HTTP/1.1\r\n\
+             Host: proxy\r\nUpgrade: SPDY/3.1\r\nConnection: Upgrade\r\n\r\n"
+        ),
+    )
+    .await;
+    assert!(spdy.starts_with("HTTP/1.1 403"), "got: {spdy}");
+    assert!(spdy.contains("command [sh -c id]"), "got: {spdy}");
+
+    // No container named while containers are restricted.
+    let unnamed = answer_to(
+        addr,
+        &format!(
+            "GET {path}?command=ls&stdout=true HTTP/1.1\r\n\
+             Host: proxy\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"
+        ),
+    )
+    .await;
+    assert!(unnamed.contains("specify -c"), "got: {unnamed}");
+
+    assert!(!contacted.await.unwrap(), "the cluster was contacted");
+    server.stop(false).await;
+    delete_proxy(&pool, &ns, &cluster).await;
+}
+
+/// RFC 0004 §6.P point 6, T4: an exec accepted without stdin that then sends
+/// a message on the stdin channel is closed, and that message never reaches
+/// the cluster.
+#[tokio::test]
+async fn stdin_on_an_exec_without_stdin_closes_the_session() {
+    api::cluster::redirect::audit::capture::start();
+    let pool = redis_or_skip!();
+    let (upstream_url, received) = start_upstream(
+        b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+          Sec-WebSocket-Protocol: v5.channel.k8s.io\r\n\r\n",
+        false,
+        Duration::from_secs(2),
+    )
+    .await;
+    let (ns, cluster) = unique_cluster();
+    seed_proxy(&pool, &exec_proxy(&ns, &cluster, &upstream_url)).await;
+    let (addr, server) = start_proxy();
+
+    let mut client = TcpStream::connect(addr).await.unwrap();
+    client
+        .write_all(
+            format!(
+                "GET /clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/exec?command=ls&container=app&stdout=true HTTP/1.1\r\n\
+                 Host: proxy\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
+                 Sec-WebSocket-Protocol: v5.channel.k8s.io\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut response = Vec::new();
+    let mut buf = [0u8; 4096];
+    while !response.windows(4).any(|w| w == b"\r\n\r\n") {
+        let read = tokio::time::timeout(Duration::from_secs(5), client.read(&mut buf))
+            .await
+            .expect("the 101 should arrive")
+            .unwrap();
+        assert!(read > 0, "the proxy closed instead of upgrading");
+        response.extend_from_slice(&buf[..read]);
+    }
+    assert!(
+        response.starts_with(b"HTTP/1.1 101"),
+        "{}",
+        String::from_utf8_lossy(&response)
+    );
+
+    // A message on channel 0 (stdin): the proxy closes the session.
+    let stdin = ws_binary(&[0, b'r', b'm']);
+    client.write_all(&stdin).await.unwrap();
+    let mut rest = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut rest))
+        .await
+        .expect("the proxy should close the session")
+        .unwrap();
+
+    let upstream_saw = received.await.unwrap();
+    assert!(
+        !upstream_saw
+            .windows(stdin.len())
+            .any(|w| w == stdin.as_slice()),
+        "the stdin message reached the cluster"
+    );
+    let closed = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(line) = api::cluster::redirect::audit::capture::lines()
+                .into_iter()
+                .find(|line| {
+                    line["cluster"] == cluster.as_str() && line["event"] == "session_closed"
+                })
+            {
+                return line;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("a session_closed line");
+    assert_eq!(closed["close_reason"], "filter", "{closed}");
+    assert_eq!(closed["channel"], 0, "{closed}");
 
     server.stop(false).await;
     delete_proxy(&pool, &ns, &cluster).await;

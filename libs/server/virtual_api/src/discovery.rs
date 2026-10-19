@@ -79,21 +79,32 @@ pub fn api_resource_list_response(mapper: &dyn VirtualApiMapper) -> Value {
     body
 }
 
-/// Merge the virtual groups into the cluster's own `APIGroupList`.
+/// Merge the virtual groups into the cluster's own `APIGroupList` or
+/// aggregated `APIGroupDiscoveryList`.
 ///
 /// A group the cluster already serves wins: the proxy must never shadow a real
 /// API with a synthesised one.
 pub fn merge_api_group_list(registry: &MapperRegistry, mut upstream: Value) -> Value {
-    let Some(groups) = upstream.get_mut("groups").and_then(Value::as_array_mut) else {
+    // kubectl asks for the aggregated format first (`APIGroupDiscoveryList`,
+    // `apidiscovery.k8s.io/v2`) and only falls back to `APIGroupList` when the
+    // server does not serve it.
+    let aggregated = upstream.get("kind").and_then(Value::as_str) == Some("APIGroupDiscoveryList");
+    let list = if aggregated { "items" } else { "groups" };
+    let Some(groups) = upstream.get_mut(list).and_then(Value::as_array_mut) else {
         // Not a shape we recognise (an error Status, most likely): leave it be.
         return upstream;
     };
 
     for mapper in registry.iter() {
         let (group, _) = mapper.group_version();
-        let already_served = groups
-            .iter()
-            .any(|entry| entry.get("name").and_then(Value::as_str) == Some(group));
+        let already_served = groups.iter().any(|entry| {
+            let name = if aggregated {
+                entry.pointer("/metadata/name")
+            } else {
+                entry.get("name")
+            };
+            name.and_then(Value::as_str) == Some(group)
+        });
         if already_served {
             tracing::debug!(
                 group,
@@ -101,10 +112,57 @@ pub fn merge_api_group_list(registry: &MapperRegistry, mut upstream: Value) -> V
             );
             continue;
         }
-        groups.push(api_group(mapper));
+        groups.push(if aggregated {
+            api_group_discovery(mapper)
+        } else {
+            api_group(mapper)
+        });
     }
 
     upstream
+}
+
+/// The `APIGroupDiscovery` entry (`apidiscovery.k8s.io/v2`) describing a
+/// mapper: its one version and that version's resources. A `name/sub`
+/// resource is listed as a subresource of `name`, as the apiserver does.
+pub fn api_group_discovery(mapper: &dyn VirtualApiMapper) -> Value {
+    let (group, version) = mapper.group_version();
+    let list = mapper.api_resources();
+    let scope = |namespaced: bool| if namespaced { "Namespaced" } else { "Cluster" };
+    let resources: Vec<Value> = list
+        .resources
+        .iter()
+        .filter(|r| !r.name.contains('/'))
+        .map(|r| {
+            let prefix = format!("{}/", r.name);
+            let subresources: Vec<Value> = list
+                .resources
+                .iter()
+                .filter_map(|s| {
+                    s.name.strip_prefix(&prefix).map(|sub| {
+                        json!({
+                            "subresource": sub,
+                            "responseKind": { "group": "", "version": "", "kind": s.kind },
+                            "verbs": s.verbs,
+                        })
+                    })
+                })
+                .collect();
+            json!({
+                "resource": r.name,
+                "responseKind": { "group": "", "version": "", "kind": r.kind },
+                "scope": scope(r.namespaced),
+                "singularResource": r.singular_name,
+                "verbs": r.verbs,
+                "shortNames": r.short_names.clone().unwrap_or_default(),
+                "subresources": subresources,
+            })
+        })
+        .collect();
+    json!({
+        "metadata": { "name": group },
+        "versions": [{ "version": version, "resources": resources, "freshness": "Current" }],
+    })
 }
 
 #[cfg(test)]
@@ -209,6 +267,40 @@ mod tests {
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0]["name"], "apps");
         assert_eq!(groups[1]["name"], "project.openshift.io");
+    }
+
+    #[test]
+    fn merging_appends_the_virtual_group_to_aggregated_discovery() {
+        let upstream = json!({
+            "kind": "APIGroupDiscoveryList",
+            "apiVersion": "apidiscovery.k8s.io/v2",
+            "items": [{ "metadata": { "name": "apps" }, "versions": [] }],
+        });
+
+        let merged = merge_api_group_list(&registry(), upstream);
+        let items = merged["items"].as_array().expect("items should be a list");
+
+        assert_eq!(items.len(), 2);
+        let project = &items[1];
+        assert_eq!(project["metadata"]["name"], "project.openshift.io");
+        assert_eq!(project["versions"][0]["version"], "v1");
+        let projects = &project["versions"][0]["resources"][0];
+        assert_eq!(projects["resource"], "projects");
+        assert_eq!(projects["responseKind"]["kind"], "Project");
+        assert_eq!(projects["scope"], "Cluster");
+        assert_eq!(projects["shortNames"], json!(["proj"]));
+    }
+
+    #[test]
+    fn aggregated_merge_never_shadows_a_served_group() {
+        let upstream = json!({
+            "kind": "APIGroupDiscoveryList",
+            "items": [{ "metadata": { "name": "project.openshift.io" }, "versions": [] }],
+        });
+
+        let merged = merge_api_group_list(&registry(), upstream);
+
+        assert_eq!(merged["items"].as_array().map(Vec::len), Some(1));
     }
 
     #[test]

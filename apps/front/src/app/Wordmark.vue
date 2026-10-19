@@ -1,0 +1,79 @@
+<script setup lang="ts">
+import { RouterLink } from 'vue-router';
+</script>
+
+<template>
+  <!-- The dot grid is the icon system: a 3×3 grid of 4px squares on a 16px
+       viewBox with 2px gutters, as DESIGN.md draws the wordmark. -->
+  <RouterLink
+    to="/"
+    class="flex items-center gap-3 font-display text-xl font-bold tracking-[0.04em] text-foreground no-underline"
+  >
+    <svg
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      aria-hidden="true"
+      class="flex-none"
+      fill="currentColor"
+    >
+      <rect
+        x="0"
+        y="0"
+        width="4"
+        height="4"
+      />
+      <rect
+        x="6"
+        y="0"
+        width="4"
+        height="4"
+      />
+      <rect
+        x="12"
+        y="0"
+        width="4"
+        height="4"
+      />
+      <rect
+        x="0"
+        y="6"
+        width="4"
+        height="4"
+      />
+      <rect
+        x="6"
+        y="6"
+        width="4"
+        height="4"
+        class="text-primary"
+        fill="currentColor"
+      />
+      <rect
+        x="12"
+        y="6"
+        width="4"
+        height="4"
+      />
+      <rect
+        x="0"
+        y="12"
+        width="4"
+        height="4"
+      />
+      <rect
+        x="6"
+        y="12"
+        width="4"
+        height="4"
+      />
+      <rect
+        x="12"
+        y="12"
+        width="4"
+        height="4"
+      />
+    </svg>
+    <span>ProxyAuthK8S</span>
+  </RouterLink>
+</template>

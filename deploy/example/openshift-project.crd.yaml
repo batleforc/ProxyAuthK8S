@@ -1,6 +1,6 @@
 # Exposes `project.openshift.io/v1 Projects` on top of a vanilla cluster's
 # Namespaces, so an oc-flavoured client can run `kubectl get projects`.
-# See .docs/content/docs/virtual-apis.mdx for the known limitations.
+# See docs/content/docs/virtual-apis.mdx for the known limitations.
 apiVersion: weebo.si.rs/v1
 kind: ProxyKubeApi
 metadata:
@@ -8,7 +8,7 @@ metadata:
   namespace: default
 spec:
   cert:
-    Insecure: true
+    SystemRoots: true
   service:
     KubernetesService:
       name: kubernetes

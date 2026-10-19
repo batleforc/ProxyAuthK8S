@@ -1,0 +1,21 @@
+version: "3"
+
+tasks:
+  dev:
+    desc: "Run the frontend in development mode"
+    silent: true
+    cmds:
+      - echo "Running the frontend in development mode"
+      - pnpm --filter @proxy-auth-k8s/front dev
+  dev:tls:
+    desc: "Run the frontend in development mode with TLS (.tls/, see task gen:tls)"
+    silent: true
+    env:
+      VITE_TLS_ENABLE: "true"
+    cmds:
+      - echo "Running the frontend in development mode with TLS"
+      - pnpm --filter @proxy-auth-k8s/front dev
+  build:
+    desc: "Build the frontend into dist/apps/front"
+    cmds:
+      - pnpm --filter @proxy-auth-k8s/front build

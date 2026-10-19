@@ -4,8 +4,9 @@ on:
   push:
     branches: ["main", "feat/init-doc"]
     paths:
-      - ".docs/**" # Only trigger on changes to documentation files
+      - "docs/**" # Only trigger on changes to documentation files
       - ".github/workflows/docs-deploy.yml" # Trigger if the workflow file itself is changed
+      - "pnpm-lock.yaml" # The docs dependencies are locked in the workspace lockfile
   workflow_dispatch:
 
 concurrency:
@@ -24,28 +25,31 @@ jobs:
       id-token: write # For authentication with GitHub Pages
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: 🧶 Enable Corepack
-        run: corepack enable
-        # 🔒 Honor the "packageManager" pin in package.json (Yarn Berry) instead
-        # of the runner's preinstalled Yarn Classic. Must run BEFORE setup-node,
-        # since setup-node's cache:"yarn" option shells out to `yarn` itself to
-        # resolve the cache directory.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 📦 Setup pnpm
+        uses: ./.github/actions/setup-pnpm
       - name: 📦 Setup Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
-          cache: "yarn" # 🚀 Speed up builds with yarn cache
+          cache: "pnpm" # 🚀 Speed up builds with the pnpm store cache
       - name: ⚙️ Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       - name: 📂 Install Dependencies
-        run: cd .docs && yarn install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --filter @proxy-auth-k8s/docs
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
       - name: Build with Fumadocs
-        run: cd .docs && yarn build
+        run: task docs:build
+        env:
+          # The project site lives under /ProxyAuthK8S; the OG image URLs need
+          # the published origin (withOperatorDocs, siteMetadata).
+          DOCS_BASE_PATH: /ProxyAuthK8S
+          DOCS_SITE_URL: https://batleforc.github.io
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: .docs/out
+          path: docs/out
 
   # Deployment job
   deploy:
@@ -62,4 +66,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

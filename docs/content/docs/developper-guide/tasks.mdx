@@ -1,0 +1,92 @@
+---
+title: Tâches (Taskfile)
+description: Les commandes de développement, de génération, de test et d'audit
+icon: SquareTerminal
+---
+
+Toutes les commandes passent par [Task](https://taskfile.dev). `task --list` affiche la liste
+complète avec leur description ; cette page regroupe les plus utiles.
+
+## Workspace JS
+
+Le front, son client d'API et ce site forment un workspace pnpm de trois paquets
+(`pnpm-workspace.yaml`) : `@proxy-auth-k8s/front` (`apps/front`), `@proxy-auth-k8s/front-api`
+(`libs/front/front-api`, consommé en source) et `@proxy-auth-k8s/docs` (`docs`). Un seul
+`pnpm install` à la racine installe les trois, avec un seul lockfile. Chaque paquet expose les
+mêmes noms de scripts (`dev`, `build`, `typecheck`, `test`, `lint`) ; les tâches `js:*` les
+lancent partout avec `pnpm -r --if-present`. Rien n'est hoisté : un paquet doit déclarer ce
+qu'il importe.
+
+Une version doit être publiée depuis 25 heures pour être installée (`minimumReleaseAge`), et
+seuls les paquets listés dans `allowBuilds` exécutent leurs scripts d'installation.
+
+Après la migration depuis Yarn et NX : supprimez `node_modules` et `docs/node_modules`, puis
+lancez `task init`.
+
+## Lancer le projet
+
+| Tâche          | Effet                                                              |
+| -------------- | ------------------------------------------------------------------ |
+| `task init`    | Prépare le projet (outils mise, plugins Claude, cargo-set-version, cargo-machete, `pnpm install`) |
+| `task service` | Démarre les services de dev en compose (Redis, Authelia/Keycloak, Traefik, OTel...) via Docker ou Podman ; `init:service` génère leurs clés |
+| `task back`    | Lance le serveur (`back:tls` derrière un terminateur TLS)          |
+| `task front:dev` | Lance le dashboard en mode dev (`front:dev:tls` avec TLS)        |
+| `task aio`     | Back + front ensemble                                              |
+| `task docs:dev` | Lance ce site de documentation en local (`docs:build` le construit) |
+| `task cli -- <args>` | Lance le plugin kubectl (`cli:login`, `cli:get-token`)       |
+| `task tmux:dev` | Session tmux avec tous les logs de dev (`tmux:kill` pour l'arrêter) |
+
+## Clusters de test
+
+| Tâche                         | Effet                                                                |
+| ----------------------------- | -------------------------------------------------------------------- |
+| `task k3d:create`             | Crée le cluster k3d local (certificats, CRD, kubeconfigs)            |
+| `task k3d:start` / `k3d:stop` | Redémarre / arrête le cluster existant ; `k3d:delete` le détruit     |
+| `task k3d:k -- <args>`        | `kubectl` direct ; `k3d:k-proxy` via ProxyAuthK8S, `k3d:k-oidc` en OIDC |
+| `task k3d:k9s*`               | k9s direct, via le proxy ou avec un service account                  |
+| `task talos:up` / `talos:down` | Cluster Talos local (mêmes raccourcis `talos:k*`, `talos:k9s`)      |
+| `task lab:*`                  | Raccourcis vers le cluster de lab                                    |
+
+## Tests
+
+| Tâche                   | Effet                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `task test:unit`        | Tests unitaires seuls (ni Redis, ni réseau)                                     |
+| `task test:integration` | Tier d'intégration rapide (wiremock + Redis réel) ; échoue si Redis est absent |
+| `task test:server`      | Tests côté serveur uniquement (sans les crates CLI)                             |
+| `task test:all`         | Tous les tests du workspace                                                     |
+| `task envtest:setup`    | Télécharge kube-apiserver et etcd pour l'envtest                                |
+| `task envtest:run`      | Suite envtest contre un apiserver éphémère réel (`envtest:clean` pour nettoyer) |
+
+Le Redis de test se règle avec `TEST_REDIS_URL` (défaut `redis://127.0.0.1:6379`) ;
+`REQUIRE_TEST_REDIS=1` transforme un Redis absent en échec plutôt qu'en test sauté.
+
+Contre un vrai cluster (k3d, Dex, chart, images construites depuis l'arbre) : `task it:up`
+puis `task it:test`, voir [Suite d'intégration](/docs/developper-guide/integration-tests).
+
+## Génération
+
+| Tâche                     | Effet                                                                  |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `task recu`               | Lance toutes les générations ci-dessous                                |
+| `task gen:crds-file`      | Régénère `deploy/crds.yaml` et le chart des CRD                         |
+| `task gen:swagger-file`   | Régénère `swagger.json` (et sa copie dans `docs`)                      |
+| `task gen:client`         | Régénère les clients API : TypeScript (`front-api`) et Rust (`client_api`) |
+| `task docs:api`           | Régénère les pages de [référence API](/docs/api) depuis `swagger.json`  |
+| `task docs:crds`          | Régénère la [référence CRD](/docs/crds) depuis `deploy/crd/` (`weebo-crd-docs`) |
+| `task gen:api-lint`       | Lint du spec OpenAPI avec Spectral                                     |
+| `task gen:tls*`           | Certificats auto-signés de dev (mkcert)                                |
+
+Après une modification d'API : `task gen:swagger-file && task gen:client && task docs:api`.
+
+## Qualité, sécurité, dépendances
+
+| Tâche                | Effet                                                                 |
+| -------------------- | --------------------------------------------------------------------- |
+| `task lint`          | Tous les linters : `rust:lint` (fmt, clippy `--all-targets`), `repo:lint` (actionlint, hadolint), `lint:helm`, `js:lint`, `fuzz:check` |
+| `task js:ci`         | Typecheck, tests et build de tous les paquets JS (`js:lint`, `js:test`…) |
+| `task audit`         | Audit : `rust:audit` (`cargo deny` selon `deny.toml`, `trivy fs`), `audit:fuzz`, `audit:js` (`pnpm audit`), `repo:audit` (`trivy config` sur les Containerfiles) |
+| `task tool:upgrade`  | Met à jour les dépendances dans les majeures actuelles (Rust, front, docs) |
+| `task bump`          | Incrémente la version (voir [Préparer une version](/docs/developper-guide/release)) |
+| `task rust:doctor`   | Vérifie les prérequis envtest (Go, libclang, binaires du control plane) |
+| `task template:*`    | Synchronise le projet avec son template (`diff`, `fetch`, `sync`)      |

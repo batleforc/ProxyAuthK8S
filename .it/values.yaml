@@ -1,0 +1,61 @@
+# Chart values of the integration bench (RFC 0009 §6.1): an ordinary values
+# file, nothing here changes the product's behaviour.
+registry:
+  front:
+    image:
+      repository: localhost/proxyauthk8s/front
+      tag: it
+      pullPolicy: Never
+  back:
+    image:
+      repository: localhost/proxyauthk8s/server
+      tag: it
+      pullPolicy: Never
+
+ingress:
+  host: proxyauth.k8s.localhost
+  publicUrl: https://proxyauth.k8s.localhost:8443
+  tls:
+    enabled: true
+    secretName: proxyauthk8s-tls
+
+oidc:
+  source: secret
+  objectName: proxyauthk8s-back-oidc
+  value:
+    silent_refresh: "false"
+
+back:
+  # One pod: audit lines and metrics are read from it (RFC 0009 §15, 33).
+  replicas: 1
+  logFormat: json
+  redis:
+    source: env
+    value:
+      url: redis://redis:6379
+  podDisruptionBudget:
+    enabled: false
+  # Trust the run's CA when calling Dex (discovery, token exchange).
+  env:
+    - name: SSL_CERT_FILE
+      value: /etc/proxyauth-it/rootCA.pem
+    # RFC 0008 §6.P point 1: the audit must get through a restrictive level.
+    - name: RUST_LOG
+      value: warn
+  extraVolumes:
+    - name: it-ca
+      secret:
+        secretName: it-ca
+  extraVolumeMounts:
+    - name: it-ca
+      mountPath: /etc/proxyauth-it
+      readOnly: true
+
+front:
+  replicas: 1
+  podDisruptionBudget:
+    enabled: false
+
+metrics:
+  prometheus:
+    enabled: true

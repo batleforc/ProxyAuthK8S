@@ -52,7 +52,7 @@ jobs:
       REQUIRE_TEST_REDIS: "1"
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: 🦀 Install Rust Toolchain
         uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
@@ -75,11 +75,15 @@ jobs:
           tar xzf /tmp/envtest.tar.gz -C "$KUBEBUILDER_ASSETS" --strip-components=2
 
       - name: 📦 Install cargo-nextest
-        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: nextest
 
       - name: 🧪 Run the envtest suite
         # Serialised: each test owns an apiserver, and running several at once
         # only multiplies the memory footprint for no wall-clock gain.
-        run: cargo nextest run -p api --features envtest --test envtest --test envtest_kube_auth --test envtest_reconcile --test envtest_crd_runtime -j 1
+        #
+        # Selected by binary name rather than a single `--test` flag, matching
+        # `task envtest:run`, so every tests/envtest_*.rs file runs instead of
+        # only the one named here.
+        run: cargo nextest run -p api --features envtest -E 'binary(/^envtest/)' -j 1

@@ -4,7 +4,11 @@
 //! look like apiserver rejections — otherwise `kubectl` prints a raw body
 //! instead of a readable message.
 
-use actix_web::{HttpResponse, http::header::ContentType};
+use axum::{
+    Json,
+    http::{HeaderValue, StatusCode, header},
+    response::{IntoResponse, Response},
+};
 use serde_json::json;
 
 fn status_body(code: u16, reason: &str, message: &str) -> serde_json::Value {
@@ -19,28 +23,26 @@ fn status_body(code: u16, reason: &str, message: &str) -> serde_json::Value {
     })
 }
 
+fn status_response(status: StatusCode, reason: &str, message: &str) -> Response {
+    (status, Json(status_body(status.as_u16(), reason, message))).into_response()
+}
+
 /// 400 with a Kubernetes `Status` body.
 #[must_use]
-pub fn bad_request(message: &str) -> HttpResponse {
-    HttpResponse::BadRequest()
-        .content_type(ContentType::json())
-        .json(status_body(400, "BadRequest", message))
+pub fn bad_request(message: &str) -> Response {
+    status_response(StatusCode::BAD_REQUEST, "BadRequest", message)
 }
 
 /// 403 with a Kubernetes `Status` body.
 #[must_use]
-pub fn forbidden(message: &str) -> HttpResponse {
-    HttpResponse::Forbidden()
-        .content_type(ContentType::json())
-        .json(status_body(403, "Forbidden", message))
+pub fn forbidden(message: &str) -> Response {
+    status_response(StatusCode::FORBIDDEN, "Forbidden", message)
 }
 
 /// 401 with a Kubernetes `Status` body.
 #[must_use]
-pub fn unauthorized(message: &str) -> HttpResponse {
-    HttpResponse::Unauthorized()
-        .content_type(ContentType::json())
-        .json(status_body(401, "Unauthorized", message))
+pub fn unauthorized(message: &str) -> Response {
+    status_response(StatusCode::UNAUTHORIZED, "Unauthorized", message)
 }
 
 /// 429 with a Kubernetes `Status` body and, when known, a `Retry-After` header.
@@ -48,13 +50,14 @@ pub fn unauthorized(message: &str) -> HttpResponse {
 /// `TooManyRequests` is the reason the apiserver itself uses when it throttles,
 /// so `kubectl` already knows to back off on it.
 #[must_use]
-pub fn too_many_requests(message: &str, retry_after: Option<u64>) -> HttpResponse {
-    let mut builder = HttpResponse::TooManyRequests();
-    builder.content_type(ContentType::json());
+pub fn too_many_requests(message: &str, retry_after: Option<u64>) -> Response {
+    let mut response = status_response(StatusCode::TOO_MANY_REQUESTS, "TooManyRequests", message);
     if let Some(retry_after) = retry_after {
-        builder.insert_header(("retry-after", retry_after.to_string()));
+        response
+            .headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from(retry_after));
     }
-    builder.json(status_body(429, "TooManyRequests", message))
+    response
 }
 
 #[cfg(test)]

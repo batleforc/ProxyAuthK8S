@@ -1,12 +1,18 @@
-use actix_web::{HttpRequest, HttpResponse, Responder, get, web};
-use common::State;
+use std::sync::Arc;
+
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::{StatusCode, request::Parts},
+    response::{IntoResponse, Response},
+};
 use crd_runtime::ProxyKubeApiRuntime;
 use serde::{Deserialize, Serialize};
-use tracing::{error, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::cluster::auth::{load_discovery_enabled_proxy, throttle_oauth_as};
-use crate::helper::extract_ns_cluster;
+use crate::helper::NsCluster;
 
 /// OAuth 2.0 Authorization Server Metadata (RFC 8414) for a proxied cluster.
 ///
@@ -33,6 +39,8 @@ pub struct OAuthAuthorizationServerMetadata {
 /// Unauthenticated by nature (RFC 8414 discovery). If the cluster is not
 /// found, disabled, or does not have discovery enabled, return 404.
 #[utoipa::path(
+    get,
+    path = "/{ns}/{cluster}/.well-known/oauth-authorization-server",
     tag = "auth_clusters",
     responses(
         (status = 200, description = "OAuth 2.0 authorization server metadata (RFC 8414).", body = OAuthAuthorizationServerMetadata),
@@ -44,18 +52,12 @@ pub struct OAuthAuthorizationServerMetadata {
         ("cluster" = String, description = "Cluster name that should exist in the namespace."),
     )
 )]
-#[get("/{ns}/{cluster}/.well-known/oauth-authorization-server")]
-#[instrument(name = "oauth_authorization_server", skip(data))]
+#[instrument(name = "oauth_authorization_server", skip(req, data))]
 pub async fn oauth_authorization_server(
-    req: HttpRequest,
-    data: web::Data<State>,
-) -> impl Responder {
-    let (ns, cluster) = if let Some(parts) = extract_ns_cluster(&req) {
-        parts
-    } else {
-        error!(path = %req.path(), "missing ns/cluster path parameters");
-        return HttpResponse::NotFound().finish();
-    };
+    req: Parts,
+    State(data): State<Arc<common::State>>,
+    Path(NsCluster { ns, cluster }): Path<NsCluster>,
+) -> Response {
     let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
         Ok(proxy) => proxy,
         Err(gate) => return gate.into_response(),
@@ -78,7 +80,7 @@ pub async fn oauth_authorization_server(
                 .collect()
         })
         .unwrap_or_default();
-    let issuer = proxy.to_full_path(data.into_inner());
+    let issuer = proxy.to_full_path(data.clone());
     let metadata = OAuthAuthorizationServerMetadata {
         authorization_endpoint: format!("{issuer}/oauth/authorize"),
         token_endpoint: format!("{issuer}/oauth/token"),
@@ -90,5 +92,5 @@ pub async fn oauth_authorization_server(
         token_endpoint_auth_methods_supported: vec!["none".to_string()],
         code_challenge_methods_supported: vec!["S256".to_string()],
     };
-    HttpResponse::Ok().json(metadata)
+    (StatusCode::OK, Json(metadata)).into_response()
 }

@@ -1,4 +1,6 @@
-use crate::authentication_configuration::ValidateAgainst;
+use crate::authentication_configuration::{
+    AudienceMatchPolicyType, EgressSelectorType, ValidateAgainst,
+};
 
 #[must_use]
 pub fn default_enabled() -> bool {
@@ -44,4 +46,17 @@ pub fn default_empty_string() -> String {
 #[must_use]
 pub fn default_validate_against() -> ValidateAgainst {
     ValidateAgainst::Kubernetes
+}
+
+/// The only policy the apiserver defines, and the one it defaults to.
+#[must_use]
+pub fn default_audience_match_policy() -> AudienceMatchPolicyType {
+    AudienceMatchPolicyType::MatchAny
+}
+
+/// Matches the apiserver's default: an issuer is reached the same way the rest
+/// of the control plane reaches the outside world.
+#[must_use]
+pub fn default_egress_selector() -> EgressSelectorType {
+    EgressSelectorType::ControlPlane
 }

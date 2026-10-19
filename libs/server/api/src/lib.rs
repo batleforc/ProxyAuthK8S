@@ -1,19 +1,18 @@
-//! HTTP API surface for the proxy-auth server (actix-web).
+//! HTTP API surface for the proxy-auth server (axum).
 //!
 //! Hosts the management endpoints, the OIDC login/callback flow, and the
 //! authenticated reverse-proxy path that forwards requests to downstream
 //! Kubernetes clusters after authorizing the caller.
 
+use std::sync::Arc;
+
 use crate::{
     api_doc::ApiDoc,
-    base::{health, ready},
     cluster::{auth, redirect},
-    metrics::prometheus_metrics,
-    visible_clusters::get_all_visible_cluster::get_all_visible_cluster,
 };
-use actix_web::App;
+use axum::{Router, extract::DefaultBodyLimit, routing::get};
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiType};
-use utoipa_actix_web::{AppExt, scope, service_config::ServiceConfig};
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 pub mod api_doc;
 pub mod base;
@@ -22,49 +21,70 @@ pub mod duration;
 pub mod helper;
 pub mod metrics;
 pub mod model;
+#[cfg(feature = "server")]
+mod root_span;
+#[cfg(feature = "server")]
+pub mod server;
 pub mod visible_clusters;
 
-pub fn init_base_api() -> impl FnOnce(&mut ServiceConfig) {
-    |cfg: &mut ServiceConfig| {
-        cfg.service(health);
-        cfg.service(ready);
-        cfg.service(prometheus_metrics);
-    }
+/// The state every handler shares.
+pub type SharedState = Arc<common::State>;
+
+/// `/management`: health, readiness and the Prometheus endpoint.
+#[must_use]
+pub fn management_router() -> OpenApiRouter<SharedState> {
+    OpenApiRouter::new()
+        .routes(routes!(base::health))
+        .routes(routes!(base::ready))
+        .routes(routes!(metrics::prometheus_metrics))
 }
 
-pub fn init_api() -> impl FnOnce(&mut ServiceConfig) {
-    |cfg: &mut ServiceConfig| {
-        cfg.service(get_all_visible_cluster);
-    }
+/// `/api/v1`: what the dashboard calls.
+#[must_use]
+pub fn api_router() -> OpenApiRouter<SharedState> {
+    OpenApiRouter::new().routes(routes!(
+        visible_clusters::get_all_visible_cluster::get_all_visible_cluster
+    ))
 }
 
-pub fn init_cluster_api() -> impl FnOnce(&mut ServiceConfig) {
-    |cfg: &mut ServiceConfig| {
-        cfg.service(auth::login::cluster_login)
-            .service(auth::callback::callback_login)
-            .service(auth::well_known::oauth_authorization_server)
-            .service(auth::oauth::authorize::authorize)
-            .service(auth::oauth::callback::callback)
-            .service(auth::oauth::token::token)
-            .service(auth::oauth::jwks::jwks)
-            .service(redirect::get_redirect)
-            .service(redirect::post_redirect)
-            .service(redirect::put_redirect)
-            .service(redirect::patch_redirect)
-            .service(redirect::delete_redirect);
-    }
+/// `/clusters`: the cluster logins, the mediated OAuth server and the proxy.
+#[must_use]
+pub fn cluster_router() -> OpenApiRouter<SharedState> {
+    let token = OpenApiRouter::new()
+        .routes(routes!(auth::oauth::token::token))
+        .layer(DefaultBodyLimit::max(auth::oauth::token::TOKEN_FORM_LIMIT));
+    OpenApiRouter::new()
+        .routes(routes!(auth::login::cluster_login))
+        .routes(routes!(auth::callback::callback_login))
+        .routes(routes!(auth::well_known::oauth_authorization_server))
+        .routes(routes!(auth::oauth::authorize::authorize))
+        .routes(routes!(auth::oauth::callback::callback))
+        .routes(routes!(auth::oauth::jwks::jwks))
+        .merge(token)
+        // The catch-all is routed here and documented in `ApiDoc`: the
+        // OpenAPI path is `{path}`, the router's `{*path}`.
+        .route(
+            "/{ns}/{cluster}/{*path}",
+            get(redirect::get_redirect)
+                .post(redirect::post_redirect)
+                .put(redirect::put_redirect)
+                .patch(redirect::patch_redirect)
+                .delete(redirect::delete_redirect),
+        )
+}
+
+/// Every route, and the OpenAPI document they describe.
+pub fn app_router() -> (Router<SharedState>, OpenApiType) {
+    let mut api_doc = ApiDoc::openapi();
+    api_doc.info.version = env!("CARGO_PKG_VERSION").to_string();
+    OpenApiRouter::with_openapi(api_doc)
+        .nest("/management", management_router())
+        .nest("/api/v1", api_router())
+        .nest("/clusters", cluster_router())
+        .split_for_parts()
 }
 
 #[must_use]
 pub fn gen_openapi() -> OpenApiType {
-    let mut api_doc = ApiDoc::openapi();
-    api_doc.info.version = env!("CARGO_PKG_VERSION").to_string();
-    let (_, api) = App::new()
-        .into_utoipa_app()
-        .openapi(api_doc.clone())
-        .service(scope("/management").configure(init_base_api()))
-        .service(scope("/api/v1").configure(init_api()))
-        .service(scope("/clusters").configure(init_cluster_api()))
-        .split_for_parts();
-    api
+    app_router().1
 }

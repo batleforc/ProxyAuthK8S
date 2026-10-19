@@ -37,8 +37,11 @@ pub enum CallbackError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CallbackLoginError {
+    Status400(),
     Status404(),
+    Status429(),
     Status500(),
+    Status503(),
     UnknownValue(serde_json::Value),
 }
 
@@ -46,8 +49,11 @@ pub enum CallbackLoginError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ClusterLoginError {
+    Status401(),
     Status404(),
+    Status429(),
     Status500(),
+    Status503(),
     UnknownValue(serde_json::Value),
 }
 

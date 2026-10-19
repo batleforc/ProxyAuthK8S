@@ -1,13 +1,49 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" href="/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0"
+    />
     <title>ProxyAuthK8S</title>
+    <link
+      rel="preload"
+      href="/fonts/jetbrainsmono-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/silkscreen-700.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <!-- Resolves the stored theme preference before the first paint. The CSP
+         allows it by its sha256, computed from the built index.html
+         (deploy/build/front/Containerfile): keep it a single inline script. -->
+    <script>
+      (function () {
+        var pref = 'system';
+        try {
+          pref = localStorage.getItem('pak.theme') || 'system';
+        } catch (e) {}
+        if (pref !== 'light' && pref !== 'dark') {
+          pref = matchMedia('(prefers-color-scheme: light)').matches
+            ? 'light'
+            : 'dark';
+        }
+        document.documentElement.setAttribute('data-theme', pref);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <script
+      type="module"
+      src="/src/main.ts"
+    ></script>
   </body>
 </html>

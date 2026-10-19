@@ -1,0 +1,145 @@
+name: 🧪 Integration suite
+
+# The k3d bench and the black-box suite of RFC 0009: k3s, Dex, Redis, the
+# chart and the images built from this commit, driven by the real kubectl,
+# kubectl-proxyauth and Chromium. A failure here blocks the merge, and the
+# 0.2.0 tag needs a green run on its commit (release-prepare.yml checks it).
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "apps/**"
+      - "libs/**"
+      - "deploy/**"
+      - "tests/integration/**"
+      - ".it/**"
+      - ".tasks/integration.yaml"
+      - ".config/nextest.toml"
+      - "Cargo.lock"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/integration.yaml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "apps/**"
+      - "libs/**"
+      - "deploy/**"
+      - "tests/integration/**"
+      - ".it/**"
+      - ".tasks/integration.yaml"
+      - ".config/nextest.toml"
+      - "Cargo.lock"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/integration.yaml"
+  schedule:
+    - cron: "15 2 * * *" # nightly on main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install mise
+        uses: ./.github/actions/setup-mise
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      - name: 📦 Setup pnpm
+        uses: ./.github/actions/setup-pnpm
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          cache: "pnpm"
+          node-version: "24"
+      - name: Install the tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends keyutils
+          mise install rust k3d kubectl oc helm mkcert yq uv cargo-binstall cargo:cargo-nextest
+          pnpm install --frozen-lockfile
+          pnpm -C apps/front exec playwright install --with-deps chromium
+
+      - name: Mount the bench
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: |
+          start=$(date +%s)
+          mise exec -- task it:up
+          echo "IT_UP_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+
+      - name: Raise the keyring quota
+        # Every persona's tokens share the suite's session keyring; the
+        # default 20000 bytes fill up after about twenty logins.
+        run: sudo sysctl -w kernel.keys.maxbytes=2000000 kernel.keys.maxkeys=2000
+
+      - name: Run the suite
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: |
+          start=$(date +%s)
+          status=0
+          mise exec -- task it:test || status=$?
+          echo "IT_TEST_SECONDS=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+          exit $status
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Integration suite"
+            echo "| Phase | Seconds |"
+            echo "| --- | --- |"
+            echo "| it:up | ${IT_UP_SECONDS:-n/a} |"
+            echo "| it:test | ${IT_TEST_SECONDS:-n/a} |"
+            total=$(( ${IT_UP_SECONDS:-0} + ${IT_TEST_SECONDS:-0} ))
+            if [ "$total" -gt 900 ]; then echo; echo "⚠️ over the 15 min budget (${total}s)"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect the bench logs
+        if: always()
+        run: mise exec -- task it:logs || true
+      - name: 📤 Upload the logs and the Playwright report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: integration-logs
+          path: |
+            .it/run/logs/
+            apps/front/playwright-report/
+            apps/front/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Delete the bench
+        if: always()
+        run: mise exec -- task it:down || true
+
+  # The nightly run on main is the only signal nobody is waiting on: a
+  # failure opens the `it-nightly` issue, or comments on the open one.
+  nightly-alert:
+    needs: integration
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or comment the it-nightly issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body="The nightly integration run failed on $GITHUB_SHA: $RUN_URL"
+          issue=$(gh issue list --label it-nightly --state open --json number --jq '.[0].number')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh label create it-nightly --color B60205 --description "Nightly integration suite failure" 2>/dev/null || true
+            gh issue create --title "Nightly integration suite failing" --label it-nightly --body "$body"
+          fi

@@ -1,22 +1,27 @@
 import router from './router/index.ts';
 import type { Router } from 'vue-router';
 import { createPinia } from 'pinia';
-import { createApp, markRaw } from 'vue';
+import { createApp, markRaw, watch } from 'vue';
 import App from './app/App.vue';
 import { client } from '@proxy-auth-k8s/front-api';
-import vueHljs from 'vue-hljs';
-import hljs from 'highlight.js';
+import { i18n } from './i18n';
+import { installStaleChunkReload } from './utils/staleChunk.ts';
+import {
+  installPreferences,
+  resolvedLocale,
+} from './composables/usePreferences.ts';
 
-import { ToastOptions, ToastPlugin } from 'maz-ui/plugins/toast';
-import { obsidian } from '@maz-ui/themes/presets/obsidian';
-import { MazUi } from 'maz-ui/plugins/maz-ui';
+import './assets/index.css';
 
-import 'vue-hljs/style.css';
-import 'maz-ui/styles';
-import './styles.scss';
+installStaleChunkReload();
 
 client.setConfig({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+});
+
+installPreferences();
+watch(resolvedLocale, (locale) => {
+  i18n.global.locale.value = locale;
 });
 
 const pinia = createPinia();
@@ -34,25 +39,7 @@ pinia.use(({ store }) => {
   store.router = markRaw(router);
 });
 
-const toastOptions: ToastOptions = {
-  position: 'bottom-right',
-  timeout: 1000,
-  persistent: false,
-};
-
-app.use(MazUi, {
-  theme: {
-    colorMode: 'dark',
-    preset: obsidian,
-    mode: 'dark',
-  },
-  translations: {
-    locale: 'fr',
-  },
-});
-
-app.use(ToastPlugin, toastOptions);
-app.use(vueHljs, { hljs });
+app.use(i18n);
 app.use(pinia);
 app.use(router);
 app.mount('#root');

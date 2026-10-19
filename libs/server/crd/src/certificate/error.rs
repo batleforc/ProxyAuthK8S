@@ -12,8 +12,8 @@ pub enum CertError {
     Read {
         kind: &'static str,
         name: String,
-        // Boxed: `kube::Error` is large, and every `Result` carrying this
-        // error would otherwise pay for it (clippy::result_large_err).
+        /// Boxed: `kube::Error` is large enough to bloat every `Result` in this
+        /// module (clippy::result_large_err).
         #[source]
         source: Box<kube::Error>,
     },

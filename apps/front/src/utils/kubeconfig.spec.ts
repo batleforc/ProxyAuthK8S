@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { i18n } from '../i18n';
 import {
   type ClusterCallbackData,
   generateCallbackKubeconfig,
@@ -19,7 +20,10 @@ const callback: ClusterCallbackData = {
   },
 };
 
-const noToken: ClusterCallbackData = { ...callback, retour: { ...callback.retour, access_token: '' } };
+const noToken: ClusterCallbackData = {
+  ...callback,
+  retour: { ...callback.retour, access_token: '' },
+};
 
 describe('generateCallbackKubeconfig', () => {
   it('renders a kubeconfig embedding the id token', () => {
@@ -60,7 +64,9 @@ describe('generateCallbackPluginKubeconfig', () => {
         - --server-url=https://proxy.example.com
         - prod
       command: kubectl`);
-    expect(yaml).toContain('    server: https://proxy.example.com/clusters/team/prod\n');
+    expect(yaml).toContain(
+      '    server: https://proxy.example.com/clusters/team/prod\n',
+    );
     expect(yaml).not.toContain('token: ID');
     expect(yaml.endsWith('current-context: team-prod-context')).toBe(true);
   });
@@ -72,15 +78,25 @@ describe('generateCallbackPluginKubeconfig', () => {
 
 describe('generateCallbackPluginCommands', () => {
   it('logs in with the access token and the cluster with the id token', () => {
-    const commands = generateCallbackPluginCommands(callback);
-    expect(commands).toContain('kubectl proxyauth login --server-url "https://proxy.example.com" --token "ACCESS"');
+    const commands = generateCallbackPluginCommands(callback, (k) =>
+      i18n.global.t(k),
+    );
+    expect(commands).toContain(
+      'kubectl proxyauth login --server-url "https://proxy.example.com" --token "ACCESS"',
+    );
     expect(commands).toContain('kubectl proxyauth -n "team" login "prod"\n');
-    expect(commands).toContain('kubectl proxyauth -n "team" login "prod" --token "ID"');
-    expect(commands.endsWith('kubectl proxyauth ctx --set "team-prod-context"')).toBe(true);
+    expect(commands).toContain(
+      'kubectl proxyauth -n "team" login "prod" --token "ID"',
+    );
+    expect(
+      commands.endsWith('kubectl proxyauth ctx --set "team-prod-context"'),
+    ).toBe(true);
   });
 
   it('is empty without an access token', () => {
-    expect(generateCallbackPluginCommands(noToken)).toBe('');
+    expect(
+      generateCallbackPluginCommands(noToken, (k) => i18n.global.t(k)),
+    ).toBe('');
   });
 });
 
@@ -91,8 +107,12 @@ describe('generateNoSsoKubeconfig', () => {
       'https://proxy.example.com/clusters/team/legacy',
       'jane',
     );
-    expect(yaml).toContain('    server: https://proxy.example.com/clusters/team/legacy\n');
-    expect(yaml).toContain('- name: jane@team-legacy\n  user:\n    token: YOUR_ACCESS_TOKEN\n');
+    expect(yaml).toContain(
+      '    server: https://proxy.example.com/clusters/team/legacy\n',
+    );
+    expect(yaml).toContain(
+      '- name: jane@team-legacy\n  user:\n    token: YOUR_ACCESS_TOKEN\n',
+    );
     expect(yaml.endsWith('current-context: team-legacy-context')).toBe(true);
   });
 

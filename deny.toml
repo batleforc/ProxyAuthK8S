@@ -1,0 +1,57 @@
+# cargo-deny — the Rust dependency policy, run by `task rust:audit` (kit) and
+# CI. RFC 0005 §6.3.
+#   advisories — RUSTSEC vulnerabilities, unmaintained and yanked crates
+#   licenses   — the licences in Cargo.lock when it was written, no copyleft
+#   sources    — only crates.io is trusted
+
+[graph]
+all-features = true
+
+[advisories]
+yanked = "deny"
+# A direct dependency that is unmaintained fails; a transitive one is
+# reported only (as `cargo audit` did): unsafe-libyaml via serde_yaml_ng,
+# zvariant/zbus_names via the CLI's keyring store, none with a successor.
+unmaintained = "workspace"
+ignore = [
+    # rsa (Marvin Attack), through openidconnect, no fixed release. Only RSA
+    # private-key operations are affected; the proxy only verifies IdP-signed
+    # ID tokens (public key). See security.mdx, "Risques acceptés / différés".
+    # RETIRE when openidconnect moves off rsa 0.9.
+    { id = "RUSTSEC-2023-0071", reason = "public-key verification only, no fixed release" },
+]
+
+[licenses]
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+# Permissive (LLVM's libFuzzer), and only in the separate fuzz/ workspace:
+# it never reaches a shipped binary.
+[[licenses.exceptions]]
+crate = "libfuzzer-sys"
+allow = ["NCSA"]
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

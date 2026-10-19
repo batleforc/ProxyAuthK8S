@@ -1,19 +1,35 @@
 FROM registry.hub.docker.com/library/node:24 AS build
 WORKDIR /app
 ENV ENV=production
-COPY package.json ./
-COPY yarn.lock ./
-RUN yarn
+# shortcut: corepack leaves Node from v25 on; switch to a pinned pnpm install
+# when the image moves to the next Node major. It follows `packageManager`.
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Depends on the lockfile only: this layer stays cached until dependencies move.
+RUN pnpm fetch
 COPY . ./
-RUN npx nx build front
+# Only the front and its workspace dependencies, not the docs nor the root
+# tooling. Vite reads .env.production (VITE_* placeholders env.sh fills at
+# startup) from the repository root (envDir). Then the CSP hash of the inline
+# theme script, from the index.html that will be served.
+RUN pnpm install --offline --frozen-lockfile --filter @proxy-auth-k8s/front... \
+  && pnpm --filter @proxy-auth-k8s/front build \
+  && node apps/front/scripts/csp-theme-hash.mjs dist/apps/front/index.html > /app/csp-theme-hash
 
 FROM registry.hub.docker.com/nginxinc/nginx-unprivileged:1-alpine-slim AS deploy
 WORKDIR /app
 USER 0
 RUN rm -rf ./* && apk upgrade --no-cache
 USER 101
-COPY ./deploy/build/front/nginx.conf /etc/nginx/conf.d/default.conf
+# Only the PROXYAUTHK8S_* variables are substituted into the template, never
+# nginx's own `$uri`-style ones.
+ENV NGINX_ENVSUBST_FILTER=PROXYAUTHK8S_
+COPY ./deploy/build/front/nginx.conf /etc/nginx/templates/default.conf.template
+COPY --from=build /app/csp-theme-hash /etc/nginx/csp-theme-hash
+COPY --chmod=755 ./deploy/build/front/15-csp.envsh /docker-entrypoint.d/15-csp.envsh
+# env.sh copies it to /tmp/app at startup and fills the markers there (*.js
+# and *.css only, never index.html, so the theme hash stays valid).
 COPY --from=build /app/dist/apps/front .
 COPY --chmod=755 ./deploy/build/front/env.sh /docker-entrypoint.d/99-env.sh
 
-EXPOSE 8080
+EXPOSE 4200

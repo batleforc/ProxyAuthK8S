@@ -2,6 +2,7 @@
 name = "trace"
 version = "0.1.9"
 edition = "2024"
+license = "MIT"
 
 [dependencies]
 tracing = { workspace = true }
@@ -14,7 +15,7 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 tracing-opentelemetry = { workspace = true }
 # Pull-based `/management/metrics` (Prometheus text exposition), fed by the
 # same meter provider as the OTLP export.
-opentelemetry-prometheus = "0.32"
+opentelemetry-prometheus = "0.33"
 prometheus = { version = "0.14", default-features = false }
 
 [dev-dependencies]
