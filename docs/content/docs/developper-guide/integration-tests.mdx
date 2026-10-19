@@ -108,6 +108,6 @@ en artefact (7 jours), et la durée de chaque phase dans le résumé du job. Un 
 ouvre ou commente l'issue `it-nightly`. La release exige un passage vert de la suite sur le
 commit tagué.
 
-`integration` est un check requis pour fusionner sur `main`. Une PR qui ne touche aucun de
-ces chemins reçoit à la place le job du même nom d'`integration-skipped.yaml`, qui passe sans
-rien lancer : les deux listes de chemins doivent rester identiques.
+`integration` est un check requis pour fusionner sur `main`. Le workflow démarre donc sur
+toutes les PR ; son job `changes` saute la suite quand aucun de ces chemins ne change, et un
+job sauté compte comme réussi.

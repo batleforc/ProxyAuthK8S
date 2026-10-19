@@ -831,10 +831,14 @@ Phases 1 et 2, 2026-10-17.
   push), qui reste sans contournement. **Écart** : le ruleset laisse les
   administrateurs le contourner, pour le seul commit de version que
   `task bump` pousse sur `main` ; le tag reste gardé par
-  `release-prepare.yml`. Les filtres de chemins du workflow auraient laissé
-  une PR de doc attendre un check qui ne vient jamais :
-  `integration-skipped.yaml` porte un job du même nom, sur les chemins
-  complémentaires (`paths-ignore`), qui passe sans rien lancer.
+  `release-prepare.yml`. Le filtre de chemins de `pull_request` aurait
+  laissé une PR de doc attendre un check qui ne vient jamais : le workflow
+  démarre sur toute PR, et un job `changes` (`git diff` contre la base, même
+  liste que le filtre de `push`) saute `integration` quand rien de testé ne
+  change ; un job sauté compte comme réussi. Un workflow « complémentaire »
+  en `paths-ignore` a été essayé et retiré : il tourne dès qu'un seul fichier
+  sort de la liste, donc à côté du vrai job, et son succès sous le même nom
+  aurait pu masquer un échec.
 - **Durée en CI** (§10.3), les trois passages ci-dessus : 22, 20 et 21 min
   (`ubuntu-latest`, construction des images comprise). En local, `it:up`
   342 s avec le cache d'images, `it:test` 25 s.
