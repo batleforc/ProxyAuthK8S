@@ -1,0 +1,132 @@
+# weebo-operator-kit's templates/kit.yaml, copied into an operator's task
+# directory and included as `kit:` (`task kit:cog` refreshes the copy).
+# The kit includes this very file, with KIT_DIR set to itself.
+#
+# Moving an operator to a new kit release: `task kit:sync TAG=vX.Y.Z`.
+version: "3"
+
+vars:
+  KIT_REPO: batleforc/weebo-operator-kit
+  # A local checkout to render from instead (KIT_DIR=../weebo-operator-kit).
+  KIT_DIR: '{{.KIT_DIR | default ""}}'
+  # The docs site's package manager, for the lockfile kit:sync refreshes:
+  # npm (package-lock.json) or pnpm (pnpm-lock.yaml, workspace included).
+  NPM_CLIENT: '{{.NPM_CLIENT | default "npm"}}'
+  # The changelog's repository: origin's name, not the checkout's
+  # directory (a clone or worktree may be named otherwise).
+  REPOSITORY:
+    sh: |
+      url="$(git -C "{{.ROOT_DIR}}" remote get-url origin 2>/dev/null || true)"
+      name="$(basename "${url%.git}" 2>/dev/null || true)"
+      echo "${name:-$(basename "{{.ROOT_DIR}}")}"
+
+tasks:
+  cog:
+    desc: "Render cog.toml (and this file) from the kit's templates at the kit tag of Cargo.toml or the Taskfile's KIT_TAG (or KIT_DIR=<checkout>), then reinstall the git hooks"
+    dir: "{{.ROOT_DIR}}"
+    vars:
+      # The kit tag the workspace builds on (Cargo.toml), or TAG: the
+      # hooks, the shared tasks, the workflows and the library chart
+      # follow the kit release the code does. A repository without a kit
+      # crate pins it in its Taskfile instead (`  KIT_TAG: vX.Y.Z` under
+      # `vars:`, rewritten by pin-kit.sh). A task-level variable: the
+      # file-level ones of an included Taskfile don't see the command
+      # line's (`task kit:sync TAG=vX.Y.Z`).
+      KIT_TAG:
+        sh: |
+          if [ -n "{{.TAG | default ""}}" ]; then echo "{{.TAG}}"; else
+            tag="$(sed -n 's|.*github.com/batleforc/weebo-operator-kit", tag = "\([^"]*\)".*|\1|p' "{{.ROOT_DIR}}/Cargo.toml" 2>/dev/null | head -n 1)"
+            [ -n "$tag" ] || tag="$(sed -n -E 's|^ +KIT_TAG: *"?(v[0-9]+\.[0-9]+\.[0-9]+)"? *(#.*)?$|\1|p' "{{.ROOT_DIR}}/Taskfile.yaml" 2>/dev/null | head -n 1)"
+            echo "$tag"
+          fi
+    cmds:
+      - |
+        set -eu
+        KIT_DIR="{{.KIT_DIR}}"
+        if [ -z "$KIT_DIR" ] && ! echo "{{.KIT_TAG}}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+          echo "kit tag '{{.KIT_TAG}}' is not vX.Y.Z (TAG=vX.Y.Z, or KIT_DIR=<checkout>)" >&2
+          exit 1
+        fi
+        # Fetched into a scratch directory first: a failed download leaves
+        # cog.toml and this file as they were (a redirection would have
+        # truncated them already).
+        tmp="$(mktemp -d)"
+        trap 'rm -rf "$tmp"' EXIT
+        fetch() {
+          if [ -n "$KIT_DIR" ]; then
+            cat "$KIT_DIR/templates/$1" > "$tmp/$1"
+          else
+            curl -fsSL -o "$tmp/$1" "https://raw.githubusercontent.com/{{.KIT_REPO}}/{{.KIT_TAG}}/templates/$1"
+          fi
+          [ -s "$tmp/$1" ] || { echo "templates/$1: empty" >&2; exit 1; }
+        }
+        fetch cog.toml
+        sed "s|@REPOSITORY@|{{.REPOSITORY}}|g" "$tmp/cog.toml" > "$tmp/cog.rendered"
+        # The operator's copy of this file follows the template too.
+        if [ "$(realpath "{{.TASKFILE}}")" != "$(realpath "${KIT_DIR:-/nonexistent}/templates/kit.yaml" 2>/dev/null || true)" ]; then
+          fetch kit.yaml
+          mv "$tmp/kit.yaml" "{{.TASKFILE}}"
+        fi
+        mv "$tmp/cog.rendered" cog.toml
+        echo "cog.toml rendered for {{.REPOSITORY}} from weebo-operator-kit {{if .KIT_DIR}}{{.KIT_DIR}}{{else}}{{.KIT_TAG}}{{end}}"
+      - cog install-hook -a -o
+
+  sync:
+    desc: "Pin the repository on the kit release KIT_TAG (TAG=vX.Y.Z, else Cargo.toml's, else the Taskfile's KIT_TAG): Cargo.toml, the Taskfile's KIT_TAG, the remote tasks/ includes and their checksums, the reusable workflows, the library chart (and Chart.lock), the docs lockfile and node_modules (NPM_CLIENT), then cog.toml"
+    dir: "{{.ROOT_DIR}}"
+    vars:
+      # The kit tag the workspace builds on (Cargo.toml), or TAG: the
+      # hooks, the shared tasks, the workflows and the library chart
+      # follow the kit release the code does. A repository without a kit
+      # crate pins it in its Taskfile instead (`  KIT_TAG: vX.Y.Z` under
+      # `vars:`, rewritten by pin-kit.sh). A task-level variable: the
+      # file-level ones of an included Taskfile don't see the command
+      # line's (`task kit:sync TAG=vX.Y.Z`).
+      KIT_TAG:
+        sh: |
+          if [ -n "{{.TAG | default ""}}" ]; then echo "{{.TAG}}"; else
+            tag="$(sed -n 's|.*github.com/batleforc/weebo-operator-kit", tag = "\([^"]*\)".*|\1|p' "{{.ROOT_DIR}}/Cargo.toml" 2>/dev/null | head -n 1)"
+            [ -n "$tag" ] || tag="$(sed -n -E 's|^ +KIT_TAG: *"?(v[0-9]+\.[0-9]+\.[0-9]+)"? *(#.*)?$|\1|p' "{{.ROOT_DIR}}/Taskfile.yaml" 2>/dev/null | head -n 1)"
+            echo "$tag"
+          fi
+    cmds:
+      - |
+        set -eu
+        KIT_DIR="{{.KIT_DIR}}"
+        if ! echo "{{.KIT_TAG}}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+          echo "kit tag '{{.KIT_TAG}}' is not vX.Y.Z (TAG=vX.Y.Z)" >&2
+          exit 1
+        fi
+        if [ -n "$KIT_DIR" ]; then
+          sh "$KIT_DIR/templates/pin-kit.sh" . "{{.KIT_TAG}}" "$KIT_DIR"
+        else
+          # Downloaded, then run: piped into sh, a failed download would
+          # run an empty script and succeed.
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          curl -fsSL -o "$tmp/pin-kit.sh" "https://raw.githubusercontent.com/{{.KIT_REPO}}/{{.KIT_TAG}}/templates/pin-kit.sh"
+          sh "$tmp/pin-kit.sh" . "{{.KIT_TAG}}"
+        fi
+        for chart in deploy/charts/*/Chart.yaml; do
+          [ -f "$chart" ] || continue
+          if grep -q 'name: weebo-operator-lib' "$chart"; then
+            mise exec -- helm dependency update "$(dirname "$chart")"
+          fi
+        done
+        # The docs site's lockfile follows the @weebo/operator-docs pin
+        # pin-kit.sh just moved, and so does the installed package: `recu`
+        # regenerates the CRD pages with what node_modules holds, so a
+        # lockfile-only update left them on the previous release (and a
+        # lockfile-only npm ran fumadocs-mdx's postinstall without its deps).
+        if [ -f docs/package.json ] && grep -q '"@weebo/operator-docs"' docs/package.json; then
+          case "{{.NPM_CLIENT}}" in
+            npm) (cd docs && mise exec -- npm install --no-audit --no-fund) ;;
+            pnpm) (cd docs && mise exec -- pnpm install) ;;
+            *) echo "NPM_CLIENT '{{.NPM_CLIENT}}' is not npm or pnpm" >&2; exit 1 ;;
+          esac
+        fi
+      - task: cog
+        vars: { TAG: "{{.KIT_TAG}}" }
+      # Cargo.lock follows the kit crates' new tag (a changed git source is
+      # re-resolved; nothing else moves).
+      - mise exec -- cargo metadata --format-version 1 > /dev/null

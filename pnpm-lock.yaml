@@ -286,8 +286,8 @@ importers:
   docs:
     dependencies:
       '@weebo/operator-docs':
-        specifier: https://github.com/batleforc/weebo-operator-kit/releases/download/v0.19.0/weebo-operator-docs-0.19.0.tgz
-        version: https://github.com/batleforc/weebo-operator-kit/releases/download/v0.19.0/weebo-operator-docs-0.19.0.tgz(eafad79c83e465b7219a8cbd15922172)
+        specifier: https://github.com/batleforc/weebo-operator-kit/releases/download/v0.20.0/weebo-operator-docs-0.20.0.tgz
+        version: https://github.com/batleforc/weebo-operator-kit/releases/download/v0.20.0/weebo-operator-docs-0.20.0.tgz(eafad79c83e465b7219a8cbd15922172)
       fumadocs-core:
         specifier: 16.17.5
         version: 16.17.5(@mdx-js/mdx@3.1.1(supports-color@7.2.0))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.3.0)(lucide-react@1.59.0(@types/react@19.3.0)(react@19.3.1))(next@16.4.2(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.64.1)(@types/node@26.6.5)(babel-plugin-macros@3.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(sass@1.105.2))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@7.2.0)(zod@4.6.7)
@@ -2785,9 +2785,9 @@ packages:
     peerDependencies:
       vue: ^3.5.0
 
-  '@weebo/operator-docs@https://github.com/batleforc/weebo-operator-kit/releases/download/v0.19.0/weebo-operator-docs-0.19.0.tgz':
-    resolution: {integrity: sha512-dUNReIDcpxnk6t9MWLbTAIv9I3d4rhCRdNqbTZPjJahgCAPKoV7sJVPMgfLgAXuwzUXgVYsu9Ly8jA5W18YZrg==, tarball: https://github.com/batleforc/weebo-operator-kit/releases/download/v0.19.0/weebo-operator-docs-0.19.0.tgz}
-    version: 0.19.0
+  '@weebo/operator-docs@https://github.com/batleforc/weebo-operator-kit/releases/download/v0.20.0/weebo-operator-docs-0.20.0.tgz':
+    resolution: {integrity: sha512-fhXq5UkxBCladcI3X6oOtnC2VvVow3utdQQPolfjvT/vjXnYeV17k8qophviYnX5CZU6DfgD/dO3lLp8IwpYfQ==, tarball: https://github.com/batleforc/weebo-operator-kit/releases/download/v0.20.0/weebo-operator-docs-0.20.0.tgz}
+    version: 0.20.0
     hasBin: true
     peerDependencies:
       '@types/mdx': ^2.0.14
@@ -8779,7 +8779,7 @@ snapshots:
     dependencies:
       vue: 3.5.44(typescript@6.0.3)
 
-  '@weebo/operator-docs@https://github.com/batleforc/weebo-operator-kit/releases/download/v0.19.0/weebo-operator-docs-0.19.0.tgz(eafad79c83e465b7219a8cbd15922172)':
+  '@weebo/operator-docs@https://github.com/batleforc/weebo-operator-kit/releases/download/v0.20.0/weebo-operator-docs-0.20.0.tgz(eafad79c83e465b7219a8cbd15922172)':
     dependencies:
       '@types/mdx': 2.0.14
       fumadocs-core: 16.17.5(@mdx-js/mdx@3.1.1(supports-color@7.2.0))(@types/estree-jsx@1.0.5)(@types/hast@3.0.5)(@types/mdast@4.0.4)(@types/react@19.3.0)(lucide-react@1.59.0(@types/react@19.3.0)(react@19.3.1))(next@16.4.2(@babel/core@7.29.7(supports-color@7.2.0))(@playwright/test@1.64.1)(@types/node@26.6.5)(babel-plugin-macros@3.1.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(sass@1.105.2))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@7.2.0)(zod@4.6.7)

@@ -1,5 +1,10 @@
 version: "3"
 
+vars:
+  # The weebo-operator-kit release this repository is pinned on: kit:sync and
+  # kit:cog read it (no kit crate in Cargo.toml), pin-kit.sh rewrites it.
+  KIT_TAG: v0.20.0
+
 includes:
   talos: .tasks/talos.yaml
   lab: .tasks/lab.yaml
@@ -24,15 +29,21 @@ includes:
   # sha256 (Task refuses a file whose hash differs). `task --offline` runs
   # from Task's cache. RFC 0005.
   rust:
-    taskfile: https://raw.githubusercontent.com/batleforc/weebo-operator-kit/v0.17.0/tasks/rust.yaml
+    taskfile: https://raw.githubusercontent.com/batleforc/weebo-operator-kit/v0.20.0/tasks/rust.yaml
     checksum: 75360142235715643265ae41de1f531dda6562a2472e8d9af21ad65f7d753d63
   repo:
-    taskfile: https://raw.githubusercontent.com/batleforc/weebo-operator-kit/v0.17.0/tasks/repo.yaml
+    taskfile: https://raw.githubusercontent.com/batleforc/weebo-operator-kit/v0.20.0/tasks/repo.yaml
     checksum: 162d15bf9c41f494efcb6d73e089ac685d23bc98269a41daf62db26534f52f72
     vars:
       CONTAINERFILES: deploy/build/back/Containerfile deploy/build/front/Containerfile
       # The JS part of repo:audit is skipped; audit:js (pnpm audit) covers it.
       NPM_DIR: ""
+  # The kit's own tasks (kit:sync, kit:cog), rendered from its
+  # templates/kit.yaml; use `task kit-sync` below rather than kit:sync.
+  kit:
+    taskfile: .tasks/kit.yaml
+    vars:
+      NPM_CLIENT: pnpm
 
 dotenv:
   - .env
@@ -42,6 +53,16 @@ env:
   SHELLCHECK_OPTS: "--severity=warning"
 
 tasks:
+  kit-sync:
+    desc: "Move to a weebo-operator-kit release (TAG=vX.Y.Z): kit:sync (Taskfile includes and KIT_TAG, docs tarball and lockfile, .tasks/kit.yaml), keeping this repository's cog.toml, which kit:cog would replace with the kit's (RFC 0005 §17)"
+    requires:
+      vars: [TAG]
+    cmds:
+      - task kit:sync TAG={{.TAG}}
+      # The kit's hooks run task test and task audit on every commit and drop
+      # the watermarks-remover check of .hooks/pre-commit.sh.
+      - git checkout -- cog.toml
+      - cog install-hook -a -o
   init:
     desc: "Initialize the project"
     silent: true

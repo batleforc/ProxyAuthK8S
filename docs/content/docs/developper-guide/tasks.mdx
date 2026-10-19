@@ -83,10 +83,53 @@ Après une modification d'API : `task gen:swagger-file && task gen:client && tas
 
 | Tâche                | Effet                                                                 |
 | -------------------- | --------------------------------------------------------------------- |
-| `task lint`          | Tous les linters : `rust:lint` (fmt, clippy `--all-targets`), `repo:lint` (actionlint, hadolint), `lint:helm`, `js:lint`, `fuzz:check` |
+| `task lint`          | Tous les linters : `rust:lint` (fmt, clippy `--all-targets`), `repo:lint` (actionlint, hadolint), `lint:helm`, `js:lint` (avec `pnpm peers check`), `fuzz:check` |
 | `task js:ci`         | Typecheck, tests et build de tous les paquets JS (`js:lint`, `js:test`…) |
 | `task audit`         | Audit : `rust:audit` (`cargo deny` selon `deny.toml`, `trivy fs`), `audit:fuzz`, `audit:js` (`pnpm audit`), `repo:audit` (`trivy config` sur les Containerfiles) |
 | `task tool:upgrade`  | Met à jour les dépendances dans les majeures actuelles (Rust, front, docs) |
 | `task bump`          | Incrémente la version (voir [Préparer une version](/docs/developper-guide/release)) |
 | `task rust:doctor`   | Vérifie les prérequis envtest (Go, libclang, binaires du control plane) |
 | `task template:*`    | Synchronise le projet avec son template (`diff`, `fetch`, `sync`)      |
+
+## Tâches du kit
+
+Une partie des tâches vient de
+[weebo-operator-kit](https://github.com/batleforc/weebo-operator-kit), comme le paquet de
+ce site (`@weebo/operator-docs`). Le dépôt est épinglé sur une release du kit : `KIT_TAG`
+dans `Taskfile.yaml`.
+
+| Tâche / fichier       | D'où vient-il                                                                  |
+| --------------------- | ------------------------------------------------------------------------------- |
+| `rust:*`              | `tasks/rust.yaml` du kit, inclus à distance (`rust:lint`, `rust:audit`…)        |
+| `repo:*`              | `tasks/repo.yaml` du kit, inclus à distance (`repo:lint`, `repo:audit`)         |
+| `kit:*`               | `.tasks/kit.yaml`, copie de `templates/kit.yaml` du kit, avec `NPM_CLIENT=pnpm` |
+| `docs/package.json`   | `@weebo/operator-docs`, tarball de la release du kit, intégrité dans `pnpm-lock.yaml` |
+
+Les includes distants portent un `checksum:` sha256 : Task refuse de charger un fichier dont
+le contenu a changé sous le même tag (`The checksum of the Taskfile … does not match!`), et
+plus aucune tâche ne se lance. Task garde les fichiers en cache ; `task --offline rust:lint`
+fonctionne sans réseau.
+
+### Passer à une nouvelle release du kit
+
+```bash
+task kit-sync TAG=vX.Y.Z
+```
+
+`kit-sync` lance `kit:sync`, qui met à jour `KIT_TAG`, les URLs et les checksums des
+includes, `.tasks/kit.yaml`, la tarball de `docs/package.json` et `pnpm-lock.yaml`, puis
+restaure le `cog.toml` du dépôt et réinstalle les hooks. Ne lancez pas `kit:sync` ni
+`kit:cog` seuls : ils remplacent `cog.toml` par celui du kit, dont le hook de pré-commit
+lance `task test` (Redis requis) et `task audit` à chaque commit et perd les vérifications
+de `.hooks/pre-commit.sh`.
+
+Ensuite : relire le diff (un checksum qui change veut dire que le contenu de `rust.yaml` ou
+`repo.yaml` a changé, à lire avant de commiter), lancer `task docs:crds` puis `task lint`
+et `task audit`.
+
+### Ce qui n'est pas repris du kit
+
+La CI réutilisable `checks.yml` (pas de Redis : les workflows du dépôt appellent
+`task rust:*` et `task repo:*`), le chart lib et `helm:crds`, `rust:coverage` (le gate
+`coverage:ci` du dépôt reste), le `CrdForm` (remplacé par `ProxyKubeApiGenerator`) et les
+crates `weebo-kit-*`. Le détail est dans la RFC 0005.

@@ -10,6 +10,8 @@ on:
       - "**/*.vue" # 🎨 Vue.js components
       - "**/*.ts" # 📘 TypeScript files
       - "apps/front/**"
+      - "**/package.json" # 📦 js:lint's pnpm peers check
+      - "pnpm-lock.yaml"
       - ".oxlintrc.json"
       - "eslint.config.mjs"
       - ".github/workflows/front-lint.yaml"
@@ -19,6 +21,8 @@ on:
       - "**/*.vue" # 🎨 Vue.js components
       - "**/*.ts" # 📘 TypeScript files
       - "apps/front/**"
+      - "**/package.json" # 📦 js:lint's pnpm peers check
+      - "pnpm-lock.yaml"
       - ".oxlintrc.json"
       - "eslint.config.mjs"
       - ".github/workflows/front-lint.yaml"

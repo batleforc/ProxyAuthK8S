@@ -11,7 +11,7 @@ RFC passe au `/grill-me` avant d'être `In review`.
 | [0002](0002-ui-batlehub-design-system.md) | Refonte UI sur le design system BatleHub | #230 | In review | medium |
 | [0003](0003-port-forward-filtering-gaps.md) | Filtrage des ports : fermer les contournements | #265 (déjà livré), nouvelle issue à créer | In review | medium |
 | [0004](0004-exec-attach-filtering.md) | Filtrage d'exec et d'attach (commande, conteneur, flux) | à créer | Implemented | high |
-| [0005](0005-adopt-weebo-operator-kit.md) | Adopter weebo-operator-kit (doc, tâches) | à créer | In review | medium |
+| [0005](0005-adopt-weebo-operator-kit.md) | Adopter weebo-operator-kit (doc, tâches) | à créer | Implemented | medium |
 | [0006](0006-verb-aware-rules.md) | Règles sensibles au verbe Kubernetes | à créer | In review | high |
 | [0007](0007-migrate-actix-to-axum.md) | Migrer le serveur HTTP d'actix-web vers axum (hyper 1) | à créer | In review | high |
 | [0008](0008-audit-trail.md) | Trace d'audit : couverture, schéma et sortie garantie | à créer | Implemented | medium |
