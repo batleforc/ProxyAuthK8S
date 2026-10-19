@@ -709,3 +709,16 @@ Phase 2 (2026-10-18) :
 - Vérifié : `task lint`, typecheck et export de la doc depuis `docs/`
   (108 pages), `cargo check -p server -p cli`.
 
+Phase 3, en attente (2026-10-19) :
+
+- `weebo-crd-docs` v0.18.0, essayé sur `deploy/crds.yaml`, ne rend que les
+  10 champs de premier niveau de `spec`. Les 138 descriptions imbriquées
+  (tout `security_config`, l'exec, le port-forward) ne seraient plus que dans
+  les infobulles du formulaire, alors que la page crdoc actuelle a
+  53 sections. Il passe aussi le texte des CRD brut dans le MDX : un `{…}` y
+  est évalué au build.
+- La phase 3 attend donc la RFC 0004 du kit
+  (`docs/rfc-0004-crd-reference-nested-fields.md` : sections par objet,
+  texte échappé) et la release qui la porte. Les patchs déjà écrits de la
+  phase 3 (`docs:crds`, `deploy/crd/`, retrait de crdoc) restent valables.
+
