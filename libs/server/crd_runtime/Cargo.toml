@@ -1,6 +1,6 @@
 [package]
 name = "crd_runtime"
-version = "0.1.9"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 
@@ -12,13 +12,13 @@ thiserror = { workspace = true }
 base64 = "0.23"
 secrecy = "0.10.3"
 
-crd = { path = "../crd", version = "0.1.9" }
-common = { path = "../common", version = "0.1.9" }
+crd = { path = "../crd", version = "0.2.0" }
+common = { path = "../common", version = "0.2.0" }
 
 [dev-dependencies]
 # `test-util` unlocks `State::from_parts`; dev-dependencies are not part of a
 # normal build so the feature stays off outside `cargo test`.
-common = { path = "../common", version = "0.1.9", features = ["test-util"] }
+common = { path = "../common", version = "0.2.0", features = ["test-util"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time", "io-util"] }
 wiremock = "0.6"
 rustls = { workspace = true }

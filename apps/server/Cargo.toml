@@ -1,6 +1,6 @@
 [package]
 name = "server"
-version = "0.1.9"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 
@@ -12,9 +12,9 @@ tracing = { workspace = true }
 rustls = { workspace = true }
 opentelemetry = { workspace = true }
 
-api = { path = "../../libs/server/api", version = "0.1.9" }
-trace = { path = "../../libs/server/trace", version = "0.1.9" }
-common = { path = "../../libs/server/common", version = "0.1.9" }
-controller = { path = "../../libs/server/controller", version = "0.1.9" }
+api = { path = "../../libs/server/api", version = "0.2.0" }
+trace = { path = "../../libs/server/trace", version = "0.2.0" }
+common = { path = "../../libs/server/common", version = "0.2.0" }
+controller = { path = "../../libs/server/controller", version = "0.2.0" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

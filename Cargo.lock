@@ -157,7 +157,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "axum",
  "axum-server",
@@ -865,7 +865,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "cli"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "apple-native-keyring-store",
  "base64 0.23.1",
@@ -899,7 +899,7 @@ dependencies = [
 
 [[package]]
 name = "cli_trace"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "client_api"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -969,7 +969,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "crd",
@@ -1032,7 +1032,7 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "controller"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "common",
  "crd",
@@ -1124,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "crd"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "k8s-openapi",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "crd_runtime"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "common",
@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "crdgen"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "crd",
  "kube",
@@ -2438,7 +2438,7 @@ dependencies = [
 
 [[package]]
 name = "integration"
-version = "0.0.0"
+version = "0.2.0"
 dependencies = [
  "reqwest",
  "serde",
@@ -2664,7 +2664,7 @@ dependencies = [
 
 [[package]]
 name = "jwt_validator"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "crd",
@@ -2839,7 +2839,7 @@ dependencies = [
 
 [[package]]
 name = "kubectl_proxyauth"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "clap",
  "cli",
@@ -4513,7 +4513,7 @@ dependencies = [
 
 [[package]]
 name = "server"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "api",
@@ -4698,7 +4698,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "swaggergen"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "api",
 ]
@@ -5131,7 +5131,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "trace"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
@@ -5420,7 +5420,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "virtual_api"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "crd",
  "k8s-openapi",
