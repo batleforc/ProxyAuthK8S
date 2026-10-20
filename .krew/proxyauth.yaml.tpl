@@ -1,7 +1,8 @@
 # Template for the krew-index plugin manifest.
 #
-# The release workflow substitutes {{VERSION}} and the per-platform
-# {{SHA256_*}} checksums, then attaches the result to the GitHub release. To
+# The release workflow substitutes the VERSION and per-platform SHA256_*
+# placeholders (no braces here: a leftover pair fails the render), then
+# attaches the result to the GitHub release. To
 # publish, open a PR against kubernetes-sigs/krew-index with the rendered file
 # under plugins/proxyauth.yaml.
 apiVersion: krew.googlecontainertools.github.com/v1alpha2
