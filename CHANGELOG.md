@@ -2,6 +2,139 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.2.0](https://github.com/batleforc/proxyauthK8s/compare/6af8b40b9390a29f1fcd73545ec4a5214bbef935..v0.2.0) - 2026-10-20
+#### Features
+- (**CLI**) Creat Kubeconfig if not exist and create a tmux conf to open - ([c87b0fe](https://github.com/batleforc/proxyauthK8s/commit/c87b0fedb476514d8a3ac6f856289ef3258747a7)) - Max Batleforc
+- (**api**) upgrade tunnel on hyper::upgrade (RFC 0007 phase 5) - ([8d7891a](https://github.com/batleforc/proxyauthK8s/commit/8d7891a94110bc72160b9e586f5b71116699f489)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) server, middlewares and OpenAPI on axum (RFC 0007 phase 3) - ([2203c2a](https://github.com/batleforc/proxyauthK8s/commit/2203c2a9180530275e56c960c9219540bc00f317)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**audit**) what an exec runs, on its audit lines (RFC 0004 phase 1) - ([cf2126a](https://github.com/batleforc/proxyauthK8s/commit/cf2126a2dd1a1065fadf5c126ffa0b3417ed2953)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**audit**) session_closed at the end of every tunnel (RFC 0008 phase 4) - ([018ac45](https://github.com/batleforc/proxyauthK8s/commit/018ac45a74cd4cb94ea02cb0c26bad134f24d588)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**audit**) versioned audit trail (RFC 0008 phases 1-3) - ([82d07c8](https://github.com/batleforc/proxyauthK8s/commit/82d07c8dc49d8f2b77641930b63a1899c01c4933)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**chart**) ingress.apiHost, a clusters-only host for oc login --web - ([e161e25](https://github.com/batleforc/proxyauthK8s/commit/e161e258b474adc376bf1b5449fdcd475e26acea)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**cli**) PROXYAUTH_KEYRING_SERVICE, one token store per profile - ([2f935a1](https://github.com/batleforc/proxyauthK8s/commit/2f935a1700ee94e6482ada89c565f2ef28bb7ef4)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**docs**) adopt @weebo/operator-docs (RFC 0005 phase 3) - ([f0004c3](https://github.com/batleforc/proxyauthK8s/commit/f0004c31d88d798aed8b491535b3d347b443c383)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**security**) exec and attach policy (RFC 0004 phases 2-3) - ([bfd094b](https://github.com/batleforc/proxyauthK8s/commit/bfd094b822fd328e9e90c99a787218d218e2980c)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- integration bench and §6.P matrix (RFC 0009 phases 1-2) - ([e40d9cb](https://github.com/batleforc/proxyauthK8s/commit/e40d9cb09372bf89d4f54303e3cecd410f7c63a6)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- step 6 /7 /9 - ([5329ba3](https://github.com/batleforc/proxyauthK8s/commit/5329ba34bc3c27678d3ec0177d11b540b8b53c5a)) - Max Batleforc
+- Step 1-5 - ([d99b783](https://github.com/batleforc/proxyauthK8s/commit/d99b7835c2cfd3ca2d56968720c2b01f2e7b0f19)) - Max Batleforc
+- last review - ([d5995f7](https://github.com/batleforc/proxyauthK8s/commit/d5995f7ab5139a068363632a7ee1cfb4817a80ad)) - Max Batleforc
+- review RFC - ([a581c67](https://github.com/batleforc/proxyauthK8s/commit/a581c67bf69cc6427d9830f9964162277db3fe62)) - Max Batleforc
+- wip - ([243f339](https://github.com/batleforc/proxyauthK8s/commit/243f339b6c86a5961d988342085a19e8577f4a52)) - Max Batleforc
+- gestion skills et correctif - ([03985d0](https://github.com/batleforc/proxyauthK8s/commit/03985d027372c9f1f450d90b770185fe18f49fa7)) - Max Batleforc
+- Apply reco - ([0a5921a](https://github.com/batleforc/proxyauthK8s/commit/0a5921a8007ac9df6b0beabc661120485b29fc9e)) - Max Batleforc
+- Upgrade batch - ([f3896e7](https://github.com/batleforc/proxyauthK8s/commit/f3896e7d9413bb1c9f71c136a793fdf79450429b)) - Max Batleforc
+- mise en place trust cert, login with or without browser, why we - ([4f1d427](https://github.com/batleforc/proxyauthK8s/commit/4f1d427a8c23e8280172627216263666572ced74)) - Max Batleforc
+- Work on making this code more secure (and it will take a lot of work) - ([f0c7667](https://github.com/batleforc/proxyauthK8s/commit/f0c7667e18a9f84b66bcd63db169f8bc079d022d)) - Max Batleforc
+- work toward making it a little bit more prod ready - ([dc05ab0](https://github.com/batleforc/proxyauthK8s/commit/dc05ab03f8c14e4b40fc276a691db50967f497d3)) - Max Batleforc
+- correct past bug - ([3a776b9](https://github.com/batleforc/proxyauthK8s/commit/3a776b924adc98118e1e86a3a3ab11c4eb7bb13c)) - Max Batleforc
+- wip - ([b3191cf](https://github.com/batleforc/proxyauthK8s/commit/b3191cf66fed01813b078dea4ad8e713ff9058a4)) - Max Batleforc
+- fix most things - ([52481b0](https://github.com/batleforc/proxyauthK8s/commit/52481b00028fe181d29359a67763a91d9731637b)) - Max Batleforc
+- Apply template and start work on port forward - ([a5688d5](https://github.com/batleforc/proxyauthK8s/commit/a5688d577ea03497d29de6e28e07bfe9a78f8e73)) - Max Batleforc
+- We are back baby - ([1005f2c](https://github.com/batleforc/proxyauthK8s/commit/1005f2c8bdf6440eeb8193ae192e1ccdc82fb441)) - Max Batleforc
+- wip - ([7ab304e](https://github.com/batleforc/proxyauthK8s/commit/7ab304e106d72646f2d425453ad4ff6699f2c3fa)) - Max Batleforc
+- review and code coverage - ([0ad4ac9](https://github.com/batleforc/proxyauthK8s/commit/0ad4ac984921f10fc82d8aa812abd2a496e9be85)) - Max Batleforc
+- Revue de code, validation dex, correction ci - ([580d331](https://github.com/batleforc/proxyauthK8s/commit/580d331fb05492e42dbaa59f66d0264c41b200cd)) - Max Batleforc
+- wip - ([13aaab1](https://github.com/batleforc/proxyauthK8s/commit/13aaab1ff2047197a0800d580b12c8657e5b9896)) - Max Batleforc
+- wip - ([4463fc1](https://github.com/batleforc/proxyauthK8s/commit/4463fc1f82ae611783acba63836d97ee5f422de4)) - Max Batleforc
+- wip - ([4cba221](https://github.com/batleforc/proxyauthK8s/commit/4cba2210f0b4ed835e9e31b8272d0a649547fcde)) - Max Batleforc
+- Code review and get back on track (#228) - ([97b0848](https://github.com/batleforc/proxyauthK8s/commit/97b0848f719a0e579644660c74f1b4d7de1ae844)) - Maxime
+- change uri - ([152b14d](https://github.com/batleforc/proxyauthK8s/commit/152b14df945de163c201ffc3de860daccb718586)) - Maxime
+- We are back baby - ([b1f6391](https://github.com/batleforc/proxyauthK8s/commit/b1f63912cf6cc223bc85d3a5ca291a0967cdeba0)) - Max Batleforc
+- Work on validating token against oidc provider - ([fc76793](https://github.com/batleforc/proxyauthK8s/commit/fc767931034aee2abd4a3966d149d00da93909c1)) - Max Batleforc
+- Mise en place d'une page formulaire assistant a la création de - ([d7973cd](https://github.com/batleforc/proxyauthK8s/commit/d7973cd54a6819df212e11bb2b2afdd529cf4fc2)) - Max Batleforc
+- wip why k9s does not work ? - ([f55aae1](https://github.com/batleforc/proxyauthK8s/commit/f55aae19fce914675d95d374a504185c404afbba)) - Max Batleforc
+- Add a scripts to check root level cargo.toml dep usage - ([750ae94](https://github.com/batleforc/proxyauthK8s/commit/750ae9414f2f1dcc0fdb20ebb8d9171aa0322034)) - Max Batleforc
+- Trim rust dependency - ([f9a8799](https://github.com/batleforc/proxyauthK8s/commit/f9a87990229b754c370d8ecdfdc9e775b899583a)) - Max Batleforc
+- Handle Async like Websocket or SPYDF and facto tls config - ([2e8f15a](https://github.com/batleforc/proxyauthK8s/commit/2e8f15abe3a7268411e43026b2a832a2c5083be5)) - Max Batleforc
+- Upgrade package and start work on get_token - ([73b25fd](https://github.com/batleforc/proxyauthK8s/commit/73b25fde9b5ff59359fdfa26ba3334c6ed818896)) - Max Batleforc
+- impl Get and work on login - ([c66f92e](https://github.com/batleforc/proxyauthK8s/commit/c66f92ef125903c664c951a2235376546cb18cce)) - Max Batleforc
+- add docs on some actions workflow in order to have a clearer view - ([daf2d0a](https://github.com/batleforc/proxyauthK8s/commit/daf2d0a4104ea9445fa623c8cac2d3383cb6d731)) - Max Batleforc
+- upgrade ci/cd - ([63d2f3a](https://github.com/batleforc/proxyauthK8s/commit/63d2f3a0a7fe900e8a320858d06c60edeae4f910)) - Max Batleforc
+- Upgrade package - ([3d35327](https://github.com/batleforc/proxyauthK8s/commit/3d35327ab163e4d5178a5c0124dd9aeea7a1eba2)) - Max Batleforc
+- Setup new Action to build/scan the image (and split the trivy job - ([6d695fa](https://github.com/batleforc/proxyauthK8s/commit/6d695fa1bbe824b2abdedd1e0622f794df8a4e90)) - Max Batleforc
+- Setup helm chart linting - ([2c0ba14](https://github.com/batleforc/proxyauthK8s/commit/2c0ba143dc309211a6594cd1610d926f2df5ecc0)) - Max Batleforc
+- Upgrade Reqwest - ([e9f8ba5](https://github.com/batleforc/proxyauthK8s/commit/e9f8ba5518d32b1ef0eca31250b47ab7e0129611)) - Max Batleforc
+- add crd docs page - ([9519ec0](https://github.com/batleforc/proxyauthK8s/commit/9519ec0ffc3f25b5140d4891491266911a9774b3)) - Max Batleforc
+- upgrade package - ([e2fd966](https://github.com/batleforc/proxyauthK8s/commit/e2fd966df0eff216d91002b0712271171334abe1)) - Max Batleforc
+- [StepSecurity] Apply security best practices (#118) - ([d4631e3](https://github.com/batleforc/proxyauthK8s/commit/d4631e36bb7b4b365ac2c8a596a5d45ddca7cbce)) - StepSecurity Bot
+- Mise en place de la doc (#101) - ([6af8b40](https://github.com/batleforc/proxyauthK8s/commit/6af8b40b9390a29f1fcd73545ec4a5214bbef935)) - Maxime
+#### Bug Fixes
+- (**api**) list fallback asks the apiserver's own access question - ([bcfd3f5](https://github.com/batleforc/proxyauthK8s/commit/bcfd3f54cfa8c07e9478fa1f11760979a7d4e276)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) virtual APIs in aggregated discovery - ([5c28e4d](https://github.com/batleforc/proxyauthK8s/commit/5c28e4dda82b5acd90f12c8d8bb69cb0dcc0367c)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**front**) match the theme script's end tag with attributes too - ([d036ad7](https://github.com/batleforc/proxyauthK8s/commit/d036ad76be27398d3a9d696b16345f9a9668a1e4)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**front**) find the inline theme script whatever the tag's case - ([6c8347c](https://github.com/batleforc/proxyauthK8s/commit/6c8347cfff65e3b8683b38b6fe420a12dded7d1f)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- CodeQL alerts on test messages, envtest TLS and the CLI configuration - ([7140721](https://github.com/batleforc/proxyauthK8s/commit/714072110b70cc84b472c8fcab15a774e8a7f9a1)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- What's left in the TODO List - ([4af1902](https://github.com/batleforc/proxyauthK8s/commit/4af190273051e0dfc09eb11e343dfff26a5c7d64)) - Max Batleforc
+- wrong url - ([6c0978b](https://github.com/batleforc/proxyauthK8s/commit/6c0978bad5f69653069d4ae6fc6406cbad5fe38e)) - Max Batleforc
+- remove cpu - ([a71711d](https://github.com/batleforc/proxyauthK8s/commit/a71711dddaaced340f9bf851123353ca12cd90eb)) - Maxime
+- Validating against kube api, passing the bearer token need to be - ([639ba17](https://github.com/batleforc/proxyauthK8s/commit/639ba172c295b9b4143e8f71099b5fbf1dae7724)) - Max Batleforc
+- Watch and follow not working (Idem for K9S) also add traces in - ([1313df0](https://github.com/batleforc/proxyauthK8s/commit/1313df0a0c23b3f8e97a2788b268ba9d42db0963)) - Max Batleforc
+- Know if your are the leader before trying to reconcile and WIP on - ([0f6d6a3](https://github.com/batleforc/proxyauthK8s/commit/0f6d6a31468410b5b0cd59202fd1ba69d90c73d2)) - Max Batleforc
+- upgrade tsconfig - ([c1901d6](https://github.com/batleforc/proxyauthK8s/commit/c1901d6a30730bbaf5b4ec998d8b36c54c687f31)) - Max Batleforc
+- Ring injection not recognized since upgrade - ([828be21](https://github.com/batleforc/proxyauthK8s/commit/828be21249c84adb019034288dd584919caeba6b)) - Max Batleforc
+- upgrade front - ([dc206fd](https://github.com/batleforc/proxyauthK8s/commit/dc206fd4ab9915655bc33e2e60682a7355927537)) - Max Batleforc
+- change path in the readme to public path - ([b095552](https://github.com/batleforc/proxyauthK8s/commit/b0955520adc4373d93632153bd45dff43f872e23)) - Max Batleforc
+- revert output change and make the doc build - ([d011fe3](https://github.com/batleforc/proxyauthK8s/commit/d011fe3943069ea31df7a3a03bbbc849f3d1f18c)) - Max Batleforc
+#### Documentation
+- (**rfc**) RFC 0007 ships in 0.2.0, as PLAN.md says - ([883155e](https://github.com/batleforc/proxyauthK8s/commit/883155e6aedd28ee76536b65f4ec4adce7de6ad3)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) RFC 0011, conditions, Events and reason codes from the kit - ([5ec0a75](https://github.com/batleforc/proxyauthK8s/commit/5ec0a75cdc1895eb0f37f951737e98b6218f6b8a)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) plan, what is left before 0.2.0 - ([a185536](https://github.com/batleforc/proxyauthK8s/commit/a185536ca60895ab2312906a3b8ab1d854b35792)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) RFC 0005 phase 3 waits for the kit's nested CRD reference - ([6709112](https://github.com/batleforc/proxyauthK8s/commit/67091126c4195a57b70cc490309d41b745c24e42)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) correct why oc login fails in RFC 0008 §17 - ([4cabc9c](https://github.com/batleforc/proxyauthK8s/commit/4cabc9c00918937954e4073ab4588a009bdd26e5)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) RFC 0004 accepted after its third grill - ([d49847c](https://github.com/batleforc/proxyauthK8s/commit/d49847cd1dff952854ed3b69164d261ea379265f)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) RFC 0010 accepted after its grill - ([7f9becd](https://github.com/batleforc/proxyauthK8s/commit/7f9becd9924c6c7f6e85b253d05e2cd9b504938a)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) RFC 0008 accepted after its grill - ([2da7414](https://github.com/batleforc/proxyauthK8s/commit/2da7414dde861268fde43011617d8ed8ba123480)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) RFC 0010, token exchange (draft) - ([9a46301](https://github.com/batleforc/proxyauthK8s/commit/9a463018d3225ae515d17e75c8a5675feede8f7b)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- land RFC 0001, 0002, 0003, 0006 and 0009, measure RFC 0007 point 9 - ([3be7140](https://github.com/batleforc/proxyauthK8s/commit/3be7140dd1e919b6b1cdd0fce591c23d366c1f61)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- developer guide for kit tasks, RFC 0005 implemented (phase 5) - ([2f87742](https://github.com/batleforc/proxyauthK8s/commit/2f87742e2ac10130fd1acedccd0de6c5b48628ee)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- the mediated OAuth server is not oc login compatible yet - ([da7e011](https://github.com/batleforc/proxyauthK8s/commit/da7e0119352e6925373af4bcebd5a5650c726e6f)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- close RFC 0007 phases 2-6 - ([19d317a](https://github.com/batleforc/proxyauthK8s/commit/19d317a97e983326956f0d1630d0bf5b11da3738)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- integration suite guide and release gate (RFC 0009 phase 4) - ([77c9ece](https://github.com/batleforc/proxyauthK8s/commit/77c9ecedfb982f22370d6e6f1b1c446b194927d1)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Tests
+- (**api**) wait for the OIDC discovery retries instead of a 300 ms window - ([54a1c26](https://github.com/batleforc/proxyauthK8s/commit/54a1c26b460290bc2011bb6f9263cd6764e62259)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) no user data in the envtest group assertion message - ([c988d24](https://github.com/batleforc/proxyauthK8s/commit/c988d247d82a4fec5603bd668a435eae7e359386)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) retry an apply that lost a creation race - ([26cd260](https://github.com/batleforc/proxyauthK8s/commit/26cd26096cb1ccaa797dbd741290418b9b88085b)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) read only kubectl's errors in the attach check - ([d79a0f3](https://github.com/batleforc/proxyauthK8s/commit/d79a0f364795c93fb729b6545a9a2d7c80523241)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- integration tests for RFC 0002, 0003 and 0006 (RFC 0009 phase 3) - ([f284a94](https://github.com/batleforc/proxyauthK8s/commit/f284a94f31ead36e8533ca3c7252b8ade70b87c4)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Build system
+- (**deps**) k8s.io/apiserver 0.37.1 for the request info reference - ([07d2c8f](https://github.com/batleforc/proxyauthK8s/commit/07d2c8f53fdf1978b0b087b94a0be0129ba841ea)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**deps**) bump github/codeql-action from 4.34.1 to 4.35.0 (#157) - ([8492c7d](https://github.com/batleforc/proxyauthK8s/commit/8492c7d63278e9ef5f7cad5ad767b49fc06f5e5c)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump actions/configure-pages from 5.0.0 to 6.0.0 (#153) - ([33ceac7](https://github.com/batleforc/proxyauthK8s/commit/33ceac704c8510932ffbee5da8e5efb1920ded08)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump actions/deploy-pages from 4.0.5 to 5.0.0 (#154) - ([038d043](https://github.com/batleforc/proxyauthK8s/commit/038d0434593fb75294c03b38711f8f1c419d956b)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump go-task/setup-task from 1.1.0 to 2.0.0 (#132) - ([ccd4d2e](https://github.com/batleforc/proxyauthK8s/commit/ccd4d2efa965fdd369c78f502e71b2101779ee58)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump github/codeql-action from 4.33.0 to 4.34.0 (#133) - ([c932746](https://github.com/batleforc/proxyauthK8s/commit/c93274661441d8914b5ef8f1b0b997262603652a)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump actions/upload-pages-artifact from 3.0.1 to 4.0.0 (#121) - ([f1c0515](https://github.com/batleforc/proxyauthK8s/commit/f1c051596e7b7f916a6eff90f0648ae47de30678)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump go-task/setup-task from 1.0.0 to 1.1.0 (#120) - ([ffb88fa](https://github.com/batleforc/proxyauthK8s/commit/ffb88fae42e36f3853222d4a05f36ebc7f4bb267)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump actions/configure-pages from 4.0.0 to 5.0.0 (#119) - ([0297a17](https://github.com/batleforc/proxyauthK8s/commit/0297a177087916e39a42d5b03592566cfdfe9ce7)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump bsord/helm-push from 4.1.0 to 4.2.0 (#102) - ([6aca380](https://github.com/batleforc/proxyauthK8s/commit/6aca38080971ed5a27e95d04abb0dfb3ba05b6d8)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump github/codeql-action from 4.32.6 to 4.33.0 (#115) - ([1f2307c](https://github.com/batleforc/proxyauthK8s/commit/1f2307c66be03e5ef0513984acd766f4bbb0ad2f)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump softprops/action-gh-release from 2.5.0 to 2.6.1 (#114) - ([c2b12c9](https://github.com/batleforc/proxyauthK8s/commit/c2b12c9a912387b52724e86cabcd2aff399c60c7)) - dependabot[bot], dependabot[bot]
+- (**deps**) bump anchore/sbom-action from 0.23.0 to 0.23.1 (#109) - ([85d5ce4](https://github.com/batleforc/proxyauthK8s/commit/85d5ce4643f3f9bc0dbf9b66a10df11443541741)) - dependabot[bot], dependabot[bot]
+- (**docs**) move .docs to docs - ([6a0d46b](https://github.com/batleforc/proxyauthK8s/commit/6a0d46bf5f8b2b4bf5fb6035ede57bfdf99577d0)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- kit:sync on weebo-operator-kit v0.20.0 (RFC 0005 phase 4) - ([8f28433](https://github.com/batleforc/proxyauthK8s/commit/8f2843392ffc411470190892519771e2448b7ca4)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- ESLint 10 for the docs, tsconfigs ready for TypeScript 7 - ([bc81637](https://github.com/batleforc/proxyauthK8s/commit/bc81637fdb9658205770606b1770ab57a1d2d3b9)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Continuous Integration
+- (**integration**) raise the keyring quota before the suite - ([3cea1c9](https://github.com/batleforc/proxyauthK8s/commit/3cea1c9b25e98d5c483036641655f728cee78ad2)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) install cargo-binstall before cargo-nextest - ([9ae092c](https://github.com/batleforc/proxyauthK8s/commit/9ae092c028a0420143e89820afe26ba78395b48e)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- skip the integration suite from a job, not a twin workflow - ([28170cc](https://github.com/batleforc/proxyauthK8s/commit/28170cc00a1e591f9a3a38d3cf0b5b6124399062)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- install pnpm through mise, not pnpm/action-setup - ([3bc39ff](https://github.com/batleforc/proxyauthK8s/commit/3bc39ffd8de0434a8e9529287bac475dfd48ee51)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Refactoring
+- (**api**) standard proxy and watch on axum bodies (RFC 0007 phase 4) - ([a3fe1a6](https://github.com/batleforc/proxyauthK8s/commit/a3fe1a6fe24b01eba867dc92d131b77dd7491bba)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) test helpers and extractors on axum (RFC 0007 phase 2) - ([86ddbd2](https://github.com/batleforc/proxyauthK8s/commit/86ddbd2868c4c9f0ba3a9caf60dcd0514527a27b)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Miscellaneous Chores
+- (**version**) v0.1.9 - ([1e06530](https://github.com/batleforc/proxyauthK8s/commit/1e065305fe3ba1006d35df15bbf5e2ebf27a2295)) - Max Batleforc
+- merge feat/oc-login-api-host (#282) - ([c68e089](https://github.com/batleforc/proxyauthK8s/commit/c68e0896a9ec2206d1fa21822b98144842c4f1ee)) - Maxime
+- merge docs/rfc-landing-0007-0009 (#281) - ([949577d](https://github.com/batleforc/proxyauthK8s/commit/949577de4a6b6368687b58a07ffd37e85a8469a4)) - Maxime
+- merge build/kit-sync-v0.20.0 (#280) - ([df8b153](https://github.com/batleforc/proxyauthK8s/commit/df8b153db435cd070b9a12c1bb5ef0b4ec62a4b5)) - Maxime
+- merge fix/health-oidc-retry-flake (#279) - ([dceb3f3](https://github.com/batleforc/proxyauthK8s/commit/dceb3f30ed194aea098fdc69745cc79174839a79)) - Maxime
+- merge feat/review (#253) - ([808d8c4](https://github.com/batleforc/proxyauthK8s/commit/808d8c4c6805aea74269fd7dc1a89d781eda709c)) - Maxime
+- merge origin/main into feat/review - ([0615242](https://github.com/batleforc/proxyauthK8s/commit/06152427e48ea3802de63edd1ed352f58644b7ba)) - Max Batleforc, Claude Opus 5.5
+- upgrade - ([70c56e4](https://github.com/batleforc/proxyauthK8s/commit/70c56e41da17f8cd26ec9b7dd84940990607f1e1)) - Max Batleforc
+#### Style
+- (**front**) prettier on csp-theme-hash.mjs - ([9fa37e5](https://github.com/batleforc/proxyauthK8s/commit/9fa37e514c577006d324abe472dbc5e7753c89e0)) - Max Batleforc, Claude Opus 5.5 (1M context)
+
+- - -
+
 ## [v0.1.9](https://github.com/batleforc/proxyauthK8s/compare/6af8b40b9390a29f1fcd73545ec4a5214bbef935..v0.1.9) - 2026-03-20
 #### Features
 - add crd docs page - ([9519ec0](https://github.com/batleforc/proxyauthK8s/commit/9519ec0ffc3f25b5140d4891491266911a9774b3)) - Max Batleforc

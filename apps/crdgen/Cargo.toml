@@ -1,13 +1,13 @@
 [package]
 name = "crdgen"
-version = "0.1.9"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 
 
 [dependencies]
 kube = { workspace = true }
-crd = { path = "../../libs/server/crd", version = "0.1.9" }
+crd = { path = "../../libs/server/crd", version = "0.2.0" }
 serde_yaml_ng = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
