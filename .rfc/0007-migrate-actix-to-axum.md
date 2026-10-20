@@ -457,8 +457,8 @@ Performances équivalentes attendues ; le tunnel perd un saut `mpsc` et deux
 - **Migration** : aucune pour les opérateurs ni les clients.
 - **Operator prerequisites** : aucun.
 - **Rollback** : image précédente.
-- **Feature flag** : non. Une seule release, **après la 0.2.0** (RFC 0001 et
-  0002), porte la migration.
+- **Feature flag** : non. Une seule release porte la migration : la **0.2.0**,
+  avec les RFC 0001 à 0009 ([PLAN.md](PLAN.md), qui révise la décision 7).
 - **Critère de livraison** : le §6.P passe entièrement sur le cluster de
   recette, **puis** 7 jours sans hausse des 4xx/5xx ni des erreurs de tunnel.
 
@@ -490,7 +490,7 @@ Performances équivalentes attendues ; le tunnel perd un saut `mpsc` et deux
 | 4 | Ordre avec la RFC 0006 | **0006 avant** (RFC 0006, décision 9) : 0003, 0006, 0007, 0004. |
 | 5 | Découpage des PRs | **Phase 1 seule sur `main`** ; phases 2 à 6 dans **une seule PR, un commit par phase**, CI verte sur le dernier commit (les états intermédiaires ne compilent pas). |
 | 6 | Période de recette | **§6.P complet sur la recette, puis 7 jours** sans hausse des 4xx/5xx ni des erreurs de tunnel. |
-| 7 | Release | **Après la 0.2.0**. |
+| 7 | Release | ~~Après la 0.2.0~~ ; révisée par [PLAN.md](PLAN.md) : **dans la 0.2.0**. |
 | 8 | Forme du contrat | **En processus**, via `serve(listener, state)` indépendant du framework ; pas de lancement du binaire. |
 | 9 | Périmètre du contrat | Inclut les apports des RFC 0003 et 0006 (403, repli SPDY, en-têtes retirés, compteur). |
 | 10 | Limites HTTP | **Mesurées et figées** par le contrat sur actix, reproduites sous hyper/axum ; écart documenté. |

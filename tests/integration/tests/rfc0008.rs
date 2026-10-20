@@ -118,6 +118,87 @@ async fn p3_a_login_is_audited() {
     );
 }
 
+/// Point 3, with a real client: `oc login --web` against the mediated OAuth
+/// server, through the clusters-only host (`ingress.apiHost`). The token oc
+/// gets works through the proxy, and the three OAuth events name the user.
+/// Refusal: the same login on the dashboard's host stops at its HTML (#277).
+#[tokio::test]
+async fn p3_oc_login_through_the_api_host() {
+    // The namespace is in kube_oauth's redirectURIs (.it/dex/config.yaml).
+    let p = unrestricted("rfc0008-p3-oc").await;
+    let ns = p.ns.name.as_str();
+    let patch = json!({ "spec": { "auth_config": { "oidc_provider": {
+        "client_id": "kube_oauth",
+        "expose_oauth_authorization_server": true } } } });
+    let out = Bench::get().admin(&[
+        "-n",
+        ns,
+        "patch",
+        &format!("proxykubeapi/{CLUSTER}"),
+        "--type=merge",
+        "-p",
+        &patch.to_string(),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let bench = Bench::get();
+    let discovery = format!(
+        "{}/clusters/{ns}/{CLUSTER}/.well-known/oauth-authorization-server",
+        bench.api_url()
+    );
+    // The controller copies the patched spec into Redis asynchronously.
+    let mut ready = false;
+    for _ in 0..30 {
+        let response = bench.http().get(&discovery).send().await;
+        if response.is_ok_and(|r| r.status() == StatusCode::OK) {
+            ready = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    assert!(ready, "discovery never answered on {discovery}");
+
+    let refused = p
+        .reader
+        .oc_login_web(&format!("{}/clusters/{ns}/{CLUSTER}", bench.base_url()))
+        .await
+        .expect_err("oc logged in through the dashboard's host");
+    assert!(refused.stderr.contains("HTML page"), "{refused:?}");
+
+    let server = format!("{}/clusters/{ns}/{CLUSTER}", bench.api_url());
+    let login = p.reader.oc_login_web(&server).await;
+    assert!(login.is_ok(), "{login:?}");
+    let whoami = p
+        .reader
+        .oc(&[
+            "auth",
+            "whoami",
+            "-o",
+            "jsonpath={.status.userInfo.username}",
+        ])
+        .await;
+    assert_eq!(whoami.stdout.trim(), "reader@it.local", "{whoami:?}");
+
+    assert!(
+        !events(ns, "oauth_authorize").is_empty(),
+        "no oauth_authorize line"
+    );
+    // §6.P point 3: the callback and the issued token name the same user.
+    let user = |event| {
+        let lines = events(ns, event);
+        let line = lines.last().unwrap_or_else(|| panic!("no {event} line"));
+        line["user"].clone()
+    };
+    let (called_back, issued) = (user("oauth_callback"), user("oauth_token_issued"));
+    assert!(
+        called_back != "-" && called_back == issued,
+        "{called_back} / {issued}"
+    );
+}
+
 /// Point 4: `/oauth/token` with an invalid code is a `400` and an
 /// `oauth_token_denied` line.
 #[tokio::test]

@@ -56,6 +56,10 @@ ingress:
   className: ""
   annotations: {}
   host: proxyauthk8s.local
+  # Optional second host serving the clusters only (`/clusters/…`), for
+  # clients that probe the host root, like `oc login --web` (#277). Same TLS
+  # secret: its certificate must cover this name too.
+  apiHost: ""
   # Base URL clients use, when it is not https://<host> (non-default port,
   # another proxy in front). Empty: derived from tls.enabled and host.
   publicUrl: ""

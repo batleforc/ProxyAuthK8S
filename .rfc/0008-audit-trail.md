@@ -681,3 +681,30 @@ Preuves : `rfc0008::p8` sur le banc (port-forward arrêté par le client :
 4 octets dans chaque sens, `client` ; port-forward SPDY refusé : `filter`), et
 les tests unitaires de `tunnel.rs` (comptage et premier côté fermé).
 
+### Point 3 par un client réel (2026-10-20, #277)
+
+`oc login --web` (oc 4.22.19) pilote maintenant le serveur OAuth médié sur le
+banc : `rfc0008::p3_oc_login_through_the_api_host`. Ce qui bloquait n'était
+pas le serveur mais le routage : `oc` sonde `HEAD /` du host du serveur et
+abandonne sur le HTML du dashboard, puis suit sans difficulté le chemin
+`/clusters/{ns}/{cluster}` (découverte, `authorize`, `token`, puis
+`selfsubjectreviews` avec l'`access_token`). Observé sur un serveur bouchon,
+puis sur le banc avec le vrai serveur et Dex : `users/~` et `projects`
+peuvent répondre 404, le login aboutit. Correctif : `ingress.apiHost` dans le
+chart, un second host qui ne sert que `/clusters/` (et `/` en 404 vide).
+
+Le test prouve le refus sur le host du dashboard (« HTML page »), le login
+sur l'`apiHost`, le jeton accepté à travers le proxy (`oc auth whoami`) et
+les évènements `oauth_authorize`, `oauth_callback` et `oauth_token_issued`,
+ces deux derniers avec le même `user`. Le banc ajoute un client Dex
+`kube_oauth` : Dex (`validateRedirectURI`, v2.46) retire les redirections
+loopback à un client public qui déclare des `redirectURIs`, donc le callback
+du proxy ne peut pas être ajouté à `kube_login` sans casser le plugin.
+L'apiserver accepte les deux audiences (`audienceMatchPolicy: MatchAny`,
+obligatoire dès la deuxième). La doc (`expose-cluster.mdx`) le dit aux
+exploitants.
+
+Reste : l'`access_token` est celui de l'IdP amont. Celui de Dex est un JWT
+que le proxy accepte ; un IdP dont l'`access_token` n'a pas l'audience du
+client (Keycloak par défaut) n'est pas couvert par ce test.
+

@@ -37,6 +37,14 @@ staticClients:
   - id: kube_login
     name: Kubernetes
     public: true
+  # The mediated OAuth server (RFC 0008 point 3): Dex redirects to the proxy,
+  # not to a loopback. A public client with redirectURIs loses the loopback
+  # ones, so this cannot be kube_login. One URI per test namespace.
+  - id: kube_oauth
+    name: Kubernetes (mediated)
+    public: true
+    redirectURIs:
+      - https://proxyauth.k8s.localhost:8443/clusters/it-rfc0008-p3-oc/c/oauth/callback
 
 enablePasswordDB: true
 staticPasswords: []

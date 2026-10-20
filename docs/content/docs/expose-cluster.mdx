@@ -97,8 +97,13 @@ auth_config:
   utilisateurs ou groupes.
 - `expose_oauth_authorization_server: true` publie en plus un serveur OAuth médié
   (RFC 8414 + PKCE) : voir la section *OAuth Authorization Server médiée* de
-  [Sécurité du proxy](/docs/security). `oc login --web` ne fonctionne pas encore contre lui
-  ([#277](https://github.com/batleforc/ProxyAuthK8S/issues/277)).
+  [Sécurité du proxy](/docs/security). `oc login --web` fonctionne contre lui à condition de
+  viser un host qui ne sert pas le dashboard : `oc` sonde la racine du host et abandonne sur
+  une page HTML. Posez `ingress.apiHost` (chart), puis
+  `oc login --web https://<apiHost>/clusters/<ns>/<nom>`. Le client OIDC doit autoriser
+  `<host public>/clusters/<ns>/<nom>/oauth/callback` ; chez Dex, déclarer des `redirectURIs`
+  sur un client public lui retire les redirections `localhost` du plugin : utilisez un client
+  dédié au serveur médié, accepté aussi par l'apiserver (audience).
 
 ### Jetons Kubernetes (ServiceAccount, kubeadm, cloud…)
 

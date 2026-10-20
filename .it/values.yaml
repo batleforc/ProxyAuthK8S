@@ -15,6 +15,8 @@ registry:
 ingress:
   host: proxyauth.k8s.localhost
   publicUrl: https://proxyauth.k8s.localhost:8443
+  # oc login --web (RFC 0008 §6.P point 3); `*.k8s.localhost` is in the run's cert.
+  apiHost: api.k8s.localhost
   tls:
     enabled: true
     secretName: proxyauthk8s-tls
