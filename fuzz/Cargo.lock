@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "api"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -474,7 +474,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "crd",
@@ -564,7 +564,7 @@ checksum = "338089f42c427b86394a5ee60ff321da23a5c89c9d89514c829687b26359fcff"
 
 [[package]]
 name = "crd"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "k8s-openapi",
@@ -579,7 +579,7 @@ dependencies = [
 
 [[package]]
 name = "crd_runtime"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "common",
@@ -1824,7 +1824,7 @@ dependencies = [
 
 [[package]]
 name = "jwt_validator"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "crd",
@@ -2912,9 +2912,9 @@ checksum = "eec689c0bc40ff2458a5977b6619cb718087084a18e02a131c599b62d05e1a5f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -3745,7 +3745,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "virtual_api"
-version = "0.1.9"
+version = "0.2.0"
 dependencies = [
  "crd",
  "k8s-openapi",
@@ -3878,9 +3878,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.9"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b96554aa2acc8ccdb7e1c9a58a7a68dd5d13bccc69cd124cb09406db612a1c9b"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]
