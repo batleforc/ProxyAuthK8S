@@ -1,6 +1,6 @@
 [package]
 name = "controller"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "MIT"
 
@@ -16,15 +16,15 @@ thiserror = { workspace = true }
 
 kube-leader-election = "0.44.0"
 
-crd = { path = "../crd", version = "0.2.0" }
-crd_runtime = { path = "../crd_runtime", version = "0.2.0" }
-common = { path = "../common", version = "0.2.0" }
-trace = { path = "../trace", version = "0.2.0" }
+crd = { path = "../crd", version = "0.2.1" }
+crd_runtime = { path = "../crd_runtime", version = "0.2.1" }
+common = { path = "../common", version = "0.2.1" }
+trace = { path = "../trace", version = "0.2.1" }
 
 [dev-dependencies]
 # `test-util` unlocks `State::from_parts`; dev-dependencies are not part of a
 # normal build so the feature stays off outside `cargo test`.
-common = { path = "../common", version = "0.2.0", features = ["test-util"] }
+common = { path = "../common", version = "0.2.1", features = ["test-util"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 rustls = { workspace = true }
 wiremock = "0.6"
