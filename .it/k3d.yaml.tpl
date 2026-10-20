@@ -47,6 +47,9 @@ files:
             url: https://dex.k8s.localhost:8443
             audiences:
               - kube_login
+              - kube_oauth
+            # Required by the apiserver as soon as there are two audiences.
+            audienceMatchPolicy: MatchAny
             certificateAuthority: |
       __CA__
           # The apiserver takes `email` as the username only once verified.

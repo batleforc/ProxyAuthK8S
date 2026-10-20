@@ -153,6 +153,77 @@ impl Session {
         }
     }
 
+    /// `oc login --web <server>` through the browser flow of the mediated
+    /// OAuth server: what `oc` printed, `Ok` when it exited 0.
+    pub async fn oc_login_web(&self, server: &str) -> Result<Output, Output> {
+        let port = callback_port(server);
+        let ca = Bench::get().ca_path();
+        let mut child = self
+            .command(&PathBuf::from("oc"))
+            .args([
+                "login",
+                server,
+                "--web",
+                "--auto-open-browser=false",
+                "--callback-port",
+                &port.to_string(),
+                "--certificate-authority",
+                ca.to_str().expect("utf-8 path"),
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn oc");
+
+        // oc prints the authorization URL on stdout, its errors on stderr.
+        let mut stdout = BufReader::new(child.stdout.take().expect("piped stdout")).lines();
+        let mut stderr = child.stderr.take().expect("piped stderr");
+        let mut printed = String::new();
+        let mut url = None;
+        let read_url = async {
+            while let Ok(Some(line)) = stdout.next_line().await {
+                printed.push_str(&line);
+                printed.push('\n');
+                url = line
+                    .split_whitespace()
+                    .filter_map(|word| Url::parse(word).ok())
+                    .find(|url| url.path().ends_with("/oauth/authorize"));
+                if url.is_some() {
+                    break;
+                }
+            }
+        };
+        // oc exits without a URL when it refuses the server: no wait then.
+        let _ = tokio::time::timeout(Duration::from_secs(30), read_url).await;
+        if let Some(url) = url {
+            play_browser(&self.persona, &url, port).await;
+        }
+        let rest = async {
+            while let Ok(Some(line)) = stdout.next_line().await {
+                printed.push_str(&line);
+                printed.push('\n');
+            }
+        };
+        let mut err = String::new();
+        let (status, _, _) = tokio::time::timeout(Duration::from_secs(60), async {
+            tokio::join!(child.wait(), rest, stderr.read_to_string(&mut err))
+        })
+        .await
+        .expect("oc did not exit within 60 s");
+        let output = Output {
+            code: status.expect("oc status").code(),
+            stdout: printed,
+            stderr: err,
+        };
+        if output.success() {
+            Ok(output)
+        } else {
+            Err(output)
+        }
+    }
+
     /// Run `kubectl-proxyauth` itself.
     pub async fn cli(&self, args: &[&str]) -> Output {
         run(self.command(&cli_binary()).args(args)).await
@@ -422,13 +493,14 @@ pub fn authorization_url(line: &str) -> Option<Url> {
 }
 
 /// Do what a person does in a browser: open the URL, sign in on Dex's form,
-/// and land on the CLI's loopback callback.
+/// and land on the client's loopback callback (`localhost` for the plugin,
+/// `127.0.0.1` for oc).
 async fn play_browser(persona: &Persona, start: &Url, port: u16) {
     let http = Bench::get().http();
-    let callback = format!("http://localhost:{port}/");
     let mut url = start.clone();
     for _ in 0..10 {
-        if url.as_str().starts_with(&callback) {
+        let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1"));
+        if url.scheme() == "http" && loopback && url.port() == Some(port) {
             // The CLI's listener: plain HTTP on loopback, like the browser.
             let page = reqwest::get(url.as_str())
                 .await
@@ -469,7 +541,7 @@ async fn play_browser(persona: &Persona, start: &Url, port: u16) {
             .expect("Location header");
         url = url.join(location).expect("redirect URL");
     }
-    panic!("the login flow did not reach {callback}");
+    panic!("the login flow did not reach the loopback callback on port {port}");
 }
 
 #[cfg(test)]

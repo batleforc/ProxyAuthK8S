@@ -88,7 +88,7 @@ Statuts :
 | 0007 | 9     | hors suite  | manuel : `rfc0007::p9_exec_throughput` (ignoré, lancé à la main, 0007 §17), et 7 jours en recette |
 | 0008 | 1     | suite       | `rfc0008::p1_rust_log_does_not_silence_the_audit` |
 | 0008 | 2     | suite       | `rfc0008::p2_a_watch_is_audited_with_its_ids` |
-| 0008 | 3     | suite       | `rfc0008::p3_a_login_is_audited` (auth_login, auth_callback) ; flux OAuth médié prouvé hors banc par libs/server/api/tests/audit_trail.rs, aucun client réel ne le pilote (0008 §17, #277) |
+| 0008 | 3     | suite       | `rfc0008::p3_a_login_is_audited` (auth_login, auth_callback) ; `rfc0008::p3_oc_login_through_the_api_host` (flux OAuth médié piloté par oc login --web, #277) |
 | 0008 | 4     | suite       | `rfc0008::p4_an_invalid_code_is_denied` |
 | 0008 | 5     | suite       | `rfc0008::p5_a_ban_is_audited` |
 | 0008 | 6     | suite       | `rfc0008::p6_a_refused_verb_is_audited` |

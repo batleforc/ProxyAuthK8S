@@ -42,8 +42,9 @@ puis déconnectez-vous et reconnectez-vous.
 | `task it:down`                  | Supprime le cluster et `.it/run`                                                   |
 
 `IT_SKIP_BUILD=1 task it:up` réutilise les images déjà construites ; `IT_KEEP=1` garde les
-namespaces des tests pour déboguer. Le banc publie `https://proxyauth.k8s.localhost:8443` et
-`https://dex.k8s.localhost:8443` sur `127.0.0.1` seulement. Sa CA est dans
+namespaces des tests pour déboguer. Le banc publie `https://proxyauth.k8s.localhost:8443`,
+`https://api.k8s.localhost:8443` (`ingress.apiHost`, les clusters seuls, pour `oc login --web`)
+et `https://dex.k8s.localhost:8443` sur `127.0.0.1` seulement. Sa CA est dans
 `.it/run/ca/rootCA.pem` et n'entre jamais dans le magasin de confiance du poste.
 
 Pour un seul fichier de tests : `cargo nextest run -p integration --profile it -E

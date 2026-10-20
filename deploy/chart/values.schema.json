@@ -223,6 +223,11 @@
           "type": "string",
           "description": "Base URL clients use when it is not <scheme>://<host>; empty derives it.",
           "pattern": "^(https?://[^/]+/?)?$"
+        },
+        "apiHost": {
+          "type": "string",
+          "description": "Optional host serving the clusters only (/clusters/...), for oc login --web; empty disables it.",
+          "pattern": "^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*)?$"
         }
       },
       "additionalProperties": false,

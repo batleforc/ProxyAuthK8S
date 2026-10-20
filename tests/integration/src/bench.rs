@@ -11,6 +11,8 @@ use std::{
 
 pub const HOST: &str = "proxyauth.k8s.localhost";
 pub const DEX_HOST: &str = "dex.k8s.localhost";
+/// `ingress.apiHost` of the bench: the clusters only, for `oc login`.
+pub const API_HOST: &str = "api.k8s.localhost";
 /// The namespace `it:up` installs the chart, Dex and Redis in.
 pub const STACK_NS: &str = "proxyauth";
 /// The back's Service, as the chart names it for the `proxyauth` release.
@@ -57,6 +59,12 @@ impl Bench {
         format!("https://{HOST}:{}", self.port)
     }
 
+    /// The clusters-only host (`ingress.apiHost`), whose root is not the
+    /// dashboard.
+    pub fn api_url(&self) -> String {
+        format!("https://{API_HOST}:{}", self.port)
+    }
+
     pub fn dex_url(&self) -> String {
         format!("https://{DEX_HOST}:{}", self.port)
     }
@@ -83,6 +91,7 @@ impl Bench {
             .tls_certs_only([reqwest::Certificate::from_pem(&ca).expect("run CA is PEM")])
             .resolve(HOST, addr)
             .resolve(DEX_HOST, addr)
+            .resolve(API_HOST, addr)
             .redirect(reqwest::redirect::Policy::none())
     }
 

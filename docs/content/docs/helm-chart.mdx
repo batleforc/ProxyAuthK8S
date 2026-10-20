@@ -46,6 +46,7 @@ cosign verify ghcr.io/batleforc/proxyauthk8s/server:<version> \
 | `ingress.className`       | `""`                 | IngressClass                                             |
 | `ingress.annotations`     | `{}`                 | Annotations (cert-manager, timeouts de l'ingress...)     |
 | `ingress.host`            | `proxyauthk8s.local` | Host public : base des redirect URIs et origine CORS par défaut |
+| `ingress.apiHost`         | `""`                 | Second host qui ne sert que les clusters (`/clusters/…`), pour `oc login --web` ; même secret TLS |
 | `ingress.tls.enabled`     | `true`               | TLS sur l'Ingress                                        |
 | `ingress.tls.secretName`  | `proxyauthk8s-tls`   | Secret TLS                                               |
 

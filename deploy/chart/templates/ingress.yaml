@@ -16,6 +16,9 @@ spec:
   tls:
     - hosts:
         - {{ .Values.ingress.host }}
+        {{- with .Values.ingress.apiHost }}
+        - {{ . }}
+        {{- end }}
       secretName: {{ .Values.ingress.tls.secretName }}
   {{- end }}
   rules:
@@ -43,3 +46,25 @@ spec:
                 name: {{ include "proxyauthk8s.back.name" . }}
                 port:
                   number: {{ .Values.back.port }}
+    {{- with .Values.ingress.apiHost }}
+    # Clusters only (#277): `oc login` probes `HEAD /` of the server's host and
+    # gives up on the dashboard's HTML. `/` is the back's empty 404; nothing
+    # else (`/api/`, `/management/`) is routed on this host.
+    - host: {{ . }}
+      http:
+        paths:
+          - path: /
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "proxyauthk8s.back.name" $ }}
+                port:
+                  number: {{ $.Values.back.port }}
+          - path: /clusters/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "proxyauthk8s.back.name" $ }}
+                port:
+                  number: {{ $.Values.back.port }}
+    {{- end }}
