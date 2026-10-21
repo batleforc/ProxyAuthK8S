@@ -12,21 +12,25 @@ kubectl pour que `kubectl` parle à n'importe quel cluster exposé.
 
 ## Installation
 
-### Via krew
+### Via mise
 
 ```bash
-kubectl krew install proxyauth
+mise use -g github:batleforc/ProxyAuthK8S
 ```
 
+[mise](https://mise.jdx.dev/dev-tools/backends/github.html) télécharge l'archive de la
+release GitHub correspondant à l'OS et à l'architecture, et met `kubectl-proxyauth` dans le
+`PATH`. Pour figer une version : `mise use -g github:batleforc/ProxyAuthK8S@v0.2.1`.
+
 <Callout type="info">
-Le manifeste krew est généré à chaque tag et attaché à la release GitHub. Tant que le plugin
-n'est pas dans l'index officiel, l'installation se fait depuis l'archive de la release.
+Le plugin n'est pas publié sur l'index krew pour le moment. Le manifeste krew reste rendu à
+chaque tag et attaché à la release GitHub.
 </Callout>
 
 ### Depuis une release
 
 ```bash
-VERSION=v0.1.9
+VERSION=v0.2.1
 curl -sSL -o kubectl-proxyauth.tar.gz \
   "https://github.com/batleforc/proxyauthK8s/releases/download/${VERSION}/kubectl-proxyauth_${VERSION}_linux_amd64.tar.gz"
 tar xzf kubectl-proxyauth.tar.gz

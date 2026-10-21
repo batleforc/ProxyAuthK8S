@@ -72,9 +72,9 @@ mergée.
 | 12c | **0008** (phase 4) | B | 10, 12b | `session_closed` sur le tunnel hyper | ligne 0008 point 8 verte | fait (0008 §17, phase 4) |
 | 12 | **0004** (phases 1-3) | B | 10, 12c | politique `exec`, `restricts_exec`, `ExecChannelFilter`, audit de session, `mask_exec_secrets`, cibles fuzz | lignes 0004 points 1 à 13 vertes | fait (0004 §17) |
 | 11 | **0005 phases 2-5** | C | 0, 9, 12 (G3) | `.docs` → `docs/`, `@weebo/operator-docs`, `kit:sync` | §6.P de la 0005 (hors suite, jobs CI) | fait : phases 2 à 5 (kit v0.20.0, `cog.toml` gardé, 0005 §17) |
-| 8 | **tag 0.2.0** | — | 11, 12 | — | `integration.yaml` vert sur le commit tagué, aucune ligne de matrice `à écrire` hors des RFC de `PENDING` (`.it/matrix.py` : la 0010, prévue pour la 0.3.0) | à faire |
+| 8 | **tag 0.2.0** | — | 11, 12 | — | `integration.yaml` vert sur le commit tagué, aucune ligne de matrice `à écrire` hors des RFC de `PENDING` (`.it/matrix.py` : la 0010, prévue pour la 0.3.0) | fait : v0.2.0, puis v0.2.1 (RUSTSEC-2026-0382/0383) |
 | 13 | **0011** (RFC crates `weebo-kit-*`) | C | 10 (G6), 11 | kit sans feature `k8s-openapi` dans ses bibliothèques, crates par git, conditions, Events, codes de raison, métriques de reconcile | §6.P de la 0011 | acceptée ; phase 0 par une RFC du kit ; pour la 0.3.0 |
-| 14 | **v1.0.0** | — | 8 | bascules de défauts (§ « v1.0.0 ») | — | après la 0.2.0 |
+| 14 | **v1.0.0** | — | 8 | bascules de défauts (§ « v1.0.0 ») | — | à faire |
 
 Les numéros d'étape sont gardés pour les renvois des RFC ; la table suit
 l'ordre d'exécution.

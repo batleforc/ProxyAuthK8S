@@ -10,13 +10,14 @@ const props = defineProps<{ pluginCommands: string }>();
 const { t } = useI18n();
 const copyToClipboard = useCopyToClipboard();
 
-const INSTALL = `# Via Krew
-kubectl krew install proxyauth
+const INSTALL = `# Via mise
+mise use -g github:batleforc/ProxyAuthK8S
 
 # Or a manual download
-wget https://github.com/batleforc/proxyauthk8s/releases/latest/download/kubectl-proxyauth-linux-amd64
-chmod +x kubectl-proxyauth-linux-amd64
-sudo mv kubectl-proxyauth-linux-amd64 /usr/local/bin/kubectl-proxyauth`;
+VERSION=$(curl -fsSLI -o /dev/null -w "%{url_effective}" https://github.com/batleforc/ProxyAuthK8S/releases/latest | sed "s|.*/||")
+curl -fsSLO "https://github.com/batleforc/ProxyAuthK8S/releases/download/$VERSION/kubectl-proxyauth_\${VERSION}_linux_amd64.tar.gz"
+tar xzf kubectl-proxyauth_*_linux_amd64.tar.gz
+sudo install kubectl-proxyauth /usr/local/bin/`;
 const VERIFY = `kubectl proxyauth get
 kubectl proxyauth ctx
 kubectl get nodes`;

@@ -20,10 +20,10 @@ import { Callout } from 'fumadocs-ui/components/callout';
                        : Client API auto-généré
       CI/CD            : CodeQL, CVE, Lint
                        : Build Docker/Helm, Release
-    section v0.2.0 🚧
+    section v0.2.0 ✅
       Documentation    : Guides d'utilisation
                        : Architecture et API docs
-      Krew Plugin      : Publication sur Krew Index
+      Plugin kubectl   : Installation via mise
       Redesign UI      : Design system BatleHub (RFC 0002)
       Outillage        : Sortie de NX, workspace pnpm (RFC 0001)
                        : weebo-operator-kit, suite d'intégration (RFC 0005, 0009)
@@ -108,10 +108,10 @@ Authentification des utilisateurs via un provider OIDC pour l'UI avec filtrage d
 
 ---
 
-## v0.2.0 — Documentation & CLI {"\uD83D\uDEA7"}
+## v0.2.0 — Documentation & CLI {"\u2705"}
 
-<Callout type="warn">
-  Cette version est en cours de développement.
+<Callout type="info">
+  Livrée en 0.2.0 et 0.2.1.
 </Callout>
 
 <Steps>
@@ -135,12 +135,12 @@ Authentification des utilisateurs via un provider OIDC pour l'UI avec filtrage d
 </Step>
 
 <Step>
-### Plugin Krew
+### Plugin kubectl
 
-Création d'un plugin Krew (`proxyauth`) pour faciliter l'utilisation en CLI.
+Création d'un plugin kubectl (`proxyauth`) pour faciliter l'utilisation en CLI.
 
 - ✅ Client auto-généré depuis l'OpenAPI spec
-- ⏳ Publication sur le Krew Index
+- ✅ Installation depuis la release GitHub via mise ; pas de publication sur le Krew Index pour le moment
 
 </Step>
 
@@ -148,13 +148,6 @@ Création d'un plugin Krew (`proxyauth`) pour faciliter l'utilisation en CLI.
 ### CI/CD
 
 - ✅ Build du plugin et rendu du manifeste Krew, attachés à la release GitHub lors d'un TAG
-
-</Step>
-
-<Step>
-### Qualité
-
-- ⏳ Nettoyage de l'historique Git
 
 </Step>
 
@@ -183,7 +176,7 @@ de la refonte UI). Voir la RFC 0001.
 
 ---
 
-## v0.2.0 — Durcissement du proxy {"\uD83D\uDEA7"}
+## v0.2.0 — Durcissement du proxy {"\u2705"}
 
 <Callout>
   Prévu en v0.3.0 à v0.5.0, tout est finalement livré dans la 0.2.0 ; l'ordre
@@ -265,6 +258,14 @@ de la refonte UI). Voir la RFC 0001.
 - ⏳ Supprimer l'orthographe dépréciée `allowed_ressources` une fois les ressources migrées vers `allowed_resources`
 - ⏳ `verbs` absent vaut lecture seule (`get`, `list`, `watch`) pour tous (RFC 0006)
 - ⏳ `exec` absent : exec interdit sauf règle `exec` explicite (RFC 0004)
+
+</Step>
+
+<Step>
+### Qualité
+
+- ⏳ Nettoyage de l'historique Git
+- ✅ Méthodes d'installation du plugin dans l'UI : l'installation manuelle télécharge l'archive `kubectl-proxyauth_<version>_<os>_<arch>.tar.gz` de la dernière release, l'onglet Homebrew (tap inexistant) est retiré
 
 </Step>
 

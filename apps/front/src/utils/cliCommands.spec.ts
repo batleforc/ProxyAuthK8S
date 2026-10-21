@@ -84,7 +84,7 @@ describe('CLI guide content', () => {
     expect(inEn.config.examples.map((e) => e.command)).toEqual(
       inFr.config.examples.map((e) => e.command),
     );
-    expect(buildInstallationCommands(en).krew.badge).toBe('Recommended');
+    expect(buildInstallationCommands(en).mise.badge).toBe('Recommended');
     expect(
       buildWorkflowExample('https://p.example', 'p-example', 'T', en),
     ).toMatch(/^# 1\. Initial configuration\n/);
@@ -99,13 +99,10 @@ describe('CLI guide content', () => {
 
   it('ends every installation method with an install or check command', () => {
     const installationCommands = buildInstallationCommands(fr);
-    expect(installationCommands.krew.commands.at(-1)).toBe(
-      'kubectl krew install proxyauth',
+    expect(installationCommands.mise.commands.at(-1)).toBe(
+      'mise use -g github:batleforc/ProxyAuthK8S',
     );
     expect(installationCommands.manual.commands.at(-1)).toBe(
-      'kubectl proxyauth --help',
-    );
-    expect(installationCommands.homebrew.commands.at(-1)).toBe(
       'kubectl proxyauth --help',
     );
   });

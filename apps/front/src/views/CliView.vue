@@ -45,7 +45,7 @@ const workflowExample = computed(() =>
 
 const installTabs = computed(() => {
   const commands = buildInstallationCommands(t);
-  return (['krew', 'manual', 'homebrew'] as const).map((key) => ({
+  return (['mise', 'manual'] as const).map((key) => ({
     key,
     method: commands[key],
     code: commands[key].commands.join('\n'),
@@ -70,7 +70,7 @@ const resources = [
     key: 'releases',
     url: 'https://github.com/batleforc/proxyauthk8s/releases',
   },
-  { key: 'krew', url: 'https://krew.sigs.k8s.io/plugins/' },
+  { key: 'mise', url: 'https://mise.jdx.dev/dev-tools/backends/github.html' },
 ] as const;
 </script>
 
@@ -109,7 +109,7 @@ const resources = [
         <span class="font-display text-sub text-muted-foreground">2</span
         >{{ t('cli.installation') }}
       </h2>
-      <Tabs default-value="krew">
+      <Tabs default-value="mise">
         <TabsList :aria-label="t('cli.installation')">
           <TabsTrigger
             v-for="tab in installTabs"

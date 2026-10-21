@@ -239,7 +239,7 @@
     "description": "Installez et utilisez le plugin kubectl-proxyauth pour gérer vos connexions Kubernetes multi-clusters.",
     "quickStart": "Démarrage rapide",
     "steps": {
-      "install": "Installer le plugin via Krew ou manuellement.",
+      "install": "Installer le plugin via mise ou manuellement.",
       "configure": "Le pointer vers ce serveur ProxyAuthK8S.",
       "use": "S'authentifier, puis utiliser kubectl normalement."
     },
@@ -258,36 +258,28 @@
         "label": "Releases GitHub",
         "text": "Les binaires pour chaque OS"
       },
-      "krew": {
-        "label": "Index Krew",
-        "text": "Le plugin dans l'index officiel Krew"
+      "mise": {
+        "label": "mise",
+        "text": "Installer n'importe quelle release GitHub avec mise"
       }
     },
     "data": {
       "install": {
-        "krew": {
-          "title": "Krew (Recommandé)",
-          "description": "Installation via le gestionnaire de plugins Kubernetes officiel",
+        "mise": {
+          "title": "mise (Recommandé)",
+          "description": "Installation de la release GitHub via mise",
           "badge": "Recommandé",
-          "c1": "# Installer Krew si pas déjà fait",
+          "c1": "# Installer mise si pas déjà fait",
           "c2": "# Installer le plugin proxyauth"
         },
         "manual": {
           "title": "Installation Manuelle",
-          "description": "Téléchargement direct du binaire",
+          "description": "Téléchargement direct de l'archive de la release",
           "badge": "Manuel",
-          "c1": "# Télécharger le binaire pour votre OS",
-          "c2": "# Rendre le fichier exécutable",
+          "c1": "# Télécharger la dernière archive (linux_amd64, darwin_amd64, darwin_arm64 ou windows_amd64)",
+          "c2": "# Extraire le binaire",
           "c3": "# Déplacer vers un dossier dans PATH",
           "c4": "# Vérifier l'installation"
-        },
-        "homebrew": {
-          "title": "Homebrew (macOS)",
-          "description": "Installation via Homebrew sur macOS",
-          "badge": "macOS",
-          "c1": "# Ajouter le tap",
-          "c2": "# Installer le plugin",
-          "c3": "# Vérifier l'installation"
         }
       },
       "usage": {

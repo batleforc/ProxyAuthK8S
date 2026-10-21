@@ -50,9 +50,10 @@ helm upgrade --install proxyauthk8s \
 The [Quick start](https://batleforc.github.io/ProxyAuthK8S/docs/quick-started)
 covers Redis, the values file and a first cluster; the
 [Helm chart](https://batleforc.github.io/ProxyAuthK8S/docs/helm-chart) page lists
-every value. The kubectl plugin installs with krew; see the
-[kubectl plugin](https://batleforc.github.io/ProxyAuthK8S/docs/kubectl-plugin)
-page until it is published on the krew index.
+every value. The kubectl plugin installs with
+[mise](https://mise.jdx.dev) (`mise use -g github:batleforc/ProxyAuthK8S`) or from
+the release archive; see the
+[kubectl plugin](https://batleforc.github.io/ProxyAuthK8S/docs/kubectl-plugin) page.
 
 Put an ingress or reverse proxy (TLS termination) in front of ProxyAuthK8S.
 

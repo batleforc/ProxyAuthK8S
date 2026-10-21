@@ -59,8 +59,9 @@ The CycloneDX SBOMs (`server-sbom.json`, `front-sbom.json`) are attached to this
 
 ### kubectl plugin
 
-With [krew](https://krew.sigs.k8s.io/): use the `proxyauth.yaml` manifest attached to this release
-(`kubectl krew install --manifest=proxyauth.yaml`), or download the archive for your platform:
+With [mise](https://mise.jdx.dev): `mise use -g github:batleforc/ProxyAuthK8S@{{VERSION}}`. With
+[krew](https://krew.sigs.k8s.io/): use the `proxyauth.yaml` manifest attached to this release
+(`kubectl krew install --manifest=proxyauth.yaml`). Or download the archive for your platform:
 
 ```bash
 # linux_amd64, darwin_amd64, darwin_arm64 or windows_amd64
@@ -84,7 +85,8 @@ helm upgrade proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart \
   --version {{CHART_VERSION}} --namespace proxyauthk8s --values values.yaml
 ```
 
-For the plugin: `kubectl krew upgrade proxyauth`, or replace the binary as above.
+For the plugin: `mise upgrade github:batleforc/ProxyAuthK8S`, `kubectl krew upgrade proxyauth`, or replace
+the binary as above.
 
 ## 🔗 Related Resources
 

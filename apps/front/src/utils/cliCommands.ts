@@ -57,52 +57,36 @@ const D = 'cli.data';
 export function buildInstallationCommands(t: Translate) {
   const i = (key: string) => t(`${D}.install.${key}`);
   return {
-    krew: {
-      title: i('krew.title'),
-      description: i('krew.description'),
+    mise: {
+      title: i('mise.title'),
+      description: i('mise.description'),
       commands: [
-        i('krew.c1'),
-        'curl -fsSLO "https://github.com/kubernetes-sigs/krew/releases/latest/download/krew-{linux_amd64,darwin_amd64,windows_amd64}.tar.gz"',
-        'tar zxvf krew-*.tar.gz',
-        './krew-* install krew',
+        i('mise.c1'),
+        'curl https://mise.run | sh',
         '',
-        i('krew.c2'),
-        'kubectl krew install proxyauth',
+        i('mise.c2'),
+        'mise use -g github:batleforc/ProxyAuthK8S',
       ],
-      badge: i('krew.badge'),
+      badge: i('mise.badge'),
     },
     manual: {
       title: i('manual.title'),
       description: i('manual.description'),
       commands: [
         i('manual.c1'),
-        'wget https://github.com/batleforc/proxyauthk8s/releases/latest/download/kubectl-proxyauth-linux-amd64',
+        'VERSION=$(curl -fsSLI -o /dev/null -w "%{url_effective}" https://github.com/batleforc/ProxyAuthK8S/releases/latest | sed "s|.*/||")',
+        'curl -fsSLO "https://github.com/batleforc/ProxyAuthK8S/releases/download/$VERSION/kubectl-proxyauth_${VERSION}_linux_amd64.tar.gz"',
         '',
         i('manual.c2'),
-        'chmod +x kubectl-proxyauth-linux-amd64',
+        'tar xzf kubectl-proxyauth_*_linux_amd64.tar.gz',
         '',
         i('manual.c3'),
-        'sudo mv kubectl-proxyauth-linux-amd64 /usr/local/bin/kubectl-proxyauth',
+        'sudo install kubectl-proxyauth /usr/local/bin/',
         '',
         i('manual.c4'),
         'kubectl proxyauth --help',
       ],
       badge: i('manual.badge'),
-    },
-    homebrew: {
-      title: i('homebrew.title'),
-      description: i('homebrew.description'),
-      commands: [
-        i('homebrew.c1'),
-        'brew tap batleforc/proxyauthk8s',
-        '',
-        i('homebrew.c2'),
-        'brew install kubectl-proxyauth',
-        '',
-        i('homebrew.c3'),
-        'kubectl proxyauth --help',
-      ],
-      badge: i('homebrew.badge'),
     },
   } satisfies Record<string, InstallationMethod>;
 }

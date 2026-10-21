@@ -239,7 +239,7 @@
     "description": "Install and use the kubectl-proxyauth plugin to manage your Kubernetes logins across clusters.",
     "quickStart": "Quick start",
     "steps": {
-      "install": "Install the plugin with Krew or by hand.",
+      "install": "Install the plugin with mise or by hand.",
       "configure": "Point it at this ProxyAuthK8S server.",
       "use": "Log in, then use kubectl as usual."
     },
@@ -258,36 +258,28 @@
         "label": "GitHub releases",
         "text": "Binaries for every OS"
       },
-      "krew": {
-        "label": "Krew index",
-        "text": "The plugin in the official Krew index"
+      "mise": {
+        "label": "mise",
+        "text": "Install any GitHub release with mise"
       }
     },
     "data": {
       "install": {
-        "krew": {
-          "title": "Krew (recommended)",
-          "description": "Install through the official Kubernetes plugin manager",
+        "mise": {
+          "title": "mise (recommended)",
+          "description": "Install the GitHub release with mise",
           "badge": "Recommended",
-          "c1": "# Install Krew if needed",
+          "c1": "# Install mise if needed",
           "c2": "# Install the proxyauth plugin"
         },
         "manual": {
           "title": "Manual install",
-          "description": "Download the binary directly",
+          "description": "Download the release archive directly",
           "badge": "Manual",
-          "c1": "# Download the binary for your OS",
-          "c2": "# Make it executable",
+          "c1": "# Download the latest archive (linux_amd64, darwin_amd64, darwin_arm64 or windows_amd64)",
+          "c2": "# Extract the binary",
           "c3": "# Move it to a directory on your PATH",
           "c4": "# Check the installation"
-        },
-        "homebrew": {
-          "title": "Homebrew (macOS)",
-          "description": "Install with Homebrew on macOS",
-          "badge": "macOS",
-          "c1": "# Add the tap",
-          "c2": "# Install the plugin",
-          "c3": "# Check the installation"
         }
       },
       "usage": {
