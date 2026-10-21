@@ -2,6 +2,18 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.2.1](https://github.com/batleforc/proxyauthK8s/compare/d0a46d88fe503a79385344c0ac4d88ce6f006211..v0.2.1) - 2026-10-20
+#### Bug Fixes
+- (**deps**) rustls-webpki 0.103.16 and webpki-root-certs 1.0.10 - ([6519d2a](https://github.com/batleforc/proxyauthK8s/commit/6519d2a5d3e6bbead0721afddb2c4351df4a1a41)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Continuous Integration
+- (**release**) sign the chart with registry credentials, render krew - ([33af5ba](https://github.com/batleforc/proxyauthK8s/commit/33af5ba5b8008805bc4fa19fbf00e75d3558acc1)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Miscellaneous Chores
+- merge fix/rustsec-2026-0382-0383 (#286) - ([943ee28](https://github.com/batleforc/proxyauthK8s/commit/943ee281c6f01b98a1c21766b7a7dfa43b5868b5)) - Maxime
+- merge ci/release-chart-sign-krew (#284) - ([a4654b9](https://github.com/batleforc/proxyauthK8s/commit/a4654b98a68d0f32b9239374159dcccdf0fb9136)) - Maxime
+- merge release/v0.2.0 (#283) - ([d0a46d8](https://github.com/batleforc/proxyauthK8s/commit/d0a46d88fe503a79385344c0ac4d88ce6f006211)) - Maxime
+
+- - -
+
 ## [v0.2.0](https://github.com/batleforc/proxyauthK8s/compare/6af8b40b9390a29f1fcd73545ec4a5214bbef935..v0.2.0) - 2026-10-20
 #### Features
 - (**CLI**) Creat Kubeconfig if not exist and create a tmux conf to open - ([c87b0fe](https://github.com/batleforc/proxyauthK8s/commit/c87b0fedb476514d8a3ac6f856289ef3258747a7)) - Max Batleforc

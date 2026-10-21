@@ -1,6 +1,6 @@
 [package]
 name = "common"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 license = "MIT"
 
@@ -24,8 +24,8 @@ thiserror = { workspace = true }
 k8s-openapi = { workspace = true }
 oauth2-reqwest = { workspace = true }
 
-crd = { path = "../crd", version = "0.2.0" }
-jwt_validator = { path = "../jwt_validator", version = "0.2.0" }
+crd = { path = "../crd", version = "0.2.1" }
+jwt_validator = { path = "../jwt_validator", version = "0.2.1" }
 tokio = { workspace = true, features = ["time"] }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
