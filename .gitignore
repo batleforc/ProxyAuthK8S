@@ -81,3 +81,4 @@ todo.md
 
 # Integration bench run state (RFC 0009): CA, kubeconfigs, logs
 .it/run
+.task-audit-image/

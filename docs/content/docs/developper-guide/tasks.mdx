@@ -86,6 +86,7 @@ Après une modification d'API : `task gen:swagger-file && task gen:client && tas
 | `task lint`          | Tous les linters : `rust:lint` (fmt, clippy `--all-targets`), `repo:lint` (actionlint, hadolint), `lint:helm`, `js:lint` (avec `pnpm peers check`), `fuzz:check` |
 | `task js:ci`         | Typecheck, tests et build de tous les paquets JS (`js:lint`, `js:test`…) |
 | `task audit`         | Audit : `rust:audit` (`cargo deny` selon `deny.toml`, `trivy fs`), `audit:fuzz`, `audit:js` (`pnpm audit`), `repo:audit` (`trivy config` sur les Containerfiles) |
+| `task audit:image`   | Construit les images `server` et `front` (`IMAGE=server` pour une seule) et les scanne avec `trivy image` (HIGH/CRITICAL avec correctif). Hors de `task audit` : trop lent pour les hooks |
 | `task tool:upgrade`  | Met à jour les dépendances dans les majeures actuelles (Rust, front, docs) |
 | `task bump`          | Incrémente la version (voir [Préparer une version](/docs/developper-guide/release)) |
 | `task rust:doctor`   | Vérifie les prérequis envtest (Go, libclang, binaires du control plane) |

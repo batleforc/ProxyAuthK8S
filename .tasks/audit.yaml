@@ -24,3 +24,26 @@ tasks:
       # One lockfile covers front, front-api and docs. Accepted advisories
       # live in pnpm-workspace.yaml (auditConfig.ignoreGhsas).
       - pnpm audit
+
+  image:
+    desc: "Build the server and front images (IMAGE=server or front for one) and scan them for HIGH/CRITICAL CVEs with a fix (trivy image). Not in audit:default: the build is too slow for the commit hooks"
+    vars:
+      IMAGES: '{{.IMAGE | default "server front"}}'
+      OUT: .task-audit-image
+    cmds:
+      - |
+        set -eu
+        engine=docker
+        if command -v podman >/dev/null; then engine=podman; fi
+        ignore=""; if [ -f .trivyignore.yaml ]; then ignore="--ignorefile .trivyignore.yaml"; fi
+        mkdir -p {{.OUT}}; trap 'rm -rf {{.OUT}}' EXIT
+        status=0
+        for name in {{.IMAGES}}; do
+          case "$name" in server) dir=back ;; front) dir=front ;; *) echo "IMAGE must be server or front" >&2; exit 1 ;; esac
+          image=localhost/proxyauthk8s/$name:audit
+          "$engine" build -f "deploy/build/$dir/Containerfile" -t "$image" .
+          "$engine" save -o "{{.OUT}}/$name.tar" "$image"
+          mise exec -- trivy image --skip-version-check --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed $ignore --input "{{.OUT}}/$name.tar" || status=1
+          rm -f "{{.OUT}}/$name.tar"
+        done
+        exit $status
