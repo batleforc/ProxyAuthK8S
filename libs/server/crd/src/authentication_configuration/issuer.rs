@@ -23,6 +23,8 @@ pub struct Issuer {
     /// The `iss` claim every token must carry, and the base for OIDC discovery
     /// unless `discovery_url` overrides it.
     #[schemars(length(max = 253))]
+    // The docs' CRD IDE draws the issuer (the kit's shared OidcIssuer).
+    #[schemars(extend("x-weebo-produces" = { "kind": { "group": "schematic.weebo.io", "kind": "OidcIssuer" }, "name": ["."] }))]
     pub url: String,
     /// Where the discovery document lives, when it is not `url` +
     /// `/.well-known/openid-configuration`.

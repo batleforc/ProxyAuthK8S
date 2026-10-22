@@ -1,0 +1,85 @@
+{
+  "apiVersion": "schematic.weebo.si.rs/v1",
+  "kind": "AccessMethod",
+  "scope": "Namespaced",
+  "served": [
+    "v1"
+  ],
+  "schematic": true,
+  "description": "A way to reach a `ProxyKubeApi`: who, through what, with which group.",
+  "properties": {
+    "description": {
+      "description": "Free text, for the drawing.",
+      "nullable": true,
+      "type": "string"
+    },
+    "group": {
+      "description": "The OIDC group it requires (`dashboard_group`, `proxy_group`).",
+      "nullable": true,
+      "type": "string"
+    },
+    "issuerRef": {
+      "description": "The issuer whose tokens it uses.",
+      "nullable": true,
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "proxyRef": {
+      "description": "The `ProxyKubeApi` it goes through.",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "type": {
+      "description": "How people reach a cluster through the proxy.",
+      "oneOf": [
+        {
+          "description": "The web dashboard (`expose_via_dashboard`).",
+          "enum": [
+            "dashboard"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "`kubectl` with the `proxyauth` plugin.",
+          "enum": [
+            "kubectlPlugin"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The mediated OAuth 2.0 server (`expose_oauth_authorization_server`).",
+          "enum": [
+            "oauth"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Straight to the proxied API, with a token.",
+          "enum": [
+            "direct"
+          ],
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "required": [
+    "type",
+    "proxyRef"
+  ],
+  "type": "object"
+}

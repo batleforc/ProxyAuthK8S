@@ -3,11 +3,19 @@ name = "crdgen"
 version = "0.2.1"
 edition = "2024"
 license = "MIT"
+# A build tool: its git dependency is not a wildcard for cargo-deny.
+publish = false
 
 
 [dependencies]
+anyhow = { workspace = true }
 kube = { workspace = true }
 crd = { path = "../../libs/server/crd", version = "0.2.1" }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
+# The CRD IDE's links and schematic kinds (links.json); nothing else of the kit.
+weebo-kit-api = { git = "https://github.com/batleforc/weebo-operator-kit", tag = "v0.24.0" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

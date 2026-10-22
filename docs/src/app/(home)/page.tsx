@@ -10,6 +10,7 @@ export default function HomePage() {
       actions={[
         { href: '/docs/quick-started', label: 'Démarrer', primary: true },
         { href: '/docs', label: 'Lire la doc' },
+        { href: '/docs/ide', label: 'Ouvrir l’IDE à CRD' },
       ]}
       install={`helm upgrade --install proxyauthk8s-crd \\
   oci://ghcr.io/batleforc/proxyauthk8s/chart-crd \\

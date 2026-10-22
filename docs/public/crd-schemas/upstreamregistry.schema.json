@@ -1,0 +1,27 @@
+{
+  "apiVersion": "schematic.weebo.io/v1",
+  "kind": "UpstreamRegistry",
+  "scope": "Cluster",
+  "served": [
+    "v1"
+  ],
+  "schematic": true,
+  "description": "A package or image registry outside the cluster that the instance\nmirrors or proxies, named by its URL.",
+  "properties": {
+    "authenticated": {
+      "description": "Whether pulling from it needs credentials.",
+      "type": "boolean"
+    },
+    "description": {
+      "description": "Free text, for the drawing.",
+      "nullable": true,
+      "type": "string"
+    },
+    "type": {
+      "description": "Its format: `oci`, `npm`, `cargo`, `pypi`…",
+      "nullable": true,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

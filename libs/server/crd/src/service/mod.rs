@@ -22,6 +22,8 @@ pub enum Service {
     /// External service
     ExternalService {
         /// URL of the external service (e.g. `https://example.com`)
+        // The docs' CRD IDE draws the cluster behind it (crdgen's KubeCluster).
+        #[schemars(extend("x-weebo-produces" = { "kind": { "group": "schematic.weebo.si.rs", "kind": "KubeCluster" }, "name": ["."] }))]
         url: String,
     },
 }

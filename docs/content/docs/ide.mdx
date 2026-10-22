@@ -1,0 +1,25 @@
+---
+title: CRD IDE
+description: Composer des ProxyKubeApi, schématiser les clusters et leurs accès, exporter les manifestes.
+full: true
+---
+
+Ajoutez des `ProxyKubeApi`, reliez chaque référence (le Secret d'un
+certificat, le `Service` d'un cluster local…) à une ressource du projet, et
+exportez le tout en YAML.
+
+Ce qui vit hors du cluster est schématisé, jamais exporté avec les
+manifestes :
+
+- un `KubeCluster` par `service.ExternalService.url` (le cluster derrière
+  le proxy) ;
+- un `OidcIssuer` par issuer JWT (`auth_config.jwt[].issuer.url`) et par
+  fournisseur OIDC (`auth_config.oidc_provider.issuer_url`) : un seul nœud
+  par issuer, quels que soient les proxys qui lui font confiance ;
+- des `AccessMethod`, à ajouter à la main : comment on atteint un proxy
+  (dashboard, plugin kubectl, serveur OAuth, accès direct), avec quel
+  issuer et quel groupe.
+
+Le schéma se télécharge à part (`schematic.yaml`) et se réimporte.
+
+<CrdIde />

@@ -1,0 +1,23 @@
+{
+  "apiVersion": "schematic.weebo.si.rs/v1",
+  "kind": "KubeCluster",
+  "scope": "Cluster",
+  "served": [
+    "v1"
+  ],
+  "schematic": true,
+  "description": "A Kubernetes cluster behind a `ProxyKubeApi`, named by its API server's\nURL (an `ExternalService` makes one).",
+  "properties": {
+    "description": {
+      "description": "Free text, for the drawing.",
+      "nullable": true,
+      "type": "string"
+    },
+    "distribution": {
+      "description": "`talos`, `openshift`, `k3s`, `eks`…",
+      "nullable": true,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

@@ -1,0 +1,23 @@
+{
+  "apiVersion": "schematic.weebo.io/v1",
+  "kind": "HttpEndpoint",
+  "scope": "Cluster",
+  "served": [
+    "v1"
+  ],
+  "schematic": true,
+  "description": "An HTTP service outside the cluster that the instance calls — a webhook\nreceiver, a scanner, a telemetry collector — named by its URL.",
+  "properties": {
+    "description": {
+      "description": "Free text, for the drawing.",
+      "nullable": true,
+      "type": "string"
+    },
+    "role": {
+      "description": "What it is to the instance: `webhook`, `scanner`, `otlp`…",
+      "nullable": true,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

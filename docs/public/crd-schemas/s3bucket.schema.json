@@ -1,0 +1,27 @@
+{
+  "apiVersion": "schematic.weebo.io/v1",
+  "kind": "S3Bucket",
+  "scope": "Cluster",
+  "served": [
+    "v1"
+  ],
+  "schematic": true,
+  "description": "An S3-compatible bucket, named by the bucket.",
+  "properties": {
+    "description": {
+      "description": "Free text, for the drawing.",
+      "nullable": true,
+      "type": "string"
+    },
+    "endpoint": {
+      "description": "The endpoint's URL; unset, the provider's default.",
+      "nullable": true,
+      "type": "string"
+    },
+    "region": {
+      "nullable": true,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

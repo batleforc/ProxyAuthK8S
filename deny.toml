@@ -55,3 +55,5 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# The weebo operator kit (crdgen's weebo-kit-api), pinned by tag in Cargo.toml.
+allow-git = ["https://github.com/batleforc/weebo-operator-kit"]
