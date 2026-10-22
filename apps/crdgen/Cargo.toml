@@ -3,6 +3,8 @@ name = "crdgen"
 version = "0.2.1"
 edition = "2024"
 license = "MIT"
+# A build tool: its git dependency is not a wildcard for cargo-deny.
+publish = false
 
 
 [dependencies]
