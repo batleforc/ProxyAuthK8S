@@ -1,6 +1,6 @@
 [package]
 name = "api"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 
@@ -55,12 +55,12 @@ socket2 = { version = "0.6", optional = true }
 # Already in the tree (kube); the request id of every response.
 uuid = { version = "1", features = ["v4"], optional = true }
 
-common = { path = "../common", version = "0.2.1" }
-crd = { path = "../crd", version = "0.2.1" }
-jwt_validator = { path = "../jwt_validator", version = "0.2.1" }
-crd_runtime = { path = "../crd_runtime", version = "0.2.1" }
-virtual_api = { path = "../virtual_api", version = "0.2.1" }
-trace = { path = "../trace", version = "0.2.1", optional = true }
+common = { path = "../common", version = "0.3.0" }
+crd = { path = "../crd", version = "0.3.0" }
+jwt_validator = { path = "../jwt_validator", version = "0.3.0" }
+crd_runtime = { path = "../crd_runtime", version = "0.3.0" }
+virtual_api = { path = "../virtual_api", version = "0.3.0" }
+trace = { path = "../trace", version = "0.3.0", optional = true }
 
 [dev-dependencies]
 opentelemetry_sdk = { workspace = true }
@@ -68,7 +68,7 @@ tracing-subscriber = { workspace = true }
 opentelemetry-prometheus = "0.33"
 # `test-util` unlocks `State::from_parts`; dev-dependencies are not part of a
 # normal build so the feature stays off outside `cargo test`.
-common = { path = "../common", version = "0.2.1", features = ["test-util"] }
+common = { path = "../common", version = "0.3.0", features = ["test-util"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 wiremock = "0.6"
 # Already in the tree (axum): `oneshot` on the router in tests.
@@ -84,7 +84,7 @@ secrecy = "0.10.3"
 # same ephemeral apiserver the rest of the envtest suite already spins up, rather
 # than duplicating that ~460-line harness into the controller crate. No
 # production dependency of `api` on `controller` is implied.
-controller = { path = "../controller", version = "0.2.1" }
+controller = { path = "../controller", version = "0.3.0" }
 k8s-openapi = { workspace = true }
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 

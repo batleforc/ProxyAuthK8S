@@ -2,6 +2,21 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.3.0](https://github.com/batleforc/proxyauthK8s/compare/cf10d5b4930095c38a16c7a1046a80d10e4b2b20..v0.3.0) - 2026-10-22
+#### Features
+- (**audit**) scan the built server and front images with trivy - ([ea08247](https://github.com/batleforc/proxyauthK8s/commit/ea08247b45c552370f6f10d35b0c05cbaab15685)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**docs**) the CRD IDE on kit v0.24.0, clusters and their accesses drawn - ([0ac16f9](https://github.com/batleforc/proxyauthK8s/commit/0ac16f933718086862e19ab072bf16adbf8cec91)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Bug Fixes
+- (**audit**) allow the kit git source, crdgen unpublished - ([cf417ff](https://github.com/batleforc/proxyauthK8s/commit/cf417ffb687aa9398529454c6a9d572bb45a3685)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Documentation
+- install the kubectl plugin with mise, fix the manual install - ([897f7b7](https://github.com/batleforc/proxyauthK8s/commit/897f7b7fdfb2ff312a0b91f4b736e94ff921eefd)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Miscellaneous Chores
+- (**fuzz**) bump workspace crates to 0.2.1 in fuzz/Cargo.lock - ([2ac90af](https://github.com/batleforc/proxyauthK8s/commit/2ac90affccd90a5c6d5081f8798268dc62ab63fd)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- merge feat/kit-schematic-kinds (#289) - ([d91cead](https://github.com/batleforc/proxyauthK8s/commit/d91ceade3dbb2b5ecb6c78b75b91574ce550c8ea)) - Maxime
+- merge release/v0.2.1 (#287) - ([cf10d5b](https://github.com/batleforc/proxyauthK8s/commit/cf10d5b4930095c38a16c7a1046a80d10e4b2b20)) - Maxime
+
+- - -
+
 ## [v0.2.1](https://github.com/batleforc/proxyauthK8s/compare/d0a46d88fe503a79385344c0ac4d88ce6f006211..v0.2.1) - 2026-10-20
 #### Bug Fixes
 - (**deps**) rustls-webpki 0.103.16 and webpki-root-certs 1.0.10 - ([6519d2a](https://github.com/batleforc/proxyauthK8s/commit/6519d2a5d3e6bbead0721afddb2c4351df4a1a41)) - Max Batleforc, Claude Opus 5.5 (1M context)
