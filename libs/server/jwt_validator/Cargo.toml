@@ -1,6 +1,6 @@
 [package]
 name = "jwt_validator"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 
@@ -18,4 +18,4 @@ jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 # type mismatch rather than a version error.
 kube-cel = "0.8"
 
-crd = { path = "../crd", version = "0.2.1" }
+crd = { path = "../crd", version = "0.3.0" }
