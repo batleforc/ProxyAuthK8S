@@ -1,0 +1,44 @@
+{
+  "apiVersion": "schematic.weebo.io/v1",
+  "kind": "DnsName",
+  "scope": "Cluster",
+  "served": [
+    "v1"
+  ],
+  "schematic": true,
+  "description": "A DNS name the instance serves or uses (a domain, a host), named by\nthe name itself.",
+  "properties": {
+    "description": {
+      "description": "Free text, for the drawing.",
+      "nullable": true,
+      "type": "string"
+    },
+    "records": {
+      "description": "The records it needs, published outside the cluster.",
+      "items": {
+        "description": "One DNS record of a name.",
+        "properties": {
+          "type": {
+            "description": "`A`, `CNAME`, `MX`, `TXT`…",
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "value"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "zone": {
+      "description": "The zone that holds it.",
+      "nullable": true,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

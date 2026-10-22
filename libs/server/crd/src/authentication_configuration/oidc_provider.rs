@@ -24,6 +24,8 @@ pub struct OidcProvider {
     /// enabled provider must end up with a non-empty value from one side or the
     /// other.
     #[serde(default = "default_empty_string")]
+    // The docs' CRD IDE draws the issuer (the kit's shared OidcIssuer).
+    #[schemars(extend("x-weebo-produces" = { "kind": { "group": "schematic.weebo.io", "kind": "OidcIssuer" }, "name": ["."] }))]
     pub issuer_url: String,
     /// Ignored when the `config_from` Secret carries a `client_id` key. See
     /// `issuer_url` for why it is optional.

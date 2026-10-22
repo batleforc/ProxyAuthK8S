@@ -1,0 +1,28 @@
+{
+  "apiVersion": "schematic.weebo.io/v1",
+  "kind": "Database",
+  "scope": "Namespaced",
+  "served": [
+    "v1"
+  ],
+  "schematic": true,
+  "description": "A database server the instance uses, outside its pods.",
+  "properties": {
+    "description": {
+      "description": "Free text, for the drawing.",
+      "nullable": true,
+      "type": "string"
+    },
+    "engine": {
+      "description": "`postgres`, `mysql`, `sqlite`…",
+      "nullable": true,
+      "type": "string"
+    },
+    "host": {
+      "description": "Where it listens (`db.example.com:5432`).",
+      "nullable": true,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

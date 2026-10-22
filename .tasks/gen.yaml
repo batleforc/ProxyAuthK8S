@@ -35,11 +35,12 @@ tasks:
     desc: "Generate Custom Resource Definitions and save to file"
     silent: true
     cmds:
-      - task gen:crds > deploy/crds.yaml
-      # One file per CRD for weebo-crd-docs (docs:crds). shortcut: crdgen prints
-      # the single ProxyKubeApi CRD; a second kind needs a split here (js-yaml
+      # One file per CRD for weebo-crd-docs (docs:crds), next to links.json,
+      # the CRD IDE's links and schematic kinds. shortcut: crdgen prints the
+      # single ProxyKubeApi CRD; a second kind needs a split here (js-yaml
       # then refuses the multi-document file, so it fails loudly).
       - mkdir -p deploy/crd
+      - cargo run --bin crdgen -- --links deploy/crd/links.json > deploy/crds.yaml
       - cp deploy/crds.yaml deploy/crd/proxykubeapi.yaml
       - cp deploy/crds.yaml deploy/chart-crd/templates/crds.yaml
       - sed -i -e 's/{{ "{{" }}/\\{\\{/g' -e 's/{{ "}}" }}/\\}\\}/g' deploy/chart-crd/templates/crds.yaml

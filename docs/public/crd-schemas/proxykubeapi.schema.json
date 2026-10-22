@@ -2,6 +2,9 @@
   "apiVersion": "weebo.si.rs/v1",
   "kind": "ProxyKubeApi",
   "scope": "Namespaced",
+  "served": [
+    "v1"
+  ],
   "properties": {
     "auth_config": {
       "description": "Main configuration for authentication",

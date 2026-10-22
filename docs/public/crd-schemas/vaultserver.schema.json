@@ -1,0 +1,23 @@
+{
+  "apiVersion": "schematic.weebo.io/v1",
+  "kind": "VaultServer",
+  "scope": "Cluster",
+  "served": [
+    "v1"
+  ],
+  "schematic": true,
+  "description": "A Vault server the instance writes secrets to, named by its address.",
+  "properties": {
+    "authMount": {
+      "description": "The Kubernetes auth mount the instances log in with.",
+      "nullable": true,
+      "type": "string"
+    },
+    "description": {
+      "description": "Free text, for the drawing.",
+      "nullable": true,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

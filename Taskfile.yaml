@@ -3,7 +3,7 @@ version: "3"
 vars:
   # The weebo-operator-kit release this repository is pinned on: kit:sync and
   # kit:cog read it (no kit crate in Cargo.toml), pin-kit.sh rewrites it.
-  KIT_TAG: v0.20.0
+  KIT_TAG: v0.24.0
 
 includes:
   talos: .tasks/talos.yaml
@@ -29,10 +29,10 @@ includes:
   # sha256 (Task refuses a file whose hash differs). `task --offline` runs
   # from Task's cache. RFC 0005.
   rust:
-    taskfile: https://raw.githubusercontent.com/batleforc/weebo-operator-kit/v0.20.0/tasks/rust.yaml
+    taskfile: https://raw.githubusercontent.com/batleforc/weebo-operator-kit/v0.24.0/tasks/rust.yaml
     checksum: 75360142235715643265ae41de1f531dda6562a2472e8d9af21ad65f7d753d63
   repo:
-    taskfile: https://raw.githubusercontent.com/batleforc/weebo-operator-kit/v0.20.0/tasks/repo.yaml
+    taskfile: https://raw.githubusercontent.com/batleforc/weebo-operator-kit/v0.24.0/tasks/repo.yaml
     checksum: 162d15bf9c41f494efcb6d73e089ac685d23bc98269a41daf62db26534f52f72
     vars:
       CONTAINERFILES: deploy/build/back/Containerfile deploy/build/front/Containerfile

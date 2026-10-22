@@ -1,0 +1,362 @@
+{
+  "kinds": {
+    "ProxyKubeApi": {
+      "produces": [
+        {
+          "each": "spec.auth_config.jwt[].issuer.url",
+          "kind": {
+            "group": "schematic.weebo.io",
+            "kind": "OidcIssuer"
+          },
+          "name": [
+            "."
+          ]
+        },
+        {
+          "each": "spec.auth_config.oidc_provider.issuer_url",
+          "kind": {
+            "group": "schematic.weebo.io",
+            "kind": "OidcIssuer"
+          },
+          "name": [
+            "."
+          ]
+        },
+        {
+          "each": "spec.service.ExternalService.url",
+          "kind": {
+            "group": "schematic.weebo.si.rs",
+            "kind": "KubeCluster"
+          },
+          "name": [
+            "."
+          ]
+        }
+      ],
+      "references": []
+    }
+  },
+  "schematic": {
+    "AccessMethod": {
+      "group": "schematic.weebo.si.rs",
+      "produces": [],
+      "references": [
+        {
+          "path": "spec.issuerRef",
+          "to": [
+            {
+              "group": "schematic.weebo.io",
+              "kind": "OidcIssuer"
+            }
+          ]
+        },
+        {
+          "path": "spec.proxyRef",
+          "to": [
+            {
+              "group": "weebo.si.rs",
+              "kind": "ProxyKubeApi"
+            }
+          ]
+        }
+      ],
+      "schema": {
+        "description": "A way to reach a `ProxyKubeApi`: who, through what, with which group.",
+        "properties": {
+          "description": {
+            "description": "Free text, for the drawing.",
+            "nullable": true,
+            "type": "string"
+          },
+          "group": {
+            "description": "The OIDC group it requires (`dashboard_group`, `proxy_group`).",
+            "nullable": true,
+            "type": "string"
+          },
+          "issuerRef": {
+            "description": "The issuer whose tokens it uses.",
+            "nullable": true,
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "proxyRef": {
+            "description": "The `ProxyKubeApi` it goes through.",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": {
+            "description": "How people reach a cluster through the proxy.",
+            "oneOf": [
+              {
+                "description": "The web dashboard (`expose_via_dashboard`).",
+                "enum": [
+                  "dashboard"
+                ],
+                "type": "string"
+              },
+              {
+                "description": "`kubectl` with the `proxyauth` plugin.",
+                "enum": [
+                  "kubectlPlugin"
+                ],
+                "type": "string"
+              },
+              {
+                "description": "The mediated OAuth 2.0 server (`expose_oauth_authorization_server`).",
+                "enum": [
+                  "oauth"
+                ],
+                "type": "string"
+              },
+              {
+                "description": "Straight to the proxied API, with a token.",
+                "enum": [
+                  "direct"
+                ],
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "proxyRef"
+        ],
+        "type": "object"
+      },
+      "scope": "Namespaced"
+    },
+    "Database": {
+      "group": "schematic.weebo.io",
+      "produces": [],
+      "references": [],
+      "schema": {
+        "description": "A database server the instance uses, outside its pods.",
+        "properties": {
+          "description": {
+            "description": "Free text, for the drawing.",
+            "nullable": true,
+            "type": "string"
+          },
+          "engine": {
+            "description": "`postgres`, `mysql`, `sqlite`…",
+            "nullable": true,
+            "type": "string"
+          },
+          "host": {
+            "description": "Where it listens (`db.example.com:5432`).",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "scope": "Namespaced"
+    },
+    "DnsName": {
+      "group": "schematic.weebo.io",
+      "produces": [],
+      "references": [],
+      "schema": {
+        "description": "A DNS name the instance serves or uses (a domain, a host), named by\nthe name itself.",
+        "properties": {
+          "description": {
+            "description": "Free text, for the drawing.",
+            "nullable": true,
+            "type": "string"
+          },
+          "records": {
+            "description": "The records it needs, published outside the cluster.",
+            "items": {
+              "description": "One DNS record of a name.",
+              "properties": {
+                "type": {
+                  "description": "`A`, `CNAME`, `MX`, `TXT`…",
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "value"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "zone": {
+            "description": "The zone that holds it.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "scope": "Cluster"
+    },
+    "HttpEndpoint": {
+      "group": "schematic.weebo.io",
+      "produces": [],
+      "references": [],
+      "schema": {
+        "description": "An HTTP service outside the cluster that the instance calls — a webhook\nreceiver, a scanner, a telemetry collector — named by its URL.",
+        "properties": {
+          "description": {
+            "description": "Free text, for the drawing.",
+            "nullable": true,
+            "type": "string"
+          },
+          "role": {
+            "description": "What it is to the instance: `webhook`, `scanner`, `otlp`…",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "scope": "Cluster"
+    },
+    "KubeCluster": {
+      "group": "schematic.weebo.si.rs",
+      "produces": [],
+      "references": [],
+      "schema": {
+        "description": "A Kubernetes cluster behind a `ProxyKubeApi`, named by its API server's\nURL (an `ExternalService` makes one).",
+        "properties": {
+          "description": {
+            "description": "Free text, for the drawing.",
+            "nullable": true,
+            "type": "string"
+          },
+          "distribution": {
+            "description": "`talos`, `openshift`, `k3s`, `eks`…",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "scope": "Cluster"
+    },
+    "OidcIssuer": {
+      "group": "schematic.weebo.io",
+      "produces": [],
+      "references": [],
+      "schema": {
+        "description": "An OpenID Connect issuer, named by its URL (the `iss` its tokens carry).",
+        "properties": {
+          "audiences": {
+            "description": "The audiences its tokens are minted for.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": {
+            "description": "Free text, for the drawing.",
+            "nullable": true,
+            "type": "string"
+          },
+          "discoveryUrl": {
+            "description": "Where its discovery document is, when not\n`<issuer>/.well-known/openid-configuration`.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "scope": "Cluster"
+    },
+    "S3Bucket": {
+      "group": "schematic.weebo.io",
+      "produces": [],
+      "references": [],
+      "schema": {
+        "description": "An S3-compatible bucket, named by the bucket.",
+        "properties": {
+          "description": {
+            "description": "Free text, for the drawing.",
+            "nullable": true,
+            "type": "string"
+          },
+          "endpoint": {
+            "description": "The endpoint's URL; unset, the provider's default.",
+            "nullable": true,
+            "type": "string"
+          },
+          "region": {
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "scope": "Cluster"
+    },
+    "UpstreamRegistry": {
+      "group": "schematic.weebo.io",
+      "produces": [],
+      "references": [],
+      "schema": {
+        "description": "A package or image registry outside the cluster that the instance\nmirrors or proxies, named by its URL.",
+        "properties": {
+          "authenticated": {
+            "description": "Whether pulling from it needs credentials.",
+            "type": "boolean"
+          },
+          "description": {
+            "description": "Free text, for the drawing.",
+            "nullable": true,
+            "type": "string"
+          },
+          "type": {
+            "description": "Its format: `oci`, `npm`, `cargo`, `pypi`…",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "scope": "Cluster"
+    },
+    "VaultServer": {
+      "group": "schematic.weebo.io",
+      "produces": [],
+      "references": [],
+      "schema": {
+        "description": "A Vault server the instance writes secrets to, named by its address.",
+        "properties": {
+          "authMount": {
+            "description": "The Kubernetes auth mount the instances log in with.",
+            "nullable": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "Free text, for the drawing.",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "scope": "Cluster"
+    }
+  },
+  "version": 1
+}

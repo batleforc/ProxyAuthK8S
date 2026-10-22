@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "kinds": {
+    "AccessMethod": {
+      "references": [
+        {
+          "path": "spec.issuerRef",
+          "to": [
+            {
+              "group": "schematic.weebo.io",
+              "kind": "OidcIssuer"
+            }
+          ]
+        },
+        {
+          "path": "spec.proxyRef",
+          "to": [
+            {
+              "group": "weebo.si.rs",
+              "kind": "ProxyKubeApi"
+            }
+          ]
+        }
+      ],
+      "produces": []
+    },
+    "Database": {
+      "references": [],
+      "produces": []
+    },
+    "DnsName": {
+      "references": [],
+      "produces": []
+    },
+    "HttpEndpoint": {
+      "references": [],
+      "produces": []
+    },
+    "KubeCluster": {
+      "references": [],
+      "produces": []
+    },
+    "OidcIssuer": {
+      "references": [],
+      "produces": []
+    },
+    "ProxyKubeApi": {
+      "references": [
+        {
+          "path": "spec.auth_config.oidc_provider.config_from.Secret",
+          "to": [
+            {
+              "group": "",
+              "kind": "Secret"
+            }
+          ]
+        },
+        {
+          "path": "spec.cert.Secret",
+          "to": [
+            {
+              "group": "",
+              "kind": "Secret"
+            }
+          ]
+        },
+        {
+          "path": "spec.client_cert.cert.Secret",
+          "to": [
+            {
+              "group": "",
+              "kind": "Secret"
+            }
+          ]
+        },
+        {
+          "path": "spec.client_cert.key.Secret",
+          "to": [
+            {
+              "group": "",
+              "kind": "Secret"
+            }
+          ]
+        },
+        {
+          "path": "spec.service.KubernetesService",
+          "to": [
+            {
+              "group": "",
+              "kind": "Service"
+            }
+          ]
+        },
+        {
+          "path": "spec.virtual_apis[].list_fallback_token.Secret",
+          "to": [
+            {
+              "group": "",
+              "kind": "Secret"
+            }
+          ]
+        }
+      ],
+      "produces": [
+        {
+          "kind": {
+            "group": "schematic.weebo.io",
+            "kind": "OidcIssuer"
+          },
+          "each": "spec.auth_config.jwt[].issuer.url",
+          "name": [
+            "."
+          ]
+        },
+        {
+          "kind": {
+            "group": "schematic.weebo.io",
+            "kind": "OidcIssuer"
+          },
+          "each": "spec.auth_config.oidc_provider.issuer_url",
+          "name": [
+            "."
+          ]
+        },
+        {
+          "kind": {
+            "group": "schematic.weebo.si.rs",
+            "kind": "KubeCluster"
+          },
+          "each": "spec.service.ExternalService.url",
+          "name": [
+            "."
+          ]
+        }
+      ]
+    },
+    "S3Bucket": {
+      "references": [],
+      "produces": []
+    },
+    "UpstreamRegistry": {
+      "references": [],
+      "produces": []
+    },
+    "VaultServer": {
+      "references": [],
+      "produces": []
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "apiVersion": "schematic.weebo.io/v1",
+  "kind": "OidcIssuer",
+  "scope": "Cluster",
+  "served": [
+    "v1"
+  ],
+  "schematic": true,
+  "description": "An OpenID Connect issuer, named by its URL (the `iss` its tokens carry).",
+  "properties": {
+    "audiences": {
+      "description": "The audiences its tokens are minted for.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "description": {
+      "description": "Free text, for the drawing.",
+      "nullable": true,
+      "type": "string"
+    },
+    "discoveryUrl": {
+      "description": "Where its discovery document is, when not\n`<issuer>/.well-known/openid-configuration`.",
+      "nullable": true,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}
