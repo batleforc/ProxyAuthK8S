@@ -14,6 +14,10 @@
 //! exercise the proxy path with either no token or an unsigned placeholder
 //! whose signature is never checked. This chains a real signed+verified login
 //! all the way to an actual Kubernetes resource response.
+#![expect(
+    clippy::panic,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 

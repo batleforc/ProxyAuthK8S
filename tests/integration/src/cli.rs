@@ -29,7 +29,11 @@ fn callback_port(seed: &str) -> u16 {
         acc.wrapping_mul(31).wrapping_add(u16::from(b))
     });
     (0..span)
-        .map(|i| CALLBACK_PORTS.start + (offset.wrapping_add(i)) % span)
+        .map(|i| {
+            CALLBACK_PORTS
+                .start
+                .saturating_add(offset.wrapping_add(i) % span)
+        })
         .find(|port| std::net::TcpListener::bind(("127.0.0.1", *port)).is_ok())
         .expect("every callback port of the range is in use")
 }
@@ -196,7 +200,8 @@ impl Session {
             }
         };
         // oc exits without a URL when it refuses the server: no wait then.
-        let _ = tokio::time::timeout(Duration::from_secs(30), read_url).await;
+        // A timeout only means no URL came: handled by the `if let` below.
+        let _url_read = tokio::time::timeout(Duration::from_secs(30), read_url).await;
         if let Some(url) = url {
             play_browser(&self.persona, &url, port).await;
         }
@@ -354,10 +359,12 @@ impl Session {
                 _stdout: lines,
             });
         }
-        let _ = child.start_kill();
+        // Best effort: the child may already have exited, and the error is returned below.
+        let _killed = child.start_kill();
         let mut stderr = String::new();
         if let Some(mut err) = child.stderr.take() {
-            let _ =
+            // Best effort: whatever stderr gave within the delay is the diagnostic.
+            let _read =
                 tokio::time::timeout(Duration::from_secs(5), err.read_to_string(&mut stderr)).await;
         }
         let code = child.wait().await.ok().and_then(|s| s.code());
@@ -439,11 +446,13 @@ impl PortForward {
             .and_then(Result::ok)
             .and_then(|s| s.code());
         if code.is_none() {
-            let _ = self._child.kill().await;
+            // Best effort: a kill error means the child already exited.
+            let _killed = self._child.kill().await;
         }
         let mut stderr = String::new();
         if let Some(mut err) = self._child.stderr.take() {
-            let _ =
+            // Best effort: whatever stderr gave within the delay is the diagnostic.
+            let _read =
                 tokio::time::timeout(Duration::from_secs(5), err.read_to_string(&mut stderr)).await;
         }
         Output {

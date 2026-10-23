@@ -283,7 +283,8 @@ mod tests {
                 );
                 stream.write_all(request.as_bytes()).await.unwrap();
                 let mut page = String::new();
-                let _ = stream.read_to_string(&mut page).await;
+                // The page is not asserted on; only the request matters.
+                drop(stream.read_to_string(&mut page).await);
             });
         }
     }

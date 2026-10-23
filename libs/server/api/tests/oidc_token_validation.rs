@@ -17,6 +17,11 @@
 //! None of these tests need Redis: they call the validation functions directly
 //! or go through the `User` extractor with a `State` whose Redis is
 //! unreachable (the OIDC path never touches it).
+#![expect(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 

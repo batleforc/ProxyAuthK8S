@@ -13,6 +13,9 @@ server = ["dep:trace", "dep:tracing-opentelemetry", "dep:utoipa-scalar", "dep:to
 # Opt-in tier that needs a real kube-apiserver and etcd (see `task envtest:setup`).
 envtest = []
 
+[lints]
+workspace = true
+
 [dependencies]
 utoipa = { workspace = true }
 utoipa-axum = { workspace = true }
@@ -85,6 +88,8 @@ secrecy = "0.10.3"
 # than duplicating that ~460-line harness into the controller crate. No
 # production dependency of `api` on `controller` is implied.
 controller = { path = "../controller", version = "0.3.0" }
+weebo-kit-api = { workspace = true }
+weebo-kit-runtime = { workspace = true }
 k8s-openapi = { workspace = true }
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 

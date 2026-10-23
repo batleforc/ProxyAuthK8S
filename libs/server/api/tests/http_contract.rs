@@ -3,6 +3,12 @@
 //!
 //! The server is started in process through [`serve`], on an ephemeral port,
 //! and only spoken to over HTTP (reqwest, raw TCP, raw TLS).
+#![expect(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::unwrap_used,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 
@@ -60,7 +66,8 @@ async fn raw(addr: SocketAddr, request: &[u8]) -> String {
     let mut stream = TcpStream::connect(addr).await.unwrap();
     stream.write_all(request).await.unwrap();
     let mut out = Vec::new();
-    let _ = tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut out)).await;
+    let _timed_out =
+        tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut out)).await;
     String::from_utf8_lossy(&out).into_owned()
 }
 

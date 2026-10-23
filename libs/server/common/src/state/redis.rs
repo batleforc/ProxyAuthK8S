@@ -2,7 +2,7 @@
 //! through these methods, so key layout and atomicity rules live in one place.
 
 use deadpool_redis::redis;
-use tracing::{info, instrument};
+use tracing::{info, instrument, warn};
 
 use super::State;
 use crate::redis_pool::RedisPoolError;
@@ -220,7 +220,10 @@ impl State {
                 }
                 None => {
                     // The object went away without the index being updated.
-                    let _ = self.index_remove(prefix, &key).await;
+                    // Best effort: a stale index entry is retried on the next list.
+                    if let Err(error) = self.index_remove(prefix, &key).await {
+                        warn!(%error, key, "could not drop a stale index entry");
+                    }
                 }
             }
         }

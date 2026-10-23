@@ -1,10 +1,11 @@
 //! The reconcile loop against a real ephemeral kube-apiserver.
 //!
 //! What the fast tier in `libs/server/controller/tests/reconcile.rs` cannot
-//! cover: the status patch actually landing on the resource, the "patch only if
-//! it changed" optimization being real (asserted on `resourceVersion`, which
-//! only a real apiserver maintains), and the finalizer wrapper adding and
-//! removing `PROXY_KUBE_FINALIZER` around a delete.
+//! cover: the status and its conditions actually landing on the resource, the
+//! Events published about it, an identical patch not being written (asserted
+//! on `resourceVersion`, which only a real apiserver maintains; RFC 0011,
+//! decision 17), and the finalizer wrapper adding and removing
+//! `PROXY_KUBE_FINALIZER` around a delete.
 //!
 //! Lives in the `api` crate because that is where the envtest harness already
 //! is; `controller` is an `api` dev-dependency for this file alone.
@@ -13,7 +14,14 @@
 //! Also needs the test Redis, since the reconcile writes the cache before it
 //! patches — both are skipped rather than failed when unavailable, unless
 //! `REQUIRE_TEST_REDIS` is set.
-
+#![cfg_attr(
+    feature = "envtest",
+    expect(
+        clippy::expect_used,
+        clippy::panic,
+        reason = "test helpers: a panic is a failed test, with its message"
+    )
+)]
 #![cfg(feature = "envtest")]
 
 mod envtest_support;
@@ -26,13 +34,15 @@ use common::{State, oidc_conf::OidcConf};
 use controller::proxy_kube_api::{
     main_reconcile_proxy_kube_api, reconcile::reconcile_proxy_kube_api,
 };
-use crd::{PROXY_KUBE_FINALIZER, ProxyKubeApi};
+use crd::{PROXY_KUBE_FINALIZER, ProxyKubeApi, status::ProxyKubeApiStatus};
 use deadpool_redis::{Pool, redis::AsyncTypedCommands};
 use envtest_support::EnvTest;
+use k8s_openapi::api::events::v1::Event;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::ResourceExt;
-use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
+use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams, PostParams};
 use kube::runtime::controller::Action;
+use weebo_kit_api::Condition;
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -114,13 +124,11 @@ fn state_for(client: kube::Client) -> State {
 /// Wipe this cluster's Redis keys.
 ///
 /// Each test gets a fresh apiserver but they all share one Redis, so a rerun
-/// would otherwise inherit the previous run's cache and — because the retry
-/// counter has a 24h TTL — its accumulated backoff.
+/// would otherwise inherit the previous run's cache.
 async fn reset_redis(pool: &Pool, id: &str) {
     let mut conn = pool.get().await.expect("redis connection");
-    let _ = conn.del(id).await;
-    let _ = conn.del(format!("requeue_retry:{id}")).await;
-    let _ = conn
+    let _cleanup = conn.del(id).await;
+    let _cleanup = conn
         .srem(format!("{}:index", harness::REDIS_PREFIX), id)
         .await;
 }
@@ -132,6 +140,55 @@ fn cache_id(name: &str) -> String {
 
 fn proxies(client: kube::Client) -> Api<ProxyKubeApi> {
     Api::namespaced(client, "default")
+}
+
+/// The delay of a requeue `Action`, which has no getter: the kit jitters it
+/// by ±20 %, so tests check a range.
+fn requeue_secs(action: &Action) -> u64 {
+    let debug = format!("{action:?}");
+    let secs = debug
+        .split("Some(")
+        .nth(1)
+        .and_then(|rest| rest.split('s').next())
+        .expect("a requeue");
+    std::time::Duration::from_secs_f64(secs.parse::<f64>().expect("seconds")).as_secs()
+}
+
+fn ready(status: &ProxyKubeApiStatus) -> &Condition {
+    weebo_kit_api::status::ready(&status.conditions).expect("a Ready condition")
+}
+
+/// The `(type, reason)` of the Events about `name`.
+async fn events_about(client: kube::Client, name: &str) -> Vec<(String, String)> {
+    let events: Api<Event> = Api::namespaced(client, "default");
+    events
+        .list(&ListParams::default())
+        .await
+        .expect("events list")
+        .items
+        .into_iter()
+        .filter(|e| e.regarding.as_ref().and_then(|r| r.name.as_deref()) == Some(name))
+        .map(|e| (e.type_.unwrap_or_default(), e.reason.unwrap_or_default()))
+        .collect()
+}
+
+/// Events are published after the patch, by the same call: poll briefly for
+/// the one expected.
+async fn wait_event(client: kube::Client, name: &str, type_: &str, reason: &str) {
+    for _ in 0..50 {
+        if events_about(client.clone(), name)
+            .await
+            .iter()
+            .any(|(t, r)| t == type_ && r == reason)
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!(
+        "no {type_} {reason} Event about {name}: {:?}",
+        events_about(client, name).await
+    );
 }
 
 /// Answer the reachability probe — a plain GET on the service URL.
@@ -154,14 +211,14 @@ async fn create_proxy(client: kube::Client, name: &str, upstream_url: &str) -> P
 async fn delete_proxy(client: kube::Client, name: &str) {
     let api = proxies(client);
     // A finalizer added by a test would block the delete forever; drop it first.
-    let _ = api
+    let _cleanup = api
         .patch(
             name,
             &PatchParams::default(),
             &Patch::Merge(serde_json::json!({ "metadata": { "finalizers": [] } })),
         )
         .await;
-    let _ = api.delete(name, &DeleteParams::default()).await;
+    let _cleanup = api.delete(name, &DeleteParams::default()).await;
 }
 
 #[tokio::test]
@@ -181,7 +238,8 @@ async fn a_reachable_cluster_gets_its_status_patched_onto_the_resource() {
     let action = reconcile_proxy_kube_api(&proxy, Arc::new(state))
         .await
         .expect("a reachable cluster reconciles");
-    assert_eq!(action, Action::requeue(Duration::from_secs(60 * 60)));
+    // The steady requeue: 5 min ±20 %.
+    assert!((240..=360).contains(&requeue_secs(&action)), "{action:?}");
 
     // The point of this tier: the status is really on the object, written
     // through the `status` subresource the CRD declares.
@@ -196,6 +254,11 @@ async fn a_reachable_cluster_gets_its_status_patched_onto_the_resource() {
         Some("/clusters/default/reconcile-healthy")
     );
     assert!(status.error.is_none());
+    assert_eq!(ready(&status).status, "True");
+    assert_eq!(ready(&status).reason, "Reconciled");
+    assert_eq!(status.observed_generation, stored.metadata.generation);
+    // A first `Ready: True` is a transition, announced by a `Normal`.
+    wait_event(client.clone(), "reconcile-healthy", "Normal", "Reconciled").await;
 
     reset_redis(&pool, &cache_id("reconcile-healthy")).await;
     delete_proxy(client, "reconcile-healthy").await;
@@ -218,8 +281,8 @@ async fn an_unreachable_cluster_gets_an_error_status_patched_onto_the_resource()
     let action = reconcile_proxy_kube_api(&proxy, Arc::new(state))
         .await
         .expect("an unreachable cluster still reconciles");
-    // First consecutive failure: the base backoff delay.
-    assert_eq!(action, Action::requeue(Duration::from_secs(5 * 60)));
+    // First consecutive failure: the kit's base retry delay, 30 s ±20 %.
+    assert!((24..=36).contains(&requeue_secs(&action)), "{action:?}");
 
     let stored = proxies(client.clone())
         .get("reconcile-broken")
@@ -232,16 +295,28 @@ async fn an_unreachable_cluster_gets_an_error_status_patched_onto_the_resource()
         status.error.as_deref(),
         Some("Target service is not reachable")
     );
+    assert_eq!(ready(&status).status, "False");
+    assert_eq!(ready(&status).reason, "TargetUnreachable");
+    // A failure never advances the observed generation.
+    assert!(status.observed_generation.is_none());
+    wait_event(
+        client.clone(),
+        "reconcile-broken",
+        "Warning",
+        "TargetUnreachable",
+    )
+    .await;
 
     reset_redis(&pool, &cache_id("reconcile-broken")).await;
     delete_proxy(client, "reconcile-broken").await;
 }
 
 #[tokio::test]
-async fn an_unchanged_status_is_not_patched_again() {
-    // The "patch only if necessary" branch exists to avoid pointless writes and
-    // update conflicts. `resourceVersion` is the only honest way to check it:
-    // a no-op apply still bumps it, so an unchanged version proves no write.
+async fn an_identical_status_is_published_but_not_written() {
+    // No equality guard (RFC 0011, decision 17): the second reconcile sends
+    // the same merge patch, and the apiserver must not write it.
+    // `resourceVersion` is the only honest way to check it: an unchanged
+    // version proves no write.
     let pool = redis_or_skip!();
     let env_test = envtest_or_skip!();
     let client = env_test.client().expect("client should build");
@@ -275,8 +350,15 @@ async fn an_unchanged_status_is_not_patched_again() {
     assert_eq!(
         after_second.resource_version(),
         version_after_first,
-        "an unchanged status must not be patched again"
+        "an identical status patch must not be written"
     );
+    // Nor announced again: a healthy CR stays silent.
+    let reconciled = events_about(client.clone(), "reconcile-stable")
+        .await
+        .into_iter()
+        .filter(|(_, reason)| reason == "Reconciled")
+        .count();
+    assert_eq!(reconciled, 1);
 
     reset_redis(&pool, &cache_id("reconcile-stable")).await;
     delete_proxy(client, "reconcile-stable").await;
@@ -363,6 +445,7 @@ async fn the_controller_entrypoint_adds_the_finalizer_and_removes_it_on_delete()
         harness::cached_value(&pool, &id).await.is_none(),
         "the cleanup should have dropped the cached cluster"
     );
+    wait_event(client, "reconcile-finalizer", "Normal", "Deleted").await;
 }
 
 #[tokio::test]

@@ -32,11 +32,16 @@ import { Callout } from 'fumadocs-ui/components/callout';
                        : Filtrage exec et attach (RFC 0004)
                        : Trace d'audit (RFC 0008)
       Serveur          : Migration actix vers axum (RFC 0007)
+    section v0.3.0 ✅
+      Documentation    : CRD IDE (kit v0.24.0)
+      Sécurité         : Scan trivy des images
+    section v0.4.0 🚧
+      Contrôleur       : Conditions, Events, codes de raison (RFC 0011)
+      Exchange Token   : Une connexion au proxy pour tous les clusters (RFC 0010)
     section v1.0.0 🚧
       Production       : Redis cluster HA ✅, bloc sécurité ✅
                        : Bascules de défauts, tests front
     section v2.0.0 🔮
-      Exchange Token   : Federation IdP
       Proxy & Agent    : Mode agent, tunnel
       Device code      : Login SSO sans navigateur local
 `} />
@@ -214,6 +219,36 @@ de la refonte UI). Voir la RFC 0001.
 
 ---
 
+## v0.4.0 — Contrôleur et échange de jeton {"\uD83D\uDEA7"}
+
+<Callout>
+  La 0.3.0 (CRD IDE, scan trivy des images) est partie sans ces deux RFC ;
+  l'ordre est dans le
+  [plan de livraison des RFC](https://github.com/batleforc/ProxyAuthK8S/blob/main/.rfc/PLAN.md).
+</Callout>
+
+<Steps>
+
+<Step>
+### Conditions, Events et codes de raison (RFC 0011)
+
+- ⏳ Condition `Ready` standard (`kubectl wait`, Argo CD, Flux), colonnes `READY` et `REASON`
+- ⏳ Events Kubernetes à chaque échec et à chaque transition
+- ⏳ Rythme de reconcile du kit : 5 min, backoff 30 s → 5 min ; métriques de reconcile
+
+</Step>
+
+<Step>
+### Échange de jeton (RFC 0010)
+
+- ⏳ Une connexion SSO au proxy, échangée contre un jeton par cluster (fédération d'IdP)
+
+</Step>
+
+</Steps>
+
+---
+
 ## v1.0.0 — Production Ready {"\uD83D\uDEA7"}
 
 <Callout>
@@ -287,13 +322,6 @@ de la refonte UI). Voir la RFC 0001.
 </Callout>
 
 <Steps>
-
-<Step>
-### Exchange Token
-
-Mise en place de l'échange de tokens entre les IdP et le serveur d'authentification principal de ProxyAuthK8S.
-
-</Step>
 
 <Step>
 ### Support Proxy

@@ -1,6 +1,10 @@
 //! RFC 0008: the audit lines of the proxy path, the logins, the mediated
 //! OAuth server and the bans, read from the in-process capture
 //! (`audit::capture`). Each test reads only the lines of its own cluster.
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 
@@ -156,10 +160,10 @@ async fn a_ban_writes_a_client_banned_line() {
     assert!(bans[0]["client_ip"].is_string());
 
     let mut conn = pool.get().await.expect("redis connection");
-    let _ = conn
+    let _cleanup = conn
         .del(format!("proxyk8sauth:ban:{ns}/{cluster}:unknown"))
         .await;
-    let _ = conn
+    let _cleanup = conn
         .del(format!("proxyk8sauth:fail2login:{ns}/{cluster}:unknown"))
         .await;
     delete_proxy(&pool, &ns, &cluster).await;

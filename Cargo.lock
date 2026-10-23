@@ -209,6 +209,8 @@ dependencies = [
  "utoipa-scalar",
  "uuid",
  "virtual_api",
+ "weebo-kit-api",
+ "weebo-kit-runtime",
  "wiremock",
 ]
 
@@ -987,6 +989,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "weebo-kit-runtime",
 ]
 
 [[package]]
@@ -1038,16 +1041,18 @@ dependencies = [
  "crd",
  "crd_runtime",
  "deadpool-redis",
- "futures-util",
  "k8s-openapi",
  "kube",
- "kube-leader-election",
+ "opentelemetry",
  "rustls",
  "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "trace",
  "tracing",
+ "weebo-kit-api",
+ "weebo-kit-domain",
+ "weebo-kit-runtime",
  "wiremock",
 ]
 
@@ -1135,6 +1140,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tracing",
+ "weebo-kit-api",
 ]
 
 [[package]]
@@ -1230,9 +1236,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.3"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03bb0e1cc970d482d121d9a1744999169b69a07470b3d644a7894e53fcaf4574"
+checksum = "38d28fb6aa7dd680b3ffd1a3e64e115c177bdba63c0ae7f9cd48129ff05c4fa0"
 dependencies = [
  "cmov",
 ]
@@ -2802,21 +2808,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kube-leader-election"
-version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1c0fbeb1ff2aa855f0cab552655aa6e4a5ffc56aced22a81371bacd32fefcf8"
-dependencies = [
- "jiff",
- "k8s-openapi",
- "kube",
- "log",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "kube-runtime"
 version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3175,7 +3166,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.21.7",
  "chrono",
  "getrandom 0.2.17",
  "http",
@@ -3308,16 +3299,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "opentelemetry-http"
+version = "0.33.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "302249bd8ee804789faaa7b5b2cbf79bc61cb864714079c644e3828af5b7e811"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "http",
+ "opentelemetry",
+ "reqwest",
+]
+
+[[package]]
 name = "opentelemetry-otlp"
 version = "0.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0756af24841e367128ef31c831999937b8b5c5197d47914590d8f4e2e88c2e1a"
 dependencies = [
  "http",
+ "httpdate",
  "opentelemetry",
+ "opentelemetry-http",
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prost",
+ "reqwest",
  "thiserror 2.0.21",
  "tokio",
  "tonic",
@@ -4004,6 +4011,7 @@ dependencies = [
  "base64 0.23.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2",
@@ -4363,7 +4371,7 @@ checksum = "7bd22781911de0ca6debda95f073c8f18bec65d1a94f1fa9573f3102e514cea4"
 dependencies = [
  "ahash",
  "annotate-snippets",
- "base64 0.22.1",
+ "base64 0.21.7",
  "encoding_rs_io",
  "getrandom 0.3.4",
  "granit-parser",
@@ -5575,6 +5583,53 @@ dependencies = [
  "schemars 1.2.3",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "weebo-kit-application"
+version = "0.24.0"
+source = "git+https://github.com/batleforc/weebo-operator-kit?tag=v0.24.0#2dbed2d802e6ed73f9b981312798a921ac6ac800"
+dependencies = [
+ "async-trait",
+ "k8s-openapi",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "weebo-kit-api",
+]
+
+[[package]]
+name = "weebo-kit-domain"
+version = "0.24.0"
+source = "git+https://github.com/batleforc/weebo-operator-kit?tag=v0.24.0#2dbed2d802e6ed73f9b981312798a921ac6ac800"
+
+[[package]]
+name = "weebo-kit-runtime"
+version = "0.24.0"
+source = "git+https://github.com/batleforc/weebo-operator-kit?tag=v0.24.0#2dbed2d802e6ed73f9b981312798a921ac6ac800"
+dependencies = [
+ "async-trait",
+ "axum",
+ "axum-server",
+ "futures",
+ "k8s-openapi",
+ "kube",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry-prometheus",
+ "opentelemetry_sdk",
+ "prometheus",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+ "weebo-kit-api",
+ "weebo-kit-application",
+ "weebo-kit-domain",
 ]
 
 [[package]]

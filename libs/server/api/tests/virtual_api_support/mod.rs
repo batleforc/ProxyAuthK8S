@@ -7,7 +7,11 @@
 //!
 //! Not every binary uses every fixture, hence the `dead_code` allowance.
 
-#![allow(dead_code)]
+#![expect(dead_code, reason = "Not every binary uses every fixture.")]
+#![expect(
+    clippy::indexing_slicing,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
 
 use base64::{Engine, prelude::BASE64_STANDARD};
 use crd::certificate::CertSource;

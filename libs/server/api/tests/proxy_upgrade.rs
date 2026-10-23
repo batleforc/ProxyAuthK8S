@@ -3,6 +3,12 @@
 //! Both sides have to be real: the axum server bound on loopback (its
 //! upgrades are hyper's), and a hand-rolled upstream that records every byte
 //! it receives on its connection.
+#![expect(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::unwrap_used,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 
@@ -38,7 +44,7 @@ impl ServerHandle {
     /// Stop serving (actix's `ServerHandle::stop` shape).
     async fn stop(self, _graceful: bool) {
         self.0.abort();
-        let _ = self.0.await;
+        let _aborted = self.0.await;
     }
 }
 
@@ -56,7 +62,7 @@ fn start_proxy() -> (std::net::SocketAddr, ServerHandle) {
         shutdown_timeout_secs: 1,
     };
     let server = tokio::spawn(async move {
-        let _ = api::server::serve(listener, app).await;
+        let _served = api::server::serve(listener, app).await;
     });
     (addr, ServerHandle(server))
 }
@@ -83,7 +89,7 @@ async fn start_upstream(
             assert!(read > 0, "proxy closed before sending the handshake");
             received.extend_from_slice(&buf[..read]);
             if let Some(pos) = received.windows(4).position(|w| w == b"\r\n\r\n") {
-                break pos + 4;
+                break pos.saturating_add(4);
             }
         };
         socket.write_all(response).await.unwrap();
@@ -92,7 +98,9 @@ async fn start_upstream(
         if echo && !after.is_empty() {
             socket.write_all(&after).await.unwrap();
         }
-        let deadline = tokio::time::Instant::now() + linger;
+        let deadline = tokio::time::Instant::now()
+            .checked_add(linger)
+            .expect("deadline in range");
         while let Ok(Ok(read)) = tokio::time::timeout_at(deadline, socket.read(&mut buf)).await {
             if read == 0 {
                 break;
@@ -105,7 +113,7 @@ async fn start_upstream(
 
         let mut all = received;
         all.extend_from_slice(&after);
-        let _ = tx.send(all);
+        let _receiver_gone = tx.send(all);
     });
 
     (url, rx)
@@ -197,7 +205,8 @@ async fn an_upgrade_header_on_a_plain_path_does_not_open_a_raw_socket() {
     client.shutdown().await.unwrap();
 
     let mut response = Vec::new();
-    let _ = tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response)).await;
+    let _timed_out =
+        tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response)).await;
 
     let upstream_saw = String::from_utf8_lossy(&received.await.unwrap()).to_lowercase();
     assert!(
@@ -427,7 +436,8 @@ async fn a_port_forward_query_outside_the_allowed_ports_is_refused() {
     client.write_all(handshake.as_bytes()).await.unwrap();
     client.shutdown().await.unwrap();
     let mut response = Vec::new();
-    let _ = tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response)).await;
+    let _timed_out =
+        tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response)).await;
     let response = String::from_utf8_lossy(&response);
 
     assert!(response.starts_with("HTTP/1.1 403"), "got: {response}");
@@ -525,7 +535,7 @@ impl SpdyHeaders {
             block.extend_from_slice(&u32::try_from(value.len()).unwrap().to_be_bytes());
             block.extend_from_slice(value.as_bytes());
         }
-        let mut compressed = Vec::with_capacity(block.len() + 64);
+        let mut compressed = Vec::with_capacity(block.len().saturating_add(64));
         self.0
             .compress_vec(&block, &mut compressed, FlushCompress::Sync)
             .expect("compress");
@@ -680,7 +690,8 @@ async fn answer_to(addr: std::net::SocketAddr, handshake: &str) -> String {
     client.write_all(handshake.as_bytes()).await.unwrap();
     client.shutdown().await.unwrap();
     let mut response = Vec::new();
-    let _ = tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response)).await;
+    let _timed_out =
+        tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response)).await;
     String::from_utf8_lossy(&response).into_owned()
 }
 

@@ -1,24 +1,30 @@
 //! The reconcile loop against a real Redis and a wiremock target cluster.
 //!
-//! This is the fast tier: it covers everything the reconcile body does that is
-//! not an apiserver call — the computed status, the Redis cache and its index,
-//! the success/backoff requeue, and the cleanup path. The status patch itself
-//! needs a real apiserver and lives in the envtest tier
+//! This is the fast tier: it covers everything the reconcile does that is not
+//! an apiserver call — the evaluation (`Ready` outcome, advisories, status
+//! fields), the Redis cache and its index, and the cleanup path. The status
+//! publication needs a real apiserver and lives in the envtest tier
 //! (`libs/server/api/tests/envtest_reconcile.rs`).
+#![expect(
+    clippy::expect_used,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
 
 mod support;
 
 use std::sync::Arc;
-use std::time::Duration;
 
-use common::State;
 use controller::error::ControllerError;
 use controller::proxy_kube_api::{
-    REDIS_PREFIX, cleanup::clean_proxy_kube_api, reconcile::reconcile_proxy_kube_api,
+    REDIS_PREFIX,
+    cleanup::clean_proxy_kube_api,
+    reconcile::{cache, evaluate, reconcile_proxy_kube_api},
 };
+use controller::reason::ReasonCode;
 use crd::{ProxyKubeApi, status::ProxyKubeApiStatus};
 use deadpool_redis::{Pool, redis::AsyncTypedCommands};
 use kube::runtime::controller::Action;
+use weebo_kit_api::Condition;
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -41,32 +47,6 @@ async fn mount_probe(server: &MockServer, status_code: u16) {
         .await;
 }
 
-/// The status a reachable proxy reconciles to.
-fn healthy_status(proxy: &ProxyKubeApi) -> ProxyKubeApiStatus {
-    ProxyKubeApiStatus::new(true, Some(format!("/clusters/{}", proxy.to_path())), None)
-}
-
-/// The status a proxy whose target answered but is not usable reconciles to.
-fn unreachable_status() -> ProxyKubeApiStatus {
-    ProxyKubeApiStatus::new(
-        false,
-        None,
-        Some("Target service is not reachable".to_string()),
-    )
-}
-
-/// Reconcile `proxy` with its status pre-set to `status`, so the "patch only if
-/// it changed" branch is not taken and no apiserver is needed.
-async fn reconcile_without_patch(
-    proxy: &ProxyKubeApi,
-    status: ProxyKubeApiStatus,
-    state: &State,
-) -> Result<Action, ControllerError> {
-    let mut proxy = proxy.clone();
-    proxy.status = Some(status);
-    reconcile_proxy_kube_api(&proxy, Arc::new(state.clone())).await
-}
-
 async fn get(pool: &Pool, key: &str) -> Option<String> {
     pool.get()
         .await
@@ -74,6 +54,15 @@ async fn get(pool: &Pool, key: &str) -> Option<String> {
         .get(key)
         .await
         .expect("GET should succeed")
+}
+
+async fn cached(pool: &Pool, proxy: &ProxyKubeApi) -> serde_json::Value {
+    serde_json::from_str(
+        &get(pool, &proxy.to_identifier())
+            .await
+            .expect("the proxy should have been cached"),
+    )
+    .expect("the cached value should be JSON")
 }
 
 async fn indexed(pool: &Pool, id: &str) -> bool {
@@ -88,45 +77,52 @@ async fn indexed(pool: &Pool, id: &str) -> bool {
 async fn cleanup_keys(pool: &Pool, proxy: &ProxyKubeApi) {
     let id = proxy.to_identifier();
     let mut conn = pool.get().await.expect("redis connection");
-    let _ = conn.del(&id).await;
-    let _ = conn.del(format!("requeue_retry:{id}")).await;
-    let _ = conn.srem(format!("{REDIS_PREFIX}:index"), &id).await;
+    // Best effort: a leftover key only affects a later run of this same test.
+    drop(conn.del(&id).await);
+    drop(conn.srem(format!("{REDIS_PREFIX}:index"), &id).await);
 }
 
 #[tokio::test]
-async fn a_reachable_cluster_is_cached_indexed_and_requeued_after_an_hour() {
+async fn a_reachable_cluster_is_ready_and_cached_without_its_conditions() {
     let pool = redis_or_skip!();
     let server = MockServer::start().await;
     mount_probe(&server, 200).await;
 
-    let proxy = support::proxy_fixture("default", &support::unique_cluster(), &server.uri());
+    let mut proxy = support::proxy_fixture("default", &support::unique_cluster(), &server.uri());
+    // What the apiserver holds: the conditions of a previous reconcile.
+    proxy.status = Some(ProxyKubeApiStatus {
+        conditions: vec![Condition::default()],
+        observed_generation: Some(1),
+        ..ProxyKubeApiStatus::default()
+    });
     let state = support::state_with_redis(&support::redis_url());
     cleanup_keys(&pool, &proxy).await;
 
-    let action = reconcile_without_patch(&proxy, healthy_status(&proxy), &state)
+    let evaluation = evaluate(&proxy, Arc::new(state.clone())).await;
+    assert!(evaluation.ready.is_ok(), "{evaluation:?}");
+    assert!(evaluation.steady());
+    assert!(evaluation.advisories.is_empty());
+    cache(&proxy, &evaluation.status, &state)
         .await
-        .expect("a reachable cluster reconciles");
+        .expect("the cache write succeeds");
 
-    assert_eq!(action, Action::requeue(Duration::from_secs(60 * 60)));
-
-    // The cache is what the request path reads, so the object must be there,
-    // carrying the freshly computed status rather than the one it came in with.
-    let id = proxy.to_identifier();
-    let cached: serde_json::Value = serde_json::from_str(
-        &get(&pool, &id)
-            .await
-            .expect("the proxy should have been cached"),
-    )
-    .expect("the cached value should be JSON");
+    // The cache is what the request path reads: the freshly evaluated
+    // fields, and none of the apiserver's conditions (decision 18).
+    let cached = cached(&pool, &proxy).await;
     assert_eq!(cached["status"]["exposed"], true);
     assert_eq!(
         cached["status"]["path"],
         format!("/clusters/{}", proxy.to_path())
     );
     assert!(cached["status"]["error"].is_null());
+    assert!(cached["status"].get("conditions").is_none(), "{cached}");
+    assert!(
+        cached["status"].get("observedGeneration").is_none(),
+        "{cached}"
+    );
 
     // The dashboard lists clusters from the index, not a KEYS scan.
-    assert!(indexed(&pool, &id).await, "the proxy should be indexed");
+    assert!(indexed(&pool, &proxy.to_identifier()).await);
 
     cleanup_keys(&pool, &proxy).await;
 }
@@ -143,75 +139,18 @@ async fn a_probe_that_fails_is_still_cached_so_the_cluster_stays_visible() {
     let state = support::state_with_redis(&support::redis_url());
     cleanup_keys(&pool, &proxy).await;
 
-    let action = reconcile_without_patch(&proxy, unreachable_status(), &state)
+    let evaluation = evaluate(&proxy, Arc::new(state.clone())).await;
+    let failure = evaluation.ready.as_ref().expect_err("the target is down");
+    assert_eq!(failure.reason, ReasonCode::TargetUnreachable);
+    assert!(!evaluation.steady(), "a down target backs off");
+    cache(&proxy, &evaluation.status, &state)
         .await
-        .expect("an unreachable cluster still reconciles");
+        .expect("the cache write succeeds");
 
-    // First consecutive failure: the base backoff delay.
-    assert_eq!(action, Action::requeue(Duration::from_secs(5 * 60)));
-
-    let id = proxy.to_identifier();
-    let cached: serde_json::Value =
-        serde_json::from_str(&get(&pool, &id).await.expect("the proxy should be cached"))
-            .expect("the cached value should be JSON");
+    let cached = cached(&pool, &proxy).await;
     assert_eq!(cached["status"]["exposed"], false);
     assert_eq!(cached["status"]["error"], "Target service is not reachable");
-    assert!(indexed(&pool, &id).await);
-
-    cleanup_keys(&pool, &proxy).await;
-}
-
-#[tokio::test]
-async fn consecutive_failures_back_off_and_a_recovery_resets_the_counter() {
-    let pool = redis_or_skip!();
-    let failing = MockServer::start().await;
-    mount_probe(&failing, 500).await;
-
-    let proxy = support::proxy_fixture("default", &support::unique_cluster(), &failing.uri());
-    let state = support::state_with_redis(&support::redis_url());
-    cleanup_keys(&pool, &proxy).await;
-
-    // Three consecutive failures double the delay each time.
-    for expected_seconds in [5 * 60, 10 * 60, 20 * 60] {
-        let action = reconcile_without_patch(&proxy, unreachable_status(), &state)
-            .await
-            .expect("an unreachable cluster still reconciles");
-        assert_eq!(
-            action,
-            Action::requeue(Duration::from_secs(expected_seconds))
-        );
-    }
-
-    let retry_key = format!("requeue_retry:{}", proxy.to_identifier());
-    assert_eq!(
-        get(&pool, &retry_key).await.as_deref(),
-        Some("3"),
-        "the retry counter should have counted every failure"
-    );
-
-    // The same cluster comes back: the counter is dropped so the next outage
-    // starts from the base delay again instead of inheriting the old backoff.
-    let healthy = MockServer::start().await;
-    mount_probe(&healthy, 200).await;
-    let recovered = support::proxy_fixture(
-        "default",
-        proxy
-            .metadata
-            .name
-            .as_deref()
-            .expect("the fixture is named"),
-        &healthy.uri(),
-    );
-
-    let action = reconcile_without_patch(&recovered, healthy_status(&recovered), &state)
-        .await
-        .expect("a recovered cluster reconciles");
-
-    assert_eq!(action, Action::requeue(Duration::from_secs(60 * 60)));
-    assert!(
-        get(&pool, &retry_key).await.is_none(),
-        "the retry counter should have been cleared on recovery"
-    );
+    assert!(indexed(&pool, &proxy.to_identifier()).await);
 
     cleanup_keys(&pool, &proxy).await;
 }
@@ -222,7 +161,6 @@ async fn an_invalid_configuration_is_reported_without_probing_the_cluster() {
         AuthenticationConfiguration, OidcProvider, ValidateAgainst,
     };
 
-    let pool = redis_or_skip!();
     // No mock mounted: validation must fail before any probe goes out.
     let server = MockServer::start().await;
 
@@ -246,22 +184,21 @@ async fn an_invalid_configuration_is_reported_without_probing_the_cluster() {
         validate_against: ValidateAgainst::OidcProvider,
     });
     let state = support::state_with_redis(&support::redis_url());
-    cleanup_keys(&pool, &proxy).await;
 
-    let expected_status = ProxyKubeApiStatus::new(
-        false,
-        None,
-        Some(
-            "Failed to validate proxy configuration: validate_against is set to OidcProvider \
-             but the OIDC provider is not enabled"
-                .to_string(),
-        ),
+    let evaluation = evaluate(&proxy, Arc::new(state)).await;
+    let failure = evaluation.ready.as_ref().expect_err("the spec is invalid");
+    assert_eq!(failure.reason, ReasonCode::InvalidSpec);
+    assert_eq!(
+        failure.message,
+        "Failed to validate proxy configuration: validate_against is set to OidcProvider \
+         but the OIDC provider is not enabled"
     );
-    let action = reconcile_without_patch(&proxy, expected_status, &state)
-        .await
-        .expect("an invalid proxy still reconciles");
-
-    assert_eq!(action, Action::requeue(Duration::from_secs(5 * 60)));
+    assert_eq!(
+        evaluation.status.error.as_deref(),
+        Some(failure.message.as_str())
+    );
+    // Only a change of the CR can fix it, and a change reconciles by itself.
+    assert!(evaluation.steady());
     assert!(
         server
             .received_requests()
@@ -270,69 +207,60 @@ async fn an_invalid_configuration_is_reported_without_probing_the_cluster() {
             .is_empty(),
         "an invalid configuration should not be probed"
     );
-
-    let cached: serde_json::Value = serde_json::from_str(
-        &get(&pool, &proxy.to_identifier())
-            .await
-            .expect("the proxy should be cached"),
-    )
-    .expect("the cached value should be JSON");
-    assert_eq!(cached["status"]["exposed"], false);
-    assert!(
-        cached["status"]["error"]
-            .as_str()
-            .expect("an error should be recorded")
-            .starts_with("Failed to validate proxy configuration:")
-    );
-
-    cleanup_keys(&pool, &proxy).await;
 }
 
 #[tokio::test]
 async fn a_failed_cache_write_is_surfaced_instead_of_reported_as_success() {
     // Redis is the source of truth the dashboard and the proxy read from.
-    // Swallowing this would report success and drop the cluster for a full
-    // success-requeue interval — an hour of invisible downtime.
-    let server = MockServer::start().await;
-    mount_probe(&server, 200).await;
-
-    let proxy = support::proxy_fixture("default", &support::unique_cluster(), &server.uri());
+    // Swallowing this would report success and drop the cluster until the
+    // next reconcile.
+    let proxy = support::proxy_fixture("default", &support::unique_cluster(), "http://unused");
     let state = support::state_with_redis(support::UNREACHABLE_REDIS_URL);
 
-    let error = reconcile_without_patch(&proxy, healthy_status(&proxy), &state)
+    let error = cache(&proxy, &ProxyKubeApiStatus::new(true, None, None), &state)
         .await
         .expect_err("an unwritable cache should fail the reconcile");
-
     assert!(
         matches!(error, ControllerError::Redis(_)),
         "expected a Redis error, got {error:?}"
     );
+    assert_eq!(
+        error.reason(),
+        Some((ReasonCode::CacheWriteFailed, "Reconcile"))
+    );
 }
 
 #[tokio::test]
-async fn a_changed_status_is_patched_to_the_apiserver() {
-    // The complement of the fixtures above, which all pre-set the status the
-    // reconcile computes so the patch is skipped: when it *does* differ, the
-    // apiserver is called. Here that call fails (nothing listens), which is
-    // what proves it was attempted; the envtest tier covers it succeeding.
+async fn the_status_is_published_on_every_reconcile() {
+    // No equality guard (decision 17): even a CR whose status already says
+    // what this reconcile finds is published. Here the publication fails
+    // (nothing listens), which is what proves it was attempted; the envtest
+    // tier proves the apiserver writes nothing for an identical patch.
     let pool = redis_or_skip!();
     let server = MockServer::start().await;
     mount_probe(&server, 200).await;
 
-    let proxy = support::proxy_fixture("default", &support::unique_cluster(), &server.uri());
+    let mut proxy = support::proxy_fixture("default", &support::unique_cluster(), &server.uri());
+    proxy.status = Some(ProxyKubeApiStatus::new(
+        true,
+        Some(format!("/clusters/{}", proxy.to_path())),
+        None,
+    ));
     let state = support::state_with_redis(&support::redis_url());
     cleanup_keys(&pool, &proxy).await;
 
-    // Status left as `None`, so it cannot equal the computed one.
     let error = reconcile_proxy_kube_api(&proxy, Arc::new(state))
         .await
-        .expect_err("the patch should have been attempted and failed");
-
+        .expect_err("the publication should have been attempted and failed");
     assert!(
         matches!(error, ControllerError::Kube(_)),
         "expected a Kubernetes error, got {error:?}"
     );
-    // The cache write happens before the patch, so it still landed.
+    assert_eq!(
+        error.reason(),
+        Some((ReasonCode::StatusWriteFailed, "Reconcile"))
+    );
+    // The cache write happens before the publication, so it still landed.
     assert!(get(&pool, &proxy.to_identifier()).await.is_some());
 
     cleanup_keys(&pool, &proxy).await;
@@ -341,20 +269,19 @@ async fn a_changed_status_is_patched_to_the_apiserver() {
 #[tokio::test]
 async fn cleanup_drops_the_cached_cluster_and_its_index_entry() {
     let pool = redis_or_skip!();
-    let server = MockServer::start().await;
-    mount_probe(&server, 200).await;
-
-    let proxy = support::proxy_fixture("default", &support::unique_cluster(), &server.uri());
+    let proxy = support::proxy_fixture("default", &support::unique_cluster(), "http://unused");
     let state = support::state_with_redis(&support::redis_url());
     cleanup_keys(&pool, &proxy).await;
 
-    reconcile_without_patch(&proxy, healthy_status(&proxy), &state)
+    cache(&proxy, &ProxyKubeApiStatus::new(true, None, None), &state)
         .await
-        .expect("a reachable cluster reconciles");
+        .expect("the cache write succeeds");
     let id = proxy.to_identifier();
     assert!(get(&pool, &id).await.is_some());
     assert!(indexed(&pool, &id).await);
 
+    // The `Deleted` Event aimed at the closed apiserver is logged, never
+    // returned.
     let action = clean_proxy_kube_api(&proxy, Arc::new(state))
         .await
         .expect("cleanup succeeds");
@@ -383,14 +310,18 @@ async fn cleanup_of_an_unknown_cluster_is_not_an_error() {
 }
 
 #[tokio::test]
-async fn cleanup_survives_an_unreachable_redis() {
-    // Deletion must not wedge the finalizer: a cache that cannot be reached is
-    // logged and the object is allowed to go away.
+async fn cleanup_fails_closed_when_redis_is_unreachable() {
+    // The proxy routes from Redis and the key has no TTL: letting the object go
+    // while its key stays would leave a deleted cluster routable (RFC 0011, T6).
+    // The error keeps the finalizer, and the cleanup runs again.
     let proxy = support::proxy_fixture("default", &support::unique_cluster(), "http://unused");
     let state = support::state_with_redis(support::UNREACHABLE_REDIS_URL);
 
-    let action = clean_proxy_kube_api(&proxy, Arc::new(state))
+    let error = clean_proxy_kube_api(&proxy, Arc::new(state))
         .await
-        .expect("cleanup should not block deletion on Redis");
-    assert_eq!(action, Action::await_change());
+        .expect_err("cleanup must not release the finalizer while Redis is down");
+    assert!(
+        matches!(error, ControllerError::Redis(_)),
+        "expected a Redis error, got {error:?}"
+    );
 }

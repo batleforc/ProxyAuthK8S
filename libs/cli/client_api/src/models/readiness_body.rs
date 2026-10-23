@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 /// ReadinessBody : Body of the readiness probe.
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ReadinessBody {
+    /// `failing` while the controller's `ProxyKubeApi` watch has kept failing for 5 minutes, `ok` otherwise. Informational: it never makes the pod unready, the proxy keeps serving from Redis.
+    #[serde(rename = "controller")]
+    pub controller: String,
     /// `ok` once the service-wide OIDC provider has been discovered, `pending` while the boot-time discovery is still retrying.
     #[serde(rename = "oidc")]
     pub oidc: String,
@@ -24,7 +27,11 @@ pub struct ReadinessBody {
 
 impl ReadinessBody {
     /// Body of the readiness probe.
-    pub fn new(oidc: String, redis: String) -> ReadinessBody {
-        ReadinessBody { oidc, redis }
+    pub fn new(controller: String, oidc: String, redis: String) -> ReadinessBody {
+        ReadinessBody {
+            controller,
+            oidc,
+            redis,
+        }
     }
 }

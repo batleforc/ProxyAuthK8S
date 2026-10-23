@@ -181,7 +181,9 @@ impl ExecChannelFilter {
         let (channel, bytes, refused) = (&mut self.channel, &mut self.bytes, &mut self.refused);
         self.decoder.decode_messages(chunk, |data, start| {
             let payload = if start {
-                let opened = data[0];
+                let Some((&opened, rest)) = data.split_first() else {
+                    return Err("empty exec message".into());
+                };
                 let allowed = match opened {
                     STDIN_CHANNEL => stdin,
                     RESIZE_CHANNEL => tty,
@@ -193,12 +195,13 @@ impl ExecChannelFilter {
                     return Err(format!("channel {opened} is not allowed on this exec"));
                 }
                 *channel = Some(opened);
-                &data[1..]
+                rest
             } else {
                 data
             };
             if let Some(channel) = *channel {
-                *bytes.entry(channel).or_default() += payload.len() as u64;
+                let total = bytes.entry(channel).or_default();
+                *total = total.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
             }
             Ok(())
         })
@@ -243,13 +246,17 @@ impl ExecChannelCounter {
         let (channel, bytes) = (&mut self.channel, &mut self.bytes);
         let read = self.decoder.decode_messages(chunk, |data, start| {
             let payload = if start {
-                *channel = Some(data[0]);
-                &data[1..]
+                let Some((&opened, rest)) = data.split_first() else {
+                    return Err("empty exec message".into());
+                };
+                *channel = Some(opened);
+                rest
             } else {
                 data
             };
             if let Some(channel) = *channel {
-                *bytes.entry(channel).or_default() += payload.len() as u64;
+                let total = bytes.entry(channel).or_default();
+                *total = total.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
             }
             Ok(())
         });
@@ -383,7 +390,10 @@ mod tests {
         let mask = [9, 8, 7, 6];
         let mut body = vec![channel];
         body.extend_from_slice(payload);
-        let mut frame = vec![0x82, 0x80 | body.len() as u8];
+        let mut frame = vec![
+            0x82,
+            0x80 | u8::try_from(body.len()).expect("short test payload"),
+        ];
         frame.extend_from_slice(&mask);
         frame.extend(body.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
         frame

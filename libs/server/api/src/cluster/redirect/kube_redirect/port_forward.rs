@@ -249,9 +249,10 @@ impl SpdyInspector {
         while !input.is_empty() {
             match &mut self.state {
                 SpdyState::Header => {
-                    let take = (8 - self.header.len()).min(input.len());
-                    self.header.extend_from_slice(&input[..take]);
-                    input = &input[take..];
+                    let take = 8_usize.saturating_sub(self.header.len()).min(input.len());
+                    let (chunk, rest) = split(input, take)?;
+                    self.header.extend_from_slice(chunk);
+                    input = rest;
                     if self.header.len() == 8 {
                         self.state = self.start_frame()?;
                         self.header.clear();
@@ -259,16 +260,17 @@ impl SpdyInspector {
                 }
                 SpdyState::Skip(remaining) => {
                     let take = (*remaining).min(input.len());
-                    *remaining -= take;
-                    input = &input[take..];
+                    *remaining = remaining.saturating_sub(take);
+                    input = split(input, take)?.1;
                     if *remaining == 0 {
                         self.state = SpdyState::Header;
                     }
                 }
                 SpdyState::Control { kind, length, body } => {
-                    let take = (*length - body.len()).min(input.len());
-                    body.extend_from_slice(&input[..take]);
-                    input = &input[take..];
+                    let take = length.saturating_sub(body.len()).min(input.len());
+                    let (chunk, rest) = split(input, take)?;
+                    body.extend_from_slice(chunk);
+                    input = rest;
                     if body.len() == *length {
                         let (kind, body) = (*kind, std::mem::take(body));
                         self.state = SpdyState::Header;
@@ -281,18 +283,20 @@ impl SpdyInspector {
     }
 
     fn start_frame(&self) -> Result<SpdyState, String> {
-        let h = &self.header;
-        let length = usize::from(h[5]) << 16 | usize::from(h[6]) << 8 | usize::from(h[7]);
-        let is_control = h[0] & 0x80 != 0;
+        let &[h0, h1, h2, h3, _, h5, h6, h7] = self.header.as_slice() else {
+            return Err("truncated SPDY frame header".into());
+        };
+        let length = usize::from(h5) << 16 | usize::from(h6) << 8 | usize::from(h7);
+        let is_control = h0 & 0x80 != 0;
         if !is_control {
             return Ok(skip(length));
         }
 
-        let version = u16::from_be_bytes([h[0], h[1]]) & 0x7fff;
+        let version = u16::from_be_bytes([h0, h1]) & 0x7fff;
         if version != SPDY_VERSION {
             return Err(format!("unsupported SPDY version {version}"));
         }
-        let kind = u16::from_be_bytes([h[2], h[3]]);
+        let kind = u16::from_be_bytes([h2, h3]);
         if kind != SPDY_SYN_STREAM && kind != SPDY_HEADERS {
             return Ok(skip(length));
         }
@@ -343,12 +347,16 @@ impl SpdyInspector {
             }
             let (in_before, out_before) = (self.decompress.total_in(), output.len());
             let result = self.decompress.decompress_vec(
-                &input[consumed..],
+                input
+                    .get(consumed..)
+                    .ok_or_else(|| "SPDY header block overrun".to_string())?,
                 &mut output,
                 FlushDecompress::Sync,
             );
-            consumed += usize::try_from(self.decompress.total_in() - in_before)
-                .map_err(|_| "SPDY header block too large".to_string())?;
+            consumed = usize::try_from(self.decompress.total_in().saturating_sub(in_before))
+                .ok()
+                .and_then(|read| consumed.checked_add(read))
+                .ok_or_else(|| "SPDY header block too large".to_string())?;
 
             match result {
                 Ok(Status::StreamEnd) => {
@@ -374,6 +382,14 @@ impl SpdyInspector {
             }
         }
     }
+}
+
+/// `input` cut at `take`; the callers bound `take` by `input.len()`, so a
+/// miss is an inspector bug, refused.
+fn split(input: &[u8], take: usize) -> Result<(&[u8], &[u8]), String> {
+    input
+        .split_at_checked(take)
+        .ok_or_else(|| "SPDY inspector overrun".to_string())
 }
 
 fn skip(length: usize) -> SpdyState {
@@ -454,7 +470,7 @@ mod tests {
                 block.extend_from_slice(&u32::try_from(value.len()).unwrap().to_be_bytes());
                 block.extend_from_slice(value.as_bytes());
             }
-            let mut out = Vec::with_capacity(block.len() + 64);
+            let mut out = Vec::with_capacity(block.len().saturating_add(64));
             self.0
                 .compress_vec(&block, &mut out, FlushCompress::Sync)
                 .expect("compress");

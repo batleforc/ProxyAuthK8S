@@ -73,3 +73,10 @@ jobs:
         env:
           MISE_EXEC_AUTO_INSTALL: "false"
         run: task rust:lint
+      - name: ☸️ One Kubernetes version feature in the graph
+        # RFC 0011 §6.P point 9: only this workspace picks a `v1_*` feature of
+        # k8s-openapi; a library (the kit's) enabling another one breaks it.
+        run: |
+          features="$(cargo tree -e features -i k8s-openapi | grep -o 'feature "v1_[0-9]*"' | sort -u)"
+          echo "$features"
+          [ "$(printf '%s\n' "$features" | grep -c .)" -eq 1 ]

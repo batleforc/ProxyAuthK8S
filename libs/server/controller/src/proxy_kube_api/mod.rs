@@ -5,11 +5,13 @@ use common::State;
 use crd::PROXY_KUBE_FINALIZER;
 use crd::ProxyKubeApi;
 use kube::Api;
-use kube::ResourceExt;
 use kube::runtime::controller::Action;
+use kube::runtime::events::{Recorder, Reporter};
 use kube::runtime::finalizer;
+use kube::{Resource, ResourceExt};
 use trace::helper::get_trace_id;
-use tracing::{instrument, warn};
+use tracing::{debug, instrument, warn};
+use weebo_kit_runtime::controller::{requeue_after, retry_after_error};
 
 use crate::error::ControllerError;
 use crate::error::Result;
@@ -23,14 +25,32 @@ pub mod reconcile;
 /// `proxyk8sauth:{namespace}/{name}`.
 pub const REDIS_PREFIX: &str = crd::REDIS_PREFIX;
 
+/// The field manager of the status patch and the `reportingController` of
+/// the Events.
+pub const FIELD_MANAGER: &str = "proxy-kube-api-controller";
+
+/// The process's one Event recorder (see `State::event_recorder`), reporting
+/// as this pod (`HOSTNAME`, the lease holder id).
+pub fn recorder(ctx: &State) -> &Recorder {
+    ctx.event_recorder.get_or_init(|| {
+        Recorder::new(
+            ctx.client.clone(),
+            Reporter {
+                controller: FIELD_MANAGER.to_string(),
+                instance: Some(ctx.lease_name.clone()),
+            },
+        )
+    })
+}
+
 #[instrument(skip(ctx))]
 pub fn error_policy_proxy_kube_api(
     proxy: Arc<ProxyKubeApi>,
-    _error: &ControllerError,
+    error: &ControllerError,
     ctx: Arc<State>,
 ) -> Action {
     if !ctx.is_leader.load(std::sync::atomic::Ordering::Relaxed) {
-        tracing::info!(
+        debug!(
             "This instance is not the leader, skipping reconciliation for ProxyKubeApi {}/{}",
             proxy.namespace().as_deref().unwrap_or_default(),
             proxy.name_any()
@@ -39,13 +59,22 @@ pub fn error_policy_proxy_kube_api(
         // converges quickly instead of leaving stale state for up to an hour.
         return Action::requeue(Duration::from_secs(20));
     }
-    warn!(
-        "Reconciliation error for ProxyKubeApi {}/{}",
-        proxy.metadata.namespace.as_deref().unwrap_or_default(),
-        proxy.metadata.name.as_deref().unwrap_or_default()
-    );
-    // Requeue after 5 seconds
-    Action::requeue(std::time::Duration::from_secs(5))
+    // A `Warning` on the CR and the kit's backoff (30 s doubled up to 5 min);
+    // without an object to announce on, a log line and the same backoff.
+    match error.reason() {
+        Some((code, action)) => {
+            retry_after_error(recorder(&ctx), proxy.object_ref(&()), code, action, error)
+        }
+        None => {
+            warn!(
+                "Reconciliation error for ProxyKubeApi {}/{}: {}",
+                proxy.metadata.namespace.as_deref().unwrap_or_default(),
+                proxy.metadata.name.as_deref().unwrap_or_default(),
+                error
+            );
+            requeue_after(proxy.as_ref(), false, None)
+        }
+    }
 }
 
 #[instrument(skip(ctx, proxy), fields(trace_id))]
@@ -54,7 +83,7 @@ pub async fn main_reconcile_proxy_kube_api(
     ctx: Arc<State>,
 ) -> Result<Action> {
     if !ctx.is_leader.load(std::sync::atomic::Ordering::Relaxed) {
-        tracing::info!(
+        debug!(
             "This instance is not the leader, skipping reconciliation for ProxyKubeApi {}/{}",
             proxy.namespace().as_deref().unwrap_or_default(),
             proxy.name_any()
@@ -77,11 +106,11 @@ pub async fn main_reconcile_proxy_kube_api(
     };
     let proxys: Api<ProxyKubeApi> = Api::namespaced(ctx.client.clone(), &ns);
 
-    tracing::info!("Reconciling ProxyKubeApi {}/{}", ns, proxy.name_any());
+    debug!("Reconciling ProxyKubeApi {}/{}", ns, proxy.name_any());
     finalizer(&proxys, PROXY_KUBE_FINALIZER, proxy, |event| async {
         match event {
             finalizer::Event::Apply(proxy) => {
-                tracing::info!("Applying ProxyKubeApi {}/{}", ns, proxy.name_any());
+                debug!("Applying ProxyKubeApi {}/{}", ns, proxy.name_any());
                 reconcile::reconcile_proxy_kube_api(&proxy, ctx.clone()).await
             }
             finalizer::Event::Cleanup(proxy) => {
@@ -109,7 +138,8 @@ mod tests {
     fn offline_state(is_leader: bool) -> Arc<State> {
         static CRYPTO: std::sync::Once = std::sync::Once::new();
         CRYPTO.call_once(|| {
-            let _ = rustls::crypto::ring::default_provider().install_default();
+            // Err only means another test already installed it.
+            drop(rustls::crypto::ring::default_provider().install_default());
         });
         let kube_config = kube::Config::new(
             "http://127.0.0.1:1"
@@ -174,12 +204,37 @@ mod tests {
         );
     }
 
+    /// The delay of a requeue `Action`, which has no getter: the kit jitters
+    /// it, so tests check a range.
+    fn requeue_secs(action: &Action) -> u64 {
+        let debug = format!("{action:?}");
+        let secs = debug
+            .split("Some(")
+            .nth(1)
+            .and_then(|rest| rest.split('s').next())
+            .expect("a requeue");
+        Duration::from_secs_f64(secs.parse::<f64>().expect("seconds")).as_secs()
+    }
+
     #[tokio::test]
-    async fn error_policy_requeues_quickly_on_the_leader() {
+    async fn error_policy_on_the_leader_backs_off_from_thirty_seconds() {
+        // No object to announce on (no namespace): a log line and the kit's
+        // first retry delay, 30 s ±20 %.
         let error = ControllerError::InvalidResource("boom".to_string());
         let action =
             error_policy_proxy_kube_api(proxy(Some("default")), &error, offline_state(true));
-        assert_eq!(action, Action::requeue(Duration::from_secs(5)));
+        assert!((24..=36).contains(&requeue_secs(&action)), "{action:?}");
+    }
+
+    #[tokio::test]
+    async fn error_policy_announces_a_coded_error_and_backs_off() {
+        // `retry_after_error` spawns the Warning; the offline apiserver refuses
+        // it, which is logged and never fails the policy.
+        let error = ControllerError::Kube(kube::Error::LinesCodecMaxLineLengthExceeded);
+        let mut named = (*proxy(Some("default"))).clone();
+        named.metadata.uid = Some("uid-error-policy".to_string());
+        let action = error_policy_proxy_kube_api(Arc::new(named), &error, offline_state(true));
+        assert!((24..=36).contains(&requeue_secs(&action)), "{action:?}");
     }
 
     #[tokio::test]

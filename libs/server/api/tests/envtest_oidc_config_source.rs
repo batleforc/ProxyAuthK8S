@@ -10,7 +10,14 @@
 //!   apiserver semantics rather than a hand-rolled fixture.
 //!
 //! Gated behind the `envtest` feature so a plain `cargo test` needs no binaries.
-
+#![cfg_attr(
+    feature = "envtest",
+    expect(
+        clippy::expect_used,
+        clippy::panic,
+        reason = "test helpers: a panic is a failed test, with its message"
+    )
+)]
 #![cfg(feature = "envtest")]
 
 mod envtest_support;
@@ -91,7 +98,8 @@ async fn create_secret(client: kube::Client, ns: &str, name: &str, data: &[(&str
         "stringData": string_data,
     }))
     .expect("secret should deserialize");
-    let _ = secrets.delete(name, &DeleteParams::default()).await;
+    // Replace whatever a previous test left.
+    let _absent = secrets.delete(name, &DeleteParams::default()).await;
     secrets
         .create(&PostParams::default(), &secret)
         .await
@@ -107,7 +115,7 @@ async fn create_namespace(client: kube::Client, name: &str) {
     }))
     .expect("namespace should deserialize");
     // Already existing is fine; the suite reuses one apiserver per test.
-    let _ = namespaces.create(&PostParams::default(), &namespace).await;
+    let _exists = namespaces.create(&PostParams::default(), &namespace).await;
 }
 
 /// A provider that carries nothing inline but the reference, which is the shape
@@ -350,7 +358,7 @@ async fn a_config_from_only_provider_is_admitted() {
         .expect("a config_from-only provider should be admitted");
 
     assert_eq!(created.name_any(), "config-from-only");
-    let _ = api
+    let _cleanup = api
         .delete("config-from-only", &DeleteParams::default())
         .await;
 }

@@ -11,6 +11,10 @@
 //!
 //! The IdP here is a wiremock server with no routes: a test that sees 429 proves
 //! the caller was refused before the provider was ever contacted.
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 
@@ -52,6 +56,7 @@ impl EnvGuard {
             .map(|key| (*key, std::env::var(key).ok()))
             .collect();
         // SAFETY: the caller holds the environment lock (see `lock_env`).
+        #[expect(unsafe_code, reason = "set_var/remove_var under the environment lock")]
         unsafe {
             for key in keys {
                 std::env::remove_var(key);
@@ -67,6 +72,7 @@ impl EnvGuard {
 impl Drop for EnvGuard {
     fn drop(&mut self) {
         // SAFETY: the caller holds the environment lock (see `lock_env`).
+        #[expect(unsafe_code, reason = "set_var/remove_var under the environment lock")]
         unsafe {
             for (key, value) in &self.saved {
                 match value {
@@ -103,7 +109,7 @@ macro_rules! redis_or_skip {
 async fn clear(pool: &deadpool_redis::Pool, subject: &str) {
     let mut conn = pool.get().await.expect("redis connection");
     for kind in ["ban", "fail2login", "ratelimit"] {
-        let _ = conn
+        let _cleanup = conn
             .del(format!("proxyk8sauth:{kind}:_unscoped:{subject}"))
             .await;
     }

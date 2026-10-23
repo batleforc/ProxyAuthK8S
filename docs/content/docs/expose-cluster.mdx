@@ -146,8 +146,12 @@ cluster (ex. les `Projects` OpenShift) : voir [API virtuelles](/docs/virtual-api
 
 ```bash
 kubectl apply -f my-cluster.yaml
+kubectl wait --for=condition=Ready proxykubeapi/my-cluster -n team-a
 kubectl get proxykubeapi -n team-a my-cluster -o jsonpath='{.status}'
 ```
+
+La condition `Ready`, ses codes de raison et les Events que `kubectl describe` affiche
+sont détaillés dans [Statut et Events](/docs/status-and-events).
 
 | `status`                                                       | Signification                                                        |
 | -------------------------------------------------------------- | -------------------------------------------------------------------- |
@@ -157,8 +161,8 @@ kubectl get proxykubeapi -n team-a my-cluster -o jsonpath='{.status}'
 | `error: Target service is not reachable`                       | L'apiserver ne répond pas (URL, réseau, NetworkPolicy, CA)            |
 | `warnings: ["rule N covers …"]`                                | Une règle que la restriction de ports prive de ports ou de `nodes/proxy` (appliquée quand même) |
 
-Le controller réessaie régulièrement : corrigez la ressource ou le réseau, le statut se met à
-jour seul. Avec la NetworkPolicy de la chart activée, pensez à autoriser l'egress vers
+Le controller réessaie régulièrement (30 s, puis jusqu'à 5 min) : corrigez la ressource ou
+le réseau, le statut se met à jour seul. Avec la NetworkPolicy de la chart activée, pensez à autoriser l'egress vers
 l'apiserver cible (`networkPolicy.egress`).
 
 ## Exemple complet

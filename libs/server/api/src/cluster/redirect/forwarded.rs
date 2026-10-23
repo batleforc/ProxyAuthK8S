@@ -121,8 +121,11 @@ fn select_client_ip(
     if chain.is_empty() {
         return "unknown".to_string();
     }
-    let index = trusted_proxy_count.min(chain.len() - 1);
-    chain[index].clone()
+    let index = trusted_proxy_count.min(chain.len().saturating_sub(1));
+    chain
+        .into_iter()
+        .nth(index)
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// Strip anything that could terminate a header line.

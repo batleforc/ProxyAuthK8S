@@ -5,6 +5,10 @@
 //! the kube client in `State` points at a closed port, so anything that would
 //! need a real apiserver lives in the api crate's envtest tier instead
 //! (`libs/server/api/tests/envtest_crd_runtime.rs`).
+#![expect(
+    clippy::expect_used,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -19,7 +23,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate, matchers::any};
 const TEST_CA: &str = include_str!("../../../cli/cli/testdata/test-ca.pem");
 
 fn state() -> Arc<State> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    // Err only means another test already installed it.
+    drop(rustls::crypto::ring::default_provider().install_default());
     let kube_config = kube::Config::new("http://127.0.0.1:1".parse().expect("static uri"));
     Arc::new(State::from_parts(
         kube::Client::try_from(kube_config).expect("kube client should build"),

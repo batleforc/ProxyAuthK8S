@@ -164,7 +164,7 @@ impl SecurityConfiguration {
 
         // Each failure past the threshold doubles the ban, capped so a long-lived
         // counter cannot produce an effectively permanent one by accident.
-        let extra = (failures - config.max_failed_logins).min(16);
+        let extra = failures.saturating_sub(config.max_failed_logins).min(16);
         Some(config.ban_duration.saturating_mul(1u32 << extra))
     }
 
@@ -365,7 +365,7 @@ impl SecurityConfiguration {
                             .iter()
                             .position(|s| *s == "pods")
                             .is_some_and(|at| {
-                                let rest = &segments[at + 1..];
+                                let rest = segments.get(at.saturating_add(1)..).unwrap_or_default();
                                 rest.contains(&"**") || rest.len() >= 2
                             });
                     (
@@ -439,7 +439,7 @@ fn covers_port_paths(config: &AllowedPathConfiguration) -> bool {
         return matches!(segments.as_slice(), [.., "pods", _, "portforward"])
             || segments
                 .windows(3)
-                .any(|w| matches!(w[0], "pods" | "services") && w[2] == "proxy");
+                .any(|w| matches!(w, ["pods" | "services", _, "proxy"]));
     }
     // Placeholders stand for one safe segment: any probe value will do.
     let pattern = config
@@ -1392,7 +1392,7 @@ mod tests {
     #[test]
     fn exec_only_applies_to_pod_crd_rules() {
         let AllowedPathConfigurationEnum::Crd(mut crd) = crd_pod(None) else {
-            unreachable!()
+            panic!("crd_pod builds a Crd rule")
         };
         crd.exec = Some(ExecPolicyConfiguration::default());
         assert!(crd.validate().is_ok());

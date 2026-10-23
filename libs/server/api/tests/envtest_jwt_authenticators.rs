@@ -6,7 +6,14 @@
 //! inside the apiserver's cost budget and reject exactly what
 //! `AuthenticationConfiguration::validate` rejects, or the two drift apart and
 //! the CR becomes the only source of truth nobody checks.
-
+#![cfg_attr(
+    feature = "envtest",
+    expect(
+        clippy::expect_used,
+        clippy::panic,
+        reason = "test helpers: a panic is a failed test, with its message"
+    )
+)]
 #![cfg(feature = "envtest")]
 
 mod envtest_support;
@@ -122,7 +129,7 @@ async fn a_minimal_authenticator_is_accepted() {
     .expect("a minimal authenticator should be admitted");
 
     assert_eq!(created.name_any(), "jwt-minimal");
-    let _ = api.delete("jwt-minimal", &DeleteParams::default()).await;
+    let _cleanup = api.delete("jwt-minimal", &DeleteParams::default()).await;
 }
 
 /// The mode is meaningless without an issuer to trust, and accepting it would
@@ -202,7 +209,7 @@ async fn an_expression_only_claim_validation_rule_is_accepted() {
     .expect("an expression-only claim validation rule should be admitted");
 
     assert_eq!(created.name_any(), "jwt-expression-rule");
-    let _ = api
+    let _cleanup = api
         .delete("jwt-expression-rule", &DeleteParams::default())
         .await;
 }
@@ -303,7 +310,7 @@ async fn a_claim_mapping_without_an_explicit_prefix_is_rejected() {
     .await
     .expect("an explicit empty prefix should be admitted");
     assert_eq!(created.name_any(), "jwt-empty-prefix");
-    let _ = api
+    let _cleanup = api
         .delete("jwt-empty-prefix", &DeleteParams::default())
         .await;
 }
@@ -416,7 +423,7 @@ async fn the_issuer_policy_defaults_are_applied_at_admission() {
     let issuer = &created.data["spec"]["auth_config"]["jwt"][0]["issuer"];
     assert_eq!(issuer["audience_match_policy"], "MatchAny");
     assert_eq!(issuer["egress_selector"], "controlplane");
-    let _ = api.delete("jwt-defaults", &DeleteParams::default()).await;
+    let _cleanup = api.delete("jwt-defaults", &DeleteParams::default()).await;
 }
 
 /// The validator selects with `.find()`, so a second entry for the same issuer —
@@ -462,7 +469,7 @@ async fn two_authenticators_for_the_same_issuer_are_rejected() {
     .await
     .expect("two distinct issuers should be admitted");
     assert_eq!(created.name_any(), "jwt-two-issuers");
-    let _ = api
+    let _cleanup = api
         .delete("jwt-two-issuers", &DeleteParams::default())
         .await;
 }

@@ -1,5 +1,9 @@
 //! Fast-tier integration tests for `GET /{ns}/{cluster}/oauth/authorize`,
 //! the entry point of the mediated OAuth Authorization Server flow.
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 

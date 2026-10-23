@@ -64,7 +64,7 @@ async fn rate_limit_applies_to_the_well_known_endpoint() {
     );
 
     let mut conn = pool.get().await.expect("redis connection");
-    let _ = conn
+    let _cleanup = conn
         .del(format!("proxyk8sauth:ratelimit:{ns}/{cluster}:unknown"))
         .await;
     delete_proxy(&pool, &ns, &cluster).await;
@@ -112,7 +112,7 @@ async fn a_banned_client_is_refused_on_the_oauth_as_surface() {
     .await;
     assert_eq!(jwks_resp.status(), StatusCode::TOO_MANY_REQUESTS);
 
-    let _ = conn
+    let _cleanup = conn
         .del(format!("proxyk8sauth:ban:{ns}/{cluster}:unknown"))
         .await;
     delete_proxy(&pool, &ns, &cluster).await;

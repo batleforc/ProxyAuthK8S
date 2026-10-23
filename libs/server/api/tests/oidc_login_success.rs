@@ -12,6 +12,11 @@
 //! (nonce check, signature against the provider's JWKS); this suite is what
 //! actually exercises that path against a real signature, via
 //! `harness::{sign_id_token, mount_full_oidc_provider, mount_token_endpoint}`.
+#![expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 

@@ -3,6 +3,11 @@
 //! 2 are proven off the bench (the contract, the `swagger.json` diff); point 9
 //! is a throughput run started by hand (`p9_exec_throughput`).
 
+#![expect(
+    clippy::expect_used,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
+
 use std::time::Duration;
 
 use integration::{

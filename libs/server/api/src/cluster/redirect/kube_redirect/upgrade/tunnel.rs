@@ -111,9 +111,10 @@ impl<T: AsyncRead + Unpin> AsyncRead for Counted<T> {
         let before = buf.filled().len();
         let poll = Pin::new(&mut self.inner).poll_read(cx, buf);
         if let Poll::Ready(Ok(())) = &poll {
-            let read = (buf.filled().len() - before) as u64;
+            let read = buf.filled().len().saturating_sub(before) as u64;
             if read == 0 {
-                let _ = self.counters.first_eof.set(self.side);
+                // Only the first side to end is recorded; a later one is not.
+                let _already_set = self.counters.first_eof.set(self.side);
             }
             let total = match self.side {
                 Side::Client => &self.counters.bytes_in,
@@ -284,7 +285,9 @@ where
                         break;
                     }
                 };
-                let chunk = &buffer[..read];
+                let Some(chunk) = buffer.get(..read) else {
+                    break;
+                };
                 if let Some(filter) = port.as_deref_mut() {
                     if let Err(reason) = filter.inspect(chunk) {
                         warn!(%reason, "closing a port-forward session outside the allowed ports");
@@ -313,7 +316,8 @@ where
                     break;
                 }
             }
-            let _ = upstream_writer.shutdown().await;
+            // The session ends either way; a failed shutdown changes nothing.
+            let _shutdown = upstream_writer.shutdown().await;
             false
         };
         let upstream_to_client = async {
@@ -324,14 +328,18 @@ where
                     Ok(0) | Err(_) => break,
                     Ok(read) => read,
                 };
+                let Some(chunk) = buffer.get(..read) else {
+                    break;
+                };
                 if let Some(counter) = counter.as_deref_mut() {
-                    counter.count(&buffer[..read]);
+                    counter.count(chunk);
                 }
-                if client_writer.write_all(&buffer[..read]).await.is_err() {
+                if client_writer.write_all(chunk).await.is_err() {
                     break;
                 }
             }
-            let _ = client_writer.flush().await;
+            // The session ends either way; a failed flush changes nothing.
+            let _flush = client_writer.flush().await;
         };
         tokio::pin!(client_to_upstream, upstream_to_client);
 
@@ -354,7 +362,8 @@ where
         SessionFilter::Exec(exec, counter) => {
             let mut bytes = exec.bytes().clone();
             for (channel, count) in counter.bytes() {
-                *bytes.entry(*channel).or_default() += count;
+                let total = bytes.entry(*channel).or_default();
+                *total = total.saturating_add(*count);
             }
             Some(bytes)
         }

@@ -11,7 +11,13 @@
 //! envtest's self-signed bundle), so certificate verification stays on.
 //!
 //! Gated behind the `envtest` feature so a plain `cargo test` needs no binaries.
-
+#![cfg_attr(
+    feature = "envtest",
+    expect(
+        clippy::expect_used,
+        reason = "test helpers: a panic is a failed test, with its message"
+    )
+)]
 #![cfg(feature = "envtest")]
 
 mod envtest_support;

@@ -1,0 +1,108 @@
+---
+title: Statut et Events
+description: La condition Ready d'une ProxyKubeApi, ses codes de raison, ses Events et ses métriques de reconcile
+icon: Activity
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Le controller publie l'état de chaque `ProxyKubeApi` sous une forme que les outils
+Kubernetes savent lire : une condition `Ready`, des Events sur la ressource et des
+métriques de reconcile ([RFC 0011](https://github.com/batleforc/ProxyAuthK8S/blob/main/.rfc/0011-adopt-kit-runtime-crates.md)).
+
+```text
+$ kubectl get proxykubeapis -n team-a
+NAME    READY   REASON              AGE
+prod    False   TargetUnreachable   3d
+$ kubectl wait --for=condition=Ready proxykubeapi/prod -n team-a
+```
+
+`kubectl wait`, le health check d'Argo CD et celui de Flux lisent `status.conditions`.
+
+## La condition `Ready`
+
+- `True` avec la raison `Reconciled` : la cible répond, le cluster est servi.
+- `False` avec un code bloquant : `status.error` en porte le message.
+- `observedGeneration` n'avance que sur un succès : une CR en échec garde la
+  génération de son dernier succès, ce qui dit « cette version de la spec n'a
+  jamais été servie ».
+- `lastTransitionTime` ne bouge que quand le statut d'une condition change.
+
+Chaque avis devient une condition `True` à côté de `Ready`, de type égal à son code.
+
+## Les codes
+
+| Code | Sévérité | Quand |
+| --- | --- | --- |
+| `Reconciled` | succès | la cible répond, la CR est servie |
+| `InvalidSpec` | bloquant | la spec est refusée par la validation du controller |
+| `OidcConfigUnresolved` | bloquant | le Secret de `oidc_provider.config_from` ne se lit pas |
+| `TargetUnreachable` | bloquant | la sonde ne joint pas la cible |
+| `ProbeFailed` | bloquant | la sonde échoue elle-même |
+| `CacheWriteFailed` | bloquant | l'écriture (ou la suppression) dans Redis échoue |
+| `StatusWriteFailed` | bloquant | le patch du statut échoue |
+| `FinalizerFailed` | bloquant | l'ajout ou le retrait du finalizer échoue |
+| `RulesRestricted` | avis | des règles changent de sens sous une restriction de ports, de verbes ou d'exec (`status.warnings`) |
+| `DeprecatedInsecureCert` | avis | `cert: Insecure`, l'ancien nom de `SystemRoots` |
+| `Deleted` | avis | le finalizer a retiré le cluster de Redis |
+
+## Les Events
+
+- Un `Warning` à chaque reconcile qui finit sur `Ready: False`, et à chaque
+  erreur avant le statut (`CacheWriteFailed`, `StatusWriteFailed`,
+  `FinalizerFailed`). Kubernetes les agrège en série : un échec répété fait monter
+  un compteur, pas une liste.
+- Un `Normal` quand `Ready` passe à `True` ou change de raison, et pour chaque
+  avis qui apparaît ou disparaît. Kubernetes regroupe les Events de même type et
+  de même raison : la disparition d'un avis fait monter le compteur de l'Event de
+  son apparition, sans en changer le message. La condition, elle, disparaît.
+- Un `Normal` `Deleted` quand le finalizer a nettoyé Redis.
+
+```text
+$ kubectl describe proxykubeapi/prod -n team-a | sed -n '/Events/,$p'
+  Type     Reason             From                       Message
+  Warning  TargetUnreachable  proxy-kube-api-controller  Target service is not reachable
+```
+
+Seul le leader publie ; `reportingInstance` nomme son pod.
+
+<Callout type="warn">
+Une suppression attend Redis : si Redis ne répond pas, le finalizer reste et la
+ressource reste `Terminating`, avec un `Warning` `CacheWriteFailed`. Sans cela, le
+cluster supprimé resterait servi par le proxy, qui route depuis Redis.
+</Callout>
+
+## Le rythme
+
+| Après | Prochain reconcile |
+| --- | --- |
+| un succès, ou un `InvalidSpec` | 5 min (±20 %) |
+| un autre échec | 30 s, doublé à chaque nouvel échec, jusqu'à 5 min |
+
+Une modification de la ressource déclenche un reconcile sans attendre. Le
+reconcile périodique rattrape ce que le watch ne voit pas : un Redis vidé, un
+Secret référencé modifié, une cible qui tombe ou revient. Un reconcile sans
+changement n'écrit rien sur la ressource.
+
+## Le watch du controller
+
+Si le controller n'arrive plus à suivre les `ProxyKubeApi` (apiserver hôte injoignable,
+RBAC retiré), chaque erreur est journalisée. Après 5 minutes d'échec continu,
+`/management/ready` affiche `"controller": "failing"` dans son corps et la jauge
+`proxyauth_controller_watch_failing` passe à 1. Les sondes n'en dépendent pas : le proxy
+continue de servir les clusters déjà connus depuis Redis, et un redémarrage de toutes les
+réplicas n'y changerait rien.
+
+## Les métriques
+
+`/management/metrics` expose :
+
+- `proxyauth_reconcile_total{kind, result, reason}` : `result` vaut `success` ou
+  `error`, `reason` est un code du tableau ;
+- `proxyauth_reconcile_duration_seconds{kind}`.
+
+Une alerte possible, par raison :
+
+```promql
+increase(proxyauth_reconcile_total{result="error"}[15m]) > 0
+```

@@ -3,6 +3,11 @@
 //!
 //! One wiremock server plays both the OIDC provider and the upstream Kubernetes
 //! API, so a request can be authenticated and forwarded in the same scenario.
+#![expect(
+    clippy::indexing_slicing,
+    clippy::unwrap_used,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 

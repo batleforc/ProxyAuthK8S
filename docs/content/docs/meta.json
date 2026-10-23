@@ -8,6 +8,7 @@
     "roadmap.mdx",
     "architecture.mdx",
     "expose-cluster.mdx",
+    "status-and-events.mdx",
     "crds",
     "security.mdx",
     "virtual-apis.mdx",

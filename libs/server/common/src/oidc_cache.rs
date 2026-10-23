@@ -120,7 +120,11 @@ impl<K: Eq + Hash, V: Clone> TtlCache<K, V> {
                 entries.clear();
             }
         }
-        entries.insert(key, (Instant::now() + ttl, value));
+        // A TTL past what `Instant` can represent is not cacheable: skip it.
+        let Some(expires_at) = Instant::now().checked_add(ttl) else {
+            return;
+        };
+        entries.insert(key, (expires_at, value));
     }
 }
 

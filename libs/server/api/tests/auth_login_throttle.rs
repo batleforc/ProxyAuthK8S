@@ -17,6 +17,10 @@
 //!
 //! The IdP here is a `wiremock` server that is deliberately given **no** routes:
 //! if a test passes, the handler rejected the caller without ever calling it.
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 
@@ -72,13 +76,13 @@ async fn ban(pool: &deadpool_redis::Pool, ns: &str, cluster: &str) {
 
 async fn cleanup(pool: &deadpool_redis::Pool, ns: &str, cluster: &str) {
     let mut conn = pool.get().await.expect("redis connection");
-    let _ = conn
+    let _cleanup = conn
         .del(format!("proxyk8sauth:ratelimit:{ns}/{cluster}:unknown"))
         .await;
-    let _ = conn
+    let _cleanup = conn
         .del(format!("proxyk8sauth:ban:{ns}/{cluster}:unknown"))
         .await;
-    let _ = conn
+    let _cleanup = conn
         .del(format!("proxyk8sauth:authfail:{ns}/{cluster}:unknown"))
         .await;
     delete_proxy(pool, ns, cluster).await;

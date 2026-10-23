@@ -141,6 +141,23 @@ pub async fn prometheus_metrics(req: Parts) -> Response {
         .into_response()
 }
 
+/// `GET /metrics` alone, on a listener of its own (`WEEBO_METRICS_ADDR`): the
+/// path and port `weebo-kit-perf` scrapes. Same registry and encoding as
+/// `/management/metrics`.
+///
+/// # Errors
+///
+/// Returns the listener's I/O error if serving stops.
+pub async fn serve_metrics(
+    listener: tokio::net::TcpListener,
+    registry: PrometheusRegistry,
+) -> std::io::Result<()> {
+    let router = axum::Router::new()
+        .route("/metrics", axum::routing::get(prometheus_metrics))
+        .layer(axum::Extension(registry));
+    axum::serve(listener, router).await
+}
+
 /// Middleware recording [`HTTP_SERVER_REQUEST_DURATION`] (seconds) for every
 /// request, with `http.request.method`, `http.route` (the matched pattern, so
 /// cardinality stays bounded) and `http.response.status_code`.
@@ -216,7 +233,40 @@ pub async fn record_duration(
 
 #[cfg(test)]
 mod tests {
-    use super::actix_style_route;
+    use super::{PrometheusRegistry, actix_style_route, serve_metrics};
+
+    async fn scrape(registry: PrometheusRegistry) -> reqwest::Response {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let server = tokio::spawn(serve_metrics(listener, registry));
+        let response = reqwest::get(format!("http://{addr}/metrics"))
+            .await
+            .expect("scrape");
+        server.abort();
+        response
+    }
+
+    #[tokio::test]
+    async fn the_weebo_metrics_listener_serves_the_registry_on_slash_metrics() {
+        let registry = prometheus::Registry::new();
+        let gauge = prometheus::IntGauge::new("proxyauth_leader", "leader").expect("gauge");
+        registry
+            .register(Box::new(gauge.clone()))
+            .expect("register");
+        gauge.set(1);
+        let response = scrape(PrometheusRegistry(Some(registry))).await;
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let body = response.text().await.expect("body");
+        assert!(body.contains("proxyauth_leader 1"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn without_a_registry_the_listener_answers_404() {
+        let response = scrape(PrometheusRegistry(None)).await;
+        assert_eq!(response.status(), reqwest::StatusCode::NOT_FOUND);
+    }
 
     #[test]
     fn the_catch_all_keeps_its_label() {

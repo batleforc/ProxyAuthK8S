@@ -47,7 +47,8 @@ flowchart LR
     B4 -. "G6" .-> K["RFC crates weebo-kit-*"]
     B5 --> R020(["tag 0.2.0"])
     C2 --> R020
-    R020 --> V1(["v1.0.0 : bascules de défauts"])
+    R020 --> R040(["tag 0.4.0 : 0011 puis 0010"])
+    R040 --> V1(["v1.0.0 : bascules de défauts"])
 ```
 
 Les flèches pleines sont des dépendances strictes. Les pointillées sont des
@@ -72,9 +73,12 @@ mergée.
 | 12c | **0008** (phase 4) | B | 10, 12b | `session_closed` sur le tunnel hyper | ligne 0008 point 8 verte | fait (0008 §17, phase 4) |
 | 12 | **0004** (phases 1-3) | B | 10, 12c | politique `exec`, `restricts_exec`, `ExecChannelFilter`, audit de session, `mask_exec_secrets`, cibles fuzz | lignes 0004 points 1 à 13 vertes | fait (0004 §17) |
 | 11 | **0005 phases 2-5** | C | 0, 9, 12 (G3) | `.docs` → `docs/`, `@weebo/operator-docs`, `kit:sync` | §6.P de la 0005 (hors suite, jobs CI) | fait : phases 2 à 5 (kit v0.20.0, `cog.toml` gardé, 0005 §17) |
-| 8 | **tag 0.2.0** | — | 11, 12 | — | `integration.yaml` vert sur le commit tagué, aucune ligne de matrice `à écrire` hors des RFC de `PENDING` (`.it/matrix.py` : la 0010, prévue pour la 0.3.0) | fait : v0.2.0, puis v0.2.1 (RUSTSEC-2026-0382/0383) |
-| 13 | **0011** (RFC crates `weebo-kit-*`) | C | 10 (G6), 11 | kit sans feature `k8s-openapi` dans ses bibliothèques, crates par git, conditions, Events, codes de raison, métriques de reconcile | §6.P de la 0011 | acceptée ; phase 0 par une RFC du kit ; pour la 0.3.0 |
-| 14 | **v1.0.0** | — | 8 | bascules de défauts (§ « v1.0.0 ») | — | à faire |
+| 8 | **tag 0.2.0** | — | 11, 12 | — | `integration.yaml` vert sur le commit tagué, aucune ligne de matrice `à écrire` hors des RFC de `PENDING` (`.it/matrix.py` : la 0010 et la 0011, prévues pour la 0.4.0) | fait : v0.2.0, puis v0.2.1 (RUSTSEC-2026-0382/0383) |
+| 13 | **0011** (RFC crates `weebo-kit-*`) | C | 10 (G6), 11 | kit sans feature `k8s-openapi` dans ses bibliothèques, crates par git, conditions, Events, codes de raison, métriques de reconcile | §6.P de la 0011 | phases 0 à 3 et 2b codées (grill du 2026-10-23, décisions 16 à 26) ; phases 4 à 6 (élection du kit, `weebo-kit-perf`, lints maison) grillées le 2026-10-23 (décisions 27 à 42), à faire ; toutes dans la 0.4.0, la PR attend la phase 6, avant la 0010 |
+| 13b | **`fix(deps)`** crdgen | C | — | `weebo-kit-api` de crdgen dans `[workspace.dependencies]`, là où `kit:sync` réécrit le tag (0011, décision 19) | `Cargo.lock` inchangé, `kit:cog` lit `v0.24.0` dans `Cargo.toml` | à faire, avant l'étape 13 |
+| 15 | **0010** (échange de jeton) | B | 13 | phases 1 à 4 de la 0010 | §6.P de la 0010 | acceptée ; pour la 0.4.0, après la 0011 |
+| 16 | **tag 0.4.0** | — | 13, 15 | — | `integration.yaml` vert, la 0010 et la 0011 retirées de `PENDING` | à faire |
+| 14 | **v1.0.0** | — | 16 | bascules de défauts (§ « v1.0.0 ») | — | à faire |
 
 Les numéros d'étape sont gardés pour les renvois des RFC ; la table suit
 l'ordre d'exécution.
@@ -116,7 +120,8 @@ refontes, à la place d'une release intermédiaire.
 | Release | Contenu | Nature |
 | --- | --- | --- |
 | 0.2.0 | 0001 à 0009 | `feat!:` : règles sans `allowed_ports` ou sans `verbs` restreintes sous restriction, `nodes/proxy` refusé, politique `exec`, schéma d'audit v1 ; serveur sur axum ; nouvelle UI |
-| 0.3.0 | 0010, 0011 | échange de jetons (0010, décision 3) ; conditions, Events et codes de raison (0011) |
+| 0.3.0 | — | partie sans la 0010 ni la 0011 : CRD IDE (kit v0.24.0), scan trivy des images |
+| 0.4.0 | 0011, puis 0010 | conditions, Events, codes de raison et rythme de reconcile du kit (0011) ; échange de jetons (0010) |
 | 1.0.0 | bascules | voir ci-dessous |
 
 ## v1.0.0 : bascules de défauts

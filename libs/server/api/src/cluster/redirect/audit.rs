@@ -299,7 +299,7 @@ fn write_line(line: &str) {
         return;
     }
     // A write error has nowhere better to go than stdout itself.
-    let _ = writeln!(std::io::stdout().lock(), "{line}");
+    let _write_error = writeln!(std::io::stdout().lock(), "{line}");
 }
 
 /// Test support: collect the audit lines of this process instead of writing

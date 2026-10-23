@@ -12,6 +12,10 @@
 //! only reachable in a test: admission rejects a non-https issuer (see
 //! `Issuer::validate` and its CEL rule), which — like the apiserver — is
 //! configuration validation, not something the token path re-checks.
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 

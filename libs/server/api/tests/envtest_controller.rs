@@ -9,7 +9,13 @@
 //!
 //! Every assertion polls with a timeout, so a slow machine only makes the run
 //! slower, never red. Gated behind the `envtest` feature.
-
+#![cfg_attr(
+    feature = "envtest",
+    expect(
+        clippy::expect_used,
+        reason = "test helpers: a panic is a failed test, with its message"
+    )
+)]
 #![cfg(feature = "envtest")]
 
 mod envtest_support;
@@ -126,10 +132,6 @@ async fn indexed(pool: &deadpool_redis::Pool, name: &str) -> bool {
     .expect("redis should answer")
 }
 
-fn retry_key(name: &str) -> String {
-    format!("requeue_retry:{REDIS_PREFIX}:{NAMESPACE}/{name}")
-}
-
 /// Create → Redis + status + finalizer; disable → Redis follows; unreachable
 /// upstream → status reports it; delete → finalizer cleans Redis and the
 /// object goes away.
@@ -239,13 +241,18 @@ async fn the_controller_mirrors_a_proxy_through_its_lifecycle() {
         "unexpected error: {:?}",
         status.error
     );
-    assert!(
-        state
-            .key_exists(&retry_key(&name))
-            .await
-            .expect("redis should answer"),
-        "a failed reconcile should count towards the backoff"
-    );
+    // And the CR says why, in the `Ready` condition (RFC 0011).
+    let cr_status = proxies
+        .get(&name)
+        .await
+        .expect("the proxy should still exist")
+        .status
+        .expect("the status is published");
+    let ready = weebo_kit_api::status::ready(&cr_status.conditions).expect("a Ready condition");
+    assert_eq!(ready.status, "False");
+    assert_eq!(ready.reason, "TargetUnreachable");
+    // The copy the request path reads carries no condition (decision 18).
+    assert!(status.conditions.is_empty());
 
     // 4. Deleted: the finalizer cleans Redis, then the object is reaped.
     proxies
@@ -266,13 +273,6 @@ async fn the_controller_mirrors_a_proxy_through_its_lifecycle() {
     assert!(
         !indexed(&pool, &name).await,
         "cleanup should drop the index entry"
-    );
-    assert!(
-        !state
-            .key_exists(&retry_key(&name))
-            .await
-            .expect("redis should answer"),
-        "cleanup should drop the retry counter, or a recreated proxy inherits its backoff"
     );
 }
 

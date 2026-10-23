@@ -1063,9 +1063,14 @@
         "description": "Body of the readiness probe.",
         "required": [
           "redis",
-          "oidc"
+          "oidc",
+          "controller"
         ],
         "properties": {
+          "controller": {
+            "type": "string",
+            "description": "`failing` while the controller's `ProxyKubeApi` watch has kept failing\nfor 5 minutes, `ok` otherwise. Informational: it never makes the pod\nunready, the proxy keeps serving from Redis."
+          },
           "oidc": {
             "type": "string",
             "description": "`ok` once the service-wide OIDC provider has been discovered, `pending`\nwhile the boot-time discovery is still retrying."

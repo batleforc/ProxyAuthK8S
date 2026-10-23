@@ -258,6 +258,7 @@ mod tests {
     impl EnvGuard {
         const KEY: &'static str = "PROXYAUTH_ALLOW_CROSS_NS_OIDC";
 
+        #[expect(unsafe_code, reason = "tests mutate the process environment")]
         fn set(value: Option<&str>) -> Self {
             let guard = EnvGuard {
                 previous: std::env::var(Self::KEY).ok(),
@@ -274,6 +275,7 @@ mod tests {
     }
 
     impl Drop for EnvGuard {
+        #[expect(unsafe_code, reason = "tests mutate the process environment")]
         fn drop(&mut self) {
             // SAFETY: the caller holds the environment lock (see `lock_env`).
             unsafe {
@@ -370,6 +372,7 @@ mod tests {
     /// The cert knob must not silently opt OIDC credentials in — they are
     /// separate decisions, which is the whole reason for a second variable.
     #[test]
+    #[expect(unsafe_code, reason = "tests mutate the process environment")]
     fn the_cert_knob_does_not_open_the_oidc_one() {
         let _lock = lock_env();
         let _guard = EnvGuard::set(None);

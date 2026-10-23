@@ -87,7 +87,8 @@ mod tests {
 
     impl Drop for TempDir {
         fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.path);
+            // Best-effort cleanup: a drop cannot report an error.
+            drop(std::fs::remove_dir_all(&self.path));
         }
     }
 

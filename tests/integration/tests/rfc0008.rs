@@ -83,7 +83,8 @@ async fn p2_a_watch_is_audited_with_its_ids() {
         .to_str()
         .expect("x-request-id")
         .to_string();
-    let _ = response.text().await;
+    // Drain the watch so the request completes and gets its log line; the body is not checked.
+    let _body = response.text().await;
 
     let watch = events(ns, "request")
         .into_iter()

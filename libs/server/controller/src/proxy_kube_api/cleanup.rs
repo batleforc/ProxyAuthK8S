@@ -1,47 +1,43 @@
 use common::State;
 use crd::ProxyKubeApi;
-use kube::{ResourceExt as _, runtime::controller::Action};
+use kube::{Resource as _, ResourceExt as _, runtime::controller::Action};
 use std::sync::Arc;
-use tracing::{info, instrument, warn};
+use tracing::{info, instrument};
+use weebo_kit_runtime::events::{CLEANUP, announce_change};
 
-use crate::error::Result;
-use crate::proxy_kube_api::REDIS_PREFIX;
-use crate::proxy_kube_api::reconcile::retry_counter_key;
+use crate::error::{ControllerError, Result};
+use crate::proxy_kube_api::{REDIS_PREFIX, recorder};
+use crate::reason::ReasonCode;
 
+/// Drop a deleted cluster from Redis. Closed (RFC 0011, decision 25): the
+/// proxy routes from Redis and the key has no TTL, so a failed `DEL` (or
+/// index removal) fails the cleanup and the finalizer keeps the CR until it
+/// succeeds, instead of leaving a deleted cluster routable.
 #[instrument(skip(proxy, ctx), fields(name = %proxy.to_identifier()))]
 pub async fn clean_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Result<Action> {
     info!("Cleaning ProxyKubeApi: {}", proxy.to_identifier());
     let id = proxy.to_identifier();
 
-    match ctx.delete_key(&id).await {
-        Ok(()) => info!("Successfully deleted ProxyKubeApi: {}", id),
-        Err(err) => {
-            info!("Failed to delete ProxyKubeApi: {}. Error: {}", id, err);
-        }
-    }
-
+    ctx.delete_key(&id).await.map_err(ControllerError::Redis)?;
     // Drop the index entry too, otherwise the dashboard keeps listing a cluster
     // whose configuration is gone.
-    if let Err(err) = ctx.index_remove(REDIS_PREFIX, &id).await {
-        warn!(
-            "Failed to remove ProxyKubeApi from the index: {}. Error: {}",
-            id, err
-        );
-    }
-
-    // Drop the backoff counter as well: a proxy recreated under the same name
-    // would otherwise inherit its predecessor's failure count (for up to 24h).
-    if let Err(err) = ctx.delete_key(&retry_counter_key(&id)).await {
-        warn!(
-            "Failed to reset the retry counter of ProxyKubeApi: {}. Error: {}",
-            id, err
-        );
-    }
+    ctx.index_remove(REDIS_PREFIX, &id)
+        .await
+        .map_err(ControllerError::Redis)?;
+    info!("Successfully deleted ProxyKubeApi: {}", id);
 
     // Drop this replica's cached upstream client/TLS configuration. Other
     // replicas let theirs expire (`PROXY_UPSTREAM_CLIENT_TTL`): a deleted proxy
     // is no longer routable, so a lingering entry is only memory.
     common::upstream_cache::evict_proxy(&proxy.namespace().unwrap_or_default(), &proxy.name_any());
 
+    announce_change(
+        recorder(&ctx),
+        &proxy.object_ref(&()),
+        ReasonCode::Deleted,
+        CLEANUP,
+        "The cluster was removed from the proxy",
+    )
+    .await;
     Ok(Action::await_change()) // No need to requeue, object is being deleted
 }

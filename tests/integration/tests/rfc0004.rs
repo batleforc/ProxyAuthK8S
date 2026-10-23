@@ -3,6 +3,11 @@
 //! tunnel. kubectl where it can express the case, a raw client (through the
 //! same Ingress) where the case is a forged request.
 
+#![expect(
+    clippy::expect_used,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
+
 use std::time::Duration;
 
 use integration::{
@@ -271,7 +276,10 @@ async fn p6_a_forbidden_channel_closes_the_session() {
     // A masked binary message on channel 0 (stdin).
     let mask = [1u8, 2, 3, 4];
     let body = [0u8, b'i', b'd', b'\n'];
-    let mut frame = vec![0x82, 0x80 | body.len() as u8];
+    let mut frame = vec![
+        0x82,
+        0x80 | u8::try_from(body.len()).expect("a short frame"),
+    ];
     frame.extend_from_slice(&mask);
     frame.extend(body.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
     stream.write_all(&frame).await.unwrap();

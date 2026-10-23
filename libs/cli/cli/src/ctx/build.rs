@@ -145,7 +145,8 @@ mod tests {
 
     fn scratch_dir(test: &str) -> PathBuf {
         let dir = env::temp_dir().join(format!("proxyauth-cli-{test}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
+        // Absent on a first run: nothing to clean, the error is expected.
+        drop(fs::remove_dir_all(&dir));
         fs::create_dir_all(&dir).unwrap();
         dir
     }

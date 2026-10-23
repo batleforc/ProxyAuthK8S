@@ -3,6 +3,8 @@ name = "common"
 version = "0.3.0"
 edition = "2024"
 license = "MIT"
+# Never published: its git dependency (the kit) is not a wildcard for cargo-deny.
+publish = false
 
 [features]
 # Exposes constructors that bypass the real Kubernetes/Redis/OIDC discovery a
@@ -11,6 +13,7 @@ test-util = []
 
 [dependencies]
 kube = { workspace = true }
+weebo-kit-runtime = { workspace = true }
 deadpool-redis = { workspace = true }
 tracing = { workspace = true }
 rustls = { workspace = true }
@@ -34,3 +37,6 @@ ignored = ["k8s-openapi"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "time"] }
+
+[lints]
+workspace = true

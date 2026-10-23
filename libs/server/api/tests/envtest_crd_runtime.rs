@@ -7,7 +7,14 @@
 //! apiserver's TLS certificate and authenticates with the rendered kubeconfig.
 //!
 //! Gated behind the `envtest` feature so a plain `cargo test` needs no binaries.
-
+#![cfg_attr(
+    feature = "envtest",
+    expect(
+        clippy::expect_used,
+        clippy::panic,
+        reason = "test helpers: a panic is a failed test, with its message"
+    )
+)]
 #![cfg(feature = "envtest")]
 
 mod envtest_support;

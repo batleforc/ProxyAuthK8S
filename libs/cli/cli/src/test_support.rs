@@ -167,15 +167,16 @@ impl TlsTestServer {
                         return;
                     };
                     let mut buf = [0u8; 4096];
-                    let _ = tls.read(&mut buf).await;
+                    // Mock server: the request is not inspected, I/O is best-effort.
+                    drop(tls.read(&mut buf).await);
                     let body = clusters_body().to_string();
                     let response = format!(
                         "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\
                          content-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
                     );
-                    let _ = tls.write_all(response.as_bytes()).await;
-                    let _ = tls.shutdown().await;
+                    drop(tls.write_all(response.as_bytes()).await);
+                    drop(tls.shutdown().await);
                 });
             }
         });

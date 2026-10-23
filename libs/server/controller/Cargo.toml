@@ -3,18 +3,22 @@ name = "controller"
 version = "0.3.0"
 edition = "2024"
 license = "MIT"
+# Never published: its git dependency (the kit) is not a wildcard for cargo-deny.
+publish = false
 
 [dependencies]
 tracing = { workspace = true }
 kube = { workspace = true }
 serde_json = { workspace = true }
-futures-util = { workspace = true }
 k8s-openapi = { workspace = true }
 tokio = { workspace = true }
+opentelemetry = { workspace = true }
 deadpool-redis = { workspace = true }
 thiserror = { workspace = true }
+weebo-kit-api = { workspace = true }
+weebo-kit-domain = { workspace = true }
+weebo-kit-runtime = { workspace = true }
 
-kube-leader-election = "0.44.0"
 
 crd = { path = "../crd", version = "0.3.0" }
 crd_runtime = { path = "../crd_runtime", version = "0.3.0" }
@@ -32,3 +36,6 @@ wiremock = "0.6"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [package.metadata.cargo-machete]
 ignored = ["k8s-openapi"]
+
+[lints]
+workspace = true

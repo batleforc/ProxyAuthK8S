@@ -13,6 +13,10 @@ use tracing_subscriber::{
 
 pub mod level;
 
+#[expect(
+    clippy::expect_used,
+    reason = "the time format is a static literal; a parse failure is a programming error caught by any run"
+)]
 pub fn init_tracing(verbose_level: level::VerboseLevel, name: String) {
     // Pinned to version 1 (what the now-deprecated `parse()` used) to keep the
     // exact same parsing behavior rather than adopt v3's different syntax.

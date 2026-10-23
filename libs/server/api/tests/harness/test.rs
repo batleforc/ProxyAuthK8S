@@ -90,8 +90,10 @@ impl TestRequest {
         self
     }
 
-    // actix's name, so the ported tests read as they did.
-    #[allow(clippy::wrong_self_convention)]
+    #[expect(
+        clippy::wrong_self_convention,
+        reason = "actix's name, so the ported tests read as they did"
+    )]
     pub fn to_request(self) -> Request<Body> {
         self.builder.body(self.body).expect("valid test request")
     }

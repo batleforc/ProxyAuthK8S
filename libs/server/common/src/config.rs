@@ -110,7 +110,7 @@ impl CorsOrigins {
             .map(|origin| origin.trim().to_string())
             .filter(|origin| !origin.is_empty())
             .collect();
-        if origins.len() == 1 && origins[0] == "*" {
+        if matches!(origins.as_slice(), [only] if only == "*") {
             return Self::Any;
         }
         let origins: Vec<String> = origins.into_iter().filter(|origin| origin != "*").collect();
@@ -227,6 +227,11 @@ pub struct ObservabilitySettings {
     /// Prometheus text format on `GET /management/metrics`, alongside the OTLP
     /// export.
     pub metrics_prometheus_enabled: bool,
+    /// `WEEBO_METRICS_ADDR` (unset by default): also serve the Prometheus
+    /// metrics on `GET /metrics` at this address, a listener of its own; set,
+    /// it turns the Prometheus export on. What `weebo-kit-perf` scrapes
+    /// (RFC 0011, decision 42).
+    pub weebo_metrics_addr: Option<std::net::SocketAddr>,
 }
 
 /// `LOG_FORMAT`: shape of the stdout log lines.
@@ -344,6 +349,8 @@ impl Config {
             pod_name: loader.or("POD_NAME", "not_a_pod"),
             log_format: loader.parsed("LOG_FORMAT", LogFormat::Text, LogFormat::parse),
             metrics_prometheus_enabled: loader.flag("METRICS_PROMETHEUS_ENABLED"),
+            weebo_metrics_addr: loader
+                .parsed("WEEBO_METRICS_ADDR", None, |raw| raw.parse().ok().map(Some)),
         };
 
         Self {
@@ -610,6 +617,7 @@ mod tests {
                 pod_name: "not_a_pod".to_string(),
                 log_format: LogFormat::Text,
                 metrics_prometheus_enabled: false,
+                weebo_metrics_addr: None,
             }
         );
     }
@@ -665,6 +673,7 @@ mod tests {
             ("POD_NAME", "proxyauth-0"),
             ("LOG_FORMAT", " JSON "),
             ("METRICS_PROMETHEUS_ENABLED", "true"),
+            ("WEEBO_METRICS_ADDR", "127.0.0.1:9464"),
         ]);
         assert!(config.warnings().is_empty(), "{:?}", config.warnings());
         assert_eq!(
@@ -722,6 +731,7 @@ mod tests {
                 pod_name: "proxyauth-0".to_string(),
                 log_format: LogFormat::Json,
                 metrics_prometheus_enabled: true,
+                weebo_metrics_addr: Some("127.0.0.1:9464".parse().expect("static addr")),
             }
         );
     }

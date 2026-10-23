@@ -105,8 +105,15 @@ Sondes : liveness sur `/management/health`, readiness sur `/management/ready` (v
 | `rbac.referencedNamespaces`  | `[]`   | Namespaces dont les Secrets / ConfigMaps / Services peuvent être référencés par un `ProxyKubeApi`. Vide = `get` cluster-wide ; renseigné = un `Role` par namespace (moindre privilège) |
 
 Le compte de service reçoit toujours : lecture des CRD, lecture/mise à jour des
-`ProxyKubeApi` (statut, finalizers), et `get`/`create`/`patch` sur les `leases` de son propre
-namespace pour l'élection de leader.
+`ProxyKubeApi` (statut, finalizers), `create`/`patch` sur les `events.k8s.io` (les
+[Events](/docs/status-and-events) publiés sur chaque `ProxyKubeApi`), et `get`/`create`/`update`/`patch`
+sur les `leases` de son propre namespace pour l'élection de leader.
+
+<Callout type="warn">
+Depuis la 0.4.0, le leader libère son lease à l'arrêt. Pour revenir à une version
+antérieure, supprimez d'abord le lease, que l'ancienne élection ne saurait plus reprendre :
+`kubectl -n <namespace> delete lease proxy-auth-k8s-leader-election`.
+</Callout>
 
 ## Sécurité des pods
 

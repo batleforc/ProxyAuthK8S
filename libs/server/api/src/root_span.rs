@@ -129,7 +129,7 @@ fn request_span(req: &Request, request_id: &uuid::Uuid) -> tracing::Span {
     });
     // Only fails once the span has been entered, which cannot have
     // happened yet: the span was just created.
-    let _ = span.set_parent(parent);
+    let _not_entered = span.set_parent(parent);
     // The caller's trace id when one was propagated, the new one otherwise;
     // none at all without an OpenTelemetry layer.
     if let Some(trace_id) = trace::helper::trace_id_of(&span) {

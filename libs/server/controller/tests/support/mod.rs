@@ -10,7 +10,10 @@
 //! unless `REQUIRE_TEST_REDIS` is set, which turns that into a failure, exactly
 //! like the `api` crate's harness.
 
-#![allow(dead_code)]
+#![expect(
+    clippy::expect_used,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -70,18 +73,18 @@ fn report_unavailable_redis(url: &str, error: &str) {
 pub fn install_crypto_provider() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        // Err only means another test already installed it.
+        drop(rustls::crypto::ring::default_provider().install_default());
     });
 }
 
 /// A `State` on the real test Redis whose Kubernetes client points at a port
 /// nothing listens on.
 ///
-/// Every fixture here pre-sets the status the reconcile will compute, so the
-/// "patch only if it changed" branch is not taken and the client is never used
-/// — a regression that starts patching unconditionally surfaces as a connection
-/// error rather than as an extra silent round-trip. The successful patch is
-/// covered by the envtest tier, against a real apiserver.
+/// Its apiserver is a closed port: the tests here drive `evaluate` and
+/// `cache`, which never call it, and a status publication or an Event aimed
+/// at it fails fast. The successful patch is covered by the envtest tier,
+/// against a real apiserver.
 pub fn state_with_redis(redis_url: &str) -> State {
     install_crypto_provider();
 

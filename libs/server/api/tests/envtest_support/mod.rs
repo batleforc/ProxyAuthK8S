@@ -8,7 +8,11 @@
 //!
 //! Binaries come from `KUBEBUILDER_ASSETS` (see `task envtest:setup`).
 
-#![allow(dead_code)]
+#![expect(dead_code, reason = "Not every envtest binary uses every helper.")]
+#![expect(
+    clippy::expect_used,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
 
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
@@ -208,7 +212,9 @@ impl EnvTest {
             .build()
             .map_err(|err| err.to_string())?;
         let healthz = format!("{}/healthz", self.apiserver_url);
-        let deadline = Instant::now() + STARTUP_TIMEOUT;
+        let deadline = Instant::now()
+            .checked_add(STARTUP_TIMEOUT)
+            .expect("deadline in range");
 
         while Instant::now() < deadline {
             let response = client
@@ -313,7 +319,9 @@ where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = bool>,
 {
-    let deadline = Instant::now() + timeout;
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .expect("deadline in range");
     loop {
         if check().await {
             return;
@@ -329,10 +337,11 @@ where
 impl Drop for EnvTest {
     fn drop(&mut self) {
         // Kill the apiserver first: it holds connections to etcd.
-        let _ = self.apiserver.kill();
-        let _ = self.apiserver.wait();
-        let _ = self.etcd.kill();
-        let _ = self.etcd.wait();
+        // Best effort: the processes may already be gone.
+        let _killed = self.apiserver.kill();
+        let _exited = self.apiserver.wait();
+        let _killed = self.etcd.kill();
+        let _exited = self.etcd.wait();
     }
 }
 
@@ -476,7 +485,7 @@ fn generate_serving_cert(dir: &Path) -> Result<(PathBuf, PathBuf, PathBuf), Stri
 fn install_crypto_provider() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        let _already_installed = rustls::crypto::ring::default_provider().install_default();
     });
 }
 
@@ -520,7 +529,7 @@ impl TempDir {
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
+        let _cleanup = std::fs::remove_dir_all(&self.path);
     }
 }
 

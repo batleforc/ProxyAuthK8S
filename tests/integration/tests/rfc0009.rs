@@ -1,5 +1,10 @@
 //! RFC 0009 §6.P: the bench observes what it claims to observe.
 
+#![expect(
+    clippy::expect_used,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
+
 use integration::{Bench, Persona, Session, observe};
 
 /// The smoke fixture in a fresh namespace, with the `web` pod running.

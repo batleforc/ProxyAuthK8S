@@ -10,7 +10,13 @@
 //! Redis — gated behind the `envtest` feature like `envtest.rs`, and skipped
 //! (unless `REQUIRE_ENVTEST`/`REQUIRE_TEST_REDIS` are set) exactly like the
 //! other tiers when either is unavailable.
-
+#![cfg_attr(
+    feature = "envtest",
+    expect(
+        clippy::panic,
+        reason = "test helpers: a panic is a failed test, with its message"
+    )
+)]
 #![cfg(feature = "envtest")]
 
 mod envtest_support;

@@ -8,6 +8,11 @@
 //! exchange (seeded directly as an `IssuedCode`). This file drives
 //! `authorize` for real (to get genuine pending state) and then breaks the
 //! upstream exchange in specific ways to hit `callback`'s own error branches.
+#![expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 

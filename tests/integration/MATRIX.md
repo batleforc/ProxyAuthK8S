@@ -113,13 +113,20 @@ Statuts :
 | 0010 | 7     | à écrire    | `rfc0010::p7_…` |
 | 0010 | 8     | à écrire    | `rfc0010::p8_…` |
 | 0010 | 9     | à écrire    | `rfc0010::p9_…` |
-| 0011 | 1     | à écrire    | `rfc0011::p1_…` |
-| 0011 | 2     | à écrire    | `rfc0011::p2_…` |
-| 0011 | 3     | à écrire    | `rfc0011::p3_…` |
-| 0011 | 4     | à écrire    | `rfc0011::p4_…` |
-| 0011 | 5     | à écrire    | `rfc0011::p5_…` |
-| 0011 | 6     | à écrire    | `rfc0011::p6_…` |
-| 0011 | 7     | à écrire    | `rfc0011::p7_…` |
-| 0011 | 8     | à écrire    | `rfc0011::p8_…` |
-| 0011 | 9     | à écrire    | job `back-clippy` (`cargo tree -e features -i k8s-openapi`) |
-| 0011 | 10    | à écrire    | `task audit` (`cargo deny check sources`) |
+| 0011 | 1     | suite       | `rfc0011::p1_a_served_cluster_is_ready` |
+| 0011 | 2     | suite       | `rfc0011::p2_an_unreachable_target_is_refused_and_announced` |
+| 0011 | 3     | suite       | `rfc0011::p3_an_invalid_spec_is_refused_without_an_observed_generation` |
+| 0011 | 4     | suite       | `rfc0011::p4_a_fixed_cluster_turns_ready_again` |
+| 0011 | 5     | suite       | `rfc0011::p5_an_advisory_comes_and_goes` |
+| 0011 | 6     | suite       | `rfc0011::p6_a_healthy_reconcile_writes_nothing` |
+| 0011 | 7     | suite       | `rfc0011::p7_only_the_leader_reports` |
+| 0011 | 8     | suite       | `rfc0011::p8_the_reconcile_metric_counts_the_reason` |
+| 0011 | 9     | hors suite  | job `back-clippy`, étape « One Kubernetes version feature in the graph » (`cargo tree -e features -i k8s-openapi`) |
+| 0011 | 10    | hors suite  | `task audit` (`cargo deny check sources`, `allow-git` de `deny.toml`) |
+| 0011 | 11    | suite       | `rfc0011::p11_the_leader_reports_itself` |
+| 0011 | 12    | suite       | `rfc0011_leader::p12_a_foreign_holder_makes_the_leader_step_down` |
+| 0011 | 13    | suite       | `rfc0011_leader::p13_a_rollout_hands_the_lease_over_without_waiting_for_the_ttl` |
+| 0011 | 14    | hors suite  | envtest `envtest_leader_election::a_frozen_leader_steps_down_before_its_lease_can_be_taken` (une horloge figée ne s'obtient pas sur le banc) |
+| 0011 | 15    | hors suite  | workflow `perf` (`task perf`, `tests/perf/tests/perf.rs::proxyauthk8s_costs_within_its_budget`) |
+| 0011 | 16    | hors suite  | job `back-clippy` (`task lint`, `[workspace.lints]` adopté par toutes les crates sauf `client_api`) |
+| 0011 | 17    | hors suite  | CI : `back-cargo-test`, `back-envtest`, `integration` (aucun test modifié dans son attendu) |

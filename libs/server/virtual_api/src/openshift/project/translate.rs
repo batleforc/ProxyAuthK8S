@@ -22,13 +22,11 @@ impl OpenShiftProjectMapper {
     pub(super) fn namespace_to_project(&self, mut body: Value) -> Value {
         match body.get("kind").and_then(Value::as_str) {
             Some(NAMESPACE_KIND) => {
-                body["kind"] = json!(PROJECT_KIND);
-                body["apiVersion"] = json!(self.api_version());
+                stamp_kind(&mut body, PROJECT_KIND, self.api_version());
                 body
             }
             Some(NAMESPACE_LIST_KIND) => {
-                body["kind"] = json!(PROJECT_LIST_KIND);
-                body["apiVersion"] = json!(self.api_version());
+                stamp_kind(&mut body, PROJECT_LIST_KIND, self.api_version());
                 if let Some(items) = body.get_mut("items").and_then(Value::as_array_mut) {
                     for item in items.iter_mut() {
                         // List items carry no kind of their own upstream; stamp
@@ -36,10 +34,7 @@ impl OpenShiftProjectMapper {
                         // still see a Project. Only touch well-formed object
                         // items — index-assigning into a non-object `Value`
                         // panics, and the upstream body is only semi-trusted.
-                        if let Some(obj) = item.as_object_mut() {
-                            obj.insert("kind".to_string(), json!(PROJECT_KIND));
-                            obj.insert("apiVersion".to_string(), json!(self.api_version()));
-                        }
+                        stamp_kind(item, PROJECT_KIND, self.api_version());
                     }
                 }
                 body
@@ -97,6 +92,15 @@ impl OpenShiftProjectMapper {
             Some(name) => format!("{NAMESPACES_PATH}/{name}"),
             None => NAMESPACES_PATH.to_string(),
         }
+    }
+}
+
+/// Set `kind`/`apiVersion` on `value` when it is an object; any other shape is
+/// left untouched, as index-assigning into it would panic.
+fn stamp_kind(value: &mut Value, kind: &str, api_version: impl Into<Value>) {
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("kind".to_string(), json!(kind));
+        obj.insert("apiVersion".to_string(), api_version.into());
     }
 }
 

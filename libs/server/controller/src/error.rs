@@ -1,5 +1,9 @@
 use common::redis_pool::RedisPoolError;
+use kube::runtime::finalizer;
 use thiserror::Error;
+use weebo_kit_runtime::events::{CLEANUP, RECONCILE};
+
+use crate::reason::ReasonCode;
 
 #[derive(Debug, Error)]
 pub enum ControllerError {
@@ -12,10 +16,6 @@ pub enum ControllerError {
     /// Kubernetes API error
     #[error("Kubernetes API error: {0}")]
     Kube(#[source] kube::Error),
-
-    // Serialization/Deserialization error
-    #[error("Serialization/Deserialization error: {0}")]
-    Serde(#[source] serde_json::Error),
 
     // Finalizer error
     #[error("Finalizer error: {0}")]
@@ -33,8 +33,28 @@ pub enum ControllerError {
 pub type Result<T, E = ControllerError> = std::result::Result<T, E>;
 
 impl ControllerError {
-    pub fn metric_label(&self) -> String {
-        format!("{self:?}").to_lowercase()
+    /// The reason code and Event `action` the error policy announces this
+    /// error under (RFC 0011 §4.2), or `None` when there is no named,
+    /// namespaced object to publish an Event on, or the error never reaches
+    /// the error policy. No `_` arm: a new variant does not compile without
+    /// its code.
+    #[must_use]
+    pub fn reason(&self) -> Option<(ReasonCode, &'static str)> {
+        match self {
+            Self::Redis(_) => Some((ReasonCode::CacheWriteFailed, RECONCILE)),
+            Self::Kube(_) => Some((ReasonCode::StatusWriteFailed, RECONCILE)),
+            Self::FinalizerError(error) => match error.as_ref() {
+                finalizer::Error::ApplyFailed(inner) => inner.reason(),
+                finalizer::Error::CleanupFailed(inner) => {
+                    inner.reason().map(|(code, _)| (code, CLEANUP))
+                }
+                finalizer::Error::AddFinalizer(_) | finalizer::Error::RemoveFinalizer(_) => {
+                    Some((ReasonCode::FinalizerFailed, RECONCILE))
+                }
+                finalizer::Error::UnnamedObject | finalizer::Error::InvalidFinalizer => None,
+            },
+            Self::InvalidResource(_) | Self::CrdUnavailable(_) => None,
+        }
     }
 }
 
@@ -79,11 +99,55 @@ mod tests {
         assert!(err.source().is_some());
     }
 
+    fn redis() -> ControllerError {
+        RedisPoolError::Pool("connection refused".to_string()).into()
+    }
+
+    fn kube() -> kube::Error {
+        kube::Error::LinesCodecMaxLineLengthExceeded
+    }
+
+    fn finalizer(error: finalizer::Error<ControllerError>) -> ControllerError {
+        ControllerError::FinalizerError(Box::new(error))
+    }
+
     #[test]
-    fn metric_label_is_lowercase_and_names_the_variant() {
-        let err = ControllerError::InvalidResource("Bad".to_string());
-        let label = err.metric_label();
-        assert_eq!(label, label.to_lowercase());
-        assert!(label.starts_with("invalidresource"), "{label}");
+    fn redis_and_status_errors_have_their_codes() {
+        assert_eq!(
+            redis().reason(),
+            Some((ReasonCode::CacheWriteFailed, RECONCILE))
+        );
+        assert_eq!(
+            ControllerError::Kube(kube()).reason(),
+            Some((ReasonCode::StatusWriteFailed, RECONCILE))
+        );
+    }
+
+    #[test]
+    fn the_finalizer_wrapper_keeps_the_inner_code_and_names_the_cleanup() {
+        assert_eq!(
+            finalizer(finalizer::Error::ApplyFailed(redis())).reason(),
+            Some((ReasonCode::CacheWriteFailed, RECONCILE))
+        );
+        assert_eq!(
+            finalizer(finalizer::Error::CleanupFailed(redis())).reason(),
+            Some((ReasonCode::CacheWriteFailed, CLEANUP))
+        );
+        assert_eq!(
+            finalizer(finalizer::Error::AddFinalizer(kube())).reason(),
+            Some((ReasonCode::FinalizerFailed, RECONCILE))
+        );
+        assert_eq!(
+            finalizer(finalizer::Error::RemoveFinalizer(kube())).reason(),
+            Some((ReasonCode::FinalizerFailed, RECONCILE))
+        );
+    }
+
+    #[test]
+    fn errors_without_an_object_to_announce_on_have_no_code() {
+        assert_eq!(finalizer(finalizer::Error::UnnamedObject).reason(), None);
+        assert_eq!(finalizer(finalizer::Error::InvalidFinalizer).reason(), None);
+        assert_eq!(ControllerError::InvalidResource("x".into()).reason(), None);
+        assert_eq!(ControllerError::CrdUnavailable(kube()).reason(), None);
     }
 }

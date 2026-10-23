@@ -33,4 +33,6 @@ Le plan détaillé, avec les points de synchronisation entre RFC, est dans
 - **0009** passe devant tout ce qui reste à coder : 0007 phases 2 à 6, 0008,
   0004 et 0005 phases 2 à 5 livrent chacune leurs lignes de
   `tests/integration/MATRIX.md`.
+- **0.4.0** : la 0011 (conditions, Events, rythme du kit), puis la 0010
+  (échange de jeton) ; la 0.3.0 est partie sans elles.
 - **v1.0.0** : les bascules de défauts.

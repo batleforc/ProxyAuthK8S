@@ -76,28 +76,33 @@ impl WebsocketDecoder {
         while !input.is_empty() {
             let Some(payload) = self.payload.as_mut() else {
                 let used = self.read_header(input)?;
-                input = &input[used..];
+                input = input.get(used..).ok_or_else(overrun)?;
                 continue;
             };
 
             let take = usize::try_from(payload.remaining)
                 .unwrap_or(usize::MAX)
                 .min(input.len());
+            let (chunk, rest) = input.split_at_checked(take).ok_or_else(overrun)?;
             if payload.is_data {
                 let data: Vec<u8> = match payload.mask {
-                    Some(mask) => input[..take]
+                    Some(mask) => chunk
                         .iter()
-                        .enumerate()
-                        .map(|(i, byte)| byte ^ mask[(payload.offset + i) % 4])
+                        .zip(mask.iter().cycle().skip(payload.offset))
+                        .map(|(byte, key)| byte ^ key)
                         .collect(),
-                    None => input[..take].to_vec(),
+                    None => chunk.to_vec(),
                 };
                 let start = std::mem::take(&mut self.message_start);
                 on_data(&data, start)?;
             }
-            payload.offset = (payload.offset + take) % 4;
-            payload.remaining -= take as u64;
-            input = &input[take..];
+            // Both terms are below 4: no overflow.
+            payload.offset = payload.offset.wrapping_add(take % 4) % 4;
+            // `take` is at most `remaining`.
+            payload.remaining = payload
+                .remaining
+                .saturating_sub(u64::try_from(take).unwrap_or(u64::MAX));
+            input = rest;
             if payload.remaining == 0 {
                 self.payload = None;
             }
@@ -107,57 +112,53 @@ impl WebsocketDecoder {
 
     /// Consume header bytes from `input`; returns how many were used.
     fn read_header(&mut self, input: &[u8]) -> Result<usize, String> {
-        let mut needed = 2;
-        if self.header.len() >= 2 {
-            needed = header_len(self.header[1]);
-        }
-        let mut used = 0;
-        while self.header.len() < needed && used < input.len() {
-            self.header.push(input[used]);
-            used += 1;
-            if self.header.len() == 2 {
+        let mut needed = self.header.get(1).map_or(2, |&second| header_len(second));
+        let mut used: usize = 0;
+        while self.header.len() < needed {
+            let Some(&byte) = input.get(used) else {
+                break;
+            };
+            self.header.push(byte);
+            used = used.saturating_add(1);
+            if let &[first, second] = self.header.as_slice() {
                 // Refuse as soon as the flags are known, not once the rest of
                 // a header that may never come has arrived.
-                if self.header[0] & 0x70 != 0 {
+                if first & 0x70 != 0 {
                     return Err("websocket frame uses an extension".into());
                 }
-                let masked = self.header[1] & 0x80 != 0;
+                let masked = second & 0x80 != 0;
                 if self.client && !masked {
                     return Err("unmasked client websocket frame".into());
                 }
                 if !self.client && masked {
                     return Err("masked server websocket frame".into());
                 }
-                needed = header_len(self.header[1]);
+                needed = header_len(second);
             }
         }
         if self.header.len() < needed {
             return Ok(used);
         }
-        let first = self.header[0];
-        let second = self.header[1];
+        let &[first, second, ..] = self.header.as_slice() else {
+            return Err(overrun());
+        };
         let fin = first & 0x80 != 0;
         let opcode = first & 0x0f;
 
         let (length, mask_at) = match second & 0x7f {
             126 => (
-                u64::from(u16::from_be_bytes([self.header[2], self.header[3]])),
+                u64::from(u16::from_be_bytes(header_bytes(&self.header, 2)?)),
                 4,
             ),
-            127 => (
-                u64::from_be_bytes(self.header[2..10].try_into().expect("8 header bytes")),
-                10,
-            ),
+            127 => (u64::from_be_bytes(header_bytes(&self.header, 2)?), 10),
             short => (u64::from(short), 2),
         };
         if length > MAX_FRAME_BYTES {
             return Err(format!("websocket frame of {length} bytes is too large"));
         }
-        let mask = (second & 0x80 != 0).then(|| {
-            self.header[mask_at..mask_at + 4]
-                .try_into()
-                .expect("4 mask bytes")
-        });
+        let mask = (second & 0x80 != 0)
+            .then(|| header_bytes::<4>(&self.header, mask_at))
+            .transpose()?;
 
         let is_data = match opcode {
             // Continuation of a fragmented message.
@@ -196,7 +197,22 @@ fn header_len(second: u8) -> usize {
         _ => 0,
     };
     let mask = if second & 0x80 != 0 { 4 } else { 0 };
-    2 + extended + mask
+    2_usize.saturating_add(extended).saturating_add(mask)
+}
+
+/// The `N` header bytes at `at`; `read_header` only asks for bytes that
+/// `header_len` counted in, so a miss is a decoder bug, refused.
+fn header_bytes<const N: usize>(header: &[u8], at: usize) -> Result<[u8; N], String> {
+    header
+        .get(at..)
+        .and_then(<[u8]>::first_chunk::<N>)
+        .copied()
+        .ok_or_else(overrun)
+}
+
+/// The refusal of an offset past the bytes at hand (a decoder bug).
+fn overrun() -> String {
+    "websocket decoder overrun".into()
 }
 
 #[cfg(test)]
@@ -208,7 +224,7 @@ mod tests {
         let mask = [1, 2, 3, 4];
         let mut frame = vec![
             if fin { 0x80 } else { 0 } | opcode,
-            0x80 | payload.len() as u8,
+            0x80 | u8::try_from(payload.len()).expect("short test payload"),
         ];
         frame.extend_from_slice(&mask);
         frame.extend(payload.iter().enumerate().map(|(i, b)| b ^ mask[i % 4]));
@@ -216,7 +232,10 @@ mod tests {
     }
 
     fn server_frame(payload: &[u8]) -> Vec<u8> {
-        let mut frame = vec![0x82, payload.len() as u8];
+        let mut frame = vec![
+            0x82,
+            u8::try_from(payload.len()).expect("short test payload"),
+        ];
         frame.extend_from_slice(payload);
         frame
     }
