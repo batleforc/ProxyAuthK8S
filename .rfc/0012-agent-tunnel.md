@@ -1065,7 +1065,13 @@ la phase 1 (2026-10-24). Les sections 1 à 16 restent le texte accepté ; les
 Tenu à jour à chaque étape ; c'est d'ici que l'on repart, pas de
 l'historique de la conversation.
 
-**Branche** `feat/rfc-0012-agent-tunnel`, partie de `main` après la PR #293
+**Phase 2** : branche `feat/rfc-0012-phase-2`, partie de
+`feat/rfc-0012-agent-tunnel` (`1ed52fc`), PR à empiler sur #294. Fait : 2a
+(sortie `CONNECT` / SOCKS5). Ensuite, dans l'ordre : 2b `tlsMode:
+passthrough`, 2c `OneShotToken` (T6, T16), 2d `jwksPublisher`, 2e banc
+(points 8 à 11, `MATRIX.md`).
+
+**Phase 1** : branche `feat/rfc-0012-agent-tunnel`, partie de `main` après la PR #293
 (`d8f7341`), poussée ; **PR #294** ouverte
 (`feat: agent mode, reach an apiserver that is not exposed (RFC 0012, phase 1)`). Commits signés (`git commit -s -S
 -F <fichier>`), le mainteneur a autorisé les commits sur cette branche ; les
@@ -1188,6 +1194,10 @@ doit être fermée après `Analyze (rust)`), `git status`, puis
   pendant que l'éditeur lance ses `cargo check` : lancer les tests en
   arrière-plan, et cibler.
 
+| Étape (phase 2) | État | Notes |
+| --- | --- | --- |
+| 2a sortie de l'agent par `CONNECT` et SOCKS5 (§5.4) | fait | `apps/agent` : `Egress` (`AGENT_EGRESS_PROXY_URL`, sinon `HTTPS_PROXY` / `ALL_PROXY` hors `NO_PROXY`, sinon direct ; `http`, `socks5h`, `socks5` ; identifiants `AGENT_EGRESS_PROXY_USERNAME` / `_PASSWORD`, jamais dans un `Debug`), `dial` pour le tunnel, le même proxy pour le client reqwest de l'enrôlement ; chart : `egress.proxy.url`, `egress.proxy.credentialsSecret` ; `agent.mdx` ; tests unitaires 3 (résolution, `CONNECT` et SOCKS5 contre des serveurs en mémoire, avec et sans identifiants). Écart à §8 : ni `tokio-socks` ni `CONNECT` écrit à la main, les connecteurs `Tunnel` et `SocksV5` de `hyper-util` (`client-proxy`, déjà activé par reqwest) font les deux ; aucun crate nouveau dans `Cargo.lock`. `NO_PROXY` sans plages CIDR ni ports (`shortcut:`) |
+
 ### Preuve par menace (§7, §14)
 
 | # | Test qui la prouve | Tient ? |
@@ -1221,7 +1231,7 @@ doit être fermée après `Analyze (rust)`), `git status`, puis
 | `prost` | 0.14.4 | sans `protoc` |
 | `rcgen` | 0.14.10, dépendance de `agent_pki` | |
 | `x509-parser`, `ring`, `jsonwebtoken`, `sha1` | 0.18.1, 0.17.14, 11.1.0, 0.10.7, déjà dans l'arbre | `sha1` vient de la feature `ws` |
-| `tokio-socks` | non livrée | phase 2 |
+| `tokio-socks` | non livrée, inutile | la sortie SOCKS5 (et `CONNECT`) passe par `hyper-util` (`client-proxy`), déjà dans l'arbre ; reqwest gagne sa feature `socks`, sans crate (étape 2a) |
 | image de l'agent | `gcr.io/distroless/static-debian12:nonroot`, épinglée par digest (index multi-architecture) | 12,6 Mo ; `trivy image` : 0 HIGH/CRITICAL ; mise à jour par Dependabot (`docker`, `/deploy/build/agent`) : le dépôt n'a pas d'updatecli, contrairement à ce que disait §8 |
 | tinyproxy, microsocks | non livrées | banc de la phase 2 |
 

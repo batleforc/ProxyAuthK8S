@@ -52,6 +52,22 @@ spec:
             - name: AGENT_PROXY_CA_BUNDLE
               value: /etc/proxyauth/proxy-ca/ca.crt
             {{- end }}
+            {{- with .Values.egress.proxy.url }}
+            - name: AGENT_EGRESS_PROXY_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.egress.proxy.credentialsSecret }}
+            - name: AGENT_EGRESS_PROXY_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: username
+            - name: AGENT_EGRESS_PROXY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: password
+            {{- end }}
             {{- range .Values.env }}
             - name: {{ .name }}
               value: {{ .value | quote }}

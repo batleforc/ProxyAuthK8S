@@ -15,6 +15,14 @@ proxy:
 tlsMode: inner
 # The agent's one destination: this cluster's apiserver.
 upstream: https://kubernetes.default.svc:443
+egress:
+  proxy:
+    # http://… (CONNECT) or socks5h://… (socks5:// resolves names locally).
+    # Empty: HTTPS_PROXY / ALL_PROXY / NO_PROXY from `env`, else direct.
+    # With networkPolicy, add the proxy to egressTo and its port to egressPorts.
+    url: ""
+    # A Secret of this namespace with the keys `username` and `password`.
+    credentialsSecret: ""
 bootstrap:
   # Phase 1: ServiceAccountToken only. The ProxyKubeApi's `subject` is this
   # release's ServiceAccount: system:serviceaccount:<namespace>:<release>-proxyauthk8s-agent

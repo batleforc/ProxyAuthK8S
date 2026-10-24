@@ -1,5 +1,5 @@
-//! The agent of RFC 0012 (§6.5), phase 1: `ServiceAccountToken` bootstrap,
-//! `tlsMode: inner`, direct egress.
+//! The agent of RFC 0012 (§6.5): `ServiceAccountToken` bootstrap,
+//! `tlsMode: inner`, egress direct or through a `CONNECT` or SOCKS5 proxy.
 //!
 //! The agent enrols with a projected ServiceAccount token, dials the proxy's
 //! agent gateway over a WebSocket, runs a mutual TLS under the agent CA inside
@@ -7,6 +7,7 @@
 //! every stream the gateway opens to its one `upstream`, the local apiserver,
 //! without reading a byte: the TLS to the apiserver is the proxy's.
 
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -16,7 +17,10 @@ use agent_pki::{AgentKey, TUNNEL_SERVER_NAME, identity_of};
 use agent_proto::control::{self, AgentInfo, Kind, Ping, RenewRequest};
 use agent_proto::mux::{self, Mode};
 use agent_proto::ws_io::WsIo;
+use base64::Engine as _;
 use futures_util::io::AsyncReadExt as _;
+use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::connect::proxy::{SocksV5, Tunnel};
 use reqwest::Url;
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
@@ -26,6 +30,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
+use tower_service::Service as _;
 use tracing::{debug, info, warn};
 
 /// Bound on a TCP connect, a TLS handshake, the `Hello`.
@@ -60,6 +65,166 @@ pub struct Config {
     pub token_path: PathBuf,
     /// The local cluster's CA, whose SHA-256 the agent reports.
     pub kube_ca_path: Option<PathBuf>,
+    /// How the agent reaches the proxy (§5.4).
+    pub egress: Egress,
+}
+
+/// How the agent opens its TCP to the proxy, the enrolment's and the
+/// tunnel's alike (§5.4).
+#[derive(Clone, Default, PartialEq, Eq)]
+pub enum Egress {
+    #[default]
+    Direct,
+    /// `http://` (`CONNECT`), `socks5h://` (DNS by the proxy) or `socks5://`,
+    /// its credentials apart from the URL.
+    Proxy {
+        url: Url,
+        credentials: Option<(String, String)>,
+    },
+}
+
+/// Never prints the credentials.
+impl fmt::Debug for Egress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Direct => f.write_str("Direct"),
+            Self::Proxy { url, credentials } => f
+                .debug_struct("Proxy")
+                .field("url", &url.as_str())
+                .field("credentials", &credentials.is_some())
+                .finish(),
+        }
+    }
+}
+
+impl Egress {
+    /// `AGENT_EGRESS_PROXY_URL` (the chart's `egress.proxy.url`), else
+    /// `HTTPS_PROXY` or `ALL_PROXY` unless `NO_PROXY` names `host`; neither:
+    /// direct. `AGENT_EGRESS_PROXY_USERNAME` / `_PASSWORD` (the chart's
+    /// `credentialsSecret`) win over the URL's own.
+    fn from_lookup(var: impl Fn(&str) -> Option<String>, host: &str) -> Result<Self, String> {
+        let url = match var("AGENT_EGRESS_PROXY_URL") {
+            Some(url) => url,
+            None => {
+                let no_proxy = var("NO_PROXY").or_else(|| var("no_proxy"));
+                if no_proxy.is_some_and(|no_proxy| bypasses(&no_proxy, host)) {
+                    return Ok(Self::Direct);
+                }
+                match ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
+                    .into_iter()
+                    .find_map(&var)
+                {
+                    Some(url) => url,
+                    None => return Ok(Self::Direct),
+                }
+            }
+        };
+        let mut url: Url = url
+            .parse()
+            .map_err(|err| format!("egress proxy URL: {err}"))?;
+        if !matches!(url.scheme(), "http" | "socks5" | "socks5h") {
+            return Err("the egress proxy must be http://, socks5h:// or socks5://".to_string());
+        }
+        if url.host_str().is_none() {
+            return Err("the egress proxy URL has no host".to_string());
+        }
+        let decode = |part: &str| {
+            percent_encoding::percent_decode_str(part)
+                .decode_utf8_lossy()
+                .into_owned()
+        };
+        let credentials = match var("AGENT_EGRESS_PROXY_USERNAME") {
+            Some(user) => Some((user, var("AGENT_EGRESS_PROXY_PASSWORD").unwrap_or_default())),
+            None if !url.username().is_empty() => Some((
+                decode(url.username()),
+                decode(url.password().unwrap_or_default()),
+            )),
+            None => None,
+        };
+        // Both only fail on a URL without a host, refused above.
+        url.set_username("").ok();
+        url.set_password(None).ok();
+        Ok(Self::Proxy { url, credentials })
+    }
+
+    /// The enrolment client's proxy: the same as the tunnel's.
+    fn apply(&self, builder: reqwest::ClientBuilder) -> Result<reqwest::ClientBuilder, String> {
+        match self {
+            Self::Direct => Ok(builder.no_proxy()),
+            Self::Proxy { url, credentials } => {
+                let mut proxy = reqwest::Proxy::all(url.as_str()).map_err(|err| err.to_string())?;
+                if let Some((user, password)) = credentials {
+                    proxy = proxy.basic_auth(user, password);
+                }
+                Ok(builder.proxy(proxy))
+            }
+        }
+    }
+}
+
+/// Whether `NO_PROXY` names `host`: `*`, the host itself or a parent domain
+/// (`example.com` and `.example.com` both match `a.example.com`).
+// shortcut: no CIDR ranges nor ports, add them when an operator needs one.
+fn bypasses(no_proxy: &str, host: &str) -> bool {
+    let host = host.trim_matches(['[', ']']).to_ascii_lowercase();
+    no_proxy
+        .split(',')
+        .map(|entry| entry.trim().trim_start_matches('.').to_ascii_lowercase())
+        .filter(|entry| !entry.is_empty())
+        .any(|entry| {
+            entry == "*"
+                || host == entry
+                || host
+                    .strip_suffix(entry.as_str())
+                    .is_some_and(|rest| rest.ends_with('.'))
+        })
+}
+
+/// A TCP connection to `host:port`, direct or through the egress proxy;
+/// the TLS that follows goes through it untouched.
+async fn dial(egress: &Egress, host: &str, port: u16) -> Result<TcpStream, Reason> {
+    let Egress::Proxy { url, credentials } = egress else {
+        return tokio::time::timeout(STEP_TIMEOUT, TcpStream::connect((host, port)))
+            .await
+            .map_err(|_| "connect")?
+            .map_err(|_| "connect");
+    };
+    let proxy: http::Uri = url.as_str().parse().map_err(|_| "connect")?;
+    let target: http::Uri = format!("https://{host}:{port}")
+        .parse()
+        .map_err(|_| "connect")?;
+    let mut connector = HttpConnector::new();
+    // The proxy's own scheme is `socks5h`, which the connector refuses otherwise.
+    connector.enforce_http(false);
+    let refused = |err: &dyn std::error::Error| {
+        warn!(error = %err, proxy = %url, "egress proxy refused the tunnel");
+        "connect"
+    };
+    let io = if url.scheme() == "http" {
+        let mut tunnel = Tunnel::new(proxy, connector);
+        if let Some((user, password)) = credentials {
+            let basic =
+                base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"));
+            let mut auth =
+                http::HeaderValue::from_str(&format!("Basic {basic}")).map_err(|_| "connect")?;
+            auth.set_sensitive(true);
+            tunnel = tunnel.with_auth(auth);
+        }
+        tokio::time::timeout(STEP_TIMEOUT, tunnel.call(target))
+            .await
+            .map_err(|_| "connect")?
+            .map_err(|err| refused(&err))?
+    } else {
+        let mut socks = SocksV5::new(proxy, connector).local_dns(url.scheme() == "socks5");
+        if let Some((user, password)) = credentials {
+            socks = socks.with_auth(user.clone(), password.clone());
+        }
+        tokio::time::timeout(STEP_TIMEOUT, socks.call(target))
+            .await
+            .map_err(|_| "connect")?
+            .map_err(|err| refused(&err))?
+    };
+    Ok(io.into_inner())
 }
 
 impl Config {
@@ -106,6 +271,7 @@ impl Config {
                 .port_or_known_default()
                 .ok_or("AGENT_UPSTREAM has no port")?
         );
+        let egress = Egress::from_lookup(var, proxy_url.host_str().unwrap_or_default())?;
         Ok(Self {
             proxy_url,
             cluster,
@@ -115,6 +281,7 @@ impl Config {
                 .unwrap_or_else(|| "/var/run/secrets/proxyauth/token".to_string())
                 .into(),
             kube_ca_path: var("AGENT_KUBE_CA_PATH").map(PathBuf::from),
+            egress,
         })
     }
 
@@ -251,10 +418,16 @@ pub async fn run(config: Config, health: Arc<Health>) {
             return std::future::pending().await;
         }
     };
-    let http = reqwest::Client::builder()
-        .use_preconfigured_tls((*outer).clone())
-        .timeout(STEP_TIMEOUT)
-        .build();
+    let http = config
+        .egress
+        .apply(reqwest::Client::builder())
+        .and_then(|builder| {
+            builder
+                .use_preconfigured_tls((*outer).clone())
+                .timeout(STEP_TIMEOUT)
+                .build()
+                .map_err(|err| err.to_string())
+        });
     let http = match http {
         Ok(http) => http,
         Err(err) => {
@@ -367,10 +540,7 @@ async fn tunnel(
     let url = &config.proxy_url;
     let host = url.host_str().ok_or("connect")?;
     let port = url.port_or_known_default().ok_or("connect")?;
-    let tcp = tokio::time::timeout(STEP_TIMEOUT, TcpStream::connect((host, port)))
-        .await
-        .map_err(|_| "connect")?
-        .map_err(|_| "connect")?;
+    let tcp = dial(&config.egress, host, port).await?;
     let stream: Box<dyn Io> = if url.scheme() == "wss" {
         let name = ServerName::try_from(host.to_string()).map_err(|_| "connect")?;
         Box::new(
@@ -605,6 +775,226 @@ mod tests {
     fn a_revoking_close_drops_the_identity() {
         assert_eq!(close_reason("epoch"), "revoked");
         assert_eq!(close_reason("idle"), "closed");
+    }
+
+    fn egress(vars: &[(&str, &str)], host: &str) -> Result<Egress, String> {
+        let vars: HashMap<&str, &str> = vars.iter().copied().collect();
+        Egress::from_lookup(|name| vars.get(name).map(ToString::to_string), host)
+    }
+
+    #[test]
+    fn the_egress_follows_the_chart_then_the_environment() {
+        assert_eq!(egress(&[], "proxy.example.com").unwrap(), Egress::Direct);
+        let Egress::Proxy { url, credentials } = egress(
+            &[
+                ("HTTPS_PROXY", "http://u%40x:p%3Ass@squid:3128"),
+                ("ALL_PROXY", "socks5h://other:1080"),
+            ],
+            "proxy.example.com",
+        )
+        .unwrap() else {
+            panic!("HTTPS_PROXY ignored")
+        };
+        assert_eq!(url.as_str(), "http://squid:3128/");
+        assert_eq!(credentials, Some(("u@x".to_string(), "p:ss".to_string())));
+        for no_proxy in ["*", "example.com", ".example.com", "a,proxy.example.com"] {
+            assert_eq!(
+                egress(
+                    &[("HTTPS_PROXY", "http://squid:3128"), ("NO_PROXY", no_proxy)],
+                    "proxy.example.com"
+                )
+                .unwrap(),
+                Egress::Direct,
+                "{no_proxy}"
+            );
+        }
+        assert_ne!(
+            egress(
+                &[
+                    ("HTTPS_PROXY", "http://squid:3128"),
+                    ("NO_PROXY", "ample.com")
+                ],
+                "proxy.example.com"
+            )
+            .unwrap(),
+            Egress::Direct
+        );
+        // The chart's proxy wins, NO_PROXY or not, and so do its credentials.
+        let chart = egress(
+            &[
+                (
+                    "AGENT_EGRESS_PROXY_URL",
+                    "socks5h://user:url@microsocks:1080",
+                ),
+                ("AGENT_EGRESS_PROXY_USERNAME", "agent"),
+                ("AGENT_EGRESS_PROXY_PASSWORD", "s3cret"),
+                ("NO_PROXY", "*"),
+            ],
+            "proxy.example.com",
+        )
+        .unwrap();
+        assert!(!format!("{chart:?}").contains("s3cret"), "{chart:?}");
+        assert_eq!(
+            chart,
+            Egress::Proxy {
+                url: "socks5h://microsocks:1080".parse().unwrap(),
+                credentials: Some(("agent".to_string(), "s3cret".to_string())),
+            }
+        );
+        for bad in ["https://squid:3128", "socks4://s:1080", "squid:3128"] {
+            assert!(
+                egress(&[("AGENT_EGRESS_PROXY_URL", bad)], "p").is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    use tokio::net::TcpListener;
+
+    /// One connection through `serve`, then an echo of what follows.
+    async fn proxy_server<F, Fut>(serve: F) -> Url
+    where
+        F: FnOnce(TcpStream) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Option<TcpStream>> + Send,
+    {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            if let Some(mut tcp) = serve(tcp).await {
+                let mut buf = [0u8; 64];
+                let read = tcp.read(&mut buf).await.unwrap();
+                tcp.write_all(&buf[..read]).await.unwrap();
+            }
+        });
+        format!("http://{address}").parse().unwrap()
+    }
+
+    async fn echoes(egress: &Egress) -> Result<(), Reason> {
+        let mut tcp = dial(egress, "agent.proxy.test", 443).await?;
+        tcp.write_all(b"tls").await.unwrap();
+        let mut buf = [0u8; 3];
+        tcp.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"tls");
+        Ok(())
+    }
+
+    /// An HTTP proxy asking `Basic agent:s3cret`, answering `407` otherwise.
+    async fn connect_proxy() -> Url {
+        proxy_server(|mut tcp| async move {
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                head.push(tcp.read_u8().await.ok()?);
+            }
+            let head = String::from_utf8(head).unwrap();
+            assert!(
+                head.starts_with("CONNECT agent.proxy.test:443 HTTP/1.1\r\n"),
+                "{head}"
+            );
+            // base64("agent:s3cret")
+            if head.contains("Proxy-Authorization: Basic YWdlbnQ6czNjcmV0\r\n") {
+                tcp.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                    .await
+                    .ok()?;
+                Some(tcp)
+            } else {
+                drop(
+                    tcp.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n")
+                        .await,
+                );
+                None
+            }
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn the_tunnel_goes_through_a_connect_proxy_with_its_credentials() {
+        let credentials = |password: &str| Some(("agent".to_string(), password.to_string()));
+        let url = connect_proxy().await;
+        echoes(&Egress::Proxy {
+            url,
+            credentials: credentials("s3cret"),
+        })
+        .await
+        .unwrap();
+        for credentials in [credentials("wrong"), None] {
+            let url = connect_proxy().await;
+            assert_eq!(
+                echoes(&Egress::Proxy { url, credentials }).await,
+                Err("connect")
+            );
+        }
+    }
+
+    /// A SOCKS5 proxy (RFC 1928) asking `agent` / `s3cret` (RFC 1929), or
+    /// nothing; the name must reach it unresolved (`socks5h`).
+    async fn socks_proxy(auth: bool) -> Url {
+        let url = proxy_server(move |mut tcp| async move {
+            let mut greeting = [0u8; 2];
+            tcp.read_exact(&mut greeting).await.ok()?;
+            let mut methods = vec![0u8; usize::from(greeting[1])];
+            tcp.read_exact(&mut methods).await.ok()?;
+            let method = if auth { 2 } else { 0 };
+            if !methods.contains(&method) {
+                drop(tcp.write_all(&[5, 0xff]).await);
+                return None;
+            }
+            tcp.write_all(&[5, method]).await.ok()?;
+            if auth {
+                assert_eq!(tcp.read_u8().await.ok()?, 1);
+                let mut user = vec![0u8; usize::from(tcp.read_u8().await.ok()?)];
+                tcp.read_exact(&mut user).await.ok()?;
+                let mut password = vec![0u8; usize::from(tcp.read_u8().await.ok()?)];
+                tcp.read_exact(&mut password).await.ok()?;
+                let ok = user == b"agent" && password == b"s3cret";
+                tcp.write_all(&[1, u8::from(!ok)]).await.ok()?;
+                if !ok {
+                    return None;
+                }
+            }
+            let mut request = [0u8; 4];
+            tcp.read_exact(&mut request).await.ok()?;
+            assert_eq!(request, [5, 1, 0, 3], "CONNECT to a domain name");
+            let mut name = vec![0u8; usize::from(tcp.read_u8().await.ok()?)];
+            tcp.read_exact(&mut name).await.ok()?;
+            assert_eq!(name, b"agent.proxy.test");
+            assert_eq!(tcp.read_u16().await.ok()?, 443);
+            tcp.write_all(&[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await.ok()?;
+            Some(tcp)
+        })
+        .await;
+        // `set_scheme` refuses to leave a special scheme like `http`.
+        url.as_str().replacen("http", "socks5h", 1).parse().unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_tunnel_goes_through_a_socks5_proxy_with_its_credentials() {
+        let url = socks_proxy(false).await;
+        echoes(&Egress::Proxy {
+            url,
+            credentials: None,
+        })
+        .await
+        .unwrap();
+        let credentials = |password: &str| Some(("agent".to_string(), password.to_string()));
+        let url = socks_proxy(true).await;
+        echoes(&Egress::Proxy {
+            url,
+            credentials: credentials("s3cret"),
+        })
+        .await
+        .unwrap();
+        let url = socks_proxy(true).await;
+        assert_eq!(
+            echoes(&Egress::Proxy {
+                url,
+                credentials: credentials("wrong")
+            })
+            .await,
+            Err("connect")
+        );
     }
 
     #[test]

@@ -106,6 +106,27 @@ Le nom du release fixe celui du ServiceAccount (`<release>-proxyauthk8s-agent`),
 le `subject` du `ProxyKubeApi`. L'agent n'a **aucun RBAC** et aucun jeton d'API monté : seul son
 jeton projeté (audience `bootstrap.audience`) sert, à l'enrôlement.
 
+### Sortir par un proxy d'entreprise
+
+Si le cluster distant ne sort sur Internet que par un proxy, l'agent passe par lui, pour
+l'enrôlement comme pour le tunnel ; le proxy sortant ne voit qu'un flux TLS vers la passerelle.
+
+```bash
+kubectl -n proxyauth-agent create secret generic egress-proxy \
+  --from-literal=username=agent --from-literal=password='…'
+helm upgrade agent … \
+  --set egress.proxy.url=http://squid.corp:3128 \
+  --set egress.proxy.credentialsSecret=egress-proxy
+# SOCKS5, noms résolus par le proxy : --set egress.proxy.url=socks5h://socks.corp:1080
+```
+
+`http://` envoie un `CONNECT` (`Proxy-Authorization: Basic`), `socks5h://` un SOCKS5 avec
+authentification nom / mot de passe (`socks5://` résout le nom localement). Sans
+`egress.proxy.url`, l'agent lit `HTTPS_PROXY`, `ALL_PROXY` et `NO_PROXY` (valeurs `env`) ; sans
+elles, il sort en direct. Avec `networkPolicy.enabled`, ajoutez le proxy sortant à `egressTo` et
+son port à `egressPorts`. Un overlay WireGuard ou Netbird n'a besoin d'aucun de ces réglages :
+seulement de `proxy.caBundle` si l'URL du proxy a une PKI privée.
+
 ## Vérifier
 
 ```bash
@@ -138,6 +159,5 @@ cluster, celui-ci compris : listez vos namespaces pour que la clé reste à la p
 
 ## Pas encore disponible
 
-`OneShotToken` (jeton à usage unique), `tlsMode: passthrough`, une sortie de l'agent par un
-proxy HTTP (`CONNECT`) ou SOCKS5, et le CronJob `jwksPublisher` arrivent avec la phase 2 de la
-RFC 0012. L'agent sort aujourd'hui en direct.
+`OneShotToken` (jeton à usage unique), `tlsMode: passthrough` et le CronJob `jwksPublisher`
+arrivent avec la phase 2 de la RFC 0012.
