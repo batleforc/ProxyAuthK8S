@@ -30,6 +30,102 @@ pub fn discovery_rules() -> Vec<Value> {
 /// The fixture, applied and ready: `web` running, the cluster exposed, and
 /// `reader` logged in. `security` is the `security_config` of the cluster.
 pub async fn proxied(test: &str, security: Value) -> Proxied {
+    let service = json!({ "KubernetesService": {
+        "name": "kubernetes", "namespace": "default", "port": 443 } });
+    proxied_through(test, service, security, |_| ()).await
+}
+
+/// The release name of a test's agent (RFC 0012): its ServiceAccount is
+/// `agent-proxyauthk8s-agent`, the subject its CR names.
+pub const AGENT_RELEASE: &str = "agent";
+
+/// The `service: Agent` of a test's cluster in `ns`: the bench's apiserver
+/// reached through an agent of `ns`, enrolled with its projected token and
+/// checked against the bench's own JWKS, inline.
+pub fn agent_service(ns: &str) -> Value {
+    let jwks = Bench::get().admin(&["get", "--raw", "/openid/v1/jwks"]);
+    assert!(jwks.status.success(), "read the bench's JWKS");
+    json!({ "Agent": {
+        "bootstrap": { "ServiceAccountToken": {
+            "subject": format!(
+                "system:serviceaccount:{ns}:{AGENT_RELEASE}-proxyauthk8s-agent"),
+            "jwks": String::from_utf8_lossy(&jwks.stdout).trim(),
+        } },
+    } })
+}
+
+/// `helm upgrade --install` of the agent chart in `ns`, for `cluster` (its
+/// `namespace/name`), with `replicas` replicas and `extra` `--set`s.
+pub fn install_agent(ns: &str, cluster: &str, replicas: u32, extra: &[&str]) {
+    let bench = Bench::get();
+    let cluster = format!("proxy.cluster={cluster}");
+    let replicas = format!("replicaCount={replicas}");
+    let url = format!(
+        "proxy.url=wss://agent.k8s.localhost:{}/agent/v1/connect",
+        8443
+    );
+    let ca = format!("proxy.caBundle={}", bench.ca_path().display());
+    let mut args = vec![
+        "upgrade",
+        "--install",
+        AGENT_RELEASE,
+        "deploy/chart-agent",
+        "-n",
+        ns,
+        "--set",
+        &cluster,
+        "--set",
+        &replicas,
+        "--set",
+        &url,
+        "--set-file",
+        &ca,
+        "--set",
+        "image.repository=localhost/proxyauthk8s/agent",
+        "--set",
+        "image.tag=it",
+        "--set",
+        "image.pullPolicy=Never",
+        "--set",
+        "podDisruptionBudget.enabled=false",
+    ];
+    for set in extra {
+        args.extend(["--set", set]);
+    }
+    let out = bench.helm(&args);
+    assert!(
+        out.status.success(),
+        "helm install the agent: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The fixture in front of an agent (RFC 0012 §6.P): the cluster `c` is
+/// `service: Agent`, its `replicas` agents run in the test's namespace, and
+/// it is exposed once one of them holds a tunnel.
+pub async fn agent_proxied(test: &str, security: Value, replicas: u32) -> Proxied {
+    let ns = crate::bench::namespace_name(test);
+    proxied_through(test, agent_service(&ns), security, |ns| {
+        install_agent(ns, &format!("{ns}/{CLUSTER}"), replicas, &[]);
+        wait(
+            ns,
+            &[
+                "deployment/agent-proxyauthk8s-agent",
+                "--for=condition=Available",
+            ],
+        );
+    })
+    .await
+}
+
+/// [`proxied`] with `service`; `before_ready` runs once everything is
+/// applied, before waiting for the cluster to be exposed.
+async fn proxied_through(
+    test: &str,
+    service: Value,
+    security: Value,
+    before_ready: impl FnOnce(&str),
+) -> Proxied {
     let bench = Bench::get();
     let ns = bench.namespace(test);
     let busybox = image("busybox");
@@ -43,8 +139,7 @@ pub async fn proxied(test: &str, security: Value) -> Proxied {
                 "metadata": { "name": CLUSTER, "namespace": ns.name },
                 "spec": {
                     "cert": { "ConfigMap": { "name": "kube-root-ca.crt", "key": "ca.crt" } },
-                    "service": { "KubernetesService": {
-                        "name": "kubernetes", "namespace": "default", "port": 443 } },
+                    "service": service,
                     "expose_via_dashboard": true,
                     "dashboard_group": "it-readers",
                     "proxy_group": "it-readers",
@@ -96,6 +191,7 @@ pub async fn proxied(test: &str, security: Value) -> Proxied {
     });
     bench.apply(&items.to_string());
     wait(&ns.name, &["pod/web", "--for=condition=Ready"]);
+    before_ready(&ns.name);
     // Listed by the API once the controller reconciled it.
     wait(
         &ns.name,

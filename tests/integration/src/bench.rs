@@ -143,6 +143,19 @@ impl Bench {
         child.wait_with_output().expect("kubectl ran")
     }
 
+    /// `helm` as the cluster admin, from the repository root (charts are
+    /// named by their path): setup only.
+    pub fn helm(&self, args: &[&str]) -> std::process::Output {
+        Command::new("helm")
+            .arg("--kubeconfig")
+            .arg(self.admin_kubeconfig())
+            .args(args)
+            .current_dir(&self.root)
+            .stdin(Stdio::null())
+            .output()
+            .expect("helm is on PATH")
+    }
+
     /// `kubectl apply -f -` as the admin; panics with kubectl's message.
     pub fn apply(&self, yaml: &str) {
         let mut out = self.admin_with_stdin(&["apply", "-f", "-"], Some(yaml));

@@ -2509,12 +2509,16 @@ dependencies = [
 name = "integration"
 version = "0.3.0"
 dependencies = [
+ "futures-util",
  "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "serde_yaml_ng",
  "tempfile",
  "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
  "url",
 ]
 

@@ -61,3 +61,16 @@ front:
 metrics:
   prometheus:
     enabled: true
+
+# RFC 0012 §6.P: the agent gateway, 2 pods (decision 26), its agents' Ingress
+# on agent.k8s.localhost; the agents themselves are installed per test.
+agentGateway:
+  enabled: true
+  mode: separate
+  replicaCount: 2
+  ingress:
+    enabled: true
+    host: agent.k8s.localhost
+    tls:
+      enabled: true
+      secretName: proxyauthk8s-tls

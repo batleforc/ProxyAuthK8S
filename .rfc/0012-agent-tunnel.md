@@ -1057,6 +1057,7 @@ les écarts sont notés ici.
 | 1e-iii audit, métriques, fuzz | fait | `Event::{AgentEnrolled, AgentRefused, AgentConnected, AgentDisconnected}` (raison, `agent_epoch`, `agent_version`, `client_ip`), `upstream_via` (`direct` / `agent`) sur chaque ligne d'une requête relayée ; `proxyauth_agent_tunnels`, `proxyauth_agent_streams_total{result}`, `proxyauth_agent_enrollments_total{method,result}`, `proxyauth_agent_bytes_total{direction}` (`to_agent`, `from_agent`) ; cibles `fuzz_agent_control` et `fuzz_agent_enroll` (30 s chacune sans plantage) ; tests T14 `agent_tunnel` 13/13 ; `security.mdx` |
 | 1d `apps/agent`, image, chart | fait | `apps/agent` (`Config::from_lookup` des `AGENT_*`, `run`, `Health`) : enrôlement par le jeton projeté, `wss://` (`ws://` sur une adresse de bouclage seulement), mTLS interne, yamux `Mode::Server`, flux de contrôle ouvert par `AgentInfo`, `Ping` toutes les 30 s, renouvellement aux 2/3 sans couper les pings, reconnexion 1 à 60 s, un `Close` de révocation fait réenrôler ; `/healthz`, `/readyz` (tunnel ouvert), `/metrics` (`proxyauth_agent_tunnel_up`, `_reconnects_total{reason}`, `_cert_expiry_seconds`) sur `:9090` ; `AgentKey` dans `agent_pki` ; `deploy/build/agent/Containerfile` (musl statique, distroless `nonroot` épinglé par digest, 12,6 Mo, trivy propre) ; `deploy/chart-agent/` (ServiceAccount sans RBAC, `automountServiceAccountToken: false`, volume projeté jeton + `kube-root-ca.crt`, PDB, NetworkPolicy de sortie) ; CI (`build.yaml`, `release-prepare.yml`), `cog.toml`, `lint:helm`, `audit:image` ; test de bout en bout `the_real_agent_enrols_and_carries_a_relayed_request` |
 | 1e tests de sécurité T1 à T15, T17 à T19, fuzz | fait | un test par menace, au nom de §14, dans `agent_tunnel.rs` (28/28, T17 sous `--features envtest`) ; T18 est `connect::tests::a_connect_without_the_proxy_token_is_refused` ; T6 et T16 sont de la phase 2. Trois défauts trouvés et corrigés : `Hello` partait avant l'inscription du tunnel (un tunnel au-delà de `tunnelsPerAgentIdentity` était salué puis coupé), le flux de contrôle comptait dans la borne yamux (`streams_per_tunnel: 1` ne laissait aucun flux de données), et le client JWKS suivait les redirections, `jwks_url` n'étant vérifié en `https://` qu'à l'admission |
+| 3 (part) banc, `rfc0012.rs`, `MATRIX.md`, documentation, mesures | fait | banc : image de l'agent construite et importée, `agent.k8s.localhost` dans les `hostAliases`, la passerelle à 2 pods avec son Ingress (`.it/values.yaml`) ; fixture `agent_proxied` (un `deploy/chart-agent` par test, le JWKS du banc en ligne) ; `rfc0012.rs` 10/10 (points 1 à 7, 12, 13, 15) et `rfc0012_restart.rs` 1/1 (point 14, seul) sur le banc k3d ; le reste de la suite Rust inchangé (63/64 en parallèle, le 64e, `rfc0007::p3`, passe seul : limite inotify de l'hôte) ; `MATRIX.md` : 11 lignes `suite`, points 8 à 11 `hors suite` (phase 2) ; 0012 retirée de `PENDING` ; `docs/content/docs/agent.mdx`. Le banc a trouvé deux défauts, corrigés : le pod de la passerelle sans nom DNS (EndpointSlice, voir « Écarts ») et un `401` au lieu de `503 agent unavailable` quand `validate_against: Kubernetes` n'a pas de tunnel. Mesures (§10.3, `measure_the_agent_overhead`, banc k3d sous podman) : `kubectl get pods`, médiane de 21, 81 ms en direct, 131 ms par l'agent (un `CONNECT`, un flux et un TLS de plus par processus kubectl) ; stdout d'un exec, 435 Mio/s en direct, 55 Mio/s par l'agent (trois TLS, WebSocket, yamux) |
 
 ### Reprise (à lire en premier après un redémarrage)
 
@@ -1124,16 +1125,23 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 10. ~~**L'agent**.~~ Fait pour la phase 1 : sortie directe seulement
     (`CONNECT` et SOCKS5 sont de la phase 2), `ServiceAccountToken` seul.
     Le chart refuse `tlsMode` autre que `inner` et une autre méthode.
-11. ~~Tests de sécurité restants.~~ Faits. **La phase 1 est complète** ;
-    restent hors code : le banc de la phase 3 (`rfc0012.rs`, `MATRIX.md`,
-    mesures de §10.3, documentation), puis la phase 2 (`OneShotToken`,
-    `passthrough`, sortie `CONNECT` / SOCKS5, `jwksPublisher`).
+11. ~~Tests de sécurité restants.~~ Faits. **La phase 1 est complète**, prouvée
+    sur le banc (phase 3 faite pour les points de la phase 1).
+12. Ouvrir la PR (0.4.0 = RFC 0011 + 0012) ; puis la phase 2 (`OneShotToken`,
+    `passthrough`, sortie `CONNECT` / SOCKS5, `jwksPublisher`), qui livre les
+    points 8 à 11 de §6.P et leurs lignes de `MATRIX.md`.
 
 **Lancer les tests** :
 
 - Redis : `podman run -d --rm --name proxyauth-test-redis -p 16379:6379
   docker.io/library/redis:7-alpine redis-server --save ''`, puis
   `TEST_REDIS_URL=redis://127.0.0.1:16379 REQUIRE_TEST_REDIS=1`.
+- Banc : `task it:up` (podman : `systemctl --user start podman.socket`),
+  puis `task it:test`, ou
+  `env -u DBUS_SESSION_BUS_ADDRESS keyctl session - cargo nextest run -p integration --profile it --test rfc0012` ;
+  `task it:reload IMAGE=server` puis `rollout restart` de la passerelle après
+  un changement du serveur. La suite entière demande
+  `fs.inotify.max_user_instances=512` et `kernel.keys.maxbytes=2000000` (root).
 - envtest : `KUBEBUILDER_ASSETS=$(dirname $(find
   ~/.local/share/kubebuilder-envtest -name kube-apiserver -type f | head -1))`
   et `--features envtest`, `-j 1` pour un fichier lourd.
@@ -1158,6 +1166,14 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
   un horodatage changerait le statut à chaque reconcile, qui en relancerait
   un (le contrôleur ne filtre pas sur `generation`). `gateways`, `versions`
   et `caFingerprints` (listes triées) le remplacent.
+- **Le pod de la passerelle se trouve par l'EndpointSlice, pas par le DNS**
+  (décision 26 : `<pod>.<service headless>.<ns>.svc`) : un pod de Deployment
+  n'a pas de nom DNS à lui (seul un pod qui fixe `hostname` en a, comme ceux
+  d'un StatefulSet), ce que le banc a montré. Le proxy lit les EndpointSlices
+  du Service headless (`list`, Role du chart), garde les membres de présence
+  qui y sont des pods prêts, et joint l'adresse que l'API donne pour ce pod.
+  T19 tient, et se resserre : un membre forgé qui nomme un autre pod ne mène
+  nulle part.
 - **`Hello` après l'inscription** : la passerelle inscrit le tunnel dans le
   registre avant d'envoyer `Hello` ; un tunnel refusé (limite par identité)
   reçoit `Close` à la place. `Hello` vaut acceptation.
