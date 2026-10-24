@@ -34,9 +34,11 @@ use common::{State, oidc_conf::OidcConf};
 use controller::proxy_kube_api::{
     main_reconcile_proxy_kube_api, reconcile::reconcile_proxy_kube_api,
 };
+use crd::authentication_configuration::OidcConfigSource;
 use crd::{PROXY_KUBE_FINALIZER, ProxyKubeApi, status::ProxyKubeApiStatus};
 use deadpool_redis::{Pool, redis::AsyncTypedCommands};
 use envtest_support::EnvTest;
+use k8s_openapi::api::core::v1::Secret;
 use k8s_openapi::api::events::v1::Event;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::ResourceExt;
@@ -309,6 +311,83 @@ async fn an_unreachable_cluster_gets_an_error_status_patched_onto_the_resource()
 
     reset_redis(&pool, &cache_id("reconcile-broken")).await;
     delete_proxy(client, "reconcile-broken").await;
+}
+
+/// RFC 0011, T2: an `OidcConfigUnresolved` message goes to the status, the
+/// `Ready` condition and an Event, readable by the whole namespace, so it may
+/// name the Secret's keys but never carry a value read from it.
+#[tokio::test]
+async fn an_unresolved_oidc_config_never_shows_the_client_secret() {
+    const CANARY: &str = "t2-canary-client-secret";
+    let pool = redis_or_skip!();
+    let env_test = envtest_or_skip!();
+    let client = env_test.client().expect("client should build");
+    install_crd(client.clone()).await;
+
+    // Has the secret but no `issuer_url`: resolution fails on `Incomplete`.
+    let secret: Secret = serde_json::from_value(serde_json::json!({
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": { "name": "reconcile-oidc-t2", "namespace": "default" },
+        "stringData": { "client_id": "proxyauthk8s", "client_secret": CANARY },
+    }))
+    .expect("secret should deserialize");
+    Api::<Secret>::namespaced(client.clone(), "default")
+        .create(&PostParams::default(), &secret)
+        .await
+        .expect("the secret should be accepted");
+
+    let mut auth_config = harness::oidc_auth_config("");
+    auth_config.oidc_provider.client_id = String::new();
+    auth_config.oidc_provider.client_secret = None;
+    auth_config.oidc_provider.config_from = Some(OidcConfigSource::Secret {
+        name: "reconcile-oidc-t2".to_string(),
+        namespace: None,
+    });
+    let mut proxy =
+        harness::proxy_fixture("default", "reconcile-oidc-t2", "https://unused.example.com");
+    proxy.spec.auth_config = Some(auth_config);
+    let proxy = proxies(client.clone())
+        .create(&PostParams::default(), &proxy)
+        .await
+        .expect("a config_from proxy should be admitted");
+
+    reset_redis(&pool, &cache_id("reconcile-oidc-t2")).await;
+    reconcile_proxy_kube_api(&proxy, Arc::new(state_for(client.clone())))
+        .await
+        .expect("an unresolved OIDC config still reconciles");
+
+    let status = proxies(client.clone())
+        .get("reconcile-oidc-t2")
+        .await
+        .expect("the proxy should still exist")
+        .status
+        .expect("the status should have been patched");
+    assert_eq!(ready(&status).reason, "OidcConfigUnresolved");
+    let error = status.error.as_deref().expect("an error message");
+    assert!(error.contains("issuer_url"), "{error}");
+    assert!(!error.contains(CANARY), "{error}");
+    assert!(!ready(&status).message.contains(CANARY), "{status:?}");
+
+    wait_event(
+        client.clone(),
+        "reconcile-oidc-t2",
+        "Warning",
+        "OidcConfigUnresolved",
+    )
+    .await;
+    let notes: Vec<String> = Api::<Event>::namespaced(client.clone(), "default")
+        .list(&ListParams::default())
+        .await
+        .expect("events list")
+        .items
+        .into_iter()
+        .filter_map(|e| e.note)
+        .collect();
+    assert!(notes.iter().all(|n| !n.contains(CANARY)), "{notes:?}");
+
+    reset_redis(&pool, &cache_id("reconcile-oidc-t2")).await;
+    delete_proxy(client, "reconcile-oidc-t2").await;
 }
 
 #[tokio::test]
