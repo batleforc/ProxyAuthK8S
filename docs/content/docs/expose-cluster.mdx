@@ -17,7 +17,7 @@ schéma de la CRD, et la [référence CRD](/docs/crds) décrit chaque champ.
 
 ## 1. Où est l'apiserver ? (`service`)
 
-Exactement une des deux variantes :
+Exactement une des trois variantes :
 
 ```yaml
 # Un apiserver joignable par URL (autre cluster, load balancer, VIP…)
@@ -34,6 +34,15 @@ service:
     namespace: default   # défaut : namespace du ProxyKubeApi
     port: 443            # ou port_name
 ```
+
+```yaml
+# Un apiserver que le proxy ne peut pas joindre : un agent ouvre le tunnel
+service:
+  Agent:
+    bootstrap: { ServiceAccountToken: { … } }
+```
+
+La troisième est décrite dans [Cluster derrière un agent](/docs/agent).
 
 Préférez toujours `https` : selon le mode d'authentification, le jeton de l'utilisateur est
 transmis à cette URL. Voir [Cible upstream (SSRF)](/docs/security#cible-upstream-ssrf).

@@ -8,6 +8,7 @@
     "roadmap.mdx",
     "architecture.mdx",
     "expose-cluster.mdx",
+    "agent.mdx",
     "status-and-events.mdx",
     "crds",
     "security.mdx",
