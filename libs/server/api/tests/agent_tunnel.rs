@@ -145,6 +145,23 @@ async fn fake_apiserver() -> (std::net::SocketAddr, String) {
                             .and_then(|v| v.to_str().ok())
                             .unwrap_or("none")
                             .to_string();
+                        if req.uri().path().ends_with("/selfsubjectreviews") {
+                            // `validate_against: Kubernetes`: one known token.
+                            let (status, body) = if auth == "Bearer good-token" {
+                                (
+                                    201,
+                                    r#"{"apiVersion":"authentication.k8s.io/v1","kind":"SelfSubjectReview","status":{"userInfo":{"username":"alice","groups":["dev"]}}}"#,
+                                )
+                            } else {
+                                (401, r#"{"kind":"Status","code":401}"#)
+                            };
+                            let response = hyper::Response::builder()
+                                .status(status)
+                                .header("content-type", "application/json")
+                                .body(Full::new(bytes::Bytes::from(body)))
+                                .unwrap();
+                            return Ok(response);
+                        }
                         let body = format!("apiserver saw {} auth={auth}", req.uri().path());
                         Ok(hyper::Response::new(Full::new(bytes::Bytes::from(body))))
                     },
@@ -846,4 +863,42 @@ async fn the_gateway_answers_its_probes() {
             .status();
         assert_eq!(status, 200, "{probe}");
     }
+}
+
+/// Step 8 of RFC 0012 §17: `validate_against: Kubernetes` reaches an `Agent`
+/// cluster's apiserver through the gateway; a refused token is the caller's
+/// fault (fail2login), a missing tunnel is not.
+#[tokio::test]
+async fn a_self_subject_review_crosses_the_gateway_and_the_tunnel() {
+    use api::model::user::User;
+
+    let pool = redis_or_skip!();
+    let (state, ns, cluster, _tunnel) = agent_cluster(&pool).await;
+    let proxy: crd::ProxyKubeApi = state
+        .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
+        .await
+        .unwrap()
+        .unwrap();
+
+    let user =
+        User::auth_against_kubernetes(state.clone(), proxy.clone(), "good-token".to_string())
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(user.username, "alice");
+    assert_eq!(user.groups, vec!["dev"]);
+
+    let refused = User::auth_against_kubernetes(state.clone(), proxy.clone(), "bad".to_string())
+        .await
+        .unwrap_err();
+    assert!(refused.is_caller_fault(), "{refused:?}");
+
+    let mut orphan = proxy;
+    orphan.metadata.uid = Some("ffffffff-0000-4000-8000-000000000000".to_string());
+    let unreachable = User::auth_against_kubernetes(state, orphan, "good-token".to_string())
+        .await
+        .unwrap_err();
+    assert!(!unreachable.is_caller_fault(), "{unreachable:?}");
+
+    delete_proxy(&pool, &ns, &cluster).await;
 }

@@ -11,6 +11,7 @@ use common::{
 };
 use crd::ProxyKubeApi;
 use crd::service::Service;
+use k8s_openapi::api::authentication::v1::SelfSubjectReview;
 use kube::ResourceExt;
 use tracing::info;
 
@@ -163,4 +164,44 @@ pub(super) fn apply_forward_headers(
     }
 
     builder
+}
+
+/// `validate_against: Kubernetes` for an `Agent` cluster (RFC 0012): the
+/// caller's token reviewed by the apiserver through the agent gateway, on the
+/// token-only client (no front-proxy identity). The error carries the
+/// apiserver's status when it answered.
+pub(crate) async fn self_subject_review_through_agent(
+    proxy: &ProxyKubeApi,
+    data: &State,
+    token: &str,
+) -> Result<SelfSubjectReview, (Option<u16>, String)> {
+    let client = ca_only_client(proxy, data)
+        .await
+        .map_err(|err| (None, err))?;
+    let base = proxy
+        .spec
+        .service
+        .url_to_call(data.client.clone(), proxy.namespace().unwrap_or_default())
+        .await
+        .map_err(|err| (None, err.to_string()))?;
+    let response = client
+        .post(format!(
+            "{base}/apis/authentication.k8s.io/v1/selfsubjectreviews"
+        ))
+        .bearer_auth(token)
+        .json(&SelfSubjectReview::default())
+        .send()
+        .await
+        .map_err(|err| (None, err.to_string()))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err((
+            Some(status.as_u16()),
+            format!("the apiserver answered {status}"),
+        ));
+    }
+    response
+        .json()
+        .await
+        .map_err(|err| (Some(status.as_u16()), err.to_string()))
 }
