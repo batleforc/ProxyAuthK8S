@@ -875,10 +875,8 @@ async fn the_gateway_role_needs_its_connect_token() {
         std::future::pending(),
     )
     .await;
-    assert!(
-        matches!(ended, Err(api::agent::GatewayError::NoToken)),
-        "{ended:?}"
-    );
+    // No `{ended:?}`: an error of this module never reaches a log line here.
+    assert!(matches!(ended, Err(api::agent::GatewayError::NoToken)));
 }
 
 /// The gateway's probes: `/healthz` always, `/readyz` while Redis answers.
