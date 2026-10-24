@@ -57,7 +57,7 @@ pub struct Gateway {
     tls: Mutex<Option<(Instant, Arc<ServerConfig>)>>,
     /// The `jwks_url` keys of enrolment proofs.
     pub(super) jwks: jwt_validator::JwksCache,
-    pub(super) http: reqwest::Client,
+    pub(super) http: Option<reqwest::Client>,
 }
 
 impl Gateway {
@@ -77,7 +77,13 @@ impl Gateway {
             pod,
             tls: Mutex::new(None),
             jwks: jwt_validator::JwksCache::new(),
-            http: reqwest::Client::new(),
+            // T13: no redirect followed, 5 s per fetch; a client that cannot
+            // be built (no TLS backend) refuses every `jwks_url`.
+            http: reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(5))
+                .build()
+                .ok(),
         })
     }
 
@@ -147,7 +153,8 @@ impl Gateway {
         }
 
         let (handle, mut inbound, driver) =
-            mux::new(TokioAsyncReadCompatExt::compat(tls), Mode::Client, streams);
+            // One more for the control stream, which yamux counts too.
+            mux::new(TokioAsyncReadCompatExt::compat(tls), Mode::Client, streams.saturating_add(1));
         let connected = AtomicBool::new(false);
         let session = async {
             let mut control = tokio::time::timeout(self.settings.handshake_timeout, inbound.recv())
@@ -218,14 +225,6 @@ impl Gateway {
                 Ok(Ok(_)) => return Err("protocol"),
                 Ok(Err(_)) | Err(_) => return Err("control"),
             };
-        let hello = Kind::Hello(Hello {
-            replica_id: self.pod.clone(),
-            replicas_expected: 1,
-            protocol: agent_proto::PROTOCOL_VERSION,
-        });
-        control::write(control, hello)
-            .await
-            .map_err(|_| "control")?;
         let AgentInfo {
             version,
             ca_fingerprint,
@@ -239,6 +238,15 @@ impl Gateway {
                 streams,
             )
             .map_err(|_| "too many tunnels")?;
+        // Registered first: `Hello` tells the agent its tunnel is accepted.
+        let hello = Kind::Hello(Hello {
+            replica_id: self.pod.clone(),
+            replicas_expected: 1,
+            protocol: agent_proto::PROTOCOL_VERSION,
+        });
+        control::write(control, hello)
+            .await
+            .map_err(|_| "control")?;
         guard.describe(version, ca_fingerprint);
         info!(cluster = %identity.cluster(), %version, streams, "agent tunnel open");
         connected.store(true, Ordering::Release);

@@ -1056,7 +1056,7 @@ les écarts sont notés ici.
 | 1e'' `validate_against: Kubernetes` par la passerelle | fait | `kube_redirect::self_subject_review_through_agent` : le `SelfSubjectReview` part sur le client reqwest du cluster sans identité front-proxy (`ca_only_client`), donc par le `CONNECT` ; `UserAuthError::AgentSelfSubjectReview` (401/403 de l'apiserver = faute de l'appelant pour fail2login, tunnel absent = non) ; `to_kubeconfig` reste refusé ; test `agent_tunnel` 11/11 |
 | 1e-iii audit, métriques, fuzz | fait | `Event::{AgentEnrolled, AgentRefused, AgentConnected, AgentDisconnected}` (raison, `agent_epoch`, `agent_version`, `client_ip`), `upstream_via` (`direct` / `agent`) sur chaque ligne d'une requête relayée ; `proxyauth_agent_tunnels`, `proxyauth_agent_streams_total{result}`, `proxyauth_agent_enrollments_total{method,result}`, `proxyauth_agent_bytes_total{direction}` (`to_agent`, `from_agent`) ; cibles `fuzz_agent_control` et `fuzz_agent_enroll` (30 s chacune sans plantage) ; tests T14 `agent_tunnel` 13/13 ; `security.mdx` |
 | 1d `apps/agent`, image, chart | fait | `apps/agent` (`Config::from_lookup` des `AGENT_*`, `run`, `Health`) : enrôlement par le jeton projeté, `wss://` (`ws://` sur une adresse de bouclage seulement), mTLS interne, yamux `Mode::Server`, flux de contrôle ouvert par `AgentInfo`, `Ping` toutes les 30 s, renouvellement aux 2/3 sans couper les pings, reconnexion 1 à 60 s, un `Close` de révocation fait réenrôler ; `/healthz`, `/readyz` (tunnel ouvert), `/metrics` (`proxyauth_agent_tunnel_up`, `_reconnects_total{reason}`, `_cert_expiry_seconds`) sur `:9090` ; `AgentKey` dans `agent_pki` ; `deploy/build/agent/Containerfile` (musl statique, distroless `nonroot` épinglé par digest, 12,6 Mo, trivy propre) ; `deploy/chart-agent/` (ServiceAccount sans RBAC, `automountServiceAccountToken: false`, volume projeté jeton + `kube-root-ca.crt`, PDB, NetworkPolicy de sortie) ; CI (`build.yaml`, `release-prepare.yml`), `cog.toml`, `lint:helm`, `audit:image` ; test de bout en bout `the_real_agent_enrols_and_carries_a_relayed_request` |
-| 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
+| 1e tests de sécurité T1 à T15, T17 à T19, fuzz | fait | un test par menace, au nom de §14, dans `agent_tunnel.rs` (28/28, T17 sous `--features envtest`) ; T18 est `connect::tests::a_connect_without_the_proxy_token_is_refused` ; T6 et T16 sont de la phase 2. Trois défauts trouvés et corrigés : `Hello` partait avant l'inscription du tunnel (un tunnel au-delà de `tunnelsPerAgentIdentity` était salué puis coupé), le flux de contrôle comptait dans la borne yamux (`streams_per_tunnel: 1` ne laissait aucun flux de données), et le client JWKS suivait les redirections, `jwks_url` n'étant vérifié en `https://` qu'à l'admission |
 
 ### Reprise (à lire en premier après un redémarrage)
 
@@ -1093,7 +1093,7 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 | `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
 
 **État du dépôt au moment de l'arrêt** : voir `git status` ; les étapes 1 et
-10 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, `91161b0`, `184eb11`, `8b34416`, `ca0edb9`, `6df11fe`, `3286539`, `5a54b43`, puis l'agent).
+11 sont commitées (`d5fe653` … `5a54b43`, `1feb4cf` l'agent, puis les tests de sécurité) : la phase 1 est dans la branche.
 
 **Suite, dans l'ordre** (chaque étape : code, tests, §17 « État », commit) :
 
@@ -1124,8 +1124,10 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 10. ~~**L'agent**.~~ Fait pour la phase 1 : sortie directe seulement
     (`CONNECT` et SOCKS5 sont de la phase 2), `ServiceAccountToken` seul.
     Le chart refuse `tlsMode` autre que `inner` et une autre méthode.
-11. Tests de sécurité restants (§14, T1 à T19) dans
-    `libs/server/api/tests/agent_tunnel.rs`, puis la phase 2.
+11. ~~Tests de sécurité restants.~~ Faits. **La phase 1 est complète** ;
+    restent hors code : le banc de la phase 3 (`rfc0012.rs`, `MATRIX.md`,
+    mesures de §10.3, documentation), puis la phase 2 (`OneShotToken`,
+    `passthrough`, sortie `CONNECT` / SOCKS5, `jwksPublisher`).
 
 **Lancer les tests** :
 
@@ -1156,6 +1158,17 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
   un horodatage changerait le statut à chaque reconcile, qui en relancerait
   un (le contrôleur ne filtre pas sur `generation`). `gateways`, `versions`
   et `caFingerprints` (listes triées) le remplacent.
+- **`Hello` après l'inscription** : la passerelle inscrit le tunnel dans le
+  registre avant d'envoyer `Hello` ; un tunnel refusé (limite par identité)
+  reçoit `Close` à la place. `Hello` vaut acceptation.
+- **Le flux de contrôle compte dans la borne yamux** : la passerelle donne à
+  yamux `streams_per_tunnel + 1`, le registre borne les flux de données à
+  `streams_per_tunnel` ; l'agent accepte jusqu'à 1025 flux.
+- **T13, redirections** : le client des `jwks_url` ne suit aucune
+  redirection (`Policy::none()`, 5 s) ; le test ne prouve que le refus d'un
+  `http://` (un serveur HTTPS de test demanderait une CA que ce client ne
+  connaît pas). La borne de 64 Kio d'un JWKS récupéré n'est pas appliquée
+  (`JwksCache` est partagé avec les émetteurs OIDC).
 - **T12 et le RBAC du back** : sans `rbac.referencedNamespaces`, le
   ClusterRole du back garde un `get` sur tous les Secrets, CA des agents
   comprise ; RBAC n'a pas de refus. T12 ne tient pleinement, en mode

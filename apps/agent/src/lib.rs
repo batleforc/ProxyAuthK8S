@@ -32,8 +32,9 @@ use tracing::{debug, info, warn};
 const STEP_TIMEOUT: Duration = Duration::from_secs(10);
 /// The gateway closes a control channel silent for 90 s.
 const PING_EVERY: Duration = Duration::from_secs(30);
-/// The yamux ceiling of this end; the gateway's own bound is lower.
-const MAX_STREAMS: usize = 512;
+/// The yamux ceiling of this end: a gateway's `maxStreamsPerTunnel` up to
+/// 1024, plus the control stream. The gateway's own bound is the real one.
+const MAX_STREAMS: usize = 1025;
 const BACKOFF_MIN: Duration = Duration::from_secs(1);
 const BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// What the agent waits for a `RenewResponse` before asking again.

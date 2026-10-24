@@ -187,11 +187,12 @@ impl Gateway {
         kid: Option<&str>,
     ) -> Result<Jwk, Reason> {
         if let Some(url) = &bootstrap.jwks_url {
-            return self
-                .jwks
-                .key_at(&self.http, url, kid)
-                .await
-                .map_err(|_| "jwks");
+            // T13, for a CR that skipped admission.
+            if !url.starts_with("https://") {
+                return Err("jwks");
+            }
+            let http = self.http.as_ref().ok_or("jwks")?;
+            return self.jwks.key_at(http, url, kid).await.map_err(|_| "jwks");
         }
         let text = match (&bootstrap.jwks, &bootstrap.jwks_from) {
             (Some(inline), _) => inline.clone(),
