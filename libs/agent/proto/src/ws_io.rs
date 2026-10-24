@@ -11,7 +11,7 @@ use std::task::{Context, Poll, ready};
 use bytes::{Buf, Bytes};
 use futures_util::io::{AsyncRead, AsyncWrite};
 use futures_util::{Sink, Stream};
-use tokio_tungstenite::tungstenite::Message;
+pub use tokio_tungstenite::tungstenite::Message;
 
 /// Largest payload one frame carries; a longer write is split.
 pub const MAX_FRAME: usize = 16 * 1024;

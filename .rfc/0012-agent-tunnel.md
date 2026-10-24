@@ -1046,7 +1046,8 @@ les écarts sont notés ici.
 | 1c-i PKI des agents | fait | crate `agent_pki` : `AgentIdentity`, `AgentCa` (P-256, 10 ans), certificat d'agent (24 h) depuis la seule clé publique du CSR, certificat serveur du tunnel (7 jours) ; 7 tests |
 | 1c-ii passerelle : réglages, registre, `CONNECT` | fait | `common::config::AgentGatewaySettings` (`PROXYAUTH_ROLE` `proxy`/`gateway`/`embedded`, ports, Service headless, jeton, bornes de la décision 27) ; `api::agent::registry` (tunnel le moins chargé, réservation d'un flux sous le verrou, `close_where`) ; `api::agent::connect` (hyper, `407`/`400`/`503`/`429`, jeton comparé en temps constant) ; 7 tests, dont T18 |
 | 1c-iii passerelle : CA | fait | `api::agent::ca::load_or_create` ; envtest `envtest_agent_ca` (quatre pods en course : une seule CA, jamais remplacée) |
-| 1c-iv passerelle : écoute des agents (WebSocket, mTLS interne, contrôle), enrôlement, présences, rôle, chart | à faire | voir « Reprise », étapes 2 à 6 |
+| 1c-iv passerelle : écoute des agents (WebSocket, mTLS interne, contrôle) | fait | `api::agent::listener` (`Gateway`, `router`, `still_valid`) : axum `ws` (messages bornés à 16 Kio), `WsIo`, TLS mutuel sous la seule CA des agents (certificat serveur réémis chaque jour), identité du certificat comparée au `ProxyKubeApi` de Redis (UID, `epoch`, service `Agent`), contrôle `AgentInfo` puis `Hello`, `Ping`/`Pong`, `RenewRequest` (`epoch` revérifié), 90 s de silence ferment le tunnel ; tests `agent_tunnel` 5/5 (tunnel ouvert, flux, renouvellement ; `epoch` passé et CA étrangère refusés) |
+| 1c-v passerelle : enrôlement, présences, rôle, chart | à faire | voir « Reprise », étapes 3 à 6 |
 | 1c' proxy en `CONNECT` (décision 25) | fait | `common::agent_gateway::GatewayClient` (présences en sorted set Redis à l'heure de Redis, nom de pod validé, `<pod>.<service>:<port>`, cache 5 s, 60 s si Redis tombe) ; `upstream.rs` : `Proxy::custom` + `Proxy::headers`, jamais `None` (une URL `.invalid` à la place, pour qu'aucun repli direct ne soit possible) ; `upgrade/connect.rs` : `CONNECT` envoyé par hyper ; tests de bout en bout `agent_tunnel` (requête et exec à travers passerelle et tunnel jusqu'à un apiserver TLS) et unitaires (T19) |
 | 1d `apps/agent`, image, chart | à faire | |
 | 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
@@ -1076,34 +1077,19 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 | `libs/server/api/src/agent/registry.rs` | `TunnelRegistry` (`register` → `TunnelGuard`, `open_stream`, `identities`, `close_where`) |
 | `libs/server/api/src/agent/connect.rs` | écoute `CONNECT` de la passerelle (`ConnectService`, `serve`) |
 | `libs/server/api/src/agent/ca.rs` | `load_or_create` du Secret de la CA (`create`, relecture sur `409`) |
+| `libs/server/api/src/agent/listener.rs` | écoute des agents : `Gateway::new`, `router` (`/agent/v1/connect`), `still_valid` (réutilisable par les présences) |
 | `libs/server/api/src/cluster/redirect/kube_redirect/{upstream.rs,upgrade/connect.rs}` | le proxy en `CONNECT` (`agent_proxy`, `connect_through_gateway`) |
 | `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
 
-**État du dépôt au moment de l'arrêt** : voir `git status` ; si
-`upstream.rs`, `upgrade/connect.rs`, `agent_gateway.rs`, `agent/ca.rs` et les
-tests ci-dessus ne sont pas commités, l'étape 1 de la suite les commite.
+**État du dépôt au moment de l'arrêt** : voir `git status` ; les étapes 1 et
+2 sont commitées (`d5fe653`, `3ad574c`, puis l'écoute des agents).
 
 **Suite, dans l'ordre** (chaque étape : code, tests, §17 « État », commit) :
 
-1. Commiter le proxy en `CONNECT` (`.git/rfc0011/commit-0012-1c3.txt`) puis
-   la CA (`ca.rs`, `envtest_agent_ca.rs`) dans un second commit
-   `feat(api): create the agent CA Secret from the gateway (RFC 0012)`.
-2. **Écoute des agents** (`api/src/agent/listener.rs`) : axum avec la
-   feature `ws` (à ajouter à `axum` dans `libs/server/api/Cargo.toml`),
-   routes `POST /agent/v1/enroll` (corps ≤ 16 Kio) et `GET /agent/v1/connect`.
-   Pour `connect` : le `WebSocket` d'axum, ses `Message` convertis en ceux de
-   tungstenite (`map` / `with`), `WsIo`, `.compat()`, puis `TlsAcceptor`
-   (certificat serveur `AgentCa::issue_server`, `WebPkiClientVerifier` sur la
-   seule CA des agents), poignée de main sous `handshake_timeout` ;
-   `identity_of` sur le certificat du pair, comparé au `ProxyKubeApi` lu dans
-   Redis (`get_object_from_redis(REDIS_PREFIX, "ns/nom")` : UID égal, `epoch`
-   égal, service `Agent`) ; puis `mux::new(Mode::Client, streams_per_tunnel)`,
-   le premier flux entrant est le contrôle : envoyer `Hello { replica_id: pod,
-   replicas_expected: 1, protocol }`, lire `AgentInfo`, servir `Ping`/`Pong`
-   et `RenewRequest` (`issue_agent`, même identité, `epoch` revérifié) ;
-   fermer sur `TunnelGuard.closed`. Tout autre flux entrant est refermé (un
-   agent n'ouvre pas de flux de données). `registry.register` avec
-   `tunnels_per_identity`.
+1. ~~Commiter le proxy en `CONNECT` puis la CA.~~ Fait.
+2. ~~**Écoute des agents** (`api/src/agent/listener.rs`).~~ Fait ; reste à la
+   brancher dans `main.rs` (étape 5). La route `enroll` s'ajoute au même
+   `router`.
 3. **Enrôlement** (`api/src/agent/enroll.rs`) : corps
    `{ cluster: "ns/nom", csr, proof: { service_account_token } }` ;
    `ProxyKubeApi` depuis Redis ; JWKS selon la source : `jwks` en ligne
@@ -1195,6 +1181,12 @@ tests ci-dessus ne sont pas commités, l'étape 1 de la suite les commite.
   `identity_of` refuse un certificat qui n'en porte aucune ou plusieurs.
 - **Numéro de série aléatoire** (`ring`) : celui de rcgen par défaut est le
   hash de la clé publique, répété à chaque renouvellement avec la même clé.
+- **Le contrôle commence par `AgentInfo`** (§5.1, §6.2 : `Hello` d'abord) :
+  yamux n'annonce un flux qu'avec sa première trame, et l'agent qui attendrait
+  `Hello` sur un flux muet bloquerait les deux bouts. L'agent ouvre le flux en
+  écrivant `AgentInfo`, la passerelle répond `Hello`. De même, le premier
+  octet d'un flux de données vient de la passerelle (le `ClientHello` TLS du
+  proxy), jamais d'une attente de l'agent.
 - **yamux parle `futures-io`, pas `tokio::io`** : `WsIo` implémente les
   traits de `futures` et s'enchaîne directement sur yamux ; un flux yamux
   passe par `tokio_util::compat` là où tokio-rustls et `copy_bidirectional`

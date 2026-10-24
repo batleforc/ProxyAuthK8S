@@ -331,3 +331,217 @@ async fn an_exec_upgrade_crosses_the_gateway_and_the_tunnel() {
     server.abort();
     delete_proxy(&pool, &ns, &cluster).await;
 }
+
+/// A gateway's agent listener on a loopback port, under a new agent CA.
+async fn agent_listener() -> (
+    std::net::SocketAddr,
+    std::sync::Arc<api::agent::registry::TunnelRegistry>,
+    std::sync::Arc<agent_pki::AgentCa>,
+) {
+    let state = test_state("https://idp.example.com".to_string());
+    let ca = std::sync::Arc::new(agent_pki::AgentCa::generate().unwrap());
+    let registry = api::agent::registry::TunnelRegistry::new();
+    let mut settings = common::config::Config::from_lookup(|_| None).agent_gateway;
+    settings.handshake_timeout = std::time::Duration::from_secs(2);
+    let gateway = api::agent::listener::Gateway::new(
+        state,
+        std::sync::Arc::clone(&registry),
+        std::sync::Arc::clone(&ca),
+        settings,
+        "gw-0".to_string(),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        drop(axum::serve(listener, api::agent::listener::router(gateway)).await);
+    });
+    (addr, registry, ca)
+}
+
+/// An agent's side of the tunnel: WebSocket, mutual TLS with `cert_pem` and
+/// `key`, yamux, then the control stream: `AgentInfo` sent, `Hello` read.
+async fn dial_agent(
+    addr: std::net::SocketAddr,
+    trusted_ca_pem: &str,
+    cert_pem: &str,
+    key: &rcgen::KeyPair,
+) -> Result<
+    (
+        agent_proto::mux::Stream,
+        tokio::sync::mpsc::Receiver<agent_proto::mux::Stream>,
+        agent_proto::control::Hello,
+    ),
+    String,
+> {
+    use rustls::pki_types::pem::PemObject as _;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+    use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
+
+    let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let (ws, _) = tokio_tungstenite::client_async(format!("ws://{addr}/agent/v1/connect"), tcp)
+        .await
+        .map_err(|err| err.to_string())?;
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(CertificateDer::from_pem_slice(trusted_ca_pem.as_bytes()).unwrap())
+        .unwrap();
+    let tls = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_client_auth_cert(
+            vec![CertificateDer::from_pem_slice(cert_pem.as_bytes()).unwrap()],
+            PrivateKeyDer::from_pem_slice(key.serialize_pem().as_bytes()).unwrap(),
+        )
+        .unwrap();
+    let tls = tokio_rustls::TlsConnector::from(std::sync::Arc::new(tls))
+        .connect(
+            ServerName::try_from(agent_pki::TUNNEL_SERVER_NAME).unwrap(),
+            agent_proto::ws_io::WsIo::new(ws).compat(),
+        )
+        .await
+        .map_err(|err| err.to_string())?;
+    let (handle, inbound, driver) =
+        agent_proto::mux::new(tls.compat(), agent_proto::mux::Mode::Server, 8);
+    tokio::spawn(driver);
+    let mut control = handle.open().await.map_err(|err| err.to_string())?;
+    agent_proto::control::write(
+        &mut control,
+        agent_proto::control::Kind::AgentInfo(agent_proto::control::AgentInfo {
+            version: "test".to_string(),
+            ca_fingerprint: String::new(),
+        }),
+    )
+    .await
+    .map_err(|err| err.to_string())?;
+    let read = agent_proto::control::read(&mut control);
+    let hello = match tokio::time::timeout(std::time::Duration::from_secs(5), read).await {
+        Ok(Ok(agent_proto::control::Kind::Hello(hello))) => hello,
+        other => return Err(format!("{other:?}")),
+    };
+    Ok((control, inbound, hello))
+}
+
+/// An agent certificate for `identity`, its key generated here.
+fn agent_cert(
+    ca: &agent_pki::AgentCa,
+    identity: &agent_pki::AgentIdentity,
+) -> (String, rcgen::KeyPair) {
+    let key = rcgen::KeyPair::generate().unwrap();
+    let csr = rcgen::CertificateParams::default()
+        .serialize_request(&key)
+        .unwrap()
+        .pem()
+        .unwrap();
+    (ca.issue_agent(&csr, identity).unwrap(), key)
+}
+
+/// An `Agent` cluster seeded in Redis at `epoch`, and the identity naming it.
+async fn seeded_agent_cluster(pool: &deadpool_redis::Pool, epoch: u64) -> agent_pki::AgentIdentity {
+    let (ns, cluster) = unique_cluster();
+    let uid = format!(
+        "{:08x}-0000-4000-8000-{:012x}",
+        std::process::id(),
+        epoch.saturating_add(1)
+    );
+    let mut proxy = proxy_fixture(&ns, &cluster, "https://unused.example.com");
+    proxy.spec.service = agent_service();
+    if let Service::Agent(agent) = &mut proxy.spec.service {
+        agent.epoch = epoch;
+    }
+    proxy.metadata.uid = Some(uid.clone());
+    seed_proxy(pool, &proxy).await;
+    agent_pki::AgentIdentity {
+        namespace: ns,
+        name: cluster,
+        uid,
+        epoch,
+    }
+}
+
+/// §5.3 `tlsMode: inner`: an enrolled agent's tunnel is registered, carries
+/// the streams the gateway opens, and answers pings and renewals.
+#[tokio::test]
+async fn an_agent_with_a_valid_certificate_opens_a_tunnel() {
+    use agent_proto::control::{self, Kind, Ping, RenewRequest};
+    use rustls::pki_types::pem::PemObject as _;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio_util::compat::FuturesAsyncReadCompatExt;
+
+    let pool = redis_or_skip!();
+    let (addr, registry, ca) = agent_listener().await;
+    let identity = seeded_agent_cluster(&pool, 0).await;
+    let (cert, key) = agent_cert(&ca, &identity);
+    let (mut control, mut inbound, hello) =
+        dial_agent(addr, ca.cert_pem(), &cert, &key).await.unwrap();
+    assert_eq!(hello.replica_id, "gw-0");
+    assert_eq!(hello.protocol, agent_proto::PROTOCOL_VERSION);
+
+    // The tunnel is registered once the gateway has read `AgentInfo`.
+    let stream = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if let Ok(stream) = registry.open_stream(&identity.uid).await {
+                return stream;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the tunnel should register");
+    let mut gateway_side = stream.compat();
+    // yamux announces the stream with its first bytes.
+    gateway_side.write_all(b"hello").await.unwrap();
+    let mut agent_side = inbound.recv().await.unwrap().compat();
+    let mut seen = [0u8; 5];
+    agent_side.read_exact(&mut seen).await.unwrap();
+    assert_eq!(&seen, b"hello");
+
+    control::write(&mut control, Kind::Ping(Ping { nonce: 9 }))
+        .await
+        .unwrap();
+    assert_eq!(
+        control::read(&mut control).await.unwrap(),
+        Kind::Pong(agent_proto::control::Pong { nonce: 9 })
+    );
+    let csr = rcgen::CertificateParams::default()
+        .serialize_request(&key)
+        .unwrap()
+        .pem()
+        .unwrap();
+    control::write(
+        &mut control,
+        Kind::RenewRequest(RenewRequest {
+            csr: csr.into_bytes(),
+        }),
+    )
+    .await
+    .unwrap();
+    let Kind::RenewResponse(renewed) = control::read(&mut control).await.unwrap() else {
+        panic!("a renewal should answer RenewResponse");
+    };
+    let renewed = rustls::pki_types::CertificateDer::from_pem_slice(&renewed.cert).unwrap();
+    assert_eq!(agent_pki::identity_of(&renewed).unwrap().identity, identity);
+
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
+/// T8 and §5.3: a certificate for a past `epoch`, or from another CA, opens
+/// no tunnel.
+#[tokio::test]
+async fn a_revoked_or_foreign_certificate_opens_no_tunnel() {
+    let pool = redis_or_skip!();
+    let (addr, registry, ca) = agent_listener().await;
+    let identity = seeded_agent_cluster(&pool, 1).await;
+
+    let stale = agent_pki::AgentIdentity {
+        epoch: 0,
+        ..identity.clone()
+    };
+    let (cert, key) = agent_cert(&ca, &stale);
+    assert!(dial_agent(addr, ca.cert_pem(), &cert, &key).await.is_err());
+
+    let foreign = agent_pki::AgentCa::generate().unwrap();
+    let (cert, key) = agent_cert(&foreign, &identity);
+    assert!(dial_agent(addr, ca.cert_pem(), &cert, &key).await.is_err());
+
+    assert!(registry.identities().is_empty());
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}

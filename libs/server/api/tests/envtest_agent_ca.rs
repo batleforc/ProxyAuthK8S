@@ -1,13 +1,6 @@
 //! The agent CA Secret against a real apiserver (RFC 0012, decision 26):
 //! gateway pods racing on a missing Secret end up with one CA, and an
 //! existing one is never replaced.
-#![cfg_attr(
-    feature = "envtest",
-    expect(
-        clippy::expect_used,
-        reason = "test helpers: a panic is a failed test, with its message"
-    )
-)]
 #![cfg(feature = "envtest")]
 
 mod envtest_support;
