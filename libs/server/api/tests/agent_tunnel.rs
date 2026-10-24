@@ -807,3 +807,34 @@ async fn presences_follow_the_cr_and_revoke_its_tunnels() {
             .is_empty()
     );
 }
+
+/// T18 at start-up: without `AGENT_GATEWAY_TOKEN` the gateway refuses to run.
+#[tokio::test]
+async fn the_gateway_role_needs_its_connect_token() {
+    let settings = common::config::Config::from_lookup(|_| None).agent_gateway;
+    let ended = api::agent::run(
+        test_state("https://idp.example.com".to_string()),
+        settings,
+        "gw-0".to_string(),
+        std::future::pending(),
+    )
+    .await;
+    assert!(
+        matches!(ended, Err(api::agent::GatewayError::NoToken)),
+        "{ended:?}"
+    );
+}
+
+/// The gateway's probes: `/healthz` always, `/readyz` while Redis answers.
+#[tokio::test]
+async fn the_gateway_answers_its_probes() {
+    let _pool = redis_or_skip!();
+    let (addr, _gateway) = agent_gateway().await;
+    for probe in ["healthz", "readyz"] {
+        let status = reqwest::get(format!("http://{addr}/{probe}"))
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(status, 200, "{probe}");
+    }
+}

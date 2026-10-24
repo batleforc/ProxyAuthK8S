@@ -318,6 +318,17 @@ async fn connect(
         .on_upgrade(move |socket| gateway.serve(socket))
 }
 
+/// Ready while Redis answers: no tunnel can be checked, nor enrolment counted,
+/// without it.
+async fn ready(
+    axum::extract::State(gateway): axum::extract::State<Arc<Gateway>>,
+) -> axum::http::StatusCode {
+    match tokio::time::timeout(Duration::from_secs(2), gateway.state.redis_ping()).await {
+        Ok(Ok(())) => axum::http::StatusCode::OK,
+        _ => axum::http::StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
+
 /// The routes of the agents' listener (`agentGateway.port`). Behind an
 /// ingress, `TRUSTED_PROXY_COUNT` names the enrolling client's address.
 pub fn router(gateway: Arc<Gateway>) -> Router {
@@ -327,5 +338,7 @@ pub fn router(gateway: Arc<Gateway>) -> Router {
             "/agent/v1/enroll",
             axum::routing::post(super::enroll::enroll),
         )
+        .route("/healthz", get(|| async { axum::http::StatusCode::OK }))
+        .route("/readyz", get(ready))
         .with_state(gateway)
 }
