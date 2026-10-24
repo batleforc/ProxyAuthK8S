@@ -68,6 +68,9 @@ agentGateway:
   enabled: true
   mode: separate
   replicaCount: 2
+  # Point 8: the controller writes the OneShotToken Secrets.
+  oneShotToken:
+    enabled: true
   ingress:
     enabled: true
     host: agent.k8s.localhost

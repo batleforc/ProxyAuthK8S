@@ -137,10 +137,10 @@ Statuts :
 | 0012 | 5     | suite       | `rfc0012::p5_an_epoch_bump_revokes_and_the_agent_comes_back` (l'agent révoqué reçoit Close et se réenrôle : agent_disconnected raison revoked, pas d'agent_refused) |
 | 0012 | 6     | suite       | `rfc0012::p6_another_service_accounts_token_is_refused` |
 | 0012 | 7     | suite       | `rfc0012::p7_an_agent_cannot_serve_another_cluster` (refus à l'enrôlement, raison subject : l'identité vient toujours du CR) |
-| 0012 | 8     | hors suite  | phase 2 de la RFC 0012 (`OneShotToken`, §16), pas encore codée |
-| 0012 | 9     | hors suite  | phase 2 de la RFC 0012 (sortie `CONNECT`, §16), pas encore codée |
-| 0012 | 10    | hors suite  | phase 2 de la RFC 0012 (sortie SOCKS5, §16), pas encore codée |
-| 0012 | 11    | hors suite  | phase 2 de la RFC 0012 (`tlsMode: passthrough`, §16), pas encore codée |
+| 0012 | 8     | suite       | `rfc0012::p8_one_one_shot_token_serves_two_replicas_and_rotates` (une seule ligne agent_enrolled pour deux replicas, le second relit l'identitySecret ; T16 par kubectl auth can-i) |
+| 0012 | 9     | suite       | `rfc0012::p9_the_agent_dials_out_through_a_connect_proxy` (Ready raison AgentNoTunnel : pas de condition AgentConnected) |
+| 0012 | 10    | suite       | `rfc0012::p10_the_agent_dials_out_through_a_socks5_proxy` (Ready raison AgentNoTunnel) |
+| 0012 | 11    | suite       | `rfc0012_passthrough::p11_a_cluster_is_reached_through_a_passthrough_gateway` (seul : il bascule la passerelle du banc) |
 | 0012 | 12    | suite       | `rfc0012::p12_no_agent_certificate_no_tunnel_and_no_user_route` |
 | 0012 | 13    | suite       | `rfc0012::p13_a_jwks_from_without_the_key_refuses_then_recovers` (raison unknown key : le kid absent du jeu) |
 | 0012 | 14    | suite       | `rfc0012_restart::p14_a_proxy_restart_keeps_the_tunnels` (sans le kubectl get pods -w : un watch coupé n'est pas rouvert par kubectl) |
