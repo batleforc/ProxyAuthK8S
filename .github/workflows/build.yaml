@@ -44,6 +44,10 @@ jobs:
             context: .
             dockerfile: deploy/build/front/Containerfile
             image_name: ${{ github.repository_owner }}/proxyauthk8s/front
+          - name: "Agent Container"
+            context: .
+            dockerfile: deploy/build/agent/Containerfile
+            image_name: ${{ github.repository_owner }}/proxyauthk8s/agent
     permissions:
       contents: read
       packages: write
@@ -96,6 +100,9 @@ jobs:
           - name: "Frontend Container"
             image_name: ${{ github.repository_owner }}/proxyauthk8s/front
             artifact_name: trivy-frontend
+          - name: "Agent Container"
+            image_name: ${{ github.repository_owner }}/proxyauthk8s/agent
+            artifact_name: trivy-agent
     permissions:
       contents: read
       packages: read
@@ -127,6 +134,7 @@ jobs:
         include:
           - artifact_name: trivy-backend
           - artifact_name: trivy-frontend
+          - artifact_name: trivy-agent
     permissions:
       contents: read
       security-events: write

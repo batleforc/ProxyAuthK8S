@@ -1,0 +1,143 @@
+---
+title: Cluster derrière un agent
+description: Proxifier un cluster que le proxy ne peut pas joindre, grâce à un agent qui ouvre le tunnel depuis le cluster
+icon: Cable
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Un cluster derrière un NAT, un pare-feu ou un réseau privé n'accepte aucune connexion
+entrante : le proxy ne peut pas joindre son apiserver. Avec `service: Agent`, c'est un
+**agent**, installé sur ce cluster, qui ouvre un tunnel sortant vers le proxy ; les requêtes
+des utilisateurs passent ensuite dans ce tunnel (RFC 0012).
+
+<Callout type="info">
+Le TLS vers l'apiserver est négocié entre le proxy et l'apiserver, de bout en bout : l'agent
+relaie des enregistrements TLS qu'il ne peut ni lire ni modifier, et ne connaît qu'une
+destination, son apiserver. Un agent compromis ne voit ni les jetons ni les réponses.
+</Callout>
+
+## Comment ça marche
+
+1. Le chart du proxy déploie une **passerelle d'agents** (`agentGateway`), même image, rôle
+   `gateway` : elle tient les tunnels, l'enrôlement et la CA des agents.
+2. L'agent s'**enrôle** : il présente un jeton de ServiceAccount projeté de son cluster,
+   vérifié contre les clés publiques de ce cluster déclarées dans le `ProxyKubeApi`, et reçoit
+   un certificat de 24 h pour ce seul `ProxyKubeApi`.
+3. Il ouvre un **WebSocket** vers la passerelle (à travers votre Ingress), puis un TLS mutuel
+   sous la CA des agents à l'intérieur, et y multiplexe les flux (yamux).
+4. Le proxy joint le pod de la passerelle qui tient le tunnel par un `CONNECT` interne au
+   cluster du proxy, et fait son TLS vers l'apiserver à travers lui.
+
+## 1. Activer la passerelle
+
+Dans les values du chart du proxy :
+
+```yaml
+agentGateway:
+  enabled: true
+  mode: separate          # ou embedded : dans les pods du back
+  replicaCount: 2
+  ingress:
+    enabled: true
+    host: agent.proxy.example.com
+    tls:
+      enabled: true
+      secretName: proxyauthk8s-agent-tls
+```
+
+L'Ingress ne route que `/agent/v1/`. Le port `connectPort` (8445) n'est jamais exposé : la
+NetworkPolicy (`networkPolicy.enabled`) ne l'ouvre qu'aux pods du back, et chaque `CONNECT`
+porte un jeton généré par le chart (`agentGateway.tokenSecretName` pour fournir le vôtre).
+
+| Value | Défaut | Description |
+| --- | --- | --- |
+| `agentGateway.limits.tunnelsPerAgentIdentity` | `4` | Tunnels d'un même cluster par pod de la passerelle |
+| `agentGateway.limits.streamsPerTunnel` | `128` | Flux simultanés par tunnel (32 Mio de fenêtre au pire) |
+| `agentGateway.limits.maxStreamsPerTunnel` | `512` | Plafond d'une surcharge par cluster |
+| `agentGateway.limits.handshakeTimeoutSeconds` | `10` | Délai de la poignée de main TLS et du contrôle |
+| `agentGateway.limits.enrollPerMinute` | `10` | Enrôlements par adresse cliente (`TRUSTED_PROXY_COUNT` derrière un Ingress) |
+| `agentGateway.limits.enrollPerMinuteTotal` | `120` | Enrôlements de tous les agents |
+
+## 2. Déclarer le cluster
+
+Le JWKS du cluster distant se lit avec `kubectl get --raw /openid/v1/jwks` sur ce cluster ; il
+est public, rien de secret n'entre dans git. Sa CA est obligatoire : `SystemRoots` est refusé,
+il accepterait n'importe quel certificat public présenté par l'agent.
+
+```yaml
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+metadata:
+  name: prod
+  namespace: team-a
+spec:
+  cert:
+    ConfigMap: { name: prod-ca, key: ca.crt }   # la CA de l'apiserver distant
+  service:
+    Agent:
+      server_name: kubernetes.default.svc       # le nom de son certificat
+      bootstrap:
+        ServiceAccountToken:
+          subject: system:serviceaccount:proxyauth-agent:agent-proxyauthk8s-agent
+          audience: proxyauth
+          jwks: '{"keys":[…]}'                  # ou jwks_url (https), ou jwks_from
+      # limits: { streams_per_tunnel: 384 }     # ≤ maxStreamsPerTunnel
+```
+
+`jwks_from` lit le JWKS dans un ConfigMap ou un Secret à chaque enrôlement : une rotation de
+clé du cluster distant passe sans toucher au `ProxyKubeApi` (gardez l'ancienne et la nouvelle
+clé le temps de la rotation). Un JWKS vide ou illisible refuse l'enrôlement.
+
+## 3. Installer l'agent
+
+Sur le cluster distant, avec `deploy/chart-agent` (publié en
+`oci://ghcr.io/batleforc/proxyauthk8s/chart-agent`) :
+
+```bash
+helm install agent oci://ghcr.io/batleforc/proxyauthk8s/chart-agent \
+  -n proxyauth-agent --create-namespace \
+  --set proxy.url=wss://agent.proxy.example.com/agent/v1/connect \
+  --set proxy.cluster=team-a/prod
+# PKI privée pour l'URL du proxy : --set-file proxy.caBundle=ca.pem
+```
+
+Le nom du release fixe celui du ServiceAccount (`<release>-proxyauthk8s-agent`), c'est-à-dire
+le `subject` du `ProxyKubeApi`. L'agent n'a **aucun RBAC** et aucun jeton d'API monté : seul son
+jeton projeté (audience `bootstrap.audience`) sert, à l'enrôlement.
+
+## Vérifier
+
+```bash
+kubectl -n team-a get proxykubeapi prod -o jsonpath='{.status.agent}'
+# {"tunnels":2,"gateways":["…-gateway-…"],"versions":["0.4.0"],"caFingerprints":["…"]}
+```
+
+- `Ready` est `False` avec la raison `AgentNoTunnel` tant qu'aucun pod de la passerelle ne tient
+  de tunnel ; le relais répond alors `503 agent unavailable`, **jamais** une connexion directe.
+- `caFingerprints` est le SHA-256 du `kube-root-ca.crt` vu par l'agent : comparez-le à votre
+  `cert`.
+- Chaque ligne d'audit d'une requête porte `upstream_via: agent` ; la passerelle écrit
+  `agent_enrolled`, `agent_refused` (avec la raison), `agent_connected` et
+  `agent_disconnected` ([Sécurité](/docs/security)).
+- L'agent sert `/healthz`, `/readyz` (un tunnel ouvert) et `/metrics` sur `:9090`
+  (`proxyauth_agent_tunnel_up`, `proxyauth_agent_reconnects_total{reason}`,
+  `proxyauth_agent_cert_expiry_seconds`).
+
+## Révoquer
+
+Augmentez `spec.service.Agent.epoch` : les tunnels des certificats émis avant tombent en moins
+de 30 s, et l'agent doit se réenrôler avec un jeton valide. `epoch` ne peut pas baisser
+(règle d'admission). Supprimer le `ProxyKubeApi` ferme aussi ses tunnels.
+
+<Callout type="warn">
+La clé de la CA des agents est dans le Secret `proxy-auth-k8s-agent-ca`, lisible par la seule
+passerelle. Sans `rbac.referencedNamespaces`, le back garde un `get` sur tous les Secrets du
+cluster, celui-ci compris : listez vos namespaces pour que la clé reste à la passerelle.
+</Callout>
+
+## Pas encore disponible
+
+`OneShotToken` (jeton à usage unique), `tlsMode: passthrough`, une sortie de l'agent par un
+proxy HTTP (`CONNECT`) ou SOCKS5, et le CronJob `jwksPublisher` arrivent avec la phase 2 de la
+RFC 0012. L'agent sort aujourd'hui en direct.

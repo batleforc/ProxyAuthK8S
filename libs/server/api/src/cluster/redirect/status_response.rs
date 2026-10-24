@@ -33,6 +33,18 @@ pub fn bad_request(message: &str) -> Response {
     status_response(StatusCode::BAD_REQUEST, "BadRequest", message)
 }
 
+/// 503 with a Kubernetes `Status` body: the cluster is reached through an
+/// agent that has no tunnel open (RFC 0012). Never followed by a direct
+/// connection.
+#[must_use]
+pub fn agent_unavailable() -> Response {
+    status_response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "ServiceUnavailable",
+        "agent unavailable",
+    )
+}
+
 /// 403 with a Kubernetes `Status` body.
 #[must_use]
 pub fn forbidden(message: &str) -> Response {

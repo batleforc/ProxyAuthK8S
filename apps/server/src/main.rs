@@ -53,6 +53,25 @@ async fn main() -> anyhow::Result<()> {
     let http_metrics = HttpMetrics::new(&opentelemetry::global::meter("proxyauthk8s"));
 
     let state = common::State::new().await?;
+    // RFC 0012, decision 26: `gateway` runs the agent gateway alone, on the
+    // clusters the proxy's controller writes to Redis; `embedded` runs it next
+    // to the proxy.
+    let role = config.agent_gateway.role;
+    let mut gateway = role.serves_gateway().then(|| {
+        tokio::spawn(api::agent::run(
+            state.clone(),
+            config.agent_gateway.clone(),
+            config.leader_election.lease_name.clone(),
+            api::server::shutdown_signal(),
+        ))
+    });
+    if !role.serves_proxy() {
+        let result = match gateway {
+            Some(task) => gateway_result(task.await),
+            None => Ok(()),
+        };
+        return finish(result, metrics_listener, tracing_output);
+    }
     // Runs next to the server: an IdP that is down at boot keeps the pod alive
     // and not-ready (`/management/ready` → 503) instead of crash-looping.
     let oidc_discovery = tokio::spawn({
@@ -124,6 +143,16 @@ async fn main() -> anyhow::Result<()> {
             Ok(Err(e)) => Err(anyhow::Error::new(e).context("controller failed to start")),
             Err(e) => Err(anyhow::Error::new(e).context("controller task panicked")),
         },
+        // Only a failure: a gateway that stopped on the signal is awaited below.
+        res = async {
+            match gateway.as_mut() {
+                Some(task) => match task.await {
+                    Ok(Ok(())) => std::future::pending().await,
+                    other => other,
+                },
+                None => std::future::pending().await,
+            }
+        } => gateway_result(res),
         res = server => {
             // The controller saw the same signal: give it a moment to stop and
             // release the Lease.
@@ -135,6 +164,34 @@ async fn main() -> anyhow::Result<()> {
         }
     };
     oidc_discovery.abort();
+    if let Some(task) = gateway.filter(|task| !task.is_finished()) {
+        // Time for it to withdraw its presences.
+        if tokio::time::timeout(CONTROLLER_STOP_TIMEOUT, task)
+            .await
+            .is_err()
+        {
+            tracing::warn!("Agent gateway did not stop in time");
+        }
+    }
+    finish(result, metrics_listener, tracing_output)
+}
+
+fn gateway_result(
+    joined: Result<Result<(), api::agent::GatewayError>, tokio::task::JoinError>,
+) -> anyhow::Result<()> {
+    match joined {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(anyhow::Error::new(e).context("agent gateway failed")),
+        Err(e) => Err(anyhow::Error::new(e).context("agent gateway task panicked")),
+    }
+}
+
+/// Stop the metrics listener and tracing, and report how the server ended.
+fn finish(
+    result: anyhow::Result<()>,
+    metrics_listener: Option<tokio::task::JoinHandle<std::io::Result<()>>>,
+    tracing_output: trace::TracingOutput,
+) -> anyhow::Result<()> {
     if let Some(metrics) = metrics_listener {
         metrics.abort();
     }

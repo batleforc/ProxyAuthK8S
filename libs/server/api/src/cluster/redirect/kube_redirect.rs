@@ -7,11 +7,12 @@ use axum::{
 };
 use crd::ProxyKubeApi;
 use crd::security::PortPolicy;
+use crd::service::Service;
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::cluster::redirect::audit::{AuditContext, PortDecision};
 use crate::cluster::redirect::status_response::{
-    bad_request, forbidden, too_many_requests, unauthorized,
+    agent_unavailable, bad_request, forbidden, too_many_requests, unauthorized,
 };
 use crate::cluster::redirect::throttle;
 use crate::helper::{extract_authorization_header, forwarded_for, peer_ip};
@@ -26,6 +27,7 @@ mod standard;
 mod tls;
 mod upgrade;
 mod upstream;
+pub(crate) use upstream::self_subject_review_through_agent;
 mod virtual_redirect;
 mod websocket;
 
@@ -91,6 +93,9 @@ pub async fn redirect(
     };
 
     let mut audit = AuditContext::new(&ns, &cluster, method.as_str(), &upstream_path);
+    if matches!(proxy.spec.service, Service::Agent(_)) {
+        audit.upstream_via = "agent";
+    }
     // The Kubernetes verb, computed as the apiserver does (RFC 0006): every
     // audit line of this request carries it, refusals included.
     let request_info = crd::security::request_info(
@@ -185,6 +190,14 @@ pub async fn redirect(
                     throttle::record_auth_failure(&data, &proxy, &peer_id).await;
                 } else {
                     warn!("not counting a server-side auth failure against the caller");
+                }
+                // RFC 0012: no tunnel to review the token through is the
+                // cluster being unavailable, not the token being wrong.
+                if matches!(
+                    e,
+                    crate::model::user::UserAuthError::AgentSelfSubjectReview { status: None, .. }
+                ) {
+                    audited!(audit, agent_unavailable());
                 }
                 audited!(audit, unauthorized("the token could not be validated"));
             }
@@ -389,6 +402,19 @@ pub async fn redirect(
             }
             audit.emit_exec_decision(None);
             exec_streams = Some((request.stdin, request.tty));
+        }
+    }
+
+    // RFC 0012: an `Agent` cluster has no address the proxy may dial, only a
+    // gateway pod holding its tunnel. Without one it is refused here, never
+    // reached directly; the lookup also warms the route reqwest picks.
+    if matches!(proxy.spec.service, Service::Agent(_)) {
+        let routed = match proxy.metadata.uid.as_deref() {
+            Some(uid) => data.agent_gateway.route(&data, uid).await.is_ok(),
+            None => false,
+        };
+        if !routed {
+            audited!(audit, agent_unavailable());
         }
     }
 

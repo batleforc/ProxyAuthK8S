@@ -207,7 +207,8 @@ fn set_limits(
         .max_header_list_size(u32::try_from(MAX_HEAD_BYTES).unwrap_or(u32::MAX));
 }
 
-async fn shutdown_on_signal(handle: Handle<SocketAddr>, timeout: Duration) {
+/// Resolves on SIGINT or SIGTERM.
+pub async fn shutdown_signal() {
     let interrupt = tokio::signal::ctrl_c();
     #[cfg(unix)]
     let terminate = async {
@@ -227,6 +228,10 @@ async fn shutdown_on_signal(handle: Handle<SocketAddr>, timeout: Duration) {
         _ = interrupt => {}
         () = terminate => {}
     }
+}
+
+async fn shutdown_on_signal(handle: Handle<SocketAddr>, timeout: Duration) {
+    shutdown_signal().await;
     tracing::info!(
         seconds = timeout.as_secs(),
         "Shutting down, waiting for in-flight requests"

@@ -10,6 +10,9 @@ use common::{
     },
 };
 use crd::ProxyKubeApi;
+use crd::service::Service;
+use k8s_openapi::api::authentication::v1::SelfSubjectReview;
+use kube::ResourceExt;
 use tracing::info;
 
 use super::tls::build_tls_config;
@@ -38,7 +41,7 @@ pub(super) async fn upstream_client(
         .get_or_try_insert_with(&key, ttl, || async {
             let tls_config = Arc::new(build_tls_config(proxy, data, true).await?);
             UPSTREAM_TLS_CONFIGS.insert(key.clone(), Arc::clone(&tls_config), ttl);
-            build_upstream_client((*tls_config).clone())
+            build_upstream_client((*tls_config).clone(), agent_proxy(proxy, data).await?)
         })
         .await
 }
@@ -54,12 +57,57 @@ pub(super) async fn ca_only_client(
     proxy: &ProxyKubeApi,
     data: &State,
 ) -> Result<reqwest::Client, String> {
-    build_upstream_client(build_tls_config(proxy, data, false).await?)
+    build_upstream_client(
+        build_tls_config(proxy, data, false).await?,
+        agent_proxy(proxy, data).await?,
+    )
 }
 
-/// The upstream client for `tls_config`: no redirects, bounded connect.
-fn build_upstream_client(tls_config: rustls::ClientConfig) -> Result<reqwest::Client, String> {
-    reqwest::ClientBuilder::new()
+/// What a `CONNECT` to the agent gateway cannot reach: a proxy URL that
+/// fails, so a cluster whose gateway pods are all gone never falls back to
+/// a direct connection (reqwest connects directly when the closure answers
+/// `None`).
+const NO_GATEWAY: &str = "http://agent-gateway-unavailable.invalid:9";
+
+/// For an `Agent` cluster, reqwest's route through the agent gateway
+/// (RFC 0012, decision 25): a `CONNECT` to the pod holding the tunnel, chosen
+/// again for every new connection; `None` for any other cluster.
+async fn agent_proxy(proxy: &ProxyKubeApi, data: &State) -> Result<Option<reqwest::Proxy>, String> {
+    if !matches!(proxy.spec.service, Service::Agent(_)) {
+        return Ok(None);
+    }
+    let uid = proxy
+        .uid()
+        .ok_or_else(|| "agent cluster without a uid".to_string())?;
+    let route = data
+        .agent_gateway
+        .route(data, &uid)
+        .await
+        .map_err(|err| err.to_string())?;
+    let gateway = Arc::clone(&data.agent_gateway);
+    let picked = uid.clone();
+    Ok(Some(
+        reqwest::Proxy::custom(move |_| {
+            Some(gateway.cached_route(&picked).map_or_else(
+                || NO_GATEWAY.to_string(),
+                |route| format!("http://{}", route.address),
+            ))
+        })
+        .headers(route.headers),
+    ))
+}
+
+/// The upstream client for `tls_config`: no redirects, bounded connect, and
+/// for an `Agent` cluster no route but its gateway `CONNECT`.
+fn build_upstream_client(
+    tls_config: rustls::ClientConfig,
+    agent_proxy: Option<reqwest::Proxy>,
+) -> Result<reqwest::Client, String> {
+    let builder = match agent_proxy {
+        Some(agent_proxy) => reqwest::ClientBuilder::new().proxy(agent_proxy),
+        None => reqwest::ClientBuilder::new(),
+    };
+    builder
         .use_preconfigured_tls(tls_config)
         // Never follow redirects to the upstream: a Kubernetes apiserver does not
         // 30x proxied API calls, and following one would let a configured target
@@ -116,4 +164,44 @@ pub(super) fn apply_forward_headers(
     }
 
     builder
+}
+
+/// `validate_against: Kubernetes` for an `Agent` cluster (RFC 0012): the
+/// caller's token reviewed by the apiserver through the agent gateway, on the
+/// token-only client (no front-proxy identity). The error carries the
+/// apiserver's status when it answered.
+pub(crate) async fn self_subject_review_through_agent(
+    proxy: &ProxyKubeApi,
+    data: &State,
+    token: &str,
+) -> Result<SelfSubjectReview, (Option<u16>, String)> {
+    let client = ca_only_client(proxy, data)
+        .await
+        .map_err(|err| (None, err))?;
+    let base = proxy
+        .spec
+        .service
+        .url_to_call(data.client.clone(), proxy.namespace().unwrap_or_default())
+        .await
+        .map_err(|err| (None, err.to_string()))?;
+    let response = client
+        .post(format!(
+            "{base}/apis/authentication.k8s.io/v1/selfsubjectreviews"
+        ))
+        .bearer_auth(token)
+        .json(&SelfSubjectReview::default())
+        .send()
+        .await
+        .map_err(|err| (None, err.to_string()))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err((
+            Some(status.as_u16()),
+            format!("the apiserver answered {status}"),
+        ));
+    }
+    response
+        .json()
+        .await
+        .map_err(|err| (Some(status.as_u16()), err.to_string()))
 }

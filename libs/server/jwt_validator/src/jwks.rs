@@ -222,7 +222,18 @@ impl JwksCache {
         kid: Option<&str>,
     ) -> Result<Jwk, JwtValidationError> {
         let jwks_uri = self.jwks_uri(client, discovery_endpoint).await?;
+        self.key_at(client, &jwks_uri, kid).await
+    }
 
+    /// [`Self::key_for`] from the JWKS URI itself, with no discovery document
+    /// (an agent's `jwks_url`, RFC 0012).
+    pub async fn key_at(
+        &self,
+        client: &reqwest::Client,
+        jwks_uri: &str,
+        kid: Option<&str>,
+    ) -> Result<Jwk, JwtValidationError> {
+        let jwks_uri = jwks_uri.to_string();
         let cached = {
             let guard = self.jwks.read().await;
             guard.get(&jwks_uri).map(|cached| {
@@ -280,7 +291,7 @@ impl JwksCache {
 }
 
 /// Pick the key a `kid` names, or the only key when the token carries none.
-fn select_key<'a>(set: &'a JwkSet, kid: Option<&str>) -> Option<&'a Jwk> {
+pub fn select_key<'a>(set: &'a JwkSet, kid: Option<&str>) -> Option<&'a Jwk> {
     match kid {
         Some(kid) => set.find(kid),
         None if set.keys.len() == 1 => set.keys.first(),

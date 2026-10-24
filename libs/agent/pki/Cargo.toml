@@ -1,0 +1,17 @@
+[package]
+name = "agent_pki"
+version = "0.3.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "The RFC 0012 agent CA: identities, agent and tunnel certificates"
+
+[dependencies]
+ring = "0.17"
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring", "x509-parser"] }
+thiserror = { workspace = true }
+time = "0.3"
+x509-parser = "0.18"
+
+[lints]
+workspace = true

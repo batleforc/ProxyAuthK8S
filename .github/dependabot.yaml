@@ -15,3 +15,9 @@ updates:
     directory: /
     schedule:
       interval: daily
+
+  # RFC 0012 §8: the agent image's distroless base, pinned by digest.
+  - package-ecosystem: docker
+    directory: /deploy/build/agent
+    schedule:
+      interval: weekly

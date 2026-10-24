@@ -57,6 +57,10 @@ pub const REDIS_PREFIX: &str = "proxyk8sauth";
         "rule": "!has(self.proxy_group) || self.proxy_group != ''",
         "message": "proxy_group must not be empty when it is set",
     }),
+    serde_json::json!({
+        "rule": "!has(self.service.Agent) || has(self.cert.ConfigMap) || has(self.cert.Secret) || has(self.cert.Cert)",
+        "message": "service Agent needs the remote apiserver's CA in cert (ConfigMap, Secret or Cert), never SystemRoots",
+    }),
 ]))]
 pub struct ProxyKubeApiSpec {
     /// Enable or disable the proxy
@@ -96,6 +100,9 @@ pub struct ProxyKubeApiSpec {
 impl ProxyKubeApi {
     pub fn validate(&self) -> Result<(), String> {
         if self.spec.enabled {
+            if let Service::Agent(agent) = &self.spec.service {
+                agent.validate(&self.spec.cert)?;
+            }
             self.spec.auth_config.as_ref().map_or(
                 Ok(()),
                 authentication_configuration::AuthenticationConfiguration::validate,

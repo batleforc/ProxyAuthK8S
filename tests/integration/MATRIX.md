@@ -130,16 +130,18 @@ Statuts :
 | 0011 | 15    | hors suite  | workflow `perf` (`task perf`, `tests/perf/tests/perf.rs::proxyauthk8s_costs_within_its_budget`) |
 | 0011 | 16    | hors suite  | job `back-clippy` (`task lint`, `[workspace.lints]` adopté par toutes les crates sauf `client_api`) |
 | 0011 | 17    | hors suite  | CI : `back-cargo-test`, `back-envtest`, `integration` (aucun test modifié dans son attendu) |
-| 0012 | 1     | à écrire    | `rfc0012::p1_…` |
-| 0012 | 2     | à écrire    | `rfc0012::p2_…` |
-| 0012 | 3     | à écrire    | `rfc0012::p3_…` |
-| 0012 | 4     | à écrire    | `rfc0012::p4_…` |
-| 0012 | 5     | à écrire    | `rfc0012::p5_…` |
-| 0012 | 6     | à écrire    | `rfc0012::p6_…` |
-| 0012 | 7     | à écrire    | `rfc0012::p7_…` |
-| 0012 | 8     | à écrire    | `rfc0012::p8_…` |
-| 0012 | 9     | à écrire    | `rfc0012::p9_…` |
-| 0012 | 10    | à écrire    | `rfc0012::p10_…` |
-| 0012 | 11    | à écrire    | `rfc0012::p11_…` |
-| 0012 | 12    | à écrire    | `rfc0012::p12_…` |
-| 0012 | 13    | à écrire    | `rfc0012::p13_…` |
+| 0012 | 1     | suite       | `rfc0012::p1_a_cluster_is_reached_through_its_agents` |
+| 0012 | 2     | suite       | `rfc0012::p2_exec_and_port_forward_cross_the_tunnel_under_their_policies` |
+| 0012 | 3     | suite       | `rfc0012::p3_a_long_watch_gets_its_event` |
+| 0012 | 4     | suite       | `rfc0012::p4_no_agent_is_refused_and_never_dialled_directly` (Ready raison AgentNoTunnel : pas de condition AgentConnected, RFC 0012 §17) |
+| 0012 | 5     | suite       | `rfc0012::p5_an_epoch_bump_revokes_and_the_agent_comes_back` (l'agent révoqué reçoit Close et se réenrôle : agent_disconnected raison revoked, pas d'agent_refused) |
+| 0012 | 6     | suite       | `rfc0012::p6_another_service_accounts_token_is_refused` |
+| 0012 | 7     | suite       | `rfc0012::p7_an_agent_cannot_serve_another_cluster` (refus à l'enrôlement, raison subject : l'identité vient toujours du CR) |
+| 0012 | 8     | hors suite  | phase 2 de la RFC 0012 (`OneShotToken`, §16), pas encore codée |
+| 0012 | 9     | hors suite  | phase 2 de la RFC 0012 (sortie `CONNECT`, §16), pas encore codée |
+| 0012 | 10    | hors suite  | phase 2 de la RFC 0012 (sortie SOCKS5, §16), pas encore codée |
+| 0012 | 11    | hors suite  | phase 2 de la RFC 0012 (`tlsMode: passthrough`, §16), pas encore codée |
+| 0012 | 12    | suite       | `rfc0012::p12_no_agent_certificate_no_tunnel_and_no_user_route` |
+| 0012 | 13    | suite       | `rfc0012::p13_a_jwks_from_without_the_key_refuses_then_recovers` (raison unknown key : le kid absent du jeu) |
+| 0012 | 14    | suite       | `rfc0012_restart::p14_a_proxy_restart_keeps_the_tunnels` (sans le kubectl get pods -w : un watch coupé n'est pas rouvert par kubectl) |
+| 0012 | 15    | suite       | `rfc0012::p15_a_connect_without_the_proxy_token_is_refused` (407 seulement : la passerelle n'expose pas ses métriques sur le banc) |

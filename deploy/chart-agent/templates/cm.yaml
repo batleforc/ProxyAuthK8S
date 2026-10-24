@@ -1,0 +1,10 @@
+{{- if .Values.proxy.caBundle }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "{{ include "agent.name" . }}-proxy-ca"
+  namespace: "{{ .Release.Namespace }}"
+data:
+  ca.crt: |
+    {{- .Values.proxy.caBundle | nindent 4 }}
+{{- end }}

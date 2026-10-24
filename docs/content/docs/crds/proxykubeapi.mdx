@@ -48,6 +48,7 @@ spec:
 
 - dashboard_group must not be empty when it is set — `!has(self.dashboard_group) || self.dashboard_group != ''`
 - proxy_group must not be empty when it is set — `!has(self.proxy_group) || self.proxy_group != ''`
+- service Agent needs the remote apiserver's CA in cert (ConfigMap, Secret or Cert), never SystemRoots — `!has(self.service.Agent) || has(self.cert.ConfigMap) || has(self.cert.Secret) || has(self.cert.Cert)`
 
 ### `spec.auth_config` [#spec.auth_config]
 
@@ -525,10 +526,78 @@ Exactly one of `AllowedNamespaces`, `DeniedNamespaces`, `ParametisedRule`.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
+| [`Agent`](#spec.service.Agent) | `object` | one of |  | Reached through an agent on the remote cluster, which dials out to the proxy: the apiserver accepts no inbound connection (RFC 0012) |
 | [`ExternalService`](#spec.service.ExternalService) | `object` | one of |  | External service |
 | [`KubernetesService`](#spec.service.KubernetesService) | `object` | one of |  | Kubernetes service |
 
-Exactly one of `KubernetesService`, `ExternalService`.
+Exactly one of `KubernetesService`, `ExternalService`, `Agent`.
+
+### `spec.service.Agent` [#spec.service.Agent]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`bootstrap`](#spec.service.Agent.bootstrap) | `object` | yes |  | How an agent proves it serves this cluster before it gets a certificate |
+| `epoch` | `integer` | no | `0` | Raise it to revoke every agent certificate issued so far: open tunnels close within 30 s and the agent has to enrol again Default: 0<br /><br />Constraints: `minimum: 0` |
+| [`limits`](#spec.service.Agent.limits) | `object` | no |  | Overrides of the gateway's tunnel bounds, for this cluster only |
+| `server_name` | `string` | no | `"kubernetes.default.svc"` | Name checked against the remote apiserver's certificate Default: kubernetes.default.svc<br /><br />Constraints: `minLength: 1`, `maxLength: 253` |
+
+**Rules**
+
+- server_name must be a DNS name or an IP address — `self.server_name.matches('^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$') || isIP(self.server_name)`
+- epoch must not decrease: a lower epoch would make revoked agent certificates valid again — `self.epoch >= oldSelf.epoch`
+
+### `spec.service.Agent.bootstrap` [#spec.service.Agent.bootstrap]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`ServiceAccountToken`](#spec.service.Agent.bootstrap.ServiceAccountToken) | `object` | yes |  | A projected ServiceAccount token of the remote cluster, checked against that cluster's public keys: nothing secret goes into git |
+
+### `spec.service.Agent.bootstrap.ServiceAccountToken` [#spec.service.Agent.bootstrap.ServiceAccountToken]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `audience` | `string` | no | `"proxyauth"` | `aud` of the agent's token Default: proxyauth<br /><br />Constraints: `minLength: 1`, `maxLength: 253` |
+| `jwks` | `string` | no |  | The remote cluster's JWKS, inline (`kubectl get --raw /openid/v1/jwks`) Frozen: a key rotation needs an edit<br /><br />Constraints: `maxLength: 65536` |
+| [`jwks_from`](#spec.service.Agent.bootstrap.ServiceAccountToken.jwks_from) | `object` | no |  | A ConfigMap or Secret holding the JWKS, re-read at enrolment: for an issuer only reachable inside the remote cluster (kubeadm, k3s) |
+| `jwks_url` | `string` | no |  | Where a public issuer serves its JWKS (EKS, GKE, AKS)<br /><br />Constraints: `maxLength: 2048` |
+| `subject` | `string` | yes |  | `sub` of the agent's token: `system:serviceaccount:<namespace>:<name>`<br /><br />Constraints: `maxLength: 316` |
+
+**Rules**
+
+- set exactly one of jwks, jwks_url and jwks_from — `[has(self.jwks), has(self.jwks_url), has(self.jwks_from)].filter(x, x).size() == 1`
+- jwks_url must be an https:// URL — `!has(self.jwks_url) || self.jwks_url.startsWith('https://')`
+- subject must be a ServiceAccount (system:serviceaccount:\<namespace\>:\<name\>) — `self.subject.startsWith('system:serviceaccount:')`
+
+### `spec.service.Agent.bootstrap.ServiceAccountToken.jwks_from` [#spec.service.Agent.bootstrap.ServiceAccountToken.jwks_from]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`ConfigMap`](#spec.service.Agent.bootstrap.ServiceAccountToken.jwks_from.ConfigMap) | `object` | one of |  |  |
+| [`Secret`](#spec.service.Agent.bootstrap.ServiceAccountToken.jwks_from.Secret) | `object` | one of |  |  |
+
+Exactly one of `ConfigMap`, `Secret`.
+
+### `spec.service.Agent.bootstrap.ServiceAccountToken.jwks_from.ConfigMap` [#spec.service.Agent.bootstrap.ServiceAccountToken.jwks_from.ConfigMap]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  | If not set, the resource namespace (same policy as `cert`) |
+
+### `spec.service.Agent.bootstrap.ServiceAccountToken.jwks_from.Secret` [#spec.service.Agent.bootstrap.ServiceAccountToken.jwks_from.Secret]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  | If not set, the resource namespace (same policy as `cert`) |
+
+### `spec.service.Agent.limits` [#spec.service.Agent.limits]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `streams_per_tunnel` | `integer` | no |  | Streams one tunnel carries at once, for a cluster with many concurrent clients (an operator driving it through the proxy). Capped by the gateway's maxStreamsPerTunnel, with a warning on the CR Default: the gateway's streamsPerTunnel<br /><br />Constraints: `minimum: 1` |
 
 ### `spec.service.ExternalService` [#spec.service.ExternalService]
 

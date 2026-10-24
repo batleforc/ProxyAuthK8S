@@ -27,6 +27,8 @@ thiserror = { workspace = true }
 k8s-openapi = { workspace = true }
 oauth2-reqwest = { workspace = true }
 
+# Already in the tree (reqwest, kube): the CONNECT headers of the agent gateway.
+http = "1"
 crd = { path = "../crd", version = "0.3.0" }
 jwt_validator = { path = "../jwt_validator", version = "0.3.0" }
 tokio = { workspace = true, features = ["time"] }

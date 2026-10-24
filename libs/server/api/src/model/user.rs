@@ -45,6 +45,13 @@ pub enum UserAuthError {
     /// The `SelfSubjectReview` request to the target cluster failed.
     #[error("SelfSubjectReview request failed: {0}")]
     SelfSubjectReview(#[source] kube::Error),
+    /// The `SelfSubjectReview` through the agent gateway failed (RFC 0012):
+    /// the apiserver's status when it answered, and what went wrong.
+    #[error("SelfSubjectReview through the agent failed: {message}")]
+    AgentSelfSubjectReview {
+        status: Option<u16>,
+        message: String,
+    },
     /// The proxy has no usable OIDC configuration.
     #[error("no OIDC configuration found for this proxy")]
     OidcConfigMissing,
@@ -104,6 +111,10 @@ impl UserAuthError {
             Self::SelfSubjectReview(kube::Error::Api(status)) => {
                 status.code == 401 || status.code == 403
             }
+            Self::AgentSelfSubjectReview {
+                status: Some(401 | 403),
+                ..
+            } => true,
             // Everything else is configuration or infrastructure: a missing
             // proxy, Redis, building the upstream client, resolving the OIDC
             // config, or an authenticator list that should not be empty.
@@ -111,6 +122,7 @@ impl UserAuthError {
             | Self::Redis(_)
             | Self::Runtime(_)
             | Self::SelfSubjectReview(_)
+            | Self::AgentSelfSubjectReview { .. }
             | Self::OidcConfigMissing
             | Self::OidcCore(_)
             | Self::OidcHttpClient(_)
@@ -257,47 +269,58 @@ impl User {
         proxy: ProxyKubeApi,
         token: String,
     ) -> Result<Option<Self>, UserAuthError> {
-        // Create a Kubernetes client using the provided token and targeting the proxy from the request
-        let client = proxy
-            .to_kube_client(
-                state.clone().into(),
-                Some("default".to_owned()),
-                Some(token),
+        let reviewed = if matches!(proxy.spec.service, crd::service::Service::Agent(_)) {
+            // RFC 0012: no kube client reaches an agent cluster; the review
+            // goes through the agent gateway like any relayed request.
+            crate::cluster::redirect::kube_redirect::self_subject_review_through_agent(
+                &proxy, &state, &token,
             )
             .await
-            .inspect_err(|e| {
-                tracing::error!("Error while creating Kubernetes client: {}", e);
-            })?;
-        let review: Api<SelfSubjectReview> = Api::all(client);
-
-        match review
-            .create(&PostParams::default(), &SelfSubjectReview::default())
-            .await
-        {
-            Ok(review_content) => {
-                let user_info = review_content
-                    .status
-                    .unwrap_or_default()
-                    .user_info
-                    .unwrap_or_default();
-                Ok(Some(User {
-                    username: user_info.username.unwrap_or_default(),
-                    email: user_info
-                        .extra
-                        .and_then(|extra| {
-                            extra
-                                .get("email")
-                                .and_then(|emails| emails.first().cloned())
-                        })
-                        .unwrap_or_default(),
-                    groups: user_info.groups.unwrap_or_default(),
-                }))
-            }
-            Err(e) => {
-                tracing::warn!("Error while executing SelfSubjectReview request: {}", e);
-                Err(UserAuthError::SelfSubjectReview(e))
-            }
-        }
+            .map_err(|(status, message)| {
+                tracing::warn!(
+                    "Error while executing SelfSubjectReview request: {}",
+                    message
+                );
+                UserAuthError::AgentSelfSubjectReview { status, message }
+            })?
+        } else {
+            // A Kubernetes client with the caller's token, to the proxy's target.
+            let client = proxy
+                .to_kube_client(
+                    state.clone().into(),
+                    Some("default".to_owned()),
+                    Some(token),
+                )
+                .await
+                .inspect_err(|e| {
+                    tracing::error!("Error while creating Kubernetes client: {}", e);
+                })?;
+            let review: Api<SelfSubjectReview> = Api::all(client);
+            review
+                .create(&PostParams::default(), &SelfSubjectReview::default())
+                .await
+                .map_err(|e| {
+                    tracing::warn!("Error while executing SelfSubjectReview request: {}", e);
+                    UserAuthError::SelfSubjectReview(e)
+                })?
+        };
+        let user_info = reviewed
+            .status
+            .unwrap_or_default()
+            .user_info
+            .unwrap_or_default();
+        Ok(Some(User {
+            username: user_info.username.unwrap_or_default(),
+            email: user_info
+                .extra
+                .and_then(|extra| {
+                    extra
+                        .get("email")
+                        .and_then(|emails| emails.first().cloned())
+                })
+                .unwrap_or_default(),
+            groups: user_info.groups.unwrap_or_default(),
+        }))
     }
 
     #[instrument(skip(state, proxy, token))]

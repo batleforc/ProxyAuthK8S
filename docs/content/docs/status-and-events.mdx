@@ -45,6 +45,8 @@ Chaque avis devient une condition `True` à côté de `Ready`, de type égal à 
 | `RulesRestricted` | avis | des règles changent de sens sous une restriction de ports, de verbes ou d'exec (`status.warnings`) |
 | `DeprecatedInsecureCert` | avis | `cert: Insecure`, l'ancien nom de `SystemRoots` |
 | `Deleted` | avis | le finalizer a retiré le cluster de Redis |
+| `AgentNoTunnel` | bloquant | un cluster `service: Agent` dont aucun pod de la passerelle ne tient de tunnel (RFC 0012) ; le détail est dans `status.agent` |
+| `AgentLimitCapped` | avis | `limits.streams_per_tunnel` dépasse `agentGateway.limits.maxStreamsPerTunnel` et y est ramené |
 
 ## Les Events
 
@@ -78,6 +80,7 @@ cluster supprimé resterait servi par le proxy, qui route depuis Redis.
 | --- | --- |
 | un succès, ou un `InvalidSpec` | 5 min (±20 %) |
 | un autre échec | 30 s, doublé à chaque nouvel échec, jusqu'à 5 min |
+| un cluster `service: Agent` | 1 min au plus, pour que `status.agent` suive les tunnels |
 
 Une modification de la ressource déclenche un reconcile sans attendre. Le
 reconcile périodique rattrape ce que le watch ne voit pas : un Redis vidé, un

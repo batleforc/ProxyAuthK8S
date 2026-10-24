@@ -5,6 +5,7 @@
 //! - [`server_config`]: the HTTP(S) listener and its rustls configuration.
 //! - [`error`]: boot-time error types.
 
+pub mod agent_gateway;
 pub mod config;
 pub mod error;
 pub mod oidc_cache;

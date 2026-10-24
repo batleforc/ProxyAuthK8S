@@ -12,13 +12,15 @@ ports:
   - port: 127.0.0.1:8443:8443
     nodeFilters:
       - loadbalancer
-# Both names resolve to Traefik's pinned ClusterIP (HelmChartConfig below):
+# These names resolve to Traefik's pinned ClusterIP (HelmChartConfig below):
 # in the node's /etc/hosts for the apiserver, in CoreDNS for the pods.
 hostAliases:
   - ip: 10.43.0.200
     hostnames:
       - proxyauth.k8s.localhost
       - dex.k8s.localhost
+      # RFC 0012: the agents dial the gateway through the Ingress.
+      - agent.k8s.localhost
 # Traefik's HelmChartConfig (websecure on 8443, ClusterIP 10.43.0.200), from
 # .it/traefik-config.yaml. A bind mount: k3s' data directory is a volume, so a
 # file k3d writes under it is hidden.

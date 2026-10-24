@@ -1,0 +1,12 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: "{{ include "agent.name" . }}"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      app: "{{ include "agent.name" . }}"
+{{- end }}

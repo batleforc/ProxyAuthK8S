@@ -718,6 +718,190 @@
       },
       "additionalProperties": false
     },
+    "agentGateway": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The agent gateway (RFC 0012).",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "separate",
+            "embedded"
+          ]
+        },
+        "replicaCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "connectPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "tlsMode": {
+          "type": "string",
+          "enum": [
+            "inner"
+          ],
+          "description": "`passthrough` comes with phase 2."
+        },
+        "tokenSecretName": {
+          "type": "string",
+          "description": "Secret holding the CONNECT token (key `token`); empty = generated."
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "className": {
+              "type": "string"
+            },
+            "host": {
+              "type": "string"
+            },
+            "annotations": {
+              "type": "object"
+            },
+            "tls": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "secretName": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tunnelsPerAgentIdentity": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "streamsPerTunnel": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxStreamsPerTunnel": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "handshakeTimeoutSeconds": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "enrollPerMinute": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "enrollPerMinuteTotal": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "env": {
+          "type": "array",
+          "description": "Extra environment variables.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ]
+          }
+        },
+        "resources": {
+          "type": "object",
+          "properties": {
+            "limits": {
+              "type": "object",
+              "properties": {
+                "cpu": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "description": "Kubernetes quantity (e.g. 100m, 512Mi)."
+                },
+                "memory": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "description": "Kubernetes quantity (e.g. 100m, 512Mi)."
+                }
+              },
+              "additionalProperties": false
+            },
+            "requests": {
+              "type": "object",
+              "properties": {
+                "cpu": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "description": "Kubernetes quantity (e.g. 100m, 512Mi)."
+                },
+                "memory": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "description": "Kubernetes quantity (e.g. 100m, 512Mi)."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
     "rbac": {
       "type": "object",
       "properties": {

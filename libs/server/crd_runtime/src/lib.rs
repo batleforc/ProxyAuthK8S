@@ -14,6 +14,7 @@ use base64::{Engine, prelude::BASE64_STANDARD};
 use common::{State, oidc_conf::OidcConf};
 use crd::ProxyKubeApi;
 use crd::authentication_configuration::OidcProvider;
+use crd::service::Service;
 use kube::{Client, ResourceExt, config::Kubeconfig};
 use reqwest::Url;
 use tracing::instrument;
@@ -44,6 +45,10 @@ pub enum ProxyRuntimeError {
     /// The resolved CA contains no PEM `CERTIFICATE` block.
     #[error("the cluster CA contains no PEM CERTIFICATE block")]
     CaWithoutPem,
+    /// The cluster is reached through an agent (RFC 0012): it has no address
+    /// a direct connection could use.
+    #[error("the cluster is reached through an agent, not by a direct connection")]
+    ReachedThroughAgent,
 }
 
 /// Runtime (network / live-cluster) operations on a [`ProxyKubeApi`].
@@ -195,6 +200,18 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
     /// Check if the service is reachable
     #[instrument(skip(self, ctx))]
     async fn is_reachable(&self, ctx: Arc<State>) -> Result<bool, ProxyRuntimeError> {
+        // An agent cluster is never probed directly: it is reachable while a
+        // gateway pod holds one of its tunnels (RFC 0012), the presences the
+        // proxy routes by. A presence set that cannot be read counts as none.
+        if matches!(self.spec.service, Service::Agent(_)) {
+            let Some(uid) = self.metadata.uid.as_deref() else {
+                return Ok(false);
+            };
+            return Ok(ctx
+                .agent_presences(uid)
+                .await
+                .is_ok_and(|presences| !presences.is_empty()));
+        }
         let ip = match self
             .spec
             .service
@@ -367,6 +384,9 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
         default_ns: Option<String>,
         token: Option<String>,
     ) -> Result<Kubeconfig, ProxyRuntimeError> {
+        if matches!(self.spec.service, Service::Agent(_)) {
+            return Err(ProxyRuntimeError::ReachedThroughAgent);
+        }
         let cluster_url = self
             .spec
             .service
@@ -798,6 +818,47 @@ mod tests {
             .expect("inline CA is embedded");
         // kubeconfig's `certificate-authority-data` is the base64 of the PEM.
         assert_eq!(BASE64_STANDARD.decode(ca).unwrap(), PEM.as_bytes());
+    }
+
+    fn agent_proxy() -> ProxyKubeApi {
+        let mut proxy = proxy(None);
+        proxy.spec.cert = CertSource::Cert(BASE64_STANDARD.encode(PEM));
+        proxy.spec.service = Service::Agent(crd::service::AgentService {
+            server_name: crd::service::DEFAULT_SERVER_NAME.to_string(),
+            epoch: 0,
+            bootstrap: crd::service::AgentBootstrap::ServiceAccountToken(
+                crd::service::ServiceAccountTokenBootstrap {
+                    subject: "system:serviceaccount:a:b".to_string(),
+                    audience: crd::service::DEFAULT_AUDIENCE.to_string(),
+                    jwks: None,
+                    jwks_url: Some("https://issuer.example.com/keys".to_string()),
+                    jwks_from: None,
+                },
+            ),
+            limits: None,
+        });
+        proxy
+    }
+
+    /// RFC 0012: `https://kubernetes.default.svc` is the SAN to check, not an
+    /// address; a kubeconfig or a kube client built on it would dial the
+    /// proxy's own cluster.
+    #[tokio::test]
+    async fn an_agent_cluster_has_no_kubeconfig_for_a_direct_connection() {
+        let err = agent_proxy()
+            .to_kubeconfig(state(), None, None)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ProxyRuntimeError::ReachedThroughAgent),
+            "{err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_agent_cluster_is_never_probed_directly() {
+        // `state()`'s clients point at closed ports: a probe would error.
+        assert!(!agent_proxy().is_reachable(state()).await.unwrap());
     }
 
     #[tokio::test]

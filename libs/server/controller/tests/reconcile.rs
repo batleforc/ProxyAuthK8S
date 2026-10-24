@@ -325,3 +325,90 @@ async fn cleanup_fails_closed_when_redis_is_unreachable() {
         "expected a Redis error, got {error:?}"
     );
 }
+
+/// RFC 0012: an `Agent` cluster is ready while a gateway pod holds one of its
+/// tunnels, `AgentNoTunnel` otherwise, and `status.agent` sums the pods'
+/// records; a `limits.streams_per_tunnel` past the gateway's maximum is an
+/// advisory.
+#[tokio::test]
+async fn an_agent_cluster_is_ready_through_the_gateway_presences() {
+    use common::agent_gateway::{PresenceInfo, presence_info_key, presence_key};
+    use crd::service::{AgentBootstrap, AgentLimits, AgentService, Service};
+
+    let _pool = redis_or_skip!();
+    let mut proxy = support::proxy_fixture("default", &support::unique_cluster(), "https://unused");
+    let uid = format!("{:08x}-0000-4000-8000-0000000000aa", std::process::id());
+    proxy.metadata.uid = Some(uid.clone());
+    proxy.spec.cert = crd::certificate::CertSource::ConfigMap {
+        name: "prod-ca".to_string(),
+        key: "ca.crt".to_string(),
+        namespace: None,
+    };
+    proxy.spec.service = Service::Agent(AgentService {
+        server_name: crd::service::DEFAULT_SERVER_NAME.to_string(),
+        epoch: 0,
+        bootstrap: AgentBootstrap::ServiceAccountToken(
+            crd::service::ServiceAccountTokenBootstrap {
+                subject: "system:serviceaccount:a:b".to_string(),
+                audience: crd::service::DEFAULT_AUDIENCE.to_string(),
+                jwks: None,
+                jwks_url: Some("https://issuer.example.com/keys".to_string()),
+                jwks_from: None,
+            },
+        ),
+        limits: Some(AgentLimits {
+            streams_per_tunnel: Some(100_000),
+        }),
+    });
+    let state = support::state_with_redis(&support::redis_url());
+    let key = presence_key(&uid);
+    for pod in ["gw-0", "gw-1"] {
+        drop(state.presence_remove(&key, pod).await);
+    }
+
+    let evaluation = evaluate(&proxy, Arc::new(state.clone())).await;
+    let failure = evaluation.ready.as_ref().expect_err("no tunnel yet");
+    assert_eq!(failure.reason, ReasonCode::AgentNoTunnel);
+    assert_eq!(
+        evaluation.status.agent.as_ref().map(|agent| agent.tunnels),
+        Some(0)
+    );
+    assert!(
+        evaluation
+            .advisories
+            .iter()
+            .any(|advisory| advisory.reason == ReasonCode::AgentLimitCapped),
+        "{evaluation:?}"
+    );
+
+    for (pod, version) in [("gw-1", "0.4.1"), ("gw-0", "0.4.0")] {
+        let info = PresenceInfo {
+            tunnels: 1,
+            versions: vec![version.to_string()],
+            ca_fingerprints: vec!["ab".to_string()],
+        };
+        state
+            .redis_set(
+                &presence_info_key(&uid, pod),
+                &serde_json::to_string(&info).expect("json"),
+                Some(30),
+            )
+            .await
+            .expect("record");
+        state
+            .presence_refresh(&key, pod, 30)
+            .await
+            .expect("presence");
+    }
+    let evaluation = evaluate(&proxy, Arc::new(state.clone())).await;
+    assert!(evaluation.ready.is_ok(), "{evaluation:?}");
+    let agent = evaluation.status.agent.expect("status.agent");
+    assert_eq!(agent.tunnels, 2);
+    assert_eq!(agent.gateways, vec!["gw-0", "gw-1"]);
+    assert_eq!(agent.versions, vec!["0.4.0", "0.4.1"]);
+    assert_eq!(agent.ca_fingerprints, vec!["ab"]);
+
+    for pod in ["gw-0", "gw-1"] {
+        drop(state.presence_remove(&key, pod).await);
+    }
+}

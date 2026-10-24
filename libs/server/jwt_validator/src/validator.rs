@@ -19,6 +19,7 @@ use crd::authentication_configuration::{
     ClaimMappings, ClaimOrExpression, ClaimValidationRule, JWTAuthenticator,
     PrefixedClaimOrExpression,
 };
+use jsonwebtoken::jwk::Jwk;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use tokio::sync::RwLock;
 use tracing::instrument;
@@ -44,6 +45,60 @@ const ALLOWED_ALGORITHMS: &[Algorithm] = &[
     Algorithm::ES384,
     Algorithm::EdDSA,
 ];
+
+/// The algorithm and key `jwk` verifies with, `header_alg` used only when the
+/// key declares none.
+fn decoding_key(
+    jwk: &Jwk,
+    header_alg: Algorithm,
+    source: &str,
+) -> Result<(Algorithm, DecodingKey), JwtValidationError> {
+    // Prefer the algorithm the key itself declares over the one the token
+    // asks for: the header is attacker-controlled, the JWKS is not.
+    let algorithm = match jwk.common.key_algorithm {
+        Some(declared) => {
+            Algorithm::try_from(declared).map_err(|_| JwtValidationError::UnsupportedAlgorithm {
+                alg: format!("{declared:?}"),
+            })?
+        }
+        None => header_alg,
+    };
+    if !ALLOWED_ALGORITHMS.contains(&algorithm) {
+        return Err(JwtValidationError::UnsupportedAlgorithm {
+            alg: format!("{algorithm:?}"),
+        });
+    }
+    let key = DecodingKey::from_jwk(jwk).map_err(|e| JwtValidationError::JwksInvalid {
+        url: source.to_string(),
+        reason: format!("key is not usable for verification: {e}"),
+    })?;
+    Ok((algorithm, key))
+}
+
+/// Verify `token` with `jwk`, its `exp`, `nbf` and `aud` (`audience`), and
+/// return its claims. No `iss` check: the caller chose the key set (an
+/// agent's enrolment proof, RFC 0012 §5.2).
+pub fn verify_with_key(
+    token: &str,
+    jwk: &Jwk,
+    audience: &str,
+) -> Result<serde_json::Value, JwtValidationError> {
+    let header = decode_header(token)
+        .map_err(|e| JwtValidationError::Malformed(format!("unreadable header: {e}")))?;
+    if !ALLOWED_ALGORITHMS.contains(&header.alg) {
+        return Err(JwtValidationError::UnsupportedAlgorithm {
+            alg: format!("{:?}", header.alg),
+        });
+    }
+    let (algorithm, key) = decoding_key(jwk, header.alg, "the configured JWKS")?;
+    let mut validation = Validation::new(algorithm);
+    validation.validate_exp = true;
+    validation.validate_nbf = true;
+    validation.set_audience(&[audience]);
+    decode::<serde_json::Value>(token, &key, &validation)
+        .map(|data| data.claims)
+        .map_err(|e| JwtValidationError::Rejected(e.to_string()))
+}
 
 /// Validates bearer tokens against a set of [`JWTAuthenticator`]s.
 ///
@@ -142,27 +197,7 @@ impl JwtValidator {
             )
             .await?;
 
-        // Prefer the algorithm the key itself declares over the one the token
-        // asks for: the header is attacker-controlled, the JWKS is not.
-        let algorithm = match jwk.common.key_algorithm {
-            Some(declared) => Algorithm::try_from(declared).map_err(|_| {
-                JwtValidationError::UnsupportedAlgorithm {
-                    alg: format!("{declared:?}"),
-                }
-            })?,
-            None => header.alg,
-        };
-        if !ALLOWED_ALGORITHMS.contains(&algorithm) {
-            return Err(JwtValidationError::UnsupportedAlgorithm {
-                alg: format!("{algorithm:?}"),
-            });
-        }
-
-        let decoding_key =
-            DecodingKey::from_jwk(&jwk).map_err(|e| JwtValidationError::JwksInvalid {
-                url: authenticator.issuer.url.clone(),
-                reason: format!("key is not usable for verification: {e}"),
-            })?;
+        let (algorithm, decoding_key) = decoding_key(&jwk, header.alg, &authenticator.issuer.url)?;
 
         let mut validation = Validation::new(algorithm);
         validation.validate_exp = true;

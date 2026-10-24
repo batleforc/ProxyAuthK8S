@@ -34,6 +34,12 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.back.port }}
+            {{- if and .Values.agentGateway.enabled (eq .Values.agentGateway.mode "embedded") }}
+            - name: agents
+              containerPort: {{ .Values.agentGateway.port }}
+            - name: connect
+              containerPort: {{ .Values.agentGateway.connectPort }}
+            {{- end }}
           env:
             - name: SERVER_PORT
               value: "{{ .Values.back.port }}"
@@ -60,6 +66,12 @@ spec:
               value: '{{ include "proxyauthk8s.publicUrl" . }}'
             - name: API_CLUSTER_OIDC_BASE_REDIRECT_URL
               value: '{{ include "proxyauthk8s.publicUrl" . }}'
+            {{- if .Values.agentGateway.enabled }}
+            # RFC 0012: CONNECT to the agent gateway, or run it here (embedded).
+            - name: PROXYAUTH_ROLE
+              value: '{{ ternary "embedded" "proxy" (eq .Values.agentGateway.mode "embedded") }}'
+            {{- include "proxyauthk8s.gateway.env" . | nindent 12 }}
+            {{- end }}
             {{- if .Values.otel.enabled }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: '{{ .Release.Name }}-otel-collector:4317'

@@ -54,6 +54,73 @@ static AUDIT_EVENTS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
         .build()
 });
 
+/// The agent gateway's series (RFC 0012 §10.1), exposed as
+/// `proxyauth_agent_tunnels`, `proxyauth_agent_streams_total{result}`,
+/// `proxyauth_agent_enrollments_total{method,result}` and
+/// `proxyauth_agent_bytes_total{direction}`. No `cluster` label: the detail
+/// is in `status.agent` and the audit trail.
+pub const AGENT_TUNNELS: &str = "proxyauth.agent.tunnels";
+pub const AGENT_STREAMS: &str = "proxyauth.agent.streams";
+pub const AGENT_ENROLLMENTS: &str = "proxyauth.agent.enrollments";
+pub const AGENT_BYTES: &str = "proxyauth.agent.bytes";
+
+static AGENT_TUNNELS_GAUGE: LazyLock<opentelemetry::metrics::UpDownCounter<i64>> =
+    LazyLock::new(|| {
+        opentelemetry::global::meter("proxyauthk8s")
+            .i64_up_down_counter(AGENT_TUNNELS)
+            .with_description("Agent tunnels open on this gateway pod.")
+            .build()
+    });
+
+static AGENT_STREAMS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(AGENT_STREAMS)
+        .with_description("CONNECT requests of the proxy, by result.")
+        .build()
+});
+
+static AGENT_ENROLLMENTS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(AGENT_ENROLLMENTS)
+        .with_description("Agent enrolments, by method and result.")
+        .build()
+});
+
+static AGENT_BYTES_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(AGENT_BYTES)
+        .with_description("Bytes relayed through agent tunnels, by direction.")
+        .build()
+});
+
+/// A tunnel opened (`1`) or closed (`-1`).
+pub fn record_agent_tunnel(delta: i64) {
+    AGENT_TUNNELS_GAUGE.add(delta, &[]);
+}
+
+/// One `CONNECT`: `opened`, `unavailable` or `limited`.
+pub fn record_agent_stream(result: &'static str) {
+    AGENT_STREAMS_COUNTER.add(1, &[KeyValue::new("result", result)]);
+}
+
+/// One enrolment: `enrolled` or `refused`.
+pub fn record_agent_enrollment(method: &'static str, result: &'static str) {
+    AGENT_ENROLLMENTS_COUNTER.add(
+        1,
+        &[
+            KeyValue::new("method", method),
+            KeyValue::new("result", result),
+        ],
+    );
+}
+
+/// The bytes of one relayed stream: `to_agent` (from the proxy) and
+/// `from_agent`.
+pub fn record_agent_bytes(to_agent: u64, from_agent: u64) {
+    AGENT_BYTES_COUNTER.add(to_agent, &[KeyValue::new("direction", "to_agent")]);
+    AGENT_BYTES_COUNTER.add(from_agent, &[KeyValue::new("direction", "from_agent")]);
+}
+
 /// Name of the histogram of tunnelled session durations (exposed to
 /// Prometheus as `proxyauth_session_duration_seconds`). Label: `kind` (`exec`,
 /// `attach`, `portforward`, `proxy`, `other`).

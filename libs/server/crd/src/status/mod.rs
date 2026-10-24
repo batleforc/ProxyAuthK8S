@@ -12,6 +12,10 @@ pub struct ProxyKubeApiStatus {
     /// `SecurityConfiguration::warnings`). They are still applied.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// The agent tunnels of a `service: Agent` cluster (RFC 0012), from the
+    /// gateway pods' presences.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentStatus>,
     /// `Ready`, then one condition per advisory (RFC 0011). Written by the
     /// controller's status publication, never in the Redis copy.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -23,6 +27,28 @@ pub struct ProxyKubeApiStatus {
         skip_serializing_if = "Option::is_none"
     )]
     pub observed_generation: Option<i64>,
+}
+
+/// What the gateway pods report about one cluster's agent. Only values that
+/// change with the tunnels themselves: a status write re-triggers a
+/// reconcile, so no timestamp lives here.
+#[derive(Serialize, Deserialize, Clone, JsonSchema, Default, Debug, PartialEq, Eq)]
+pub struct AgentStatus {
+    /// Open tunnels, every gateway pod together.
+    pub tunnels: u32,
+    /// The gateway pods holding them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub gateways: Vec<String>,
+    /// The agents' versions, as they announce them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub versions: Vec<String>,
+    /// SHA-256 of the remote `kube-root-ca.crt`, as the agents report it.
+    #[serde(
+        default,
+        rename = "caFingerprints",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub ca_fingerprints: Vec<String>,
 }
 
 impl ProxyKubeApiStatus {
@@ -51,6 +77,7 @@ impl ProxyKubeApiStatus {
             ("path".to_string(), json!(self.path)),
             ("error".to_string(), json!(self.error)),
             ("warnings".to_string(), warnings),
+            ("agent".to_string(), json!(self.agent)),
         ])
     }
 }

@@ -102,10 +102,11 @@ step "images"
 if [[ -z "${IT_SKIP_BUILD:-}" ]]; then
   "$ENGINE" build -f deploy/build/back/Containerfile -t localhost/proxyauthk8s/server:it .
   "$ENGINE" build -f deploy/build/front/Containerfile -t localhost/proxyauthk8s/front:it .
+  "$ENGINE" build -f deploy/build/agent/Containerfile -t localhost/proxyauthk8s/agent:it .
 fi
 # Through a tarball: under podman, k3d's own `docker save` in its tools
 # container fails.
-images=(localhost/proxyauthk8s/server:it localhost/proxyauthk8s/front:it)
+images=(localhost/proxyauthk8s/server:it localhost/proxyauthk8s/front:it localhost/proxyauthk8s/agent:it)
 if [[ "$ENGINE" == podman ]]; then
   podman save -m -o "$RUN/images.tar" "${images[@]}"
 else
@@ -133,7 +134,7 @@ sed -e "s|__REDIS__|$REDIS|" -e "s|__DEX__|$DEX|" .it/stack.yaml | k apply -f -
 helm --kubeconfig "$ADMIN" upgrade --install proxyauth deploy/chart -n "$NS" -f .it/values.yaml
 
 step "rollout"
-for d in redis dex proxyauth-proxyauthk8s-back proxyauth-proxyauthk8s-front; do
+for d in redis dex proxyauth-proxyauthk8s-back proxyauth-proxyauthk8s-front proxyauth-proxyauthk8s-gateway; do
   k -n "$NS" rollout status "deployment/$d" --timeout=180s
 done
 k -n kube-system rollout status deployment/traefik --timeout=180s

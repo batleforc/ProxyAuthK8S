@@ -1,0 +1,36 @@
+{{- if and .Values.agentGateway.enabled .Values.agentGateway.ingress.enabled }}
+{{- with .Values.agentGateway.ingress }}
+# The agents' way in (§5.3, `tlsMode: inner`): the ingress ends the outer TLS,
+# the mutual TLS with each agent runs inside the WebSocket. Only /agent/v1/.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" $ }}"
+  namespace: "{{ $.Release.Namespace }}"
+  {{- with .annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .className }}
+  ingressClassName: {{ .className }}
+  {{- end }}
+  {{- if .tls.enabled }}
+  tls:
+    - hosts:
+        - {{ required "agentGateway.ingress.host is required" .host }}
+      secretName: {{ .tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ required "agentGateway.ingress.host is required" .host }}
+      http:
+        paths:
+          - path: /agent/v1/
+            pathType: Prefix
+            backend:
+              service:
+                name: "{{ include "proxyauthk8s.gateway.name" $ }}"
+                port:
+                  number: {{ $.Values.agentGateway.port }}
+{{- end }}
+{{- end }}

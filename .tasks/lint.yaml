@@ -8,3 +8,5 @@ tasks:
       - echo "Running lint on helm charts"
       - helm lint deploy/chart-crd
       - helm lint deploy/chart
+      # proxy.cluster is required: lint with a placeholder.
+      - helm lint deploy/chart-agent --set proxy.cluster=team-a/prod

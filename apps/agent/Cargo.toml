@@ -1,0 +1,35 @@
+[package]
+name = "agent"
+version = "0.3.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "The RFC 0012 agent: dials out to the proxy's agent gateway and relays its streams to the local apiserver"
+
+[[bin]]
+name = "proxyauthk8s-agent"
+path = "src/main.rs"
+
+[dependencies]
+agent_pki = { path = "../../libs/agent/pki", version = "0.3.0" }
+agent_proto = { path = "../../libs/agent/proto", version = "0.3.0" }
+anyhow = { workspace = true }
+axum = { workspace = true }
+futures-util = { workspace = true, features = ["io"] }
+reqwest = { workspace = true }
+rustls = { workspace = true }
+rustls-platform-verifier = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Already in the tree (api): the SHA-256 of the remote cluster's CA.
+sha2 = "0.11"
+tokio = { workspace = true, features = ["net", "time", "io-util", "signal"] }
+tokio-rustls = { workspace = true }
+# Already in the tree (agent_proto, api's tests): the client handshake.
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

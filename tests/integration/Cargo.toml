@@ -14,8 +14,14 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
 tempfile = "3"
-tokio = { workspace = true, features = ["process", "io-util", "time"] }
+tokio = { workspace = true, features = ["process", "io-util", "time", "net"] }
 url = "2"
+# RFC 0012 point 12: a client of the agents' listener without an agent
+# certificate, spoken by hand. Registry crates already in the tree.
+futures-util = { workspace = true, features = ["sink"] }
+rustls = { workspace = true }
+tokio-rustls = { workspace = true }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 
 [lints]
 workspace = true

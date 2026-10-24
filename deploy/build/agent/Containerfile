@@ -1,0 +1,29 @@
+# The RFC 0012 agent (§6.5, §8): a static binary on a distroless static
+# image, non-root, no shell.
+FROM registry.hub.docker.com/library/rust:1.99-alpine AS build
+
+WORKDIR /app
+# Static by default on musl (the back's image sets -crt-static to undo it):
+# the final image has no libc. Not via RUSTFLAGS, which proc-macros refuse.
+# Alpine packages are not pinned: the base is the floating alpine:3 and its
+# repositories drop old versions, so a pin would break the next build.
+# hadolint ignore=DL3018
+RUN apk add --no-cache clang lld musl-dev perl
+
+# The whole workspace: cargo needs every member's manifest, and the agent
+# builds alone (`-p agent`), so no placeholder dance is worth its lines here.
+COPY . .
+RUN cargo build --release --locked -p agent && \
+  strip dist/target/release/proxyauthk8s-agent
+
+# Index digest of gcr.io/distroless/static-debian12:nonroot, every platform.
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+
+COPY --from=build /app/dist/target/release/proxyauthk8s-agent /proxyauthk8s-agent
+
+# Probes and metrics.
+EXPOSE 9090
+# distroless `nonroot`; the chart's securityContext sets the same.
+USER 65532:65532
+
+ENTRYPOINT ["/proxyauthk8s-agent"]

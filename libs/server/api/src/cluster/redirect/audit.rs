@@ -39,6 +39,12 @@ pub enum Event {
     OauthTokenDenied,
     ClientBanned,
     SessionClosed,
+    /// RFC 0012: an agent got its certificate.
+    AgentEnrolled,
+    /// RFC 0012: an enrolment or a tunnel was refused.
+    AgentRefused,
+    AgentConnected,
+    AgentDisconnected,
 }
 
 impl Event {
@@ -55,6 +61,10 @@ impl Event {
             Self::OauthTokenDenied => "oauth_token_denied",
             Self::ClientBanned => "client_banned",
             Self::SessionClosed => "session_closed",
+            Self::AgentEnrolled => "agent_enrolled",
+            Self::AgentRefused => "agent_refused",
+            Self::AgentConnected => "agent_connected",
+            Self::AgentDisconnected => "agent_disconnected",
         }
     }
 }
@@ -244,6 +254,20 @@ impl AuditEvent {
     /// phrase from the code, never a value the client sent.
     pub fn reason(self, reason: &'static str) -> Self {
         self.set("reason", json!(reason))
+    }
+
+    /// The agent a line is about (RFC 0012): the `epoch` of its certificate,
+    /// and the version it announced, at most [`UPSTREAM_REASON_MAX`]
+    /// characters.
+    pub fn agent(self, epoch: u64, version: Option<&str>) -> Self {
+        let version: Option<String> = version.map(|version| {
+            sanitize_audit_field(version)
+                .chars()
+                .take(UPSTREAM_REASON_MAX)
+                .collect()
+        });
+        self.set("agent_epoch", json!(epoch))
+            .set("agent_version", json!(version))
     }
 
     /// The loopback `redirect_uri` of an OAuth flow, without its query.
@@ -511,6 +535,9 @@ pub struct AuditContext {
     pub exec: Option<ExecAudit>,
     pub user: Option<String>,
     pub groups: Vec<String>,
+    /// `direct`, or `agent` for a cluster reached through its agent tunnel
+    /// (RFC 0012, T14).
+    pub upstream_via: &'static str,
     started_at: Instant,
 }
 
@@ -527,6 +554,7 @@ impl AuditContext {
             exec: None,
             user: None,
             groups: Vec::new(),
+            upstream_via: "direct",
             started_at: Instant::now(),
         }
     }
@@ -550,7 +578,8 @@ impl AuditContext {
         let line = AuditEvent::new(event, outcome)
             .user(self.user.as_deref(), &self.groups)
             .cluster(&self.ns, &self.cluster)
-            .http(&self.method, self.k8s_verb.as_deref(), &self.path);
+            .http(&self.method, self.k8s_verb.as_deref(), &self.path)
+            .set("upstream_via", json!(self.upstream_via));
         let line = match &self.upstream {
             Some((path, verb)) => line.upstream(path, verb.as_deref()),
             None => line,

@@ -27,11 +27,11 @@ tasks:
       - |
         status=0
         env -u DBUS_SESSION_BUS_ADDRESS keyctl session - \
-          cargo nextest run -p integration --profile it -E 'not binary(rfc0011_leader)' || status=1
+          cargo nextest run -p integration --profile it -E 'not (binary(rfc0011_leader) | binary(rfc0012_restart))' || status=1
         # Tests that move the leader Lease or restart the back (RFC 0011
-        # points 12, 13): alone, once nothing else runs.
+        # points 12, 13; RFC 0012 point 14): alone, once nothing else runs.
         env -u DBUS_SESSION_BUS_ADDRESS keyctl session - \
-          cargo nextest run -p integration --profile it -E 'binary(rfc0011_leader)' -j 1 || status=1
+          cargo nextest run -p integration --profile it -E 'binary(rfc0011_leader) | binary(rfc0012_restart)' -j 1 || status=1
         pnpm -C apps/front test:e2e:it || status=1
         exit $status
 

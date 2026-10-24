@@ -18,6 +18,9 @@ members = [
   'libs/cli/client_api',
   'libs/cli/cli',
   'tests/integration',
+  'libs/agent/proto',
+  'libs/agent/pki',
+  'apps/agent',
 ]
 
 [workspace.dependencies]

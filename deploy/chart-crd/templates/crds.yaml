@@ -1553,7 +1553,140 @@ spec:
                   - KubernetesService
                 - required:
                   - ExternalService
+                - required:
+                  - Agent
                 properties:
+                  Agent:
+                    description: |-
+                      Reached through an agent on the remote cluster, which dials out to the
+                      proxy: the apiserver accepts no inbound connection (RFC 0012)
+                    properties:
+                      bootstrap:
+                        description: How an agent proves it serves this cluster before it gets a certificate
+                        oneOf:
+                        - required:
+                          - ServiceAccountToken
+                        properties:
+                          ServiceAccountToken:
+                            description: |-
+                              A projected ServiceAccount token of the remote cluster, checked against
+                              that cluster's public keys: nothing secret goes into git
+                            properties:
+                              audience:
+                                default: proxyauth
+                                description: |-
+                                  `aud` of the agent's token
+                                  Default: proxyauth
+                                maxLength: 253
+                                minLength: 1
+                                type: string
+                              jwks:
+                                description: |-
+                                  The remote cluster's JWKS, inline (`kubectl get --raw /openid/v1/jwks`)
+                                  Frozen: a key rotation needs an edit
+                                maxLength: 65536
+                                nullable: true
+                                type: string
+                              jwks_from:
+                                description: |-
+                                  A ConfigMap or Secret holding the JWKS, re-read at enrolment: for an
+                                  issuer only reachable inside the remote cluster (kubeadm, k3s)
+                                nullable: true
+                                oneOf:
+                                - required:
+                                  - ConfigMap
+                                - required:
+                                  - Secret
+                                properties:
+                                  ConfigMap:
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        description: If not set, the resource namespace (same policy as `cert`)
+                                        nullable: true
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    type: object
+                                  Secret:
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        description: If not set, the resource namespace (same policy as `cert`)
+                                        nullable: true
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    type: object
+                                type: object
+                              jwks_url:
+                                description: Where a public issuer serves its JWKS (EKS, GKE, AKS)
+                                maxLength: 2048
+                                nullable: true
+                                type: string
+                              subject:
+                                description: '`sub` of the agent''s token: `system:serviceaccount:<namespace>:<name>`'
+                                maxLength: 316
+                                type: string
+                            required:
+                            - subject
+                            type: object
+                            x-kubernetes-validations:
+                            - message: set exactly one of jwks, jwks_url and jwks_from
+                              rule: '[has(self.jwks), has(self.jwks_url), has(self.jwks_from)].filter(x, x).size() == 1'
+                            - message: jwks_url must be an https:// URL
+                              rule: '!has(self.jwks_url) || self.jwks_url.startsWith(''https://'')'
+                            - message: subject must be a ServiceAccount (system:serviceaccount:<namespace>:<name>)
+                              rule: self.subject.startsWith('system:serviceaccount:')
+                        type: object
+                      epoch:
+                        default: 0
+                        description: |-
+                          Raise it to revoke every agent certificate issued so far: open tunnels
+                          close within 30 s and the agent has to enrol again
+                          Default: 0
+                        format: uint64
+                        minimum: 0.0
+                        type: integer
+                      limits:
+                        description: Overrides of the gateway's tunnel bounds, for this cluster only
+                        nullable: true
+                        properties:
+                          streams_per_tunnel:
+                            description: |-
+                              Streams one tunnel carries at once, for a cluster with many concurrent
+                              clients (an operator driving it through the proxy). Capped by the
+                              gateway's maxStreamsPerTunnel, with a warning on the CR
+                              Default: the gateway's streamsPerTunnel
+                            format: uint32
+                            minimum: 1.0
+                            nullable: true
+                            type: integer
+                        type: object
+                      server_name:
+                        default: kubernetes.default.svc
+                        description: |-
+                          Name checked against the remote apiserver's certificate
+                          Default: kubernetes.default.svc
+                        maxLength: 253
+                        minLength: 1
+                        type: string
+                    required:
+                    - bootstrap
+                    type: object
+                    x-kubernetes-validations:
+                    - message: server_name must be a DNS name or an IP address
+                      rule: self.server_name.matches('^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$') || isIP(self.server_name)
+                    - message: 'epoch must not decrease: a lower epoch would make revoked agent certificates valid again'
+                      rule: self.epoch >= oldSelf.epoch
                   ExternalService:
                     description: External service
                     properties:
@@ -1685,9 +1818,40 @@ spec:
               rule: '!has(self.dashboard_group) || self.dashboard_group != '''''
             - message: proxy_group must not be empty when it is set
               rule: '!has(self.proxy_group) || self.proxy_group != '''''
+            - message: service Agent needs the remote apiserver's CA in cert (ConfigMap, Secret or Cert), never SystemRoots
+              rule: '!has(self.service.Agent) || has(self.cert.ConfigMap) || has(self.cert.Secret) || has(self.cert.Cert)'
           status:
             nullable: true
             properties:
+              agent:
+                description: |-
+                  The agent tunnels of a `service: Agent` cluster (RFC 0012), from the
+                  gateway pods' presences.
+                nullable: true
+                properties:
+                  caFingerprints:
+                    description: SHA-256 of the remote `kube-root-ca.crt`, as the agents report it.
+                    items:
+                      type: string
+                    type: array
+                  gateways:
+                    description: The gateway pods holding them.
+                    items:
+                      type: string
+                    type: array
+                  tunnels:
+                    description: Open tunnels, every gateway pod together.
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                  versions:
+                    description: The agents' versions, as they announce them.
+                    items:
+                      type: string
+                    type: array
+                required:
+                - tunnels
+                type: object
               conditions:
                 description: |-
                   `Ready`, then one condition per advisory (RFC 0011). Written by the
