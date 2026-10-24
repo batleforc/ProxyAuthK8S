@@ -1065,8 +1065,9 @@ la phase 1 (2026-10-24). Les sections 1 à 16 restent le texte accepté ; les
 Tenu à jour à chaque étape ; c'est d'ici que l'on repart, pas de
 l'historique de la conversation.
 
-**Branche** `feat/rfc-0012-agent-tunnel`, rebasée sur `main` après la PR #293
-(`d8f7341`), non poussée, aucune PR ouverte. Commits signés (`git commit -s -S
+**Branche** `feat/rfc-0012-agent-tunnel`, partie de `main` après la PR #293
+(`d8f7341`), poussée ; **PR #294** ouverte
+(`feat: agent mode, reach an apiserver that is not exposed (RFC 0012, phase 1)`). Commits signés (`git commit -s -S
 -F <fichier>`), le mainteneur a autorisé les commits sur cette branche ; les
 messages sont préparés dans `.git/rfc0011/commit-0012-*.txt` (hors suivi
 git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
@@ -1094,8 +1095,20 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 | `libs/server/api/src/cluster/redirect/kube_redirect/{upstream.rs,upgrade/connect.rs}` | le proxy en `CONNECT` (`agent_proxy`, `connect_through_gateway`) |
 | `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
 
-**État du dépôt au moment de l'arrêt** : voir `git status` ; les étapes 1 et
-11 sont commitées (`d5fe653` … `5a54b43`, `1feb4cf` l'agent, puis les tests de sécurité) : la phase 1 est dans la branche.
+**État du dépôt au moment de l'arrêt** (2026-10-24, soir) : la phase 1 est
+commitée et poussée jusqu'à `843efdd`. La CI du commit `0f6ce9b` était verte,
+banc compris (`integration` : 74/74 puis 3/3, `rfc0012` 10/10 et le point 14),
+sauf CodeQL : une alerte (#1483, « cleartext logging ») sur un `{ended:?}` de
+`agent_tunnel.rs`, faux positif retiré par `843efdd`. La CI de `843efdd`
+tournait encore à l'arrêt. La mise à jour de cette « Reprise » est un commit
+local, à pousser une fois la CI de `843efdd` finie : un push qui ne touche que
+`.rfc/` annule le banc en cours (`concurrency` d'`integration.yaml`). Le banc
+k3d local (`proxyauth-it`, port 8443) tournait encore : `task it:down`, ou
+`systemctl --user start podman.socket` pour le réutiliser après un redémarrage.
+
+Pour repartir : `gh pr checks 294` (tout vert attendu ; l'alerte CodeQL #1483
+doit être fermée après `Analyze (rust)`), `git status`, puis
+`git push` du commit de « Reprise » s'il n'est pas sur `origin`.
 
 **Suite, dans l'ordre** (chaque étape : code, tests, §17 « État », commit) :
 
@@ -1128,9 +1141,32 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
     Le chart refuse `tlsMode` autre que `inner` et une autre méthode.
 11. ~~Tests de sécurité restants.~~ Faits. **La phase 1 est complète**, prouvée
     sur le banc (phase 3 faite pour les points de la phase 1).
-12. Ouvrir la PR (0.4.0 = RFC 0011 + 0012) ; puis la phase 2 (`OneShotToken`,
-    `passthrough`, sortie `CONNECT` / SOCKS5, `jwksPublisher`), qui livre les
-    points 8 à 11 de §6.P et leurs lignes de `MATRIX.md`.
+12. ~~Ouvrir la PR~~ : #294. Reste : CI verte sur le dernier commit, relecture
+    et merge par le mainteneur.
+13. **À décider (mainteneur)** : les phases 2 à 4 avant le tag 0.4.0, ou
+    après (`PLAN.md`, étapes 16 et 17).
+14. **Phase 2**, une PR, qui livre les points 8 à 11 de §6.P (lignes 8 à 11
+    de `MATRIX.md` à passer de `hors suite` à `suite`) :
+    - `OneShotToken` : `AgentBootstrap::OneShotToken { auto_rotate }`, SHA-256
+      du jeton dans Redis, consommation par `GETDEL` (T6) ; côté agent, clé et
+      certificat dans le Secret `identitySecret`, `get`/`update`/`patch` sur ce
+      seul Secret (T16, rendu du chart vérifié) ; décision 21.
+    - `tlsMode: passthrough` : l'écoute termine elle-même le TLS
+      (`agentGateway.tls.secretName`), certificat client exigé ; le chart de
+      l'agent accepte alors `tlsMode: passthrough` (son `fail` actuel saute).
+    - Sortie de l'agent par `CONNECT` (`hyper`, `Proxy-Authorization: Basic`
+      depuis `credentialsSecret`) et SOCKS5 (`tokio-socks` 0.5.3, RFC 1929),
+      `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` ; tinyproxy et microsocks
+      épinglés dans `.it/images.lock` pour le banc.
+    - CronJob `jwksPublisher` du chart de l'agent (décision 24).
+15. **Écarts restés ouverts**, à reprendre quand ils gênent : la borne de
+    64 Kio d'un JWKS par `jwks_url` (T13, `JwksCache` partagé avec l'OIDC) ;
+    la condition `AgentConnected` (un correctif à proposer au kit
+    weebo-operator-kit, jamais édité d'ici) ; T12 complet sans
+    `rbac.referencedNamespaces` ; les métriques de la passerelle non exposées
+    sur le banc (`WEEBO_METRICS_ADDR`) ; HPA et PDB de la passerelle ;
+    `expected` et `lastSeen` de `status.agent`.
+16. Phase 4 (`ExternalCA`, cert-manager, Vault PKI), hors suite.
 
 **Lancer les tests** :
 
