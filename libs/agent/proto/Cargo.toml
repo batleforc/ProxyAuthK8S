@@ -1,0 +1,24 @@
+[package]
+name = "agent_proto"
+version = "0.3.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Wire protocol of the RFC 0012 agent tunnel: WebSocket adapter, yamux driver, control messages"
+
+[dependencies]
+bytes = "1"
+futures-util = { workspace = true, features = ["io", "sink"] }
+prost = "0.14"
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+tokio-tungstenite = { version = "0.29", default-features = false }
+yamux = "0.14.1"
+
+[dev-dependencies]
+futures = "0.3"
+tokio = { workspace = true, features = ["io-util", "sync", "macros", "rt-multi-thread", "time"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+
+[lints]
+workspace = true
