@@ -948,3 +948,48 @@ Aucune.
 Les contrôles arrivent avec leur surface : la phase 1 n'ouvre pas l'écoute sans
 mTLS, limites, `epoch` et audit, et la phase 2 n'ajoute pas `OneShotToken` sans
 `GETDEL` ni T6.
+
+---
+
+## 17. Implementation notes
+
+Suivi d'avancement, tenu pendant l'implémentation (branche
+`feat/rfc-0012-agent-tunnel`). Les sections 1 à 16 restent le texte accepté ;
+les écarts sont notés ici.
+
+### État
+
+| Étape (phase 1) | État | Notes |
+| --- | --- | --- |
+| 1a CRD : `Service::Agent`, `AgentBootstrap::ServiceAccountToken`, `JwksSource`, CEL, `validate()` | fait | `crd/src/service/agent.rs` ; 7 tests unitaires, envtest `envtest_agent_crd` 7/7 (CEL, `isIP`, transition d'`epoch`) |
+| 1a' fermeture des chemins directs | fait | relais `503 agent unavailable` (`agent_tunnel.rs`), sonde `is_reachable` à `false`, `to_kubeconfig` refusé (`ReachedThroughAgent`) ; tests `crd_runtime` 2/2, `agent_tunnel` 1/1 |
+| 1b `libs/agent/proto` : adaptateur WebSocket, messages de contrôle | à faire | |
+| 1c proxy : CA des agents, enrôlement, écoute, registre, connecteur | à faire | |
+| 1d `apps/agent`, image, chart | à faire | |
+| 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
+
+### Écarts
+
+- **`Agent(AgentService)`, variante newtype** : la forme YAML est la même
+  (`service: { Agent: { … } }`) ; une struct nommée porte les règles CEL
+  (`x-kubernetes-validations`), ce qu'une variante struct ne permet pas.
+- **`AgentBootstrap` n'a que `ServiceAccountToken` en phase 1** :
+  `OneShotToken` (phase 2) et `ExternalCA` (phase 4) arrivent avec leur code ;
+  une variante ajoutée à un enum de CRD est un changement compatible.
+- **Politique de namespaces de `jwks_from`** (décision 24, §6.1) : c'est
+  celle de `CertSource`, c'est-à-dire `PROXYAUTH_ALLOW_CROSS_NS_CERT` (une
+  référence vers un autre namespace est ramenée à celui de la CR), et le RBAC
+  du chart (`rbac.referencedNamespaces`) en plus : `JwksSource` se convertit
+  en `CertSource` pour passer par la même lecture.
+- **Trois chemins directs que la RFC ne nommait pas** : la sonde du
+  contrôleur (`crd_runtime::is_reachable`), le kubeconfig et le client kube
+  de `to_kubeconfig` / `to_kube_client`, dont se sert `auth_against_kubernetes`
+  (`api/src/model/user.rs`, `validate_against: Kubernetes`), auraient joint
+  `https://kubernetes.default.svc`, c'est-à-dire le cluster du proxy. Ils sont
+  fermés dès l'étape 1a : la sonde rend `false`, `to_kubeconfig` une erreur, le
+  relais un `503`. En 1c, la sonde et `to_kube_client` passent par le tunnel ;
+  d'ici là, `validate_against: Kubernetes` échoue fermé pour un cluster en
+  `Agent`.
+- **La règle « `Agent` exige `spec.cert` »** porte sur la spec entière
+  (`cert` est déjà obligatoire) : elle refuse `SystemRoots` et `Insecure`
+  quand `service` est `Agent`.

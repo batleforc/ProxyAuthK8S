@@ -7,11 +7,12 @@ use axum::{
 };
 use crd::ProxyKubeApi;
 use crd::security::PortPolicy;
+use crd::service::Service;
 use tracing::{debug, error, info, instrument, warn};
 
 use crate::cluster::redirect::audit::{AuditContext, PortDecision};
 use crate::cluster::redirect::status_response::{
-    bad_request, forbidden, too_many_requests, unauthorized,
+    agent_unavailable, bad_request, forbidden, too_many_requests, unauthorized,
 };
 use crate::cluster::redirect::throttle;
 use crate::helper::{extract_authorization_header, forwarded_for, peer_ip};
@@ -390,6 +391,12 @@ pub async fn redirect(
             audit.emit_exec_decision(None);
             exec_streams = Some((request.stdin, request.tty));
         }
+    }
+
+    // RFC 0012: an `Agent` cluster has no address the proxy may dial. Until a
+    // tunnel serves it, it is refused here, never reached directly.
+    if matches!(proxy.spec.service, Service::Agent(_)) {
+        audited!(audit, agent_unavailable());
     }
 
     // A `KubernetesService` without an explicit namespace lives next to the

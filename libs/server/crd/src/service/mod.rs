@@ -2,8 +2,13 @@ use kube::{Api, Client};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+mod agent;
 mod error;
 
+pub use agent::{
+    AgentBootstrap, AgentService, DEFAULT_AUDIENCE, DEFAULT_SERVER_NAME, JwksSource,
+    MAX_JWKS_BYTES, SERVICE_ACCOUNT_PREFIX, ServiceAccountTokenBootstrap,
+};
 pub use error::ServiceError;
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
@@ -26,6 +31,9 @@ pub enum Service {
         #[schemars(extend("x-weebo-produces" = { "kind": { "group": "schematic.weebo.si.rs", "kind": "KubeCluster" }, "name": ["."] }))]
         url: String,
     },
+    /// Reached through an agent on the remote cluster, which dials out to the
+    /// proxy: the apiserver accepts no inbound connection (RFC 0012)
+    Agent(AgentService),
 }
 
 /// Resolve the host to dial for a Kubernetes service.
@@ -112,6 +120,9 @@ impl Service {
                 Ok(format!("https://{}:{}", host, dial_port(svc_port)))
             }
             Service::ExternalService { url } => Ok(url.clone()),
+            // The tunnel replaces the socket, not the URL: paths and headers
+            // are built as for any other cluster.
+            Service::Agent(agent) => Ok(format!("https://{}", agent.server_name)),
         }
     }
 }
