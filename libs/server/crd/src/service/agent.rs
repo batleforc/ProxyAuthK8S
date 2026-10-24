@@ -87,6 +87,56 @@ pub enum AgentBootstrap {
     /// `<name>-agent-bootstrap` next to this resource, valid one hour; carry
     /// it to the remote cluster (External Secrets, Vault)
     OneShotToken(OneShotTokenBootstrap),
+    /// No enrolment: the agent's certificate comes from an issuer of yours
+    /// (cert-manager, Vault PKI), with the URI SAN proxyauth://<namespace>/<name>
+    /// of this resource, and chains to the CA named here
+    ExternalCA(ExternalCaBootstrap),
+}
+
+fn default_max_cert_lifetime_hours() -> u32 {
+    DEFAULT_MAX_CERT_LIFETIME_HOURS
+}
+
+/// Longest external agent certificate accepted by default: `epoch` cannot
+/// revoke a certificate the proxy did not issue (decision 29).
+pub const DEFAULT_MAX_CERT_LIFETIME_HOURS: u32 = 7 * 24;
+
+#[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
+#[schemars(extend("x-kubernetes-validations" = [
+    serde_json::json!({
+        "rule": "has(self.ca) != has(self.ca_ref)",
+        "message": "set exactly one of ca and ca_ref",
+    }),
+]))]
+pub struct ExternalCaBootstrap {
+    /// The issuing CA, PEM, inline (public)
+    #[schemars(length(max = 65536))]
+    pub ca: Option<String>,
+    /// A ConfigMap or Secret holding the issuing CA, PEM, re-read at each
+    /// connection (same namespace policy as `cert`)
+    pub ca_ref: Option<JwksSource>,
+    /// A longer certificate is refused, and a tunnel closes when its
+    /// certificate expires: raising `epoch` only closes the open tunnels,
+    /// revoke at the issuer and keep certificates short
+    /// Default: 168 (7 days)
+    #[serde(default = "default_max_cert_lifetime_hours")]
+    #[schemars(range(min = 1, max = 8760))]
+    pub max_cert_lifetime_hours: u32,
+}
+
+impl ExternalCaBootstrap {
+    fn validate(&self) -> Result<(), String> {
+        if self.ca.is_some() == self.ca_ref.is_some() {
+            return Err("set exactly one of ca and ca_ref".to_string());
+        }
+        if self.ca.as_ref().is_some_and(|ca| ca.len() > MAX_JWKS_BYTES) {
+            return Err(format!("ca is larger than {MAX_JWKS_BYTES} bytes"));
+        }
+        if !(1..=8760).contains(&self.max_cert_lifetime_hours) {
+            return Err("max_cert_lifetime_hours must be between 1 and 8760".to_string());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, JsonSchema, PartialEq, Eq)]
@@ -209,6 +259,7 @@ impl AgentService {
         match &self.bootstrap {
             AgentBootstrap::ServiceAccountToken(sa) => sa.validate(),
             AgentBootstrap::OneShotToken(_) => Ok(()),
+            AgentBootstrap::ExternalCA(external) => external.validate(),
         }
     }
 }
@@ -366,6 +417,38 @@ mod tests {
             &agent.bootstrap,
             AgentBootstrap::ServiceAccountToken(sa) if sa.audience == DEFAULT_AUDIENCE
         ));
+    }
+
+    #[test]
+    fn an_external_ca_needs_exactly_one_ca_and_a_bounded_lifetime() {
+        let agent: AgentService = serde_json::from_value(serde_json::json!({
+            "bootstrap": { "ExternalCA": { "ca_ref": { "ConfigMap": { "name": "vault-ca", "key": "ca.crt" } } } },
+        }))
+        .expect("an external CA agent service should deserialize");
+        assert_eq!(agent.validate(&ca()), Ok(()));
+        assert!(matches!(
+            &agent.bootstrap,
+            AgentBootstrap::ExternalCA(external)
+                if external.max_cert_lifetime_hours == DEFAULT_MAX_CERT_LIFETIME_HOURS
+        ));
+        let mut external = ExternalCaBootstrap {
+            ca: None,
+            ca_ref: Some(JwksSource::ConfigMap {
+                name: "vault-ca".into(),
+                key: "ca.crt".into(),
+                namespace: None,
+            }),
+            max_cert_lifetime_hours: DEFAULT_MAX_CERT_LIFETIME_HOURS,
+        };
+        external.ca = Some("-----BEGIN CERTIFICATE-----".into());
+        assert!(external.validate().is_err(), "both");
+        external.ca_ref = None;
+        assert_eq!(external.validate(), Ok(()));
+        external.ca = None;
+        assert!(external.validate().is_err(), "neither");
+        external.ca = Some("x".into());
+        external.max_cert_lifetime_hours = 0;
+        assert!(external.validate().is_err(), "zero lifetime");
     }
 
     #[test]

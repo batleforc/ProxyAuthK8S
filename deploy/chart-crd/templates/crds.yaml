@@ -1568,7 +1568,75 @@ spec:
                           - ServiceAccountToken
                         - required:
                           - OneShotToken
+                        - required:
+                          - ExternalCA
                         properties:
+                          ExternalCA:
+                            description: |-
+                              No enrolment: the agent's certificate comes from an issuer of yours
+                              (cert-manager, Vault PKI), with the URI SAN proxyauth://<namespace>/<name>
+                              of this resource, and chains to the CA named here
+                            properties:
+                              ca:
+                                description: The issuing CA, PEM, inline (public)
+                                maxLength: 65536
+                                nullable: true
+                                type: string
+                              ca_ref:
+                                description: |-
+                                  A ConfigMap or Secret holding the issuing CA, PEM, re-read at each
+                                  connection (same namespace policy as `cert`)
+                                nullable: true
+                                oneOf:
+                                - required:
+                                  - ConfigMap
+                                - required:
+                                  - Secret
+                                properties:
+                                  ConfigMap:
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        description: If not set, the resource namespace (same policy as `cert`)
+                                        nullable: true
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    type: object
+                                  Secret:
+                                    properties:
+                                      key:
+                                        type: string
+                                      name:
+                                        type: string
+                                      namespace:
+                                        description: If not set, the resource namespace (same policy as `cert`)
+                                        nullable: true
+                                        type: string
+                                    required:
+                                    - key
+                                    - name
+                                    type: object
+                                type: object
+                              max_cert_lifetime_hours:
+                                default: 168
+                                description: |-
+                                  A longer certificate is refused, and a tunnel closes when its
+                                  certificate expires: raising `epoch` only closes the open tunnels,
+                                  revoke at the issuer and keep certificates short
+                                  Default: 168 (7 days)
+                                format: uint32
+                                maximum: 8760.0
+                                minimum: 1.0
+                                type: integer
+                            type: object
+                            x-kubernetes-validations:
+                            - message: set exactly one of ca and ca_ref
+                              rule: has(self.ca) != has(self.ca_ref)
                           OneShotToken:
                             description: |-
                               A single-use token the controller writes to the Secret

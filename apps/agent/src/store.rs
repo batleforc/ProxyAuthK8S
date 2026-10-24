@@ -173,7 +173,7 @@ impl Identity {
     /// The Secret's `data` holding this identity.
     pub(super) fn to_data(&self) -> Value {
         json!({
-            KEY: STANDARD.encode(self.key.key_pem()),
+            KEY: STANDARD.encode(&self.key_pem),
             CERT: STANDARD.encode(&self.cert_pem),
             CA: STANDARD.encode(&self.ca_pem),
         })
@@ -189,8 +189,10 @@ fn identity_in(secret: &Value) -> Option<Identity> {
         String::from_utf8(bytes).ok()
     };
     let cert_pem = field(CERT)?;
+    let key_pem = field(KEY)?;
     Some(Identity {
-        key: AgentKey::from_pem(&field(KEY)?).ok()?,
+        key: Some(AgentKey::from_pem(&key_pem).ok()?),
+        key_pem,
         not_after: Identity::not_after_of(&cert_pem).ok()?,
         cert_pem,
         ca_pem: field(CA)?,
@@ -271,7 +273,8 @@ mod tests {
             .unwrap();
         Identity {
             not_after: Identity::not_after_of(&cert_pem).unwrap(),
-            key,
+            key_pem: key.key_pem(),
+            key: Some(key),
             cert_pem,
             ca_pem: ca.cert_pem().to_string(),
         }
@@ -300,7 +303,7 @@ mod tests {
 
         let (secret, shared) = store.load().await.unwrap();
         let shared = shared.expect("the written identity");
-        assert_eq!(shared.key.key_pem(), mine.key.key_pem());
+        assert_eq!(shared.key_pem, mine.key_pem);
         assert_eq!(shared.cert_pem, mine.cert_pem);
         assert_eq!(
             secret["metadata"]["labels"]["app.kubernetes.io/managed-by"],

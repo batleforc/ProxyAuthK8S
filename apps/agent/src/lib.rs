@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use agent_pki::{AgentKey, TUNNEL_SERVER_NAME, identity_of};
+use agent_pki::{AgentKey, TUNNEL_SERVER_NAME, external_identity_of, identity_of};
 use agent_proto::control::{self, AgentInfo, Kind, Ping, RenewRequest};
 use agent_proto::mux::{self, Mode};
 use agent_proto::ws_io::WsIo;
@@ -73,12 +73,51 @@ pub struct Config {
     /// `AGENT_BOOTSTRAP_METHOD=OneShotToken`: the identity Secret the
     /// replicas share; `None` (`ServiceAccountToken`): memory only.
     pub store: Option<store::IdentityStore>,
+    /// `AGENT_BOOTSTRAP_METHOD=ExternalCA`: no enrolment, the certificate an
+    /// issuer of the operator's keeps in files.
+    pub external: Option<ExternalCert>,
     /// The local cluster's CA, whose SHA-256 the agent reports.
     pub kube_ca_path: Option<PathBuf>,
     /// How the agent reaches the proxy (§5.4).
     pub egress: Egress,
     /// `AGENT_TLS_MODE`: the gateway's `tlsMode` (§5.3).
     pub tls_mode: TlsMode,
+}
+
+/// `ExternalCA` (decision 28): the certificate (URI SAN
+/// `proxyauth://<ns>/<name>`, then its chain) and key an issuer such as
+/// cert-manager writes, read again at each connection; with `tlsMode:
+/// inner`, the proxy's agent CA, which anchors the tunnel TLS.
+#[derive(Clone, Debug)]
+pub struct ExternalCert {
+    cert_path: PathBuf,
+    key_path: PathBuf,
+    tunnel_ca_path: Option<PathBuf>,
+}
+
+impl ExternalCert {
+    /// The certificate as the files hold it now.
+    fn load(&self) -> Result<Identity, Reason> {
+        let read = |path: &PathBuf| {
+            std::fs::read_to_string(path).map_err(|err| {
+                warn!(error = %err, path = %path.display(), "external certificate unreadable");
+                "enroll"
+            })
+        };
+        let cert_pem = read(&self.cert_path)?;
+        Ok(Identity {
+            not_after: Identity::not_after_of(&cert_pem)?,
+            key_pem: read(&self.key_path)?,
+            key: None,
+            cert_pem,
+            ca_pem: self
+                .tunnel_ca_path
+                .as_ref()
+                .map(read)
+                .transpose()?
+                .unwrap_or_default(),
+        })
+    }
 }
 
 /// Where the agent's certificate is presented (§5.3).
@@ -301,15 +340,34 @@ impl Config {
             }
             Some(other) => return Err(format!("AGENT_TLS_MODE `{other}`: inner or passthrough")),
         };
-        let store = match var("AGENT_BOOTSTRAP_METHOD").as_deref() {
-            None | Some("ServiceAccountToken") => None,
-            Some("OneShotToken") => Some(store::IdentityStore::from_lookup(var)?),
+        let (mut store, mut external) = (None, None);
+        match var("AGENT_BOOTSTRAP_METHOD").as_deref() {
+            None | Some("ServiceAccountToken") => {}
+            Some("OneShotToken") => store = Some(store::IdentityStore::from_lookup(var)?),
+            Some("ExternalCA") => {
+                let tunnel_ca_path = var("AGENT_TUNNEL_CA_PATH").map(PathBuf::from);
+                if tls_mode == TlsMode::Inner && tunnel_ca_path.is_none() {
+                    return Err(
+                        "ExternalCA with tlsMode inner needs AGENT_TUNNEL_CA_PATH (the proxy's agent CA)"
+                            .to_string(),
+                    );
+                }
+                external = Some(ExternalCert {
+                    cert_path: var("AGENT_TLS_CERT_PATH")
+                        .unwrap_or_else(|| "/var/run/secrets/proxyauth-cert/tls.crt".to_string())
+                        .into(),
+                    key_path: var("AGENT_TLS_KEY_PATH")
+                        .unwrap_or_else(|| "/var/run/secrets/proxyauth-cert/tls.key".to_string())
+                        .into(),
+                    tunnel_ca_path,
+                });
+            }
             Some(other) => {
                 return Err(format!(
-                    "AGENT_BOOTSTRAP_METHOD `{other}`: ServiceAccountToken or OneShotToken"
+                    "AGENT_BOOTSTRAP_METHOD `{other}`: ServiceAccountToken, OneShotToken or ExternalCA"
                 ));
             }
-        };
+        }
         let egress = Egress::from_lookup(var, proxy_url.host_str().unwrap_or_default())?;
         Ok(Self {
             proxy_url,
@@ -320,6 +378,7 @@ impl Config {
                 .unwrap_or_else(|| "/var/run/secrets/proxyauth/token".to_string())
                 .into(),
             store,
+            external,
             kube_ca_path: var("AGENT_KUBE_CA_PATH").map(PathBuf::from),
             egress,
             tls_mode,
@@ -393,11 +452,16 @@ fn unix_now() -> i64 {
         })
 }
 
-/// The agent's identity: its key, the certificate the gateway issued for it,
-/// and the agent CA that anchors the tunnel TLS. In memory, and in the
-/// identity Secret with `OneShotToken`.
+/// The agent's identity: its key, the certificate the gateway (or, with
+/// `ExternalCA`, the operator's issuer) issued for it, and the agent CA that
+/// anchors the tunnel TLS. In memory, and in the identity Secret with
+/// `OneShotToken`.
 struct Identity {
-    key: AgentKey,
+    /// The key, PEM: any encoding an external issuer writes.
+    key_pem: String,
+    /// The same key, for the CSRs of a renewal; `None` with `ExternalCA`.
+    key: Option<AgentKey>,
+    /// The certificate, then its chain.
     cert_pem: String,
     ca_pem: String,
     /// Unix seconds.
@@ -425,15 +489,24 @@ impl Identity {
         &self,
     ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), Reason> {
         Ok((
-            vec![CertificateDer::from_pem_slice(self.cert_pem.as_bytes()).map_err(|_| "tls")?],
-            PrivateKeyDer::from_pem_slice(self.key.key_pem().as_bytes()).map_err(|_| "tls")?,
+            CertificateDer::pem_slice_iter(self.cert_pem.as_bytes())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| "tls")?,
+            PrivateKeyDer::from_pem_slice(self.key_pem.as_bytes()).map_err(|_| "tls")?,
         ))
     }
 
+    /// The `notAfter` of a certificate of the agent CA, or of an external
+    /// issuer (`proxyauth://<ns>/<name>`).
     fn not_after_of(cert_pem: &str) -> Result<i64, Reason> {
         let der = CertificateDer::from_pem_slice(cert_pem.as_bytes()).map_err(|_| "enroll")?;
-        let peer = identity_of(&der).map_err(|_| "enroll")?;
-        Ok(peer.not_after.unix_timestamp())
+        match identity_of(&der) {
+            Ok(peer) => Ok(peer.not_after.unix_timestamp()),
+            Err(_) => Ok(external_identity_of(&der)
+                .map_err(|_| "enroll")?
+                .not_after
+                .unix_timestamp()),
+        }
     }
 }
 
@@ -513,10 +586,12 @@ pub async fn run(config: Config, health: Arc<Health>) {
                 Some(_) => !current.usable(),
                 None => current.renew_in().is_zero(),
             });
-        let ended = if expired {
-            let obtained = match &config.store {
-                Some(store) => obtain(&config, &http, store).await,
-                None => enroll(&config, &http).await,
+        // An external certificate is read again at each connection.
+        let ended = if expired || config.external.is_some() {
+            let obtained = match (&config.store, &config.external) {
+                (_, Some(external)) => external.load(),
+                (Some(store), None) => obtain(&config, &http, store).await,
+                (None, None) => enroll(&config, &http).await,
             };
             match obtained {
                 Ok(enrolled) => {
@@ -622,7 +697,8 @@ async fn enroll(config: &Config, http: &reqwest::Client) -> Result<Identity, Rea
     info!(cluster = %config.cluster, "agent enrolled");
     Ok(Identity {
         not_after: Identity::not_after_of(&enrolled.cert)?,
-        key,
+        key_pem: key.key_pem(),
+        key: Some(key),
         cert_pem: enrolled.cert,
         ca_pem: enrolled.ca,
     })
@@ -803,12 +879,27 @@ async fn tunnel(
                             .map_err(|_| "closed")?;
                     }
                     () = tokio::time::sleep(wait) => {
+                        // Its issuer renews an external certificate: reconnect
+                        // with the later one once the files hold it.
+                        if let Some(external) = &config.external {
+                            asked = Some(tokio::time::Instant::now());
+                            let current = identity
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .as_ref()
+                                .map_or(0, |current| current.not_after);
+                            if external.load().is_ok_and(|fresh| fresh.not_after > current) {
+                                info!("external certificate renewed: reconnecting");
+                                return Ok("closed");
+                            }
+                            continue;
+                        }
                         let csr = identity
                             .lock()
                             .unwrap_or_else(PoisonError::into_inner)
                             .as_ref()
                             .filter(|current| current.renew_in().is_zero())
-                            .and_then(|current| current.key.csr_pem().ok());
+                            .and_then(|current| current.key.as_ref()?.csr_pem().ok());
                         if let Some(csr) = csr {
                             asked = Some(tokio::time::Instant::now());
                             control::write(
@@ -941,6 +1032,22 @@ mod tests {
         let ws = ("AGENT_PROXY_URL", "ws://127.0.0.1:8444/agent/v1/connect");
         assert!(config(&[base, ws, mode]).is_err());
         assert!(config(&[base, wss, ("AGENT_TLS_MODE", "outer")]).is_err());
+    }
+
+    #[test]
+    fn an_external_ca_in_inner_mode_needs_the_tunnel_ca() {
+        let base = [
+            ("AGENT_CLUSTER", "team-a/prod"),
+            ("AGENT_PROXY_URL", "wss://p/agent/v1/connect"),
+            ("AGENT_BOOTSTRAP_METHOD", "ExternalCA"),
+        ];
+        assert!(config(&base).unwrap_err().contains("AGENT_TUNNEL_CA_PATH"));
+        let mut passthrough = base.to_vec();
+        passthrough.push(("AGENT_TLS_MODE", "passthrough"));
+        assert!(config(&passthrough).unwrap().external.is_some());
+        let mut inner = base.to_vec();
+        inner.push(("AGENT_TUNNEL_CA_PATH", "/ca.crt"));
+        assert!(config(&inner).unwrap().external.is_some());
     }
 
     #[test]

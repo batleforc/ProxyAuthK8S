@@ -147,6 +147,30 @@ qu'aucun agent n'est connecté, et une nouvelle valeur de l'annotation
 `proxyauth.weebo.si.rs/regenerate-bootstrap` en fait émettre un autre. Le jeton n'est jamais
 gardé en clair côté proxy : seule son empreinte est dans Redis, prise une seule fois.
 
+### Votre propre PKI : `ExternalCA`
+
+Si vos certificats viennent déjà d'un émetteur à vous (cert-manager, Vault PKI), l'agent ne
+s'enrôle pas : il présente un certificat de cet émetteur, et la passerelle le vérifie contre la
+CA que nomme le `ProxyKubeApi`.
+
+```yaml
+    Agent:
+      bootstrap:
+        ExternalCA:
+          ca_ref: { ConfigMap: { name: vault-agent-ca, key: ca.crt } }   # ou ca: '<PEM>' en ligne
+          max_cert_lifetime_hours: 72                                    # défaut 168 (7 j)
+```
+
+- Le certificat doit porter l'URI SAN `proxyauth://<namespace>/<nom>` de **ce**
+  `ProxyKubeApi` et l'usage `client auth`. Une même CA peut servir plusieurs clusters : le SAN
+  dit lequel, et un certificat qui en nomme un autre n'ouvre rien pour celui-ci.
+- `epoch` ne révoque pas un certificat que le proxy n'a pas émis : le monter ferme les tunnels
+  ouverts, mais l'agent revient avec le même certificat. Révoquez chez l'émetteur et gardez des
+  certificats courts : un certificat plus long que `max_cert_lifetime_hours` est refusé, et un
+  tunnel se ferme à l'expiration de son certificat. L'agent reprend alors le certificat
+  renouvelé.
+- Ni enrôlement, ni renouvellement par la passerelle pour ce cluster.
+
 ## 3. Installer l'agent
 
 Sur le cluster distant, avec `deploy/chart-agent` (publié en
@@ -175,6 +199,22 @@ helm install agent … \
 Le chart crée vide le Secret `identitySecret` (`proxyauth-agent-identity`) ; le seul droit de
 l'agent est `get` et `update` sur ce Secret, par son nom. Pour révoquer, montez `epoch` : l'agent
 vide ce Secret, et il faudra un nouveau jeton.
+
+En `ExternalCA`, avec cert-manager :
+
+```bash
+helm install agent … \
+  --set bootstrap.method=ExternalCA \
+  --set bootstrap.certificate.issuerRef.name=vault-issuer \
+  --set bootstrap.certificate.issuerRef.kind=ClusterIssuer \
+  --set-file tunnelCa=agent-ca.crt   # tlsMode inner : la CA des agents du proxy (publique)
+```
+
+Avec un `issuerRef`, le chart écrit lui-même la `Certificate` (URI SAN, `client auth`, 72 h,
+renouvelée 24 h avant la fin) dans le Secret `bootstrap.certificate.secretName` ; sans, fournissez
+ce Secret TLS vous-même. En `tlsMode: inner`, le TLS du tunnel est ancré sur la CA des agents du
+proxy, `tunnelCa` : le `ca.crt` de son Secret `proxy-auth-k8s-agent-ca`. En `passthrough`, elle
+ne sert pas. L'agent n'a ni RBAC ni jeton projeté.
 
 ### Sortir par un proxy d'entreprise
 

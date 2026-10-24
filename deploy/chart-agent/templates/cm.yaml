@@ -8,3 +8,16 @@ data:
   ca.crt: |
     {{- .Values.proxy.caBundle | nindent 4 }}
 {{- end }}
+{{- if and (eq .Values.bootstrap.method "ExternalCA") .Values.tunnelCa }}
+---
+# ExternalCA, tlsMode inner: the proxy's agent CA, which anchors the tunnel
+# TLS (public).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "{{ include "agent.name" . }}-tunnel-ca"
+  namespace: "{{ .Release.Namespace }}"
+data:
+  ca.crt: |
+    {{- .Values.tunnelCa | nindent 4 }}
+{{- end }}

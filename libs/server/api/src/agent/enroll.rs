@@ -198,6 +198,8 @@ impl Gateway {
         };
         let bootstrap = match &agent.bootstrap {
             AgentBootstrap::ServiceAccountToken(bootstrap) => bootstrap,
+            // No enrolment: the certificate comes from the CR's own issuer.
+            AgentBootstrap::ExternalCA(_) => return Err("method"),
             AgentBootstrap::OneShotToken(_) => {
                 let token = request.proof.one_shot_token.as_deref().ok_or("method")?;
                 let key = common::agent_gateway::bootstrap_key(&identity.uid, token);

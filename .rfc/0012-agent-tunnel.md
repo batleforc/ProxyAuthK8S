@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Implemented, phases 1 et 2 (2026-10-24 ; phase 1 PR #294, phase 2 branche `feat/rfc-0012-phase-2`) : `ServiceAccountToken` et `OneShotToken`, `tlsMode` `inner` et `passthrough`, sortie directe, `CONNECT` ou SOCKS5, `jwksPublisher` ; phase 4 (`ExternalCA`) à faire (§16) ; écarts au §17 |
+| Status      | Implemented, phases 1, 2 et 4 (phase 1 PR #294, phase 2 PR #295, phase 4 branche `feat/rfc-0012-phase-4`) : `ServiceAccountToken`, `OneShotToken` et `ExternalCA`, `tlsMode` `inner` et `passthrough`, sortie directe, `CONNECT` ou SOCKS5, `jwksPublisher` ; écarts au §17 |
 | Short       | Mode agent (tunnel sortant)                                            |
 | Settles     | Atteindre un cluster dont l'apiserver n'accepte aucune connexion entrante |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -1008,6 +1008,8 @@ Tranchées au `/grill-me` du 2026-10-23.
 | 25 | Comment le proxy fait passer ses requêtes dans un tunnel | **reqwest par un proxy `CONNECT`** : la passerelle (décision 26) est un proxy `CONNECT` authentifié ; `Proxy::custom` choisit le pod pour l'UID, `Proxy::headers` porte `Proxy-Authorization` et `X-Proxyauth-Agent` (reqwest 0.13.5) ; `upgrade/connect.rs` envoie son `CONNECT` lui-même. Le TLS vers l'apiserver passe dans le tunnel `CONNECT`, inchangé. Rejetés : `hyper-util` (réécriture des cinq sites reqwest du chemin chaud et de leurs contrôles), une socket Unix par cluster (objet local de plus, et l'affinité reste entière). Remplace la décision 22. Tranchée le 2026-10-24, pendant la phase 1. |
 | 26 | Couvrir tous les réplicas du proxy derrière un load balancer à affinité non configurable | **Une passerelle d'agents** : un Deployment à part (même image, rôle `gateway` ; mode `embedded` dans le pod du proxy pour une petite installation) tient les tunnels, l'enrôlement et la CA ; chaque replica de l'agent tient un tunnel vers le pod où le load balancer l'envoie ; le pod publie la présence dans Redis ; le proxy joint ce pod en `CONNECT`, pod à pod, par le DNS du Service headless. Un rolling update du proxy ne coupe plus les tunnels ; la clé de la CA quitte le proxy (T12). T18 et T19 ajoutés. Rejetés : un load balancer sans affinité exigé (pas toujours configurable), un routage par en-tête à l'ingress (pas d'ingress capable), un relais entre réplicas du proxy (le même saut, sans les deux avantages). Remplace la décision 7. Proposée par le mainteneur le 2026-10-24. |
 | 27 | Bornes des tunnels et de l'enrôlement | **Toutes réglables dans le chart**, avec des défauts resserrés : 128 flux par tunnel (32 Mio de fenêtre au pire), 4 tunnels par identité et par pod ; une **surcharge par cluster** (`spec.service.Agent.limits`) bornée par `maxStreamsPerTunnel`, pour un opérateur qui pilote un cluster enfant à travers le proxy ; enrôlement limité par l'adresse cliente réelle (`X-Forwarded-For`, `TRUSTED_PROXY_COUNT`) et par `enrollPerMinuteTotal`. Les bornes de départ laissaient 2 Gio de fenêtre par identité. Tranchée le 2026-10-24. |
+| 28 | Identité d'un agent en `ExternalCA` | **L'URI SAN `proxyauth://<ns>/<nom>` du CR, et une chaîne jusqu'à la CA de ce CR** (`ca` en ligne ou `ca_ref`) ; l'UID et l'`epoch` sont ceux du CR à l'ouverture du tunnel. Une CA partagée (un seul Vault PKI pour plusieurs locataires) ne laisse pas l'agent de A servir B (T2). Rejetés : tout certificat de `ca_ref` (exigerait une CA par CR), l'URI complète `ns/nom/uid/epoch` (l'UID n'existe qu'après la création du CR : incompatible avec une `Certificate` en GitOps). Tranchée par le mainteneur le 2026-10-25, au début de la phase 4. |
+| 29 | Révocation en `ExternalCA` | **Durée de vie bornée** : `epoch` ne révoque pas un certificat que le proxy n'émet pas ; le monter ferme les tunnels ouverts. Un certificat externe plus long que `max_cert_lifetime_hours` (défaut 168, de 1 à 8760) est refusé, un tunnel se ferme à l'expiration de son certificat, la passerelle ne renouvelle jamais un certificat externe ; la révocation réelle se fait chez l'émetteur (aucune CRL lue). Rejetés : l'`epoch` dans le SAN (réémettre à chaque montée), rien (aucune borne). Tranchée par le mainteneur le 2026-10-25. |
 
 ### Still open
 
@@ -1065,18 +1067,18 @@ contre l'arbre à la livraison des phases 1 et 2 (2026-10-24). Les sections 1 à
 Tenu à jour à chaque étape ; c'est d'ici que l'on repart, pas de
 l'historique de la conversation.
 
-**Phase 2** : branche `feat/rfc-0012-phase-2`, partie de
-`feat/rfc-0012-agent-tunnel` (`1ed52fc`), **complète**, commitée, pas
-poussée : 2a (sortie `CONNECT` / SOCKS5, `0cd92ea`), 2b (`tlsMode:
-passthrough`, `21d249d`), 2c-i (`OneShotToken` côté proxy, `7419aac`), 2c-ii
-(agent, `5a926d9`), 2d (`jwksPublisher`), 2e (banc). Reste : pousser la
-branche et ouvrir une PR empilée sur #294 (base `feat/rfc-0012-agent-tunnel`),
-avec l'accord du mainteneur. La CI de #294 sur `843efdd` a échoué sans test
-en échec : « Mount the bench » a dépassé le `timeout-minutes: 45` (logs
-perdus) ; à relancer (`gh run rerun 40130297883 --failed`) avant de pousser
-`1ed52fc`. Le banc local tourne avec les images de la phase 2 (rechargées à
-la main : build `server` et `agent`, `k3d image import` avec `DOCKER_SOCK`,
-CRD, `helm upgrade`).
+**Phase 4** : branche `feat/rfc-0012-phase-4`, partie de
+`feat/rfc-0012-phase-2`, un commit, pas poussée : `ExternalCA` (décisions 28
+et 29). Reste : la pousser et ouvrir une PR empilée sur #295, avec l'accord
+du mainteneur.
+
+**Phase 2** : **PR #295**, empilée sur #294 (base
+`feat/rfc-0012-agent-tunnel`, à rebasculer sur `main` après le merge de
+#294) : 2a (`0cd92ea`), 2b (`21d249d`), 2c-i (`7419aac`), 2c-ii
+(`5a926d9`), 2d (`d8c8d37`), 2e (`372410e`). Le banc local tourne avec les
+images de la phase 2 (rechargées à la main : build `server` et `agent`,
+`k3d image import` avec `DOCKER_HOST` et `DOCKER_SOCK`, CRD, `helm
+upgrade`).
 
 **Phase 1** : branche `feat/rfc-0012-agent-tunnel`, partie de `main` après la PR #293
 (`d8f7341`), poussée ; **PR #294** ouverte
@@ -1109,7 +1111,8 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 | `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
 
 **État du dépôt au moment de l'arrêt** (2026-10-24, soir) : la phase 1 est
-commitée et poussée jusqu'à `843efdd`. La CI du commit `0f6ce9b` était verte,
+commitée et poussée jusqu'à `1ed52fc` ; la CI de #294 est verte, banc compris
+(relancé après un dépassement du `timeout-minutes` de « Mount the bench »). La CI du commit `0f6ce9b` était verte,
 banc compris (`integration` : 74/74 puis 3/3, `rfc0012` 10/10 et le point 14),
 sauf CodeQL : une alerte (#1483, « cleartext logging ») sur un `{ended:?}` de
 `agent_tunnel.rs`, faux positif retiré par `843efdd`. La CI de `843efdd`
@@ -1179,7 +1182,8 @@ doit être fermée après `Analyze (rust)`), `git status`, puis
     `rbac.referencedNamespaces` ; les métriques de la passerelle non exposées
     sur le banc (`WEEBO_METRICS_ADDR`) ; HPA et PDB de la passerelle ;
     `expected` et `lastSeen` de `status.agent`.
-16. Phase 4 (`ExternalCA`, cert-manager, Vault PKI), hors suite.
+16. ~~Phase 4~~ : faite sur `feat/rfc-0012-phase-4` (décisions 28 et 29), voir
+    « État ».
 
 **Lancer les tests** :
 
@@ -1209,6 +1213,10 @@ doit être fermée après `Analyze (rust)`), `git status`, puis
 | 2c-ii `OneShotToken` : agent, `identitySecret` (décision 21, T16) | fait | `apps/agent/src/store.rs` : `IdentityStore` (`AGENT_IDENTITY_SECRET`, `AGENT_NAMESPACE`, `AGENT_API_URL` ou `KUBERNETES_SERVICE_HOST`, `AGENT_API_TOKEN_PATH` relu à chaque appel, CA `AGENT_KUBE_CA_PATH`, jamais par le proxy sortant), `GET` puis `PUT` du Secret lu (labels et annotations de Helm gardés, `resourceVersion` lu, `409` = un autre replica a écrit) ; `obtain` : identité du Secret si encore valable (un renouvellement dû passe par le tunnel, pas par un jeton), sinon enrôlement par `one_shot_token` puis écriture, et le perdant relit celle du gagnant ; renouvellement partagé s'il est plus récent ; `revoked` vide le Secret ; `AgentKey::from_pem`. Chart de l'agent : `bootstrap.method: OneShotToken`, `bootstrap.tokenSecret` (exigé), `identitySecret` créé vide sans `data` (une mise à jour ne l'efface pas), Role `get` et `update` sur ce seul nom, aucun `create` (écart à §6.5 : pas de `patch`, inutile) ; jeton d'API projeté (audience de l'apiserver) au lieu du jeton d'enrôlement ; rendu `ServiceAccountToken` identique hors commentaires ; `agent.mdx`. Tests : unitaire `store::tests::the_identity_is_shared_and_a_stale_write_loses`, `agent_tunnel::one_shot_replicas_spend_one_token_and_share_the_identity` (deux agents réels, un jeton, deux tunnels ; 31/31), `agent_pki` `an_agent_key_reloads_from_its_pem`. T16 : le rendu (`resourceNames`, pas de `create`) est vérifié par `helm template` ; le test qui le prouve vient avec le banc (2e) |
 | 2d `jwksPublisher` (décision 24) | fait | sous-commande `proxyauthk8s-agent publish-jwks` (`apps/agent/src/jwks.rs`) plutôt qu'une image kubectl : la même image distroless, aucune dépendance de plus ; lit `/openid/v1/jwks`, refuse un JWKS sans clé ou de plus de 64 Kio, n'écrit le ConfigMap (clé `jwks.json`, `PUT` de l'objet lu, `resourceVersion` compris) que s'il change ; `store::ApiClient` partagé avec `IdentityStore`. Chart de l'agent : `jwksPublisher.{enabled,schedule,configMap}`, CronJob (`Forbid`, jeton d'API projeté 10 min), son propre ServiceAccount, ConfigMap créé vide, Role `get`/`update` sur ce seul nom ; `kubeconform -strict` vert ; `agent.mdx`. Test unitaire `jwks::tests::the_jwks_is_published_once_and_an_empty_one_never` |
 | 2e banc, points 8 à 11 | fait | `rfc0012::p8_one_one_shot_token_serves_two_replicas_and_rotates` (le Secret du contrôleur recopié comme le ferait External Secrets ; deux replicas, une seule ligne `agent_enrolled`, deux tunnels ; nouveau jeton sous `auto_rotate` ; T16 par `kubectl auth can-i`), `p9_the_agent_dials_out_through_a_connect_proxy` (tinyproxy avec `BasicAuth`, sa ligne `CONNECT agent.k8s.localhost:8443` ; tinyproxy à 0 : `AgentNoTunnel`), `p10_the_agent_dials_out_through_a_socks5_proxy` (microsocks avec identifiants ; mauvais mot de passe : `AgentNoTunnel`, 0 tunnel), `rfc0012_passthrough::p11_…` (seul : `helm upgrade` de la passerelle du banc en `passthrough`, certificat `mkcert` de la CA du banc pour son Service, l'agent le joint sans ingress ; remise en `inner` à la fin, même en échec) ; fixture `agent_proxied_with` ; `.it/values.yaml` : `oneShotToken.enabled` ; `MATRIX.md` : 15 lignes `suite`. Banc k3d (images reconstruites) : `rfc0012` 13/13, `rfc0012_passthrough` 1/1, `rfc0012_restart` 1/1. Le premier passage a trouvé une erreur du test 9 (index de l'objet patché), pas du produit |
+
+| Étape (phase 4) | État | Notes |
+| --- | --- | --- |
+| 4 `ExternalCA` (décisions 28, 29) | fait | CRD : `AgentBootstrap::ExternalCA(ExternalCaBootstrap { ca, ca_ref, max_cert_lifetime_hours })`, CEL « exactement un de `ca`, `ca_ref` », 1 à 8760 h (défaut 168) ; `agent_pki::external_identity_of` (URI SAN `proxyauth://<ns>/<nom>`, un seul) ; passerelle : `AgentClientVerifier` (nos certificats vérifiés comme avant ; un certificat `proxyauth://<ns>/<nom>` accepté à la poignée de main, la possession de la clé y étant prouvée, puis `Gateway::identify` : CR en `ExternalCA`, chaîne vérifiée par `WebPkiClientVerifier` sur la CA du CR, durée de vie bornée), tunnel fermé à l'expiration (`expired`), `RenewRequest` refusé (`method`), enrôlement refusé (`method`), les deux modes TLS (la chaîne entière passe par `ClientCertificate` en `passthrough`) ; agent : `AGENT_BOOTSTRAP_METHOD=ExternalCA`, `AGENT_TLS_CERT_PATH` / `_KEY_PATH` relus à chaque connexion (clé dans tout encodage PEM, chaîne présentée entière), `AGENT_TUNNEL_CA_PATH` exigé en `inner`, reconnexion quand les fichiers portent un certificat plus récent ; chart de l'agent : `bootstrap.method: ExternalCA`, `bootstrap.certificate.{secretName,issuerRef,duration,renewBefore}` (une `Certificate` cert-manager écrite si `issuerRef`), `tunnelCa` ; `agent.mdx`. Tests : `agent_tunnel` 34/34 (`an_external_ca_certificate_serves_its_cluster_only`, `an_external_tunnel_closes_when_its_certificate_expires`, `the_real_agent_uses_an_external_certificate_and_its_renewal`), envtest `envtest_agent_crd` 9/9, unitaires `agent_pki`, `crd`, `agent`. Hors suite comme le dit §6.P : cert-manager et Vault ne sont pas sur le banc |
 
 ### Preuve par menace (§7, §14)
 
@@ -1292,9 +1300,11 @@ doit être fermée après `Analyze (rust)`), `git status`, puis
 - **`Agent(AgentService)`, variante newtype** : la forme YAML est la même
   (`service: { Agent: { … } }`) ; une struct nommée porte les règles CEL
   (`x-kubernetes-validations`), ce qu'une variante struct ne permet pas.
-- **`AgentBootstrap` sans `ExternalCA`** : `ServiceAccountToken` (phase 1)
-  et `OneShotToken` (phase 2) sont là ; `ExternalCA` (phase 4) arrive avec son
-  code. Une variante ajoutée à un enum de CRD est un changement compatible.
+- **`ExternalCA` accepte une CA en ligne** (`ca`) à côté de `ca_ref`, comme
+  `jwks` à côté de `jwks_from` : un certificat de CA est public, et une
+  installation sans ConfigMap à synchroniser en profite.
+- **`ca_ref` n'a pas de test qui le lise d'un vrai ConfigMap** : il passe par
+  la lecture de `CertSource` que `jwks_from` (T17, envtest) prouve déjà.
 - **Le `create`/`patch` du contrôleur sur les Secrets est une option**
   (`agentGateway.oneShotToken.enabled`, désactivée) : §6.4 ne le disait pas,
   mais ce droit, sans `resourceNames` possible, permettrait au back d'écraser
