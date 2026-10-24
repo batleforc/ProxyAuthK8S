@@ -20,6 +20,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent_pki"
+version = "0.3.0"
+dependencies = [
+ "rcgen",
+ "ring",
+ "thiserror 2.0.21",
+ "time",
+ "x509-parser",
+]
+
+[[package]]
 name = "agent_proto"
 version = "0.3.0"
 dependencies = [

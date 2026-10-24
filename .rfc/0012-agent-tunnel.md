@@ -964,7 +964,8 @@ les écarts sont notés ici.
 | 1a CRD : `Service::Agent`, `AgentBootstrap::ServiceAccountToken`, `JwksSource`, CEL, `validate()` | fait | `crd/src/service/agent.rs` ; 7 tests unitaires, envtest `envtest_agent_crd` 7/7 (CEL, `isIP`, transition d'`epoch`) |
 | 1a' fermeture des chemins directs | fait | relais `503 agent unavailable` (`agent_tunnel.rs`), sonde `is_reachable` à `false`, `to_kubeconfig` refusé (`ReachedThroughAgent`) ; tests `crd_runtime` 2/2, `agent_tunnel` 1/1 |
 | 1b `libs/agent/proto` : adaptateur WebSocket, messages de contrôle, pilote yamux | fait | crate `agent_proto` ; `ws_io` (trames binaires de 16 Kio au plus, une trame texte échoue), `control` (7 messages, bornés à 64 Kio avant lecture), `mux` (un pilote, des poignées) ; 11 tests ; `task audit` vert avec `yamux` 0.14.1 et `tokio-tungstenite` 0.29.0 |
-| 1c proxy : CA des agents, enrôlement, écoute, registre, connecteur | à faire | |
+| 1c-i PKI des agents | fait | crate `agent_pki` : `AgentIdentity`, `AgentCa` (P-256, 10 ans), certificat d'agent (24 h) depuis la seule clé publique du CSR, certificat serveur du tunnel (7 jours) ; 7 tests |
+| 1c proxy : création de la CA, enrôlement, écoute, registre, connecteur | à faire | |
 | 1d `apps/agent`, image, chart | à faire | |
 | 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
 
@@ -990,6 +991,13 @@ les écarts sont notés ici.
   relais un `503`. En 1c, la sonde et `to_kube_client` passent par le tunnel ;
   d'ici là, `validate_against: Kubernetes` échoue fermé pour un cluster en
   `Agent`.
+- **L'`epoch` est dans l'URI SAN**, pas dans une extension privée :
+  `proxyauth://<ns>/<nom>/<uid>/<epoch>`. Une extension demande un OID que le
+  projet ne possède pas, et rcgen borne chaque composant d'OID à un `u64`, ce
+  qui exclut l'arc `2.25.<uuid>`. L'URI est la seule identité du certificat :
+  `identity_of` refuse un certificat qui n'en porte aucune ou plusieurs.
+- **Numéro de série aléatoire** (`ring`) : celui de rcgen par défaut est le
+  hash de la clé publique, répété à chaque renouvellement avec la même clé.
 - **yamux parle `futures-io`, pas `tokio::io`** : `WsIo` implémente les
   traits de `futures` et s'enchaîne directement sur yamux ; un flux yamux
   passe par `tokio_util::compat` là où tokio-rustls et `copy_bidirectional`

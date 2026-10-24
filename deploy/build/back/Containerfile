@@ -28,6 +28,7 @@ RUN mkdir -p libs/server/api/src && \
   mkdir -p apps/kubectl_proxyauth/src && \
   mkdir -p tests/integration/src && \
   mkdir -p libs/agent/proto/src && \
+  mkdir -p libs/agent/pki/src && \
   mkdir -p libs/server/api/tests
 
 # Copy Cargo.toml files, and the lockfile so the cached dependencies are the
@@ -43,6 +44,7 @@ COPY libs/server/virtual_api/Cargo.toml libs/server/virtual_api/Cargo.toml
 COPY libs/server/jwt_validator/Cargo.toml libs/server/jwt_validator/Cargo.toml
 
 COPY libs/agent/proto/Cargo.toml libs/agent/proto/Cargo.toml
+COPY libs/agent/pki/Cargo.toml libs/agent/pki/Cargo.toml
 
 COPY libs/cli/client_api/Cargo.toml libs/cli/client_api/Cargo.toml
 COPY libs/cli/cli/Cargo.toml libs/cli/cli/Cargo.toml
@@ -75,6 +77,7 @@ RUN : > libs/server/api/src/lib.rs && \
   : > libs/cli/cli_trace/src/lib.rs && \
   : > tests/integration/src/lib.rs && \
   : > libs/agent/proto/src/lib.rs && \
+  : > libs/agent/pki/src/lib.rs && \
   : > libs/server/api/tests/http_contract.rs && \
   echo "fn main() {}" > apps/server/src/main.rs && \
   echo "fn main() {}" > apps/crdgen/src/main.rs && \
