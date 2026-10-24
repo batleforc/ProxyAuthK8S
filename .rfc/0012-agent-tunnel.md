@@ -1044,7 +1044,8 @@ les écarts sont notés ici.
 | 1a' fermeture des chemins directs | fait | relais `503 agent unavailable` (`agent_tunnel.rs`), sonde `is_reachable` à `false`, `to_kubeconfig` refusé (`ReachedThroughAgent`) ; tests `crd_runtime` 2/2, `agent_tunnel` 1/1 |
 | 1b `libs/agent/proto` : adaptateur WebSocket, messages de contrôle, pilote yamux | fait | crate `agent_proto` ; `ws_io` (trames binaires de 16 Kio au plus, une trame texte échoue), `control` (7 messages, bornés à 64 Kio avant lecture), `mux` (un pilote, des poignées) ; 11 tests ; `task audit` vert avec `yamux` 0.14.1 et `tokio-tungstenite` 0.29.0 |
 | 1c-i PKI des agents | fait | crate `agent_pki` : `AgentIdentity`, `AgentCa` (P-256, 10 ans), certificat d'agent (24 h) depuis la seule clé publique du CSR, certificat serveur du tunnel (7 jours) ; 7 tests |
-| 1c passerelle (décision 26) : CA, enrôlement, écoute, registre, présences, `CONNECT` | à faire | `AgentTunnelSettings` (non commité) sera renommé en réglages de la passerelle |
+| 1c-ii passerelle : réglages, registre, `CONNECT` | fait | `common::config::AgentGatewaySettings` (`PROXYAUTH_ROLE` `proxy`/`gateway`/`embedded`, ports, Service headless, jeton, bornes de la décision 27) ; `api::agent::registry` (tunnel le moins chargé, réservation d'un flux sous le verrou, `close_where`) ; `api::agent::connect` (hyper, `407`/`400`/`503`/`429`, jeton comparé en temps constant) ; 7 tests, dont T18 |
+| 1c-iii passerelle : CA, écoute des agents (WebSocket, mTLS interne), enrôlement, présences | à faire | |
 | 1c' proxy en `CONNECT` (décision 25) | à faire | |
 | 1d `apps/agent`, image, chart | à faire | |
 | 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
@@ -1086,6 +1087,10 @@ les écarts sont notés ici.
   `poll_next_inbound` est sondé ; un seul futur possède la connexion, sert les
   ouvertures des poignées (`MuxHandle`, clonables) et range les flux entrants
   dans un canal borné (64), au-delà duquel ils sont refermés.
+- **La cible du `CONNECT` est ignorée** : la ligne `CONNECT <server_name>:443`
+  ne choisit rien, l'agent ne connaît que son `upstream` (invariant de §5.1) ;
+  le cluster est désigné par `X-Proxyauth-Agent` seul, et un flux est ouvert
+  vers l'agent avant le `200`, pour que le refus porte sa raison.
 - **La règle « `Agent` exige `spec.cert` »** porte sur la spec entière
   (`cert` est déjà obligatoire) : elle refuse `SystemRoots` et `Insecure`
   quand `service` est `Agent`.

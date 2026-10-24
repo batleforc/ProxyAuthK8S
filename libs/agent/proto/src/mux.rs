@@ -11,7 +11,8 @@ use std::task::Poll;
 
 use futures_util::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
-use yamux::{Config, Connection, ConnectionError, Mode, Stream};
+use yamux::{Config, Connection, ConnectionError};
+pub use yamux::{Mode, Stream};
 
 /// Per-stream receive window: the yamux default (RFC 0012 §7.5).
 pub const STREAM_WINDOW: usize = yamux::DEFAULT_CREDIT as usize;

@@ -55,6 +55,11 @@ pub const DEFAULT_VIRTUAL_MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 /// client certificate) is resolved again.
 pub const DEFAULT_UPSTREAM_CLIENT_TTL: Duration = Duration::from_secs(300);
 
+/// Default `AGENT_GATEWAY_PORT`.
+pub const DEFAULT_AGENT_GATEWAY_PORT: u16 = 8444;
+/// Default `AGENT_GATEWAY_CONNECT_PORT`.
+pub const DEFAULT_AGENT_GATEWAY_CONNECT_PORT: u16 = 8445;
+
 /// The whole server configuration.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -64,6 +69,7 @@ pub struct Config {
     pub leader_election: LeaderElectionSettings,
     pub proxy: ProxySettings,
     pub observability: ObservabilitySettings,
+    pub agent_gateway: AgentGatewaySettings,
     /// Fallbacks taken while loading (unset values with a local-dev default
     /// that production must override, and unparsable values).
     warnings: Vec<String>,
@@ -215,6 +221,102 @@ pub struct ProxySettings {
     pub allow_cross_namespace_cert: bool,
 }
 
+/// What this process runs (`PROXYAUTH_ROLE`, RFC 0012 decision 26).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Role {
+    /// The proxy and its controller (default).
+    #[default]
+    Proxy,
+    /// The agent gateway only: the agents' listener, the tunnels, `CONNECT`.
+    Gateway,
+    /// Both in one pod, for a small installation.
+    Embedded,
+}
+
+impl Role {
+    /// `proxy`/`gateway`/`embedded`, case-insensitive and trimmed.
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "proxy" => Some(Self::Proxy),
+            "gateway" => Some(Self::Gateway),
+            "embedded" => Some(Self::Embedded),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn serves_proxy(self) -> bool {
+        matches!(self, Self::Proxy | Self::Embedded)
+    }
+
+    #[must_use]
+    pub fn serves_gateway(self) -> bool {
+        matches!(self, Self::Gateway | Self::Embedded)
+    }
+}
+
+/// The agent gateway (RFC 0012 §4.1, decisions 26 and 27): its listeners and
+/// bounds when this process is one, and how the proxy reaches it.
+#[derive(Clone, PartialEq, Eq)]
+pub struct AgentGatewaySettings {
+    /// `PROXYAUTH_ROLE` (default `proxy`).
+    pub role: Role,
+    /// `AGENT_GATEWAY_PORT` (default `8444`): the agents' listener, never the
+    /// user API's port.
+    pub port: u16,
+    /// `AGENT_GATEWAY_CONNECT_PORT` (default `8445`): `CONNECT` from the proxy,
+    /// inside the relay cluster only.
+    pub connect_port: u16,
+    /// `AGENT_GATEWAY_SERVICE`: the gateway's headless Service as a DNS
+    /// suffix (`proxyauth-gateway.proxyauth.svc`); a gateway pod is
+    /// `<pod>.<service>`. Unset on a proxy: no `Agent` cluster is served.
+    pub service: Option<String>,
+    /// `AGENT_GATEWAY_TOKEN`: what the proxy presents in `Proxy-Authorization`
+    /// and the gateway expects (T18). Redacted from `Debug`. Unset on a
+    /// gateway: every `CONNECT` is refused.
+    pub token: Option<String>,
+    /// `POD_NAMESPACE` (default: `LEASE_NAMESPACE`): where the agent CA Secret
+    /// lives.
+    pub namespace: String,
+    /// `AGENT_GATEWAY_TUNNELS_PER_IDENTITY` (default `4`, > 0): open tunnels
+    /// per agent identity on this pod, agent replicas together.
+    pub tunnels_per_identity: usize,
+    /// `AGENT_GATEWAY_STREAMS_PER_TUNNEL` (default `128`, > 0): 32 MiB of
+    /// yamux window per tunnel at worst.
+    pub streams_per_tunnel: usize,
+    /// `AGENT_GATEWAY_MAX_STREAMS_PER_TUNNEL` (default `512`, at least
+    /// `streams_per_tunnel`): ceiling of a per-cluster override.
+    pub max_streams_per_tunnel: usize,
+    /// `AGENT_GATEWAY_HANDSHAKE_TIMEOUT` in seconds (default `10`, > 0).
+    pub handshake_timeout: Duration,
+    /// `AGENT_GATEWAY_ENROLL_PER_MINUTE` (default `10`, > 0): enrolments per
+    /// real client address.
+    pub enroll_per_minute: usize,
+    /// `AGENT_GATEWAY_ENROLL_PER_MINUTE_TOTAL` (default `120`, > 0):
+    /// enrolments of every agent together.
+    pub enroll_per_minute_total: usize,
+}
+
+impl fmt::Debug for AgentGatewaySettings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AgentGatewaySettings")
+            .field("role", &self.role)
+            .field("port", &self.port)
+            .field("connect_port", &self.connect_port)
+            .field("service", &self.service)
+            .field("token", &self.token.as_ref().map(|_| "***REDACTED***"))
+            .field("namespace", &self.namespace)
+            .field("tunnels_per_identity", &self.tunnels_per_identity)
+            .field("streams_per_tunnel", &self.streams_per_tunnel)
+            .field("max_streams_per_tunnel", &self.max_streams_per_tunnel)
+            .field("handshake_timeout", &self.handshake_timeout)
+            .field("enroll_per_minute", &self.enroll_per_minute)
+            .field("enroll_per_minute_total", &self.enroll_per_minute_total)
+            .finish()
+    }
+}
+
 /// Observability.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ObservabilitySettings {
@@ -353,6 +455,53 @@ impl Config {
                 .parsed("WEEBO_METRICS_ADDR", None, |raw| raw.parse().ok().map(Some)),
         };
 
+        let streams_per_tunnel = loader.positive_usize("AGENT_GATEWAY_STREAMS_PER_TUNNEL", 128);
+        let mut max_streams_per_tunnel =
+            loader.positive_usize("AGENT_GATEWAY_MAX_STREAMS_PER_TUNNEL", 512);
+        if max_streams_per_tunnel < streams_per_tunnel {
+            loader.warnings.push(format!(
+                "AGENT_GATEWAY_MAX_STREAMS_PER_TUNNEL={max_streams_per_tunnel} is below \
+                 AGENT_GATEWAY_STREAMS_PER_TUNNEL={streams_per_tunnel}, raising it to match"
+            ));
+            max_streams_per_tunnel = streams_per_tunnel;
+        }
+        let agent_gateway = AgentGatewaySettings {
+            role: loader.parsed("PROXYAUTH_ROLE", Role::Proxy, Role::parse),
+            port: loader.parsed("AGENT_GATEWAY_PORT", DEFAULT_AGENT_GATEWAY_PORT, |v| {
+                v.trim().parse().ok()
+            }),
+            connect_port: loader.parsed(
+                "AGENT_GATEWAY_CONNECT_PORT",
+                DEFAULT_AGENT_GATEWAY_CONNECT_PORT,
+                |v| v.trim().parse().ok(),
+            ),
+            service: loader
+                .raw("AGENT_GATEWAY_SERVICE")
+                .filter(|v| !v.is_empty()),
+            token: loader.raw("AGENT_GATEWAY_TOKEN").filter(|v| !v.is_empty()),
+            namespace: loader
+                .raw("POD_NAMESPACE")
+                .filter(|v| !v.is_empty())
+                .unwrap_or_else(|| leader_election.lease_namespace.clone()),
+            tunnels_per_identity: loader.positive_usize("AGENT_GATEWAY_TUNNELS_PER_IDENTITY", 4),
+            streams_per_tunnel,
+            max_streams_per_tunnel,
+            handshake_timeout: loader.parsed(
+                "AGENT_GATEWAY_HANDSHAKE_TIMEOUT",
+                Duration::from_secs(10),
+                |v| {
+                    v.trim()
+                        .parse::<u64>()
+                        .ok()
+                        .filter(|secs| *secs > 0)
+                        .map(Duration::from_secs)
+                },
+            ),
+            enroll_per_minute: loader.positive_usize("AGENT_GATEWAY_ENROLL_PER_MINUTE", 10),
+            enroll_per_minute_total: loader
+                .positive_usize("AGENT_GATEWAY_ENROLL_PER_MINUTE_TOTAL", 120),
+        };
+
         Self {
             server,
             oidc,
@@ -360,6 +509,7 @@ impl Config {
             leader_election,
             proxy,
             observability,
+            agent_gateway,
             warnings: loader.warnings,
         }
     }
@@ -620,6 +770,66 @@ mod tests {
                 weebo_metrics_addr: None,
             }
         );
+        assert_eq!(
+            config.agent_gateway,
+            AgentGatewaySettings {
+                role: Role::Proxy,
+                port: 8444,
+                connect_port: 8445,
+                service: None,
+                token: None,
+                namespace: "default".to_string(),
+                tunnels_per_identity: 4,
+                streams_per_tunnel: 128,
+                max_streams_per_tunnel: 512,
+                handshake_timeout: Duration::from_secs(10),
+                enroll_per_minute: 10,
+                enroll_per_minute_total: 120,
+            }
+        );
+    }
+
+    #[test]
+    fn the_agent_gateway_settings_are_read_and_bounded() {
+        let config = load(&[
+            ("PROXYAUTH_ROLE", "Gateway"),
+            ("AGENT_GATEWAY_PORT", "9444"),
+            ("AGENT_GATEWAY_SERVICE", "proxyauth-gateway.proxyauth.svc"),
+            ("AGENT_GATEWAY_TOKEN", "s3cret"),
+            ("POD_NAMESPACE", "proxyauth"),
+            ("AGENT_GATEWAY_STREAMS_PER_TUNNEL", "256"),
+            ("AGENT_GATEWAY_MAX_STREAMS_PER_TUNNEL", "200"),
+            ("AGENT_GATEWAY_TUNNELS_PER_IDENTITY", "0"),
+            ("AGENT_GATEWAY_HANDSHAKE_TIMEOUT", "0"),
+        ]);
+        let gateway = &config.agent_gateway;
+        assert_eq!(gateway.role, Role::Gateway);
+        assert!(gateway.role.serves_gateway() && !gateway.role.serves_proxy());
+        assert_eq!(gateway.port, 9444);
+        assert_eq!(
+            gateway.service.as_deref(),
+            Some("proxyauth-gateway.proxyauth.svc")
+        );
+        assert_eq!(gateway.namespace, "proxyauth");
+        // A ceiling below the default is raised to it, with a warning.
+        assert_eq!(gateway.max_streams_per_tunnel, 256);
+        assert!(
+            config
+                .warnings()
+                .iter()
+                .any(|w| w.contains("raising it to match"))
+        );
+        // Zero would disable a limit: refused, the default is kept.
+        assert_eq!(gateway.tunnels_per_identity, 4);
+        assert_eq!(gateway.handshake_timeout, Duration::from_secs(10));
+        assert!(!format!("{gateway:?}").contains("s3cret"));
+    }
+
+    #[test]
+    fn an_unknown_role_falls_back_to_the_proxy() {
+        let config = load(&[("PROXYAUTH_ROLE", "agent")]);
+        assert_eq!(config.agent_gateway.role, Role::Proxy);
+        assert!(Role::Embedded.serves_proxy() && Role::Embedded.serves_gateway());
     }
 
     #[test]

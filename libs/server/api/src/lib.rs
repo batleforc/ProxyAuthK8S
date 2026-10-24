@@ -14,6 +14,7 @@ use axum::{Router, extract::DefaultBodyLimit, routing::get};
 use utoipa::{OpenApi, openapi::OpenApi as OpenApiType};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
+pub mod agent;
 pub mod api_doc;
 pub mod base;
 pub mod cluster;

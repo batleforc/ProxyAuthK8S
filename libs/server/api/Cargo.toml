@@ -27,7 +27,7 @@ axum = { workspace = true }
 bytes = "1"
 http = "1"
 http-body-util = "0.1"
-hyper = { version = "1", features = ["client", "http1"] }
+hyper = { version = "1", features = ["client", "server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 tracing = { workspace = true }
 reqwest = { workspace = true }
@@ -58,6 +58,11 @@ socket2 = { version = "0.6", optional = true }
 # Already in the tree (kube); the request id of every response.
 uuid = { version = "1", features = ["v4"], optional = true }
 
+agent_proto = { path = "../../agent/proto", version = "0.3.0" }
+agent_pki = { path = "../../agent/pki", version = "0.3.0" }
+# Already in the tree (tokio-tungstenite, kube): futures-io <-> tokio-io for
+# yamux streams.
+tokio-util = { version = "0.7", features = ["compat"] }
 common = { path = "../common", version = "0.3.0" }
 crd = { path = "../crd", version = "0.3.0" }
 jwt_validator = { path = "../jwt_validator", version = "0.3.0" }
