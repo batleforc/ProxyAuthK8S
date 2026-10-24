@@ -1,5 +1,6 @@
 //! `proxyauthk8s-agent` (RFC 0012 §6.5): the agent, and its probes and
-//! metrics on `AGENT_PROBE_PORT` (default `9090`).
+//! metrics on `AGENT_PROBE_PORT` (default `9090`); `publish-jwks`, the
+//! `jwksPublisher` CronJob's one run.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -22,6 +23,14 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+    // The `jwksPublisher` CronJob (§6.5): one copy, then exit.
+    if std::env::args().nth(1).as_deref() == Some("publish-jwks") {
+        let written = agent::jwks::publish(|name| std::env::var(name).ok())
+            .await
+            .map_err(anyhow::Error::msg)?;
+        tracing::info!(written, "JWKS published");
+        return Ok(());
+    }
     let config =
         Config::from_lookup(|name| std::env::var(name).ok()).map_err(anyhow::Error::msg)?;
     let port = std::env::var("AGENT_PROBE_PORT")

@@ -115,6 +115,14 @@ spec:
 clé du cluster distant passe sans toucher au `ProxyKubeApi` (gardez l'ancienne et la nouvelle
 clé le temps de la rotation). Un JWKS vide ou illisible refuse l'enrôlement.
 
+Pour que ce ConfigMap suive les rotations sans intervention, le chart de l'agent peut publier
+le JWKS lui-même : `--set jwksPublisher.enabled=true` installe un CronJob (toutes les 15 min,
+`jwksPublisher.schedule`) qui copie `/openid/v1/jwks` du cluster distant dans le ConfigMap
+`proxyauth-agent-jwks` (clé `jwks.json`). Il tourne sous son propre ServiceAccount, avec `get`
+et `update` sur ce seul ConfigMap ; l'agent, lui, reste sans RBAC. Un `PushSecret` d'External
+Secrets le porte vers Vault, un `ExternalSecret` le recrée côté proxy sous le nom que lit
+`jwks_from`. Un JWKS sans clé n'est jamais publié.
+
 ### Sans JWKS : un jeton à usage unique (`OneShotToken`)
 
 Quand les clés du cluster distant ne sont pas lisibles, le contrôleur du proxy émet un jeton à
@@ -218,7 +226,3 @@ La clé de la CA des agents est dans le Secret `proxy-auth-k8s-agent-ca`, lisibl
 passerelle. Sans `rbac.referencedNamespaces`, le back garde un `get` sur tous les Secrets du
 cluster, celui-ci compris : listez vos namespaces pour que la clé reste à la passerelle.
 </Callout>
-
-## Pas encore disponible
-
-Le CronJob `jwksPublisher` arrive avec la phase 2 de la RFC 0012.

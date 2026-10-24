@@ -1,0 +1,118 @@
+{{- if .Values.jwksPublisher.enabled }}
+{{- $name := printf "%s-jwks" (include "agent.name" .) }}
+# decision 24: this cluster's public keys, copied where External Secrets can
+# take them to the proxy's `jwks_from`. Reading /openid/v1/jwks needs no grant
+# (system:service-account-issuer-discovery); writing, this ConfigMap only.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: "{{ $name }}"
+  namespace: "{{ .Release.Namespace }}"
+automountServiceAccountToken: false
+---
+# Created empty, with no `data`: what the CronJob writes survives an upgrade.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.jwksPublisher.configMap | quote }}
+  namespace: "{{ .Release.Namespace }}"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: "{{ $name }}"
+  namespace: "{{ .Release.Namespace }}"
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    resourceNames:
+      - {{ .Values.jwksPublisher.configMap | quote }}
+    verbs:
+      - get
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: "{{ $name }}"
+  namespace: "{{ .Release.Namespace }}"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: "{{ $name }}"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ $name }}"
+    namespace: "{{ .Release.Namespace }}"
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: "{{ $name }}"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  schedule: {{ .Values.jwksPublisher.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: "{{ $name }}"
+        spec:
+          serviceAccountName: "{{ $name }}"
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          {{- with .Values.securityContext.pod }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: publish-jwks
+              image: '{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}'
+              imagePullPolicy: '{{ .Values.image.pullPolicy }}'
+              args: ["publish-jwks"]
+              {{- with .Values.securityContext.container }}
+              securityContext:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+              env:
+                - name: AGENT_JWKS_CONFIGMAP
+                  value: {{ .Values.jwksPublisher.configMap | quote }}
+                - name: AGENT_NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: AGENT_API_TOKEN_PATH
+                  value: /var/run/secrets/proxyauth/api-token
+                - name: AGENT_KUBE_CA_PATH
+                  value: /var/run/secrets/proxyauth/ca.crt
+              resources:
+                limits:
+                  cpu: 100m
+                  memory: 64Mi
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+              volumeMounts:
+                - name: api
+                  mountPath: /var/run/secrets/proxyauth
+                  readOnly: true
+          volumes:
+            - name: api
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 600
+                      path: api-token
+                  - configMap:
+                      name: kube-root-ca.crt
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+{{- end }}

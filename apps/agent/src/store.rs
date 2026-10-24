@@ -22,24 +22,20 @@ const KEY: &str = "tls.key";
 const CERT: &str = "tls.crt";
 const CA: &str = "ca.crt";
 
-/// The identity Secret, reached through the local apiserver.
+/// The local apiserver, as the agent's own ServiceAccount.
 #[derive(Clone, Debug)]
-pub struct IdentityStore {
-    /// `…/api/v1/namespaces/<namespace>/secrets/<name>`.
-    url: Url,
+pub(super) struct ApiClient {
+    base: Url,
     /// The agent's API token, projected and rotated by the kubelet: read at
     /// each call.
     token_path: PathBuf,
     http: reqwest::Client,
 }
 
-impl IdentityStore {
-    /// From `AGENT_IDENTITY_SECRET`, `AGENT_NAMESPACE`, `AGENT_API_URL`
-    /// (default: `KUBERNETES_SERVICE_HOST` and `_PORT`),
+impl ApiClient {
+    /// From `AGENT_API_URL` (default: `KUBERNETES_SERVICE_HOST` and `_PORT`),
     /// `AGENT_API_TOKEN_PATH` and the CA at `AGENT_KUBE_CA_PATH`.
     pub(super) fn from_lookup(var: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
-        let name = var("AGENT_IDENTITY_SECRET").ok_or("AGENT_IDENTITY_SECRET is required")?;
-        let namespace = var("AGENT_NAMESPACE").ok_or("AGENT_NAMESPACE is required")?;
         let api = match var("AGENT_API_URL") {
             Some(url) => url,
             None => {
@@ -53,11 +49,10 @@ impl IdentityStore {
                 }
             }
         };
-        let mut url: Url = api.parse().map_err(|err| format!("AGENT_API_URL: {err}"))?;
-        url.path_segments_mut()
-            .map_err(|()| "AGENT_API_URL cannot be a base".to_string())?
-            .pop_if_empty()
-            .extend(["api", "v1", "namespaces", &namespace, "secrets", &name]);
+        let base: Url = api.parse().map_err(|err| format!("AGENT_API_URL: {err}"))?;
+        if base.cannot_be_a_base() {
+            return Err("AGENT_API_URL cannot be a base".to_string());
+        }
         // The local apiserver: never through the egress proxy.
         let mut http = reqwest::Client::builder().no_proxy().timeout(STEP_TIMEOUT);
         if let Some(path) = var("AGENT_KUBE_CA_PATH") {
@@ -69,7 +64,7 @@ impl IdentityStore {
             );
         }
         Ok(Self {
-            url,
+            base,
             token_path: var("AGENT_API_TOKEN_PATH")
                 .unwrap_or_else(|| "/var/run/secrets/proxyauth/api-token".to_string())
                 .into(),
@@ -77,38 +72,88 @@ impl IdentityStore {
         })
     }
 
+    /// `segments` under the API's base URL.
+    pub(super) fn url<'a>(&self, segments: impl IntoIterator<Item = &'a str>) -> Url {
+        let mut url = self.base.clone();
+        // `from_lookup` refused a base that cannot hold a path.
+        if let Ok(mut path) = url.path_segments_mut() {
+            path.pop_if_empty().extend(segments);
+        }
+        url
+    }
+
     async fn call(
         &self,
         method: Method,
+        url: &Url,
         body: Option<&Value>,
     ) -> Result<reqwest::Response, Reason> {
         let token = tokio::fs::read_to_string(&self.token_path)
             .await
             .map_err(|err| {
-                warn!(error = %err, path = %self.token_path.display(), "no API token for the identity Secret");
+                warn!(error = %err, path = %self.token_path.display(), "no API token");
                 "enroll"
             })?;
         let mut request = self
             .http
-            .request(method, self.url.clone())
+            .request(method, url.clone())
             .bearer_auth(token.trim());
         if let Some(body) = body {
             request = request.json(body);
         }
         request.send().await.map_err(|err| {
-            warn!(error = %err, "identity Secret unreachable");
+            warn!(error = %err, %url, "local apiserver unreachable");
             "enroll"
         })
     }
 
-    /// The Secret as read, and the identity it holds, if any.
-    pub(super) async fn load(&self) -> Result<(Value, Option<Identity>), Reason> {
-        let response = self.call(Method::GET, None).await?;
+    /// The body of a `GET`.
+    pub(super) async fn get(&self, url: &Url) -> Result<String, Reason> {
+        let response = self.call(Method::GET, url, None).await?;
         if !response.status().is_success() {
-            warn!(status = %response.status(), "identity Secret unreadable");
+            warn!(status = %response.status(), %url, "unreadable");
             return Err("enroll");
         }
-        let secret: Value = response.json().await.map_err(|_| "enroll")?;
+        response.text().await.map_err(|_| "enroll")
+    }
+
+    /// `PUT` `object` as read, its `resourceVersion` included. `false` when
+    /// it was written since.
+    pub(super) async fn put(&self, url: &Url, object: &Value) -> Result<bool, Reason> {
+        let response = self.call(Method::PUT, url, Some(object)).await?;
+        match response.status() {
+            status if status.is_success() => Ok(true),
+            StatusCode::CONFLICT => Ok(false),
+            status => {
+                warn!(%status, %url, "not written");
+                Err("enroll")
+            }
+        }
+    }
+}
+
+/// The identity Secret.
+#[derive(Clone, Debug)]
+pub struct IdentityStore {
+    api: ApiClient,
+    /// `…/api/v1/namespaces/<namespace>/secrets/<name>`.
+    url: Url,
+}
+
+impl IdentityStore {
+    /// From `AGENT_IDENTITY_SECRET`, `AGENT_NAMESPACE` and [`ApiClient`]'s.
+    pub(super) fn from_lookup(var: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let name = var("AGENT_IDENTITY_SECRET").ok_or("AGENT_IDENTITY_SECRET is required")?;
+        let namespace = var("AGENT_NAMESPACE").ok_or("AGENT_NAMESPACE is required")?;
+        let api = ApiClient::from_lookup(var)?;
+        let url = api.url(["api", "v1", "namespaces", &namespace, "secrets", &name]);
+        Ok(Self { api, url })
+    }
+
+    /// The Secret as read, and the identity it holds, if any.
+    pub(super) async fn load(&self) -> Result<(Value, Option<Identity>), Reason> {
+        let secret: Value =
+            serde_json::from_str(&self.api.get(&self.url).await?).map_err(|_| "enroll")?;
         let identity = identity_in(&secret);
         Ok((secret, identity))
     }
@@ -120,15 +165,7 @@ impl IdentityStore {
             .as_object_mut()
             .ok_or("enroll")?
             .insert("data".to_string(), data);
-        let response = self.call(Method::PUT, Some(&secret)).await?;
-        match response.status() {
-            status if status.is_success() => Ok(true),
-            StatusCode::CONFLICT => Ok(false),
-            status => {
-                warn!(%status, "identity Secret not written");
-                Err("enroll")
-            }
-        }
+        self.api.put(&self.url, &secret).await
     }
 }
 

@@ -8,6 +8,7 @@
 //! every stream the gateway opens to its one `upstream`, the local apiserver,
 //! without reading a byte: the TLS to the apiserver is the proxy's.
 
+pub mod jwks;
 mod store;
 
 use std::fmt;
@@ -36,6 +37,8 @@ use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 use tower_service::Service as _;
 use tracing::{debug, info, warn};
 
+/// The bound `jwks_from` applies to a JWKS (RFC 0012 §4.3).
+const MAX_JWKS_BYTES: usize = 64 * 1024;
 /// Bound on a TCP connect, a TLS handshake, the `Hello`.
 const STEP_TIMEOUT: Duration = Duration::from_secs(10);
 /// The gateway closes a control channel silent for 90 s.

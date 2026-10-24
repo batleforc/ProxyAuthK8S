@@ -40,6 +40,14 @@ bootstrap:
 # the chart; the agent may `get` and `update` this Secret only (§6.5, T16).
 identitySecret: proxyauth-agent-identity
 
+# A CronJob, under a ServiceAccount of its own, copying this cluster's
+# /openid/v1/jwks into `configMap` (key jwks.json): carry it to the proxy's
+# `jwks_from` with External Secrets (decision 24). The agent keeps no RBAC.
+jwksPublisher:
+  enabled: false
+  schedule: "*/15 * * * *"
+  configMap: proxyauth-agent-jwks
+
 replicaCount: 2
 podDisruptionBudget:
   enabled: true
