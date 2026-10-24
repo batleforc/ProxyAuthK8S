@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Accepted : code livré (2026-10-18), recette en cours (§13)                 |
+| Status      | Accepted : code livré (2026-10-18), recette après la première instance (§13, §17) |
 | Short       | actix-web vers axum                                                    |
 | Settles     | Le serveur (API, OAuth, proxy, upgrades) passe d'actix-web 4 à axum 0.8 sur hyper 1, à comportement constant, et le tunnel d'upgrade utilise `hyper::upgrade` au lieu de HTTP écrit à la main |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -604,6 +604,11 @@ Phases 2 à 6 (2026-10-18), une PR, un commit par phase :
   `serve`, comme en production.
 - **Reste, hors du dépôt** : les 7 jours de recette (§13). La RFC passe
   `Implemented` à leur issue.
+- **Recette reportée** (2026-10-24) : aucune instance n'a tourné sur actix,
+  donc pas de base à laquelle comparer « sans hausse des 4xx/5xx ». La
+  recette se fera sur la première instance, déployée après la 0012
+  (`PLAN.md`, étape 19), avec des seuils absolus à fixer avant de la
+  commencer.
 
 Point 9 (2026-10-19), sur le banc de la RFC 0009 (k3s 1.35.5, kubectl
 1.35.9, podman rootless, un seul poste) : `rfc0007::p9_exec_throughput`

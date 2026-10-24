@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review                                                              |
+| Status      | Accepted (2026-10-24), pour la 0.4.0 avec la 0011, avant la 0010      |
 | Short       | Mode agent (tunnel sortant)                                            |
 | Settles     | Atteindre un cluster dont l'apiserver n'accepte aucune connexion entrante |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -152,7 +152,9 @@ service:
       ServiceAccountToken:                # GitOps : rien de secret dans git
         subject: system:serviceaccount:proxyauth-agent:proxyauth-agent
         audience: proxyauth               # défaut
-        jwks: '{"keys":[…]}'              # clé publique du cluster distant
+        jwks_from:                        # cluster auto-hébergé (décision 24)
+          ConfigMap: { name: prod-sa-jwks, key: jwks.json }   # ou Secret
+        # ou jwks: '{"keys":[…]}'         # en ligne, figé
         # ou jwks_url: https://…          # émetteur public (EKS, GKE, AKS)
       # OneShotToken: { auto_rotate: false }
       # ExternalCA: { ca_ref: { ConfigMap: { name: agent-ca, key: ca.crt } } }  # phase 4
@@ -170,9 +172,15 @@ service:
   proxy.
 - `ServiceAccountToken` : l'agent présente un jeton de ServiceAccount
   **projeté** (volume `serviceAccountToken`, `audience: proxyauth`, 10 min),
-  jamais le jeton monté par défaut. Le proxy le valide avec le JWKS donné
-  (`kubectl get --raw /openid/v1/jwks` sur le cluster distant) ou récupéré
-  par `jwks_url`.
+  jamais le jeton monté par défaut. Le proxy le valide avec le JWKS de l'une
+  de trois sources, une seule à la fois (décision 24) : `jwks_from`, un
+  ConfigMap ou un Secret relu à chaque enrôlement (cache 30 s), pour un
+  cluster dont l'émetteur est interne (kubeadm, k3s) ; `jwks_url`, pour un
+  émetteur public (EKS, GKE, AKS, publics même à endpoint privé) ; `jwks` en
+  ligne, figé. Le JWKS se lit par `kubectl get --raw /openid/v1/jwks` sur le
+  cluster distant ; il est public, aucun secret n'entre dans git. La clé est
+  choisie par le `kid` du jeton : un JWKS qui porte l'ancienne et la nouvelle
+  clé fait passer une rotation sans coupure.
 - `ExternalCA` (phase 4) : pas d'enrôlement ; le certificat de l'agent vient
   d'ailleurs (cert-manager avec un issuer Vault PKI) et le proxy fait confiance
   à `ca_ref`.
@@ -259,7 +267,7 @@ Rejeté par l'admission (règles CEL, comme `AuthenticationConfiguration`) :
 | --- | --- |
 | `Agent` sans `spec.cert` | la CA de l'apiserver viendrait de l'agent, qui pourrait alors faire l'homme du milieu (T4) |
 | `Agent` avec `spec.cert: SystemRoots` | l'apiserver d'un cluster distant a une CA privée ; `SystemRoots` validerait n'importe quel certificat public pour `kubernetes.default.svc` présenté par un agent hostile |
-| `ServiceAccountToken` sans `jwks` ni `jwks_url`, ou avec les deux | une seule source de clés |
+| `ServiceAccountToken` sans aucune de `jwks`, `jwks_url`, `jwks_from`, ou avec plus d'une | une seule source de clés (décision 24) |
 | `jwks_url` qui n'est pas `https://` | les clés de confiance ne passent pas en clair |
 | `subject` qui ne commence pas par `system:serviceaccount:` | seul un ServiceAccount peut être un agent |
 | `server_name` qui n'est pas un nom DNS ou une IP | il devient un `ServerName` rustls |
@@ -348,7 +356,11 @@ flowchart TD
   l'accepter tous les deux.
 - `ServiceAccountToken` : `jsonwebtoken` (déjà en dépendance de `api`) vérifie
   la signature avec le JWKS, `aud` = `audience`, `exp`, et `sub` = `subject`.
-  Le JWKS par URL est mis en cache 10 min.
+  La clé est choisie par le `kid` (aucun `kid` : chaque clé du jeu est
+  essayée). Le JWKS par URL est mis en cache 10 min, et relu tout de suite
+  sur un `kid` inconnu, au plus une fois par minute ; `jwks_from` est relu
+  avec un cache de 30 s, comme `OidcConfigCache`. Un JWKS vide ou illisible
+  refuse l'enrôlement (reason `jwks`), jamais ne le laisse passer.
 
 ### 5.3 Les deux modes TLS de l'écoute
 
@@ -404,9 +416,13 @@ WireGuard / Netbird est le cas 1 : la route existe au niveau IP, seul
 ### 6.1 CRD (`libs/server/crd/src/service/`)
 
 - `Service::Agent { server_name, epoch, bootstrap }` et
-  `AgentBootstrap::{ServiceAccountToken { subject, audience, jwks, jwks_url },
+  `AgentBootstrap::{ServiceAccountToken { subject, audience, jwks, jwks_url,
+  jwks_from },
   OneShotToken { auto_rotate }, ExternalCA { ca_ref }}` (`ExternalCA` en phase
-  4), avec les règles CEL de §4.3.
+  4), avec les règles CEL de §4.3. `jwks_from` est un
+  `JwksSource::{ConfigMap, Secret} { name, key, namespace }`, soumis à la
+  même politique de namespaces que `spec.cert` (`rbac.referencedNamespaces`
+  du chart).
 - `url_to_call` renvoie, pour `Agent`, `https://<server_name>` : le reste du
   relais (chemins, en-têtes) n'a pas à savoir qu'un tunnel existe.
 - `status.agent { tunnels, expected, lastSeen, version, caFingerprint }` et la
@@ -481,6 +497,14 @@ WireGuard / Netbird est le cas 1 : la route existe au niveau IP, seul
   Un pod redémarré ou un replica ajouté ne consomme donc aucun jeton.
 - Métriques sur `:9090/metrics`, sondes `/healthz` (processus) et `/readyz`
   (au moins un tunnel ouvert).
+- **`jwksPublisher`** (phase 2, `enabled: false` par défaut) : un CronJob du
+  chart de l'agent, sous son **propre** ServiceAccount, lit
+  `/openid/v1/jwks` (droit donné à tout ServiceAccount par la ClusterRoleBinding
+  `system:service-account-issuer-discovery`, installée par défaut depuis
+  Kubernetes 1.21) et l'écrit dans un ConfigMap du cluster distant
+  (`get`, `update` sur ce seul ConfigMap, `resourceNames`). Un `PushSecret`
+  d'External Secrets le pousse vers Vault, un `ExternalSecret` le recrée côté
+  proxy, sous le nom que lit `jwks_from`. L'agent, lui, reste sans RBAC.
 
 ### 6.6 POC du 2026-10-23
 
@@ -559,6 +583,10 @@ sans ingress.
 12. **Refus** : un client sans certificat d'agent sur `/agent/v1/connect` —
     poignée de main refusée ; et une requête utilisateur sur le port de
     l'écoute — `404`.
+13. **Refus puis reprise** (`jwks_from`) : le ConfigMap porte un JWKS sans la
+    clé du cluster — l'agent redémarré reçoit `401`, `agent_refused` reason
+    `signature` ; le ConfigMap corrigé (ancienne clé fictive et vraie clé),
+    l'agent s'enrôle dans les 30 s, sans modification du `ProxyKubeApi`.
 
 Hors suite, avec un pointeur dans `MATRIX.md` : la variante `OneShotToken` +
 External Secrets + Vault, `ExternalCA` et l'agent derrière Netbird sont
@@ -620,6 +648,7 @@ flowchart LR
 | T14 | Repudiation : enrôlement ou tunnel sans trace | P | `agent_enrolled`, `agent_refused`, `agent_connected`, `agent_disconnected` ; `upstream_via` sur chaque requête | aucun |
 | T15 | Info disclosure : l'écoute de l'agent sert l'API utilisateur, ou l'inverse | B1 | routeurs axum distincts sur des ports distincts | aucun |
 | T16 | Spoofing : vol de la clé d'agent dans `identitySecret` (`OneShotToken`) | cluster distant | Secret lisible par le seul ServiceAccount de l'agent et les admins du cluster distant ; `epoch` pour révoquer | un voleur prend la place de l'agent : voir T3, il ne lit rien ; accepté (mainteneur) |
+| T17 | Tampering : qui écrit la source de `jwks_from` (le ConfigMap, ou le chemin Vault qui l'alimente) choisit les clés acceptées et enrôle un agent hostile | B4 | même politique de namespaces que `spec.cert` ; le `subject` et l'`audience` restent ceux de la CRD ; JWKS borné à 64 Kio, vide ou illisible = refus ; `agent_enrolled` audité | celui qui écrit ce ConfigMap ou ce chemin Vault enrôle un agent, qui ne lit rien (T3) ; accepté (mainteneur, décision 24) |
 
 ### 7.2 Authentication and authorisation
 
@@ -737,7 +766,7 @@ flowchart LR
   `proxyauth_agent_cert_expiry_seconds`.
 - **Logs and audit trail** : `AuditEvent` gagne `upstream_via` (`direct` |
   `agent`) ; évènements `agent_enrolled`, `agent_refused` (reason `subject`,
-  `audience`, `signature`, `replay`, `epoch`, `identity`),
+  `audience`, `signature`, `jwks`, `replay`, `epoch`, `identity`),
   `agent_connected`, `agent_disconnected`, au schéma de la RFC 0008.
 - **Alerts** : aucune livrée ; la doc propose `AgentConnected=False` plus de
   5 min, et `proxyauth_agent_cert_expiry_seconds < 3600`.
@@ -750,6 +779,7 @@ flowchart LR
 | tunnel coupé pendant un flux | yamux | le flux est coupé, le client k8s retente | automatique |
 | Redis injoignable | erreurs du pool | les tunnels déjà ouverts servent ; enrôlement `OneShotToken` **refusé** (pas de `GETDEL`) ; statut figé | automatique |
 | JWKS par URL injoignable | délai de 5 s | le cache de 10 min sert ; au-delà, enrôlement **refusé** | automatique |
+| source de `jwks_from` absente, vide ou illisible | lecture à l'enrôlement | enrôlement **refusé** (reason `jwks`), Event `Warning` ; les tunnels déjà ouverts servent | corriger le ConfigMap ou le Secret, relu dans les 30 s |
 | Secret de la CA absent ou illisible | démarrage de l'écoute | l'écoute refuse toute connexion ; `AgentConnected=False` reason `Refused` | le leader le recrée ; une CA recréée oblige à réenrôler |
 | apiserver injoignable depuis l'agent | échec du TCP de l'agent | le flux est fermé : le proxy répond `502` | côté cluster distant |
 | proxy sortant down | agent | aucun tunnel → cas 1 | automatique |
@@ -812,7 +842,8 @@ chemin que son tunnel.
   un changement de `spec.service`, réversible.
 - **Operator prerequisites** : un nom DNS et un certificat pour l'écoute (ingress
   ou LB) ; côté distant, un namespace pour l'agent et, en
-  `ServiceAccountToken`, son JWKS ou l'URL de son émetteur.
+  `ServiceAccountToken`, son JWKS (`jwks_from` ou en ligne) ou l'URL de son
+  émetteur.
 - **Rollback** : repasser en `ExternalService` ou désactiver l'écoute ; la CA des
   agents reste dans son Secret et peut être supprimée à la main.
 - **Feature flag** : `agentTunnel.enabled` (chart) et la variante par cluster.
@@ -854,6 +885,9 @@ chemin que son tunnel.
   - T15 `user_routes_are_not_served_on_the_agent_port`
   - T16 `the_agent_rbac_is_limited_to_its_identity_secret` (rendu du chart,
     `helm template` : un seul `resourceNames`, aucun `create`)
+  - T17 `a_jwks_from_change_is_picked_up_and_an_empty_one_refuses`
+- **Unit** (`libs/server/api/src/agent/`, décision 24) : choix de la clé par
+  `kid`, relecture d'une URL sur `kid` inconnu au plus une fois par minute.
 - **Fuzz** : messages de contrôle, corps d'enrôlement.
 - **Audit** : `task audit` vert avec `yamux`, `tokio-tungstenite`,
   `tokio-socks` et l'image de l'agent.
@@ -888,12 +922,13 @@ Tranchées au `/grill-me` du 2026-10-23.
 | 15 | Privilèges de l'agent | **Aucun RBAC**, pas de jeton monté par défaut, non-root, lecture seule, NetworkPolicy de sortie ; destination réglée dans ses values. |
 | 16 | HA de l'agent | **2 replicas et une PDB** ; le tunnel le moins chargé ; un flux coupé est retenté par le client. |
 | 17 | Statut et observabilité | **Présences dans Redis agrégées par le leader** en `AgentConnected` et `status.agent` ; métriques sans label de cluster ; `upstream_via` dans l'audit. |
-| 18 | Release | **0.5.0, avant la v1.0.0**, après la 0.4.0 : elle dépend de la 0011 (conditions), pas de la 0010. Le mainteneur en a besoin plus tôt que la v2.0.0 de la roadmap ; la recommandation (après la v1.0.0) a été écartée. |
+| 18 | Release | ~~**0.5.0, avant la v1.0.0**, après la 0.4.0~~ **0.4.0, avec la 0011** (révisée le 2026-10-24 par [PLAN.md](PLAN.md) : la 0012 passe avant la 0010, qui prend la 0.5.0) ; avant la v1.0.0 : elle dépend de la 0011 (conditions), pas de la 0010. Le mainteneur en a besoin plus tôt que la v2.0.0 de la roadmap ; la recommandation (après la v1.0.0) a été écartée. |
 | 19 | Preuve sans deuxième cluster | **Un seul cluster k3d**, l'agent dans `it-remote` ; preuves par l'audit, l'agent coupé et l'`epoch`. |
 | 20 | Sortie par proxy | **`CONNECT` et SOCKS5**, tous deux dans la suite ; Netbird documenté hors suite avec `caBundle`. La recommandation (sans SOCKS5) a été écartée : le mainteneur a les deux. |
 | 21 | Où l'agent garde son certificat en `OneShotToken` | **Dans un Secret du cluster distant, en lecture-écriture** pour l'agent (`get`, `update`, `patch`, `resourceNames`), créé par le chart et partagé par les replicas ; en mémoire seulement en `ServiceAccountToken`, qui reste sans RBAC. Sans lui, chaque redémarrage et chaque replica consommerait un jeton. Tranchée après la rédaction, le 2026-10-23. |
 | 22 | Le client upstream des clusters en `Agent` | **`hyper-util`** (`client::legacy::Client` et un connecteur yamux + `tokio-rustls`), pas reqwest : `Conn` est scellé, `connector_layer` ne peut pas l'imiter. Deux POC le prouvent (2026-10-23, §6.6) : en mémoire (pool, flux brut, mauvais `server_name` refusé, jamais le jeton en clair chez l'agent), puis contre k3s 1.35.9 (HTTP/2, certificat client, exec, port-forward, watch, logs, mTLS de l'agent). |
 | 23 | Version de `tokio-tungstenite` | **0.29.0**, celle de la feature `ws` d'axum 0.8.9. |
+| 24 | JWKS d'un émetteur interne, rotation, GitOps | **Une troisième source, `jwks_from`** (ConfigMap ou Secret, cache 30 s), à côté de `jwks` et `jwks_url` ; clé choisie par `kid`, URL relue sur `kid` inconnu ; CronJob `jwksPublisher` optionnel dans le chart de l'agent, sous son propre ServiceAccount, pour la chaîne External Secrets + Vault. Rejeté : le JWKS fourni par l'agent lui-même (il s'auto-attesterait, contraire au principe de T4). T17 ajouté. Tranchée le 2026-10-24, après l'acceptation : un émetteur interne (kubeadm, k3s, le cas de ce mode) n'avait que `jwks` en ligne, cassé par la moindre rotation. |
 
 ### Still open
 
@@ -905,8 +940,8 @@ Aucune.
 
 | Phase | Content |
 | --- | --- |
-| 1 | Le chemin complet en `ServiceAccountToken` et `tlsMode: inner` : CRD (`Agent`, CEL, statut), `libs/agent/proto`, écoute, enrôlement, CA, registre des tunnels, branchement dans `upstream.rs` et `upgrade/connect.rs`, `epoch`, limites, audit, métriques, binaire, image et chart de l'agent, tests unitaires, d'intégration et de sécurité (T1 à T15), cibles de fuzz. Utile seul : un cluster non exposé devient proxifiable. |
-| 2 | `OneShotToken` (avec `auto_rotate` et le Secret d'identité de la décision 21, T16), `tlsMode: passthrough`, sortie `CONNECT` et SOCKS5. |
+| 1 | Le chemin complet en `ServiceAccountToken` (les trois sources de JWKS) et `tlsMode: inner` : CRD (`Agent`, CEL, statut), `libs/agent/proto`, écoute, enrôlement, CA, registre des tunnels, branchement dans `upstream.rs` et `upgrade/connect.rs`, `epoch`, limites, audit, métriques, binaire, image et chart de l'agent, tests unitaires, d'intégration et de sécurité (T1 à T15, T17), cibles de fuzz. Utile seul : un cluster non exposé devient proxifiable. |
+| 2 | `OneShotToken` (avec `auto_rotate` et le Secret d'identité de la décision 21, T16), `tlsMode: passthrough`, sortie `CONNECT` et SOCKS5, CronJob `jwksPublisher` (décision 24). |
 | 3 | Banc : agent dans `it-remote`, tinyproxy et microsocks, `rfc0012.rs`, lignes de `MATRIX.md`, retrait de `PENDING` ; mesures de §10.3 ; documentation. |
 | 4 | `ExternalCA` (cert-manager, Vault PKI), hors suite. |
 
