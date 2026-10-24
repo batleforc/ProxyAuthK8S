@@ -393,10 +393,17 @@ pub async fn redirect(
         }
     }
 
-    // RFC 0012: an `Agent` cluster has no address the proxy may dial. Until a
-    // tunnel serves it, it is refused here, never reached directly.
+    // RFC 0012: an `Agent` cluster has no address the proxy may dial, only a
+    // gateway pod holding its tunnel. Without one it is refused here, never
+    // reached directly; the lookup also warms the route reqwest picks.
     if matches!(proxy.spec.service, Service::Agent(_)) {
-        audited!(audit, agent_unavailable());
+        let routed = match proxy.metadata.uid.as_deref() {
+            Some(uid) => data.agent_gateway.route(&data, uid).await.is_ok(),
+            None => false,
+        };
+        if !routed {
+            audited!(audit, agent_unavailable());
+        }
     }
 
     // A `KubernetesService` without an explicit namespace lives next to the

@@ -259,6 +259,71 @@ impl State {
     }
 }
 
+impl State {
+    /// Mark `member` alive in the presence set `key` for `ttl_seconds`, and
+    /// drop the members that expired. One sorted set per key, scored by
+    /// expiry on Redis's own clock, so replicas with skewed clocks agree.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
+    #[instrument(skip(self))]
+    pub async fn presence_refresh(
+        &self,
+        key: &str,
+        member: &str,
+        ttl_seconds: u64,
+    ) -> Result<(), RedisPoolError> {
+        const REFRESH: &str = r"
+            local now = tonumber(redis.call('TIME')[1])
+            redis.call('ZADD', KEYS[1], now + tonumber(ARGV[2]), ARGV[1])
+            redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+            redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]) * 2)
+            return 1
+        ";
+        self.redis
+            .query::<i64>(
+                redis::cmd("EVAL")
+                    .arg(REFRESH)
+                    .arg(1)
+                    .arg(key)
+                    .arg(member)
+                    .arg(ttl_seconds),
+            )
+            .await
+            .map(|_| ())
+    }
+
+    /// Withdraw `member` from the presence set `key` at once.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
+    #[instrument(skip(self))]
+    pub async fn presence_remove(&self, key: &str, member: &str) -> Result<(), RedisPoolError> {
+        self.redis
+            .query::<i64>(redis::cmd("ZREM").arg(key).arg(member))
+            .await
+            .map(|_| ())
+    }
+
+    /// The members of the presence set `key` that have not expired.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails.
+    #[instrument(skip(self))]
+    pub async fn presence_members(&self, key: &str) -> Result<Vec<String>, RedisPoolError> {
+        const LIVE: &str = r"
+            local now = tonumber(redis.call('TIME')[1])
+            return redis.call('ZRANGEBYSCORE', KEYS[1], '(' .. now, '+inf')
+        ";
+        self.redis
+            .query(redis::cmd("EVAL").arg(LIVE).arg(1).arg(key))
+            .await
+    }
+}
+
 /// Key of the Set indexing every object cached under a prefix.
 fn index_key(prefix: &str) -> String {
     format!("{prefix}:index")

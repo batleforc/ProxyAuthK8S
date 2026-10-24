@@ -1005,6 +1005,7 @@ dependencies = [
  "base64 0.23.1",
  "crd",
  "deadpool-redis",
+ "http",
  "jwt_validator",
  "k8s-openapi",
  "kube",

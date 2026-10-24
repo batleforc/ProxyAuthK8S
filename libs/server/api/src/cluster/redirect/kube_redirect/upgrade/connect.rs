@@ -9,7 +9,9 @@ use axum::http::{self, HeaderMap, HeaderValue, Request};
 use bytes::Bytes;
 use common::State;
 use crd::ProxyKubeApi;
+use crd::service::Service;
 use http_body_util::Empty;
+use hyper_util::rt::TokioIo;
 use rustls::pki_types::ServerName;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -59,14 +61,27 @@ pub(super) async fn connect_upgrade_stream(
 ) -> Result<BoxedAsyncIo, String> {
     let (host, port) = upstream_host_port(upstream_url)?;
 
-    let tcp_stream =
-        tokio::time::timeout(UPGRADE_CONNECT_TIMEOUT, TcpStream::connect((host, port)))
+    let stream: BoxedAsyncIo = if matches!(proxy.spec.service, Service::Agent(_)) {
+        // RFC 0012: never a socket to `host`, only the gateway's tunnel.
+        Box::new(
+            tokio::time::timeout(
+                UPGRADE_CONNECT_TIMEOUT,
+                connect_through_gateway(proxy, state, host, port),
+            )
             .await
-            .map_err(|_| "upstream connect timed out".to_string())?
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| "agent gateway connect timed out".to_string())??,
+        )
+    } else {
+        Box::new(
+            tokio::time::timeout(UPGRADE_CONNECT_TIMEOUT, TcpStream::connect((host, port)))
+                .await
+                .map_err(|_| "upstream connect timed out".to_string())?
+                .map_err(|e| e.to_string())?,
+        )
+    };
 
     if upstream_url.scheme().eq_ignore_ascii_case("http") {
-        return Ok(Box::new(tcp_stream) as BoxedAsyncIo);
+        return Ok(stream);
     }
 
     let tls_config = cached_tls_config(proxy, state).await?;
@@ -74,13 +89,66 @@ pub(super) async fn connect_upgrade_stream(
     let connector = TlsConnector::from(tls_config);
     let tls_stream = tokio::time::timeout(
         UPGRADE_CONNECT_TIMEOUT,
-        connector.connect(server_name, tcp_stream),
+        connector.connect(server_name, stream),
     )
     .await
     .map_err(|_| "upstream TLS handshake timed out".to_string())?
     .map_err(|e| e.to_string())?;
 
     Ok(Box::new(tls_stream) as BoxedAsyncIo)
+}
+
+/// A byte stream to the apiserver of an `Agent` cluster: a `CONNECT`, sent
+/// by hyper, to the gateway pod holding its tunnel (RFC 0012, decision 25).
+async fn connect_through_gateway(
+    proxy: &ProxyKubeApi,
+    state: &State,
+    host: &str,
+    port: u16,
+) -> Result<TokioIo<hyper::upgrade::Upgraded>, String> {
+    let uid = proxy
+        .metadata
+        .uid
+        .as_deref()
+        .ok_or_else(|| "agent cluster without a uid".to_string())?;
+    let route = state
+        .agent_gateway
+        .route(state, uid)
+        .await
+        .map_err(|err| err.to_string())?;
+    let tcp = TcpStream::connect(route.address.as_str())
+        .await
+        .map_err(|err| {
+            // That pod may be gone: read the presences again next time.
+            state.agent_gateway.forget(uid);
+            format!("agent gateway unreachable: {err}")
+        })?;
+    let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tcp))
+        .await
+        .map_err(|err| err.to_string())?;
+    tokio::spawn(async move {
+        if let Err(err) = connection.with_upgrades().await {
+            tracing::debug!(error = %err, "agent gateway CONNECT connection ended");
+        }
+    });
+    let mut request = Request::builder()
+        .method(http::Method::CONNECT)
+        .uri(format!("{host}:{port}"))
+        .body(Empty::<Bytes>::new())
+        .map_err(|err| err.to_string())?;
+    request.headers_mut().extend(route.headers);
+    let response = sender
+        .send_request(request)
+        .await
+        .map_err(|err| err.to_string())?;
+    if response.status() != http::StatusCode::OK {
+        state.agent_gateway.forget(uid);
+        return Err(format!("agent gateway refused: {}", response.status()));
+    }
+    let upgraded = hyper::upgrade::on(response)
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(TokioIo::new(upgraded))
 }
 
 /// Whether a client header is left out of the forwarded handshake: the

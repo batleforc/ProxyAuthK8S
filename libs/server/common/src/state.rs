@@ -62,6 +62,8 @@ pub struct State {
     /// `/management/ready` shows them without failing on them (RFC 0011,
     /// decision 26).
     pub controller_health: Arc<Health>,
+    /// Where the `Agent` clusters' gateway pods are (RFC 0012, decision 26).
+    pub agent_gateway: Arc<crate::agent_gateway::GatewayClient>,
 }
 
 impl State {
@@ -100,6 +102,9 @@ impl State {
             oidc_ready: Arc::new(AtomicBool::new(false)),
             event_recorder: Arc::default(),
             controller_health: Arc::default(),
+            agent_gateway: Arc::new(crate::agent_gateway::GatewayClient::new(
+                &config.agent_gateway,
+            )),
         })
     }
 
@@ -165,6 +170,7 @@ impl State {
             oidc_ready: Arc::new(AtomicBool::new(true)),
             event_recorder: Arc::default(),
             controller_health: Arc::default(),
+            agent_gateway: Arc::new(crate::agent_gateway::GatewayClient::disabled()),
         }
     }
 }
