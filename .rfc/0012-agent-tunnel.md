@@ -1045,10 +1045,126 @@ les écarts sont notés ici.
 | 1b `libs/agent/proto` : adaptateur WebSocket, messages de contrôle, pilote yamux | fait | crate `agent_proto` ; `ws_io` (trames binaires de 16 Kio au plus, une trame texte échoue), `control` (7 messages, bornés à 64 Kio avant lecture), `mux` (un pilote, des poignées) ; 11 tests ; `task audit` vert avec `yamux` 0.14.1 et `tokio-tungstenite` 0.29.0 |
 | 1c-i PKI des agents | fait | crate `agent_pki` : `AgentIdentity`, `AgentCa` (P-256, 10 ans), certificat d'agent (24 h) depuis la seule clé publique du CSR, certificat serveur du tunnel (7 jours) ; 7 tests |
 | 1c-ii passerelle : réglages, registre, `CONNECT` | fait | `common::config::AgentGatewaySettings` (`PROXYAUTH_ROLE` `proxy`/`gateway`/`embedded`, ports, Service headless, jeton, bornes de la décision 27) ; `api::agent::registry` (tunnel le moins chargé, réservation d'un flux sous le verrou, `close_where`) ; `api::agent::connect` (hyper, `407`/`400`/`503`/`429`, jeton comparé en temps constant) ; 7 tests, dont T18 |
-| 1c-iii passerelle : CA, écoute des agents (WebSocket, mTLS interne), enrôlement, présences | à faire | |
-| 1c' proxy en `CONNECT` (décision 25) | à faire | |
+| 1c-iii passerelle : CA | fait | `api::agent::ca::load_or_create` ; envtest `envtest_agent_ca` (quatre pods en course : une seule CA, jamais remplacée) |
+| 1c-iv passerelle : écoute des agents (WebSocket, mTLS interne, contrôle), enrôlement, présences, rôle, chart | à faire | voir « Reprise », étapes 2 à 6 |
+| 1c' proxy en `CONNECT` (décision 25) | fait | `common::agent_gateway::GatewayClient` (présences en sorted set Redis à l'heure de Redis, nom de pod validé, `<pod>.<service>:<port>`, cache 5 s, 60 s si Redis tombe) ; `upstream.rs` : `Proxy::custom` + `Proxy::headers`, jamais `None` (une URL `.invalid` à la place, pour qu'aucun repli direct ne soit possible) ; `upgrade/connect.rs` : `CONNECT` envoyé par hyper ; tests de bout en bout `agent_tunnel` (requête et exec à travers passerelle et tunnel jusqu'à un apiserver TLS) et unitaires (T19) |
 | 1d `apps/agent`, image, chart | à faire | |
 | 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
+
+### Reprise (à lire en premier après un redémarrage)
+
+Tenu à jour à chaque étape ; c'est d'ici que l'on repart, pas de
+l'historique de la conversation.
+
+**Branche** `feat/rfc-0012-agent-tunnel`, rebasée sur `main` après la PR #293
+(`d8f7341`), non poussée, aucune PR ouverte. Commits signés (`git commit -s -S
+-F <fichier>`), le mainteneur a autorisé les commits sur cette branche ; les
+messages sont préparés dans `.git/rfc0011/commit-0012-*.txt` (hors suivi
+git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
+
+**Modules livrés** (où regarder) :
+
+| Chemin | Rôle |
+| --- | --- |
+| `libs/server/crd/src/service/agent.rs` | `AgentService`, `AgentBootstrap::ServiceAccountToken`, `JwksSource`, CEL, `validate()` |
+| `libs/server/crd_runtime/src/lib.rs` | `is_reachable` à `false`, `to_kubeconfig` refusé (`ReachedThroughAgent`) pour `Agent` |
+| `libs/agent/proto/src/{ws_io,control,mux}.rs` | WebSocket en flux d'octets, messages de contrôle bornés, pilote yamux (`mux::new`, `MuxHandle`, `Mode`, `Stream` réexportés) |
+| `libs/agent/pki/src/lib.rs` | `AgentIdentity` (`proxyauth://ns/nom/uid/epoch`), `AgentCa` (`generate`, `from_pem`, `issue_agent`, `issue_server`), `identity_of` |
+| `libs/server/common/src/config.rs` | `Role`, `AgentGatewaySettings` (`PROXYAUTH_ROLE`, `AGENT_GATEWAY_*`, `POD_NAMESPACE`) |
+| `libs/server/common/src/state/redis.rs` | `presence_refresh`, `presence_remove`, `presence_members` (sorted set, heure de Redis) |
+| `libs/server/common/src/agent_gateway.rs` | `GatewayClient` (sur `State.agent_gateway`), `presence_key`, `is_pod_name`, `PRESENCE_TTL`, `PRESENCE_REFRESH`, `AGENT_HEADER` |
+| `libs/server/api/src/agent/registry.rs` | `TunnelRegistry` (`register` → `TunnelGuard`, `open_stream`, `identities`, `close_where`) |
+| `libs/server/api/src/agent/connect.rs` | écoute `CONNECT` de la passerelle (`ConnectService`, `serve`) |
+| `libs/server/api/src/agent/ca.rs` | `load_or_create` du Secret de la CA (`create`, relecture sur `409`) |
+| `libs/server/api/src/cluster/redirect/kube_redirect/{upstream.rs,upgrade/connect.rs}` | le proxy en `CONNECT` (`agent_proxy`, `connect_through_gateway`) |
+| `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
+
+**État du dépôt au moment de l'arrêt** : voir `git status` ; si
+`upstream.rs`, `upgrade/connect.rs`, `agent_gateway.rs`, `agent/ca.rs` et les
+tests ci-dessus ne sont pas commités, l'étape 1 de la suite les commite.
+
+**Suite, dans l'ordre** (chaque étape : code, tests, §17 « État », commit) :
+
+1. Commiter le proxy en `CONNECT` (`.git/rfc0011/commit-0012-1c3.txt`) puis
+   la CA (`ca.rs`, `envtest_agent_ca.rs`) dans un second commit
+   `feat(api): create the agent CA Secret from the gateway (RFC 0012)`.
+2. **Écoute des agents** (`api/src/agent/listener.rs`) : axum avec la
+   feature `ws` (à ajouter à `axum` dans `libs/server/api/Cargo.toml`),
+   routes `POST /agent/v1/enroll` (corps ≤ 16 Kio) et `GET /agent/v1/connect`.
+   Pour `connect` : le `WebSocket` d'axum, ses `Message` convertis en ceux de
+   tungstenite (`map` / `with`), `WsIo`, `.compat()`, puis `TlsAcceptor`
+   (certificat serveur `AgentCa::issue_server`, `WebPkiClientVerifier` sur la
+   seule CA des agents), poignée de main sous `handshake_timeout` ;
+   `identity_of` sur le certificat du pair, comparé au `ProxyKubeApi` lu dans
+   Redis (`get_object_from_redis(REDIS_PREFIX, "ns/nom")` : UID égal, `epoch`
+   égal, service `Agent`) ; puis `mux::new(Mode::Client, streams_per_tunnel)`,
+   le premier flux entrant est le contrôle : envoyer `Hello { replica_id: pod,
+   replicas_expected: 1, protocol }`, lire `AgentInfo`, servir `Ping`/`Pong`
+   et `RenewRequest` (`issue_agent`, même identité, `epoch` revérifié) ;
+   fermer sur `TunnelGuard.closed`. Tout autre flux entrant est refermé (un
+   agent n'ouvre pas de flux de données). `registry.register` avec
+   `tunnels_per_identity`.
+3. **Enrôlement** (`api/src/agent/enroll.rs`) : corps
+   `{ cluster: "ns/nom", csr, proof: { service_account_token } }` ;
+   `ProxyKubeApi` depuis Redis ; JWKS selon la source : `jwks` en ligne
+   (`JwkSet`), `jwks_from` (`JwksSource::as_cert_source().get_cert`, cache
+   30 s), `jwks_url` (`jwt_validator::JwksCache` : ajouter une méthode qui
+   prend directement l'URI du JWKS, à côté de `key_for`, qui part du
+   document de découverte) ; clé par `kid` (règle de `select_key` : sans
+   `kid`, seulement si le jeu n'a qu'une clé — elle remplace le « chaque clé
+   essayée » du §5.2) ; `sub`, `aud`, `exp` ; limite par adresse réelle
+   (`api::helper::peer_ip`/`forwarded_for` avec `TRUSTED_PROXY_COUNT`) et
+   totale (`enroll_per_minute_total`) ; réponse `{ cert, ca }` ; `401` sans
+   détail, la raison dans l'audit.
+4. **Présences et révocation** (`api/src/agent/presence.rs`) : toutes les
+   `PRESENCE_REFRESH`, `presence_refresh(presence_key(uid), pod, 30)` pour
+   chaque `registry.identities()` ; relire chaque `ProxyKubeApi` et
+   `close_where` si absent, UID différent, `epoch` plus grand ou service qui
+   n'est plus `Agent` (T8) ; `presence_remove` à l'arrêt.
+5. **Rôle dans `apps/server/src/main.rs`** : `config.agent_gateway.role` ;
+   `gateway` : CA, écoute `port`, `CONNECT` sur `connect_port` (refuser de
+   démarrer sans `AGENT_GATEWAY_TOKEN`), présences ; `proxy` : comme
+   aujourd'hui ; `embedded` : les deux. Sonde de readiness de la passerelle.
+6. **Chart** (`deploy/chart/`) : valeurs `agentGateway` (§4.1), Deployment de
+   la passerelle (mode `separate`) ou ports en plus (mode `embedded`), Service
+   headless (son nom donne `AGENT_GATEWAY_SERVICE`), Secret du jeton
+   (fourni ou généré), NetworkPolicy : `connectPort` depuis les seuls pods du
+   proxy (T18), RBAC : la passerelle `create` sur les Secrets et `get` sur
+   `proxy-auth-k8s-agent-ca` (`resourceNames`), le proxy plus rien sur la CA
+   (T12).
+7. **CRD et contrôleur** : `spec.service.Agent.limits.streams_per_tunnel`
+   (borné par `max_streams_per_tunnel`, avertissement au-delà, décision 27) ;
+   `status.agent` et la condition `AgentConnected` agrégés depuis les
+   présences ; `is_reachable` d'un cluster `Agent` = au moins une présence.
+8. **`to_kube_client` par le `CONNECT`** (écart noté plus bas), pour
+   `validate_against: Kubernetes`.
+9. **Audit et métriques** (T14, §10.1) : `upstream_via`, `agent_enrolled`,
+   `agent_refused` (raisons), `agent_connected`, `agent_disconnected` au
+   schéma de la RFC 0008 (`api/src/cluster/redirect/audit.rs`) ; métriques
+   `proxyauth_agent_*`. Cibles de fuzz : messages de contrôle, corps
+   d'enrôlement (`fuzz/`).
+10. **L'agent** : `apps/agent` (dial WebSocket, `WsIo`, TLS client vers
+    `agent-tunnel.proxyauth.internal` avec la CA reçue à l'enrôlement, mux
+    `Mode::Server`, ouvre le flux de contrôle, chaque flux entrant relié à
+    `upstream`, renouvellement aux 2/3, reconnexion 1 à 60 s, jeton projeté),
+    `deploy/build/agent/Containerfile`, `deploy/chart-agent/`, ajout au
+    Containerfile du back et à la CI.
+11. Tests de sécurité restants (§14, T1 à T19) dans
+    `libs/server/api/tests/agent_tunnel.rs`, puis la phase 2.
+
+**Lancer les tests** :
+
+- Redis : `podman run -d --rm --name proxyauth-test-redis -p 16379:6379
+  docker.io/library/redis:7-alpine redis-server --save ''`, puis
+  `TEST_REDIS_URL=redis://127.0.0.1:16379 REQUIRE_TEST_REDIS=1`.
+- envtest : `KUBEBUILDER_ASSETS=$(dirname $(find
+  ~/.local/share/kubebuilder-envtest -name kube-apiserver -type f | head -1))`
+  et `--features envtest`, `-j 1` pour un fichier lourd.
+- Cibler : `cargo nextest run -p api --test agent_tunnel`, `-p agent_proto`,
+  `-p agent_pki`, `-p common agent_gateway`.
+- Une suite large peut rester bloquée sur le verrou du répertoire de build
+  pendant que l'éditeur lance ses `cargo check` : lancer les tests en
+  arrière-plan, et cibler.
 
 ### Écarts
 
@@ -1087,6 +1203,15 @@ les écarts sont notés ici.
   `poll_next_inbound` est sondé ; un seul futur possède la connexion, sert les
   ouvertures des poignées (`MuxHandle`, clonables) et range les flux entrants
   dans un canal borné (64), au-delà duquel ils sont refermés.
+- **Le proxy ne réessaie pas un autre pod dans la même requête** (§4.2 dit
+  « il en essaie un autre ») : un pod qui refuse ou ne répond pas fait
+  oublier les présences du cluster (`GatewayClient::forget`), la requête
+  échoue en `503`, et la suivante relit Redis. Un réessai demanderait de
+  rejouer un corps déjà en partie envoyé.
+- **`validate_against: Kubernetes` reste fermé pour un cluster en `Agent`** :
+  `to_kube_client` construit un client kube depuis un kubeconfig, qui ne sait
+  pas porter les en-têtes du `CONNECT`. À reprendre (un client kube sur un
+  connecteur `CONNECT`) avant la fin de la phase 1.
 - **La cible du `CONNECT` est ignorée** : la ligne `CONNECT <server_name>:443`
   ne choisit rien, l'agent ne connaît que son `upstream` (invariant de §5.1) ;
   le cluster est désigné par `X-Proxyauth-Agent` seul, et un flux est ouvert
