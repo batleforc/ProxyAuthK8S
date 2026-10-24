@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Implemented, phase 1 (2026-10-24, PR) : `ServiceAccountToken`, `tlsMode: inner`, sortie directe ; phases 2 à 4 à faire (§16) ; écarts au §17 |
+| Status      | Implemented, phase 1 (2026-10-24, PR #294) : `ServiceAccountToken`, `tlsMode: inner`, sortie directe ; phases 2 à 4 à faire (§16) ; écarts au §17 |
 | Short       | Mode agent (tunnel sortant)                                            |
 | Settles     | Atteindre un cluster dont l'apiserver n'accepte aucune connexion entrante |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
