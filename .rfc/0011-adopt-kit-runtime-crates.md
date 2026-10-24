@@ -2,14 +2,14 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Accepted (grills du 2026-10-19 et du 2026-10-23 ; phases 4 à 6 grillées le 2026-10-23) : phases 0 à 3 et 2b codées, phases 4 à 6 à faire, toutes dans la 0.4.0 |
+| Status      | Implemented (2026-10-24, PR #292) : phases 0 à 6 et 2b ; écarts au §17, révision au §18 |
 | Short       | Crates `weebo-kit-*` : statut, Events, codes de raison                 |
 | Settles     | Ce que ProxyAuthK8S prend des crates Rust du kit, et comment il résout le conflit de version de `k8s-openapi` |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
 | Co-author   | Claude Opus 5.5 (1M context)                                           |
 | Created     | 2026-10-19                                                             |
 | Supersedes  | —                                                                      |
-| Touches     | `Cargo.toml` (workspace), `apps/crdgen/Cargo.toml`, `libs/server/common/src/state.rs` (`event_recorder`, `controller_health`), `libs/server/api/src/base.rs` (`/management/ready`), `swagger.json` et clients régénérés, `libs/server/controller/` (`Cargo.toml`, `error.rs`, `proxy_kube_api/{mod,reconcile,cleanup}.rs`, `reason.rs` nouveau), `libs/server/crd/src/{lib.rs,status/mod.rs}`, `deploy/crds.yaml` et `deploy/chart-crd/` (régénérés), `deploy/chart/templates/rbac.operator.yaml`, `deny.toml`, `.github/workflows/{back-envtest,back-clippy}.yaml`, `.tasks/envtest.yaml`, `libs/server/api/tests/envtest_reconcile.rs`, `tests/integration/`, `.it/matrix.py`, `docs/content/docs/` ; côté kit, par une RFC du kit remise à sa session : les `Cargo.toml` des crates `weebo-kit-*` |
+| Touches     | `Cargo.toml` (workspace), `apps/crdgen/Cargo.toml`, `libs/server/common/src/state.rs` (`event_recorder`, `controller_health`), `libs/server/api/src/base.rs` (`/management/ready`), `swagger.json` et clients régénérés, `libs/server/controller/` (`Cargo.toml`, `error.rs`, `proxy_kube_api/{mod,reconcile,cleanup}.rs`, `reason.rs` nouveau), `libs/server/crd/src/{lib.rs,status/mod.rs}`, `deploy/crds.yaml` et `deploy/chart-crd/` (régénérés), `deploy/chart/templates/rbac.operator.yaml`, `deny.toml`, `.github/workflows/{back-envtest,back-clippy}.yaml` et `perf.yml` (nouveau), `apps/server/src/main.rs` (arrêt du contrôleur), `libs/server/{api,crd,common}/` (lints, phase 6), `tests/perf/` (nouveau), `.tasks/perf.yaml` (nouveau), `Cargo.toml` racine et `clippy.toml` (`[workspace.lints]`), `.tasks/envtest.yaml`, `libs/server/api/tests/envtest_reconcile.rs`, `tests/integration/`, `.it/matrix.py`, `docs/content/docs/` ; côté kit, par une RFC du kit remise à sa session : les `Cargo.toml` des crates `weebo-kit-*` |
 | Risk        | medium (§7 : une permission RBAC nouvelle, une source git nouvelle dans le graphe Cargo) |
 
 > Document de référence (environ 5 000 mots) : §1 à §4 suffisent pour en
@@ -1281,3 +1281,75 @@ avec l'ordre des commits dans `COMMITS.md` du même dossier.
   série du compteur Redis) de `tests/reconcile.rs` et `envtest_reconcile.rs`,
   `reset_redis`/`cleanup_keys` (clés `requeue_retry:*`), et les trois tests
   de l'error policy de `proxy_kube_api/mod.rs` (`requeue(5s)`).
+
+---
+
+## 18. Revision against the tree (2026-10-24)
+
+Les phases 0 à 6 et 2b sont livrées par la PR #292 (commit `0c0e9ec`) ; la
+phase 0 l'était déjà dans le kit (v0.19.1). Le détail par phase et chaque
+écart sont au §17 ; cette section en garde ce qui change la lecture des §1 à
+§16.
+
+### Ce qui diffère du texte
+
+- **§7.6** : « le lease reste celui de `kube-leader-election` » ne tient plus
+  depuis la phase 4 : le lease est tenu par le `LeaseLock` du kit (T7), et
+  `kube-leader-election` est retiré du graphe.
+- **§6.P point 5** : l'Event de disparition d'un avis ne forme pas un Event à
+  part, il monte le `series.count` de celui de l'apparition (`Recorder` de
+  kube 4.2) ; le point vérifie la condition, `status.warnings` et
+  `series.count` ≥ 2. Correction remise au kit.
+- **§6.P point 7** : le banc tourne à une réplica ; « jamais l'autre
+  réplica » est prouvé par l'envtest `a_follower_does_not_touch_the_resource`.
+- **Arrêt** (trouvé par le point 13) : le contrôleur tourne dans sa propre
+  tâche et `main` l'attend 5 s (`CONTROLLER_STOP_TIMEOUT`) pour qu'il fasse
+  son `step_down` ; sans cela, la relève attendait le TTL (13,8 s mesurées).
+- **Phase 5** : `tests/perf` ne dépend d'aucune crate du dépôt (`envtest` 0.3
+  force `v1_36`, le workspace est en `v1_34`) ; workflow `perf` en pnpm,
+  calqué sur celui du kit.
+- **Phase 6** : des paniques deviennent des refus ou des erreurs dans les
+  décodeurs de `api`, dans `crd` et dans `common` ; aucun test n'a changé
+  d'attendu (point 17).
+- **`publish = false`** sur `crd`, `controller` et `common`, à cause de la
+  dépendance git du kit (cargo-deny, `bans`).
+
+### Ce que la preuve a observé
+
+`task it:test` (2026-10-23, banc recréé) : Rust 63/63, `rfc0011_leader` 2/2,
+Playwright 3/3 ; envtest 61/61 ; workspace 836/836 ; `task lint` vert, aucun
+`#[allow(` hors `client_api`. Points hors suite : 9 et 16 par `back-clippy`,
+10 par `task audit` (sources ok), 14 par l'envtest, 15 par le workflow `perf`,
+dont le premier passage en CI reste à lancer (local : croissance du RSS de
+10,8 % pour un budget de 10 %, rapport seul, décision 38).
+
+### §7, ligne par ligne
+
+| # | Preuve |
+| --- | --- |
+| T1 | point 10 : `cargo deny check sources` vert, `allow-git` limité au dépôt du kit |
+| T2 | `envtest_reconcile::an_unresolved_oidc_config_never_shows_the_client_secret` (ajouté au landing : le test promis au §14 manquait) : un Secret `config_from` qui porte un `client_secret` canari mais pas d'`issuer_url` ; le canari n'apparaît ni dans `status.error`, ni dans la condition `Ready`, ni dans les notes d'Events |
+| T3 | `rfc0011::t3_the_events_grant_is_create_and_patch_only`, sur le ClusterRole déployé |
+| T4 | `rfc0011::p6_a_healthy_reconcile_writes_nothing` |
+| T5 | `rfc0011::p7_only_the_leader_reports`, `envtest_reconcile::a_follower_does_not_touch_the_resource` |
+| T6 | `controller/tests/reconcile.rs::cleanup_fails_closed_when_redis_is_unreachable` |
+| T7 | `rfc0011_leader::p12_…`, `envtest_leader_election::a_frozen_leader_steps_down_before_its_lease_can_be_taken` |
+| T8 | pas de test (fenêtre du seul rolling upgrade, accepté, décision 27) ; `p13_…` prouve la relève sans attendre le TTL |
+
+### §8, ce qui a été livré
+
+| Dépendance | Version livrée |
+| --- | --- |
+| `weebo-kit-api`, `-application`, `-domain`, `-runtime` | 0.24.0, tag `v0.24.0`, commit `2dbed2d` |
+| `weebo-kit-perf`, `weebo-kit-testkit` (`tests/perf` seul) | 0.24.0, idem |
+| `envtest` (`tests/perf` seul) | 0.3.0 |
+| `k8s-openapi` | 0.28.0 (`v1_34`) |
+| `kube` | 4.2.0 |
+| `opentelemetry-http` | 0.33.1 |
+| `kube-leader-election` | retiré |
+
+`task audit` du 2026-10-24 : vert, après un `fix(deps)` séparé pour deux
+avis parus entre-temps, sans lien avec cette RFC : RUSTSEC-2026-0387
+(`crypto-bigint` 0.5.5, sous `openidconnect` 4.0.1, correctif hors
+d'atteinte) ignoré dans `deny.toml` avec sa raison et la ligne de
+`security.mdx` ; `fast-uri` 3.1.8 → 3.1.9 (sous `spectral-cli`).
