@@ -343,6 +343,9 @@ async fn agent_listener() -> (
     let registry = api::agent::registry::TunnelRegistry::new();
     let mut settings = common::config::Config::from_lookup(|_| None).agent_gateway;
     settings.handshake_timeout = std::time::Duration::from_secs(2);
+    // Every test enrols from the same address, in one shared Redis.
+    settings.enroll_per_minute = 10_000;
+    settings.enroll_per_minute_total = 10_000;
     let gateway = api::agent::listener::Gateway::new(
         state,
         std::sync::Arc::clone(&registry),
@@ -436,6 +439,15 @@ fn agent_cert(
 
 /// An `Agent` cluster seeded in Redis at `epoch`, and the identity naming it.
 async fn seeded_agent_cluster(pool: &deadpool_redis::Pool, epoch: u64) -> agent_pki::AgentIdentity {
+    seeded_cluster_with_jwks(pool, epoch, None).await
+}
+
+/// [`seeded_agent_cluster`], its JWKS inline when `jwks` is given.
+async fn seeded_cluster_with_jwks(
+    pool: &deadpool_redis::Pool,
+    epoch: u64,
+    jwks: Option<String>,
+) -> agent_pki::AgentIdentity {
     let (ns, cluster) = unique_cluster();
     let uid = format!(
         "{:08x}-0000-4000-8000-{:012x}",
@@ -446,6 +458,11 @@ async fn seeded_agent_cluster(pool: &deadpool_redis::Pool, epoch: u64) -> agent_
     proxy.spec.service = agent_service();
     if let Service::Agent(agent) = &mut proxy.spec.service {
         agent.epoch = epoch;
+        if jwks.is_some() {
+            let AgentBootstrap::ServiceAccountToken(bootstrap) = &mut agent.bootstrap;
+            bootstrap.jwks = jwks;
+            bootstrap.jwks_url = None;
+        }
     }
     proxy.metadata.uid = Some(uid.clone());
     seed_proxy(pool, &proxy).await;
@@ -544,4 +561,142 @@ async fn a_revoked_or_foreign_certificate_opens_no_tunnel() {
 
     assert!(registry.identities().is_empty());
     delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
+/// The remote cluster's ServiceAccount issuer: an ES256 key, `kid` `k1`.
+struct Issuer {
+    key: jsonwebtoken::EncodingKey,
+    jwks: String,
+}
+
+impl Issuer {
+    fn new() -> Self {
+        let pem = rcgen::KeyPair::generate().unwrap().serialize_pem();
+        let key = jsonwebtoken::EncodingKey::from_ec_pem(pem.as_bytes()).unwrap();
+        let mut jwk =
+            jsonwebtoken::jwk::Jwk::from_encoding_key(&key, jsonwebtoken::Algorithm::ES256)
+                .unwrap();
+        jwk.common.key_id = Some("k1".to_string());
+        let jwks = serde_json::to_string(&jsonwebtoken::jwk::JwkSet { keys: vec![jwk] }).unwrap();
+        Self { key, jwks }
+    }
+
+    fn token(&self, sub: &str, aud: &str, exp_in: i64) -> String {
+        let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::ES256);
+        header.kid = Some("k1".to_string());
+        let now = i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        )
+        .unwrap();
+        let claims =
+            serde_json::json!({ "sub": sub, "aud": aud, "exp": now.saturating_add(exp_in) });
+        jsonwebtoken::encode(&header, &claims, &self.key).unwrap()
+    }
+}
+
+async fn enroll(
+    addr: std::net::SocketAddr,
+    cluster: &str,
+    csr: &str,
+    token: &str,
+) -> (u16, serde_json::Value) {
+    let response = reqwest::Client::new()
+        .post(format!("http://{addr}/agent/v1/enroll"))
+        .json(&serde_json::json!({
+            "cluster": cluster,
+            "csr": csr,
+            "proof": { "service_account_token": token },
+        }))
+        .send()
+        .await
+        .unwrap();
+    let status = response.status().as_u16();
+    (status, response.json().await.unwrap_or_default())
+}
+
+const SUBJECT: &str = "system:serviceaccount:proxyauth-agent:proxyauth-agent";
+
+/// §5.2: a valid projected token gets a certificate for the CR's identity,
+/// and the CA that anchors the tunnel TLS.
+#[tokio::test]
+async fn a_valid_service_account_token_enrols_the_agent() {
+    use rustls::pki_types::pem::PemObject as _;
+
+    let pool = redis_or_skip!();
+    let (addr, _registry, ca) = agent_listener().await;
+    let issuer = Issuer::new();
+    let identity = seeded_cluster_with_jwks(&pool, 3, Some(issuer.jwks.clone())).await;
+    let csr = rcgen::CertificateParams::default()
+        .serialize_request(&rcgen::KeyPair::generate().unwrap())
+        .unwrap()
+        .pem()
+        .unwrap();
+
+    let token = issuer.token(SUBJECT, DEFAULT_AUDIENCE, 600);
+    let (status, body) = enroll(addr, &identity.cluster(), &csr, &token).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["ca"], ca.cert_pem());
+    let cert = rustls::pki_types::CertificateDer::from_pem_slice(
+        body["cert"].as_str().unwrap().as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(agent_pki::identity_of(&cert).unwrap().identity, identity);
+
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
+/// T9, §5.2: a token for another subject or audience, expired, signed by
+/// another key, or for a cluster that is not `Agent`, gets a bare 401.
+#[tokio::test]
+async fn a_bad_proof_is_refused_without_detail() {
+    let pool = redis_or_skip!();
+    let (addr, _registry, _ca) = agent_listener().await;
+    let issuer = Issuer::new();
+    let identity = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
+    let csr = rcgen::CertificateParams::default()
+        .serialize_request(&rcgen::KeyPair::generate().unwrap())
+        .unwrap()
+        .pem()
+        .unwrap();
+    let (other_ns, other) = unique_cluster();
+    seed_proxy(
+        &pool,
+        &proxy_fixture(&other_ns, &other, "https://other.example.com"),
+    )
+    .await;
+
+    for (cluster, token) in [
+        (
+            identity.cluster(),
+            issuer.token("system:serviceaccount:x:y", DEFAULT_AUDIENCE, 600),
+        ),
+        (identity.cluster(), issuer.token(SUBJECT, "kubernetes", 600)),
+        (
+            identity.cluster(),
+            issuer.token(SUBJECT, DEFAULT_AUDIENCE, -600),
+        ),
+        (
+            identity.cluster(),
+            Issuer::new().token(SUBJECT, DEFAULT_AUDIENCE, 600),
+        ),
+        (identity.cluster(), "not-a-jwt".to_string()),
+        (
+            format!("{other_ns}/{other}"),
+            issuer.token(SUBJECT, DEFAULT_AUDIENCE, 600),
+        ),
+        (
+            "default/missing".to_string(),
+            issuer.token(SUBJECT, DEFAULT_AUDIENCE, 600),
+        ),
+    ] {
+        let (status, body) = enroll(addr, &cluster, &csr, &token).await;
+        assert_eq!(status, 401, "{cluster}: {body}");
+        assert_eq!(body, serde_json::Value::Null);
+    }
+
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+    delete_proxy(&pool, &other_ns, &other).await;
 }

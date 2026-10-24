@@ -12,4 +12,4 @@ pub mod validator;
 pub use cel_rules::MappedUser;
 pub use error::JwtValidationError;
 pub use jwks::JwksCache;
-pub use validator::{JwtValidator, SharedJwtValidator};
+pub use validator::{JwtValidator, SharedJwtValidator, verify_with_key};

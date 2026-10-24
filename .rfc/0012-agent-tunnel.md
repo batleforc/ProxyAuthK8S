@@ -1047,7 +1047,8 @@ les écarts sont notés ici.
 | 1c-ii passerelle : réglages, registre, `CONNECT` | fait | `common::config::AgentGatewaySettings` (`PROXYAUTH_ROLE` `proxy`/`gateway`/`embedded`, ports, Service headless, jeton, bornes de la décision 27) ; `api::agent::registry` (tunnel le moins chargé, réservation d'un flux sous le verrou, `close_where`) ; `api::agent::connect` (hyper, `407`/`400`/`503`/`429`, jeton comparé en temps constant) ; 7 tests, dont T18 |
 | 1c-iii passerelle : CA | fait | `api::agent::ca::load_or_create` ; envtest `envtest_agent_ca` (quatre pods en course : une seule CA, jamais remplacée) |
 | 1c-iv passerelle : écoute des agents (WebSocket, mTLS interne, contrôle) | fait | `api::agent::listener` (`Gateway`, `router`, `still_valid`) : axum `ws` (messages bornés à 16 Kio), `WsIo`, TLS mutuel sous la seule CA des agents (certificat serveur réémis chaque jour), identité du certificat comparée au `ProxyKubeApi` de Redis (UID, `epoch`, service `Agent`), contrôle `AgentInfo` puis `Hello`, `Ping`/`Pong`, `RenewRequest` (`epoch` revérifié), 90 s de silence ferment le tunnel ; tests `agent_tunnel` 5/5 (tunnel ouvert, flux, renouvellement ; `epoch` passé et CA étrangère refusés) |
-| 1c-v passerelle : enrôlement, présences, rôle, chart | à faire | voir « Reprise », étapes 3 à 6 |
+| 1c-v passerelle : enrôlement `ServiceAccountToken` | fait | `api::agent::enroll` sur le `router` de l'écoute : corps ≤ 16 Kio, limites par adresse (`TRUSTED_PROXY_COUNT`) et totale à la minute (Redis, fermé sans Redis), `ProxyKubeApi` de Redis, JWKS en ligne / `jwks_from` / `jwks_url` (`JwksCache::key_at`), clé par `kid` (`select_key`), `jwt_validator::verify_with_key` (algorithme de la clé, asymétrique seulement, `exp`, `nbf`, `aud`), `sub` ; certificat pour l'identité du CR, jamais celle de la requête ; `401` nu ; tests `agent_tunnel` 7/7 (enrôlement valide ; sujet, audience, expiration, autre clé, jeton illisible, cluster non `Agent` ou absent refusés) |
+| 1c-vi passerelle : présences, rôle, chart | à faire | voir « Reprise », étapes 4 à 6 |
 | 1c' proxy en `CONNECT` (décision 25) | fait | `common::agent_gateway::GatewayClient` (présences en sorted set Redis à l'heure de Redis, nom de pod validé, `<pod>.<service>:<port>`, cache 5 s, 60 s si Redis tombe) ; `upstream.rs` : `Proxy::custom` + `Proxy::headers`, jamais `None` (une URL `.invalid` à la place, pour qu'aucun repli direct ne soit possible) ; `upgrade/connect.rs` : `CONNECT` envoyé par hyper ; tests de bout en bout `agent_tunnel` (requête et exec à travers passerelle et tunnel jusqu'à un apiserver TLS) et unitaires (T19) |
 | 1d `apps/agent`, image, chart | à faire | |
 | 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
@@ -1082,7 +1083,7 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 | `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
 
 **État du dépôt au moment de l'arrêt** : voir `git status` ; les étapes 1 et
-2 sont commitées (`d5fe653`, `3ad574c`, puis l'écoute des agents).
+3 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, puis l'enrôlement).
 
 **Suite, dans l'ordre** (chaque étape : code, tests, §17 « État », commit) :
 
@@ -1090,18 +1091,10 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 2. ~~**Écoute des agents** (`api/src/agent/listener.rs`).~~ Fait ; reste à la
    brancher dans `main.rs` (étape 5). La route `enroll` s'ajoute au même
    `router`.
-3. **Enrôlement** (`api/src/agent/enroll.rs`) : corps
-   `{ cluster: "ns/nom", csr, proof: { service_account_token } }` ;
-   `ProxyKubeApi` depuis Redis ; JWKS selon la source : `jwks` en ligne
-   (`JwkSet`), `jwks_from` (`JwksSource::as_cert_source().get_cert`, cache
-   30 s), `jwks_url` (`jwt_validator::JwksCache` : ajouter une méthode qui
-   prend directement l'URI du JWKS, à côté de `key_for`, qui part du
-   document de découverte) ; clé par `kid` (règle de `select_key` : sans
-   `kid`, seulement si le jeu n'a qu'une clé — elle remplace le « chaque clé
-   essayée » du §5.2) ; `sub`, `aud`, `exp` ; limite par adresse réelle
-   (`api::helper::peer_ip`/`forwarded_for` avec `TRUSTED_PROXY_COUNT`) et
-   totale (`enroll_per_minute_total`) ; réponse `{ cert, ca }` ; `401` sans
-   détail, la raison dans l'audit.
+3. ~~**Enrôlement** (`api/src/agent/enroll.rs`).~~ Fait. Pas de cache de
+   30 s pour `jwks_from` (`shortcut:` dans le code : borné par
+   `enroll_per_minute_total`) ; pas de test de la limite de débit (la clé
+   Redis est partagée entre les tests).
 4. **Présences et révocation** (`api/src/agent/presence.rs`) : toutes les
    `PRESENCE_REFRESH`, `presence_refresh(presence_key(uid), pod, 30)` pour
    chaque `registry.identities()` ; relire chaque `ProxyKubeApi` et

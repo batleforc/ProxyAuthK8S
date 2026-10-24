@@ -50,6 +50,9 @@ pub struct Gateway {
     /// This pod's name: the `replica_id` of `Hello`.
     pub pod: String,
     tls: Mutex<Option<(Instant, Arc<ServerConfig>)>>,
+    /// The `jwks_url` keys of enrolment proofs.
+    pub(super) jwks: jwt_validator::JwksCache,
+    pub(super) http: reqwest::Client,
 }
 
 impl Gateway {
@@ -68,6 +71,8 @@ impl Gateway {
             settings,
             pod,
             tls: Mutex::new(None),
+            jwks: jwt_validator::JwksCache::new(),
+            http: reqwest::Client::new(),
         })
     }
 
@@ -299,9 +304,14 @@ async fn connect(
         .on_upgrade(move |socket| gateway.serve(socket))
 }
 
-/// The routes of the agents' listener (`agentGateway.port`).
+/// The routes of the agents' listener (`agentGateway.port`). Behind an
+/// ingress, `TRUSTED_PROXY_COUNT` names the enrolling client's address.
 pub fn router(gateway: Arc<Gateway>) -> Router {
     Router::new()
         .route("/agent/v1/connect", get(connect))
+        .route(
+            "/agent/v1/enroll",
+            axum::routing::post(super::enroll::enroll),
+        )
         .with_state(gateway)
 }
