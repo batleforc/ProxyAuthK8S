@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review                                                              |
+| Status      | Accepted (2026-10-24), pour la 0.4.0 avec la 0011, avant la 0010      |
 | Short       | Mode agent (tunnel sortant)                                            |
 | Settles     | Atteindre un cluster dont l'apiserver n'accepte aucune connexion entrante |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -888,12 +888,13 @@ Tranchées au `/grill-me` du 2026-10-23.
 | 15 | Privilèges de l'agent | **Aucun RBAC**, pas de jeton monté par défaut, non-root, lecture seule, NetworkPolicy de sortie ; destination réglée dans ses values. |
 | 16 | HA de l'agent | **2 replicas et une PDB** ; le tunnel le moins chargé ; un flux coupé est retenté par le client. |
 | 17 | Statut et observabilité | **Présences dans Redis agrégées par le leader** en `AgentConnected` et `status.agent` ; métriques sans label de cluster ; `upstream_via` dans l'audit. |
-| 18 | Release | **0.5.0, avant la v1.0.0**, après la 0.4.0 : elle dépend de la 0011 (conditions), pas de la 0010. Le mainteneur en a besoin plus tôt que la v2.0.0 de la roadmap ; la recommandation (après la v1.0.0) a été écartée. |
+| 18 | Release | ~~**0.5.0, avant la v1.0.0**, après la 0.4.0~~ **0.4.0, avec la 0011** (révisée le 2026-10-24 par [PLAN.md](PLAN.md) : la 0012 passe avant la 0010, qui prend la 0.5.0) ; avant la v1.0.0 : elle dépend de la 0011 (conditions), pas de la 0010. Le mainteneur en a besoin plus tôt que la v2.0.0 de la roadmap ; la recommandation (après la v1.0.0) a été écartée. |
 | 19 | Preuve sans deuxième cluster | **Un seul cluster k3d**, l'agent dans `it-remote` ; preuves par l'audit, l'agent coupé et l'`epoch`. |
 | 20 | Sortie par proxy | **`CONNECT` et SOCKS5**, tous deux dans la suite ; Netbird documenté hors suite avec `caBundle`. La recommandation (sans SOCKS5) a été écartée : le mainteneur a les deux. |
 | 21 | Où l'agent garde son certificat en `OneShotToken` | **Dans un Secret du cluster distant, en lecture-écriture** pour l'agent (`get`, `update`, `patch`, `resourceNames`), créé par le chart et partagé par les replicas ; en mémoire seulement en `ServiceAccountToken`, qui reste sans RBAC. Sans lui, chaque redémarrage et chaque replica consommerait un jeton. Tranchée après la rédaction, le 2026-10-23. |
 | 22 | Le client upstream des clusters en `Agent` | **`hyper-util`** (`client::legacy::Client` et un connecteur yamux + `tokio-rustls`), pas reqwest : `Conn` est scellé, `connector_layer` ne peut pas l'imiter. Deux POC le prouvent (2026-10-23, §6.6) : en mémoire (pool, flux brut, mauvais `server_name` refusé, jamais le jeton en clair chez l'agent), puis contre k3s 1.35.9 (HTTP/2, certificat client, exec, port-forward, watch, logs, mTLS de l'agent). |
 | 23 | Version de `tokio-tungstenite` | **0.29.0**, celle de la feature `ws` d'axum 0.8.9. |
+| 24 | JWKS d'un émetteur interne, rotation, GitOps | **Une troisième source, `jwks_from`** (ConfigMap ou Secret, cache 30 s), à côté de `jwks` et `jwks_url` ; clé choisie par `kid`, URL relue sur `kid` inconnu ; CronJob `jwksPublisher` optionnel dans le chart de l'agent, sous son propre ServiceAccount, pour la chaîne External Secrets + Vault. Rejeté : le JWKS fourni par l'agent lui-même (il s'auto-attesterait, contraire au principe de T4). T17 ajouté. Tranchée le 2026-10-24, après l'acceptation : un émetteur interne (kubeadm, k3s, le cas de ce mode) n'avait que `jwks` en ligne, cassé par la moindre rotation. |
 
 ### Still open
 

@@ -47,8 +47,8 @@ flowchart LR
     B4 -. "G6" .-> K["RFC crates weebo-kit-*"]
     B5 --> R020(["tag 0.2.0"])
     C2 --> R020
-    R020 --> R040(["tag 0.4.0 : 0011 puis 0010"])
-    R040 --> R050(["tag 0.5.0 : 0012 (mode agent)"])
+    R020 --> R040(["tag 0.4.0 : 0011 et 0012 (mode agent)"])
+    R040 --> R050(["tag 0.5.0 : 0010 (échange de jeton)"])
     R050 --> V1(["v1.0.0 : bascules de défauts"])
 ```
 
@@ -69,7 +69,7 @@ mergée.
 | 7 | **0002** (phases 1-6) | A | 4 | refonte UI, CSP | §6.P de la 0002 | fait |
 | 9 | **0005 phase 1** | C | 1, 2, 3 (G1, G2) | includes `rust.yaml`/`repo.yaml`, `deny.toml`, outils dans `mise.toml`, workflows sur `task rust:*` | `task lint`, `task audit`, `coverage:ci` verts | fait |
 | 0 | **0009** (phases 1-4) | — | 6, 7, 9 | banc k3d + Dex + chart, `tests/integration`, `e2e-it`, `MATRIX.md`, `it:matrix`, workflow requis | lignes de 0001, 0002, 0003, 0005, 0006 et 0007 phase 1 vertes ou hors suite justifiées | fait ; check `integration` requis sur `main` depuis le 2026-10-19 (0009 §17) |
-| 10 | **0007 phases 2-6** | B | 0, 6 | migration axum, une PR, un commit par phase | contrat identique, diff `swagger.json` vide, lignes 0007 vertes sur le banc | fait (0007 §17 : un écart, le `414` ; point 9 mesuré) ; reste la recette de 7 jours |
+| 10 | **0007 phases 2-6** | B | 0, 6 | migration axum, une PR, un commit par phase | contrat identique, diff `swagger.json` vide, lignes 0007 vertes sur le banc | fait (0007 §17 : un écart, le `414` ; point 9 mesuré) ; la recette de 7 jours attend la première instance, déployée après la 0012 (étape 19), et n'aura pas de déploiement antérieur auquel se comparer |
 | 12b | **0008** (phases 1-3) | B | 0, 5 | schéma d'audit v1, couche audit insensible à `RUST_LOG`, évènements d'authentification et OAuth, `client_banned`, `upstream_reason` | lignes 0008 points 1 à 7 vertes ; peut avancer en parallèle de l'étape 10 | fait (phases 1 à 3, 0008 §17) ; le flux OAuth médié du point 3 attend un client réel |
 | 12c | **0008** (phase 4) | B | 10, 12b | `session_closed` sur le tunnel hyper | ligne 0008 point 8 verte | fait (0008 §17, phase 4) |
 | 12 | **0004** (phases 1-3) | B | 10, 12c | politique `exec`, `restricts_exec`, `ExecChannelFilter`, audit de session, `mask_exec_secrets`, cibles fuzz | lignes 0004 points 1 à 13 vertes | fait (0004 §17) |
@@ -77,10 +77,11 @@ mergée.
 | 8 | **tag 0.2.0** | — | 11, 12 | — | `integration.yaml` vert sur le commit tagué, aucune ligne de matrice `à écrire` hors des RFC de `PENDING` (`.it/matrix.py` : la 0010 et la 0011, prévues pour la 0.4.0) | fait : v0.2.0, puis v0.2.1 (RUSTSEC-2026-0382/0383) |
 | 13 | **0011** (RFC crates `weebo-kit-*`) | C | 10 (G6), 11 | kit sans feature `k8s-openapi` dans ses bibliothèques, crates par git, conditions, Events, codes de raison, métriques de reconcile | §6.P de la 0011 | fait (0011 §17 et §18, PR #292) |
 | 13b | **`fix(deps)`** crdgen | C | — | `weebo-kit-api` de crdgen dans `[workspace.dependencies]`, là où `kit:sync` réécrit le tag (0011, décision 19) | `Cargo.lock` inchangé, `kit:cog` lit `v0.24.0` dans `Cargo.toml` | fait, avec l'étape 13 |
-| 15 | **0010** (échange de jeton) | B | 13 | phases 1 à 4 de la 0010 | §6.P de la 0010 | acceptée ; pour la 0.4.0, après la 0011 |
-| 16 | **tag 0.4.0** | — | 13, 15 | — | `integration.yaml` vert, la 0010 et la 0011 retirées de `PENDING` | à faire |
-| 17 | **0012** (mode agent) | B | 13, 16 | phases 1 à 4 de la 0012 | §6.P de la 0012 (phase 4 hors suite) | In review (grill du 2026-10-23, décisions 1 à 23 ; POC §6.6) |
-| 18 | **tag 0.5.0** | — | 17 | — | `integration.yaml` vert, la 0012 retirée de `PENDING` | à faire |
+| 17 | **0012** (mode agent) | B | 13 | phases 1 à 4 de la 0012 | §6.P de la 0012 (phase 4 hors suite) | Accepted le 2026-10-24 (grill du 2026-10-23, décisions 1 à 23 ; POC §6.6) ; passe avant la 0010, dans la 0.4.0 |
+| 16 | **tag 0.4.0** | — | 13, 17 | — | `integration.yaml` vert, la 0011 (fait) et la 0012 retirées de `PENDING` | à faire : la 0011 et la 0012 ; la 0010 passe en 0.5.0 (2026-10-24) |
+| 19 | **Première instance et recette de la 0007** | — | 16 | déploiement de la 0.4.0, en mode agent là où l'apiserver n'est pas exposé | 7 jours selon la 0007 §13 ; sans déploiement antérieur, le critère « sans hausse » est à reformuler en seuils absolus avant de commencer | à faire |
+| 15 | **0010** (échange de jeton) | B | 17 | relecture face au mode `Agent` (la 0010 ne touche ni `upstream.rs` ni `agent/`), puis phases 1 à 4 | §6.P de la 0010 | Accepted ; après la 0012, pour la 0.5.0 |
+| 18 | **tag 0.5.0** | — | 15 | — | `integration.yaml` vert, la 0010 retirée de `PENDING` | à faire |
 | 14 | **v1.0.0** | — | 18 | bascules de défauts (§ « v1.0.0 ») | — | à faire |
 
 Les numéros d'étape sont gardés pour les renvois des RFC ; la table suit
@@ -114,6 +115,11 @@ refontes, à la place d'une release intermédiaire.
 - **0004 en dernier** : elle s'écrit sur le tunnel hyper de la 0007, dépend des
   verbes de la 0006 et du `session_closed` de la 0008 ; sans eux, sa politique
   se contourne.
+- **0012 avant 0010** (2026-10-24) : aucune dépendance entre elles (0012,
+  décision 18) ; la 0012 réécrit la connexion upstream (`hyper-util` pour le
+  mode `Agent`, `upgrade/connect.rs`), la 0010 ne change que le jeton qui y
+  passe, donc elle s'écrit mieux par-dessus. La première instance du
+  mainteneur attend le mode agent : la 0.4.0 réunit la 0011 et la 0012.
 - **0005 coupée en deux** : ses Taskfiles (phase 1) n'ont besoin que de pnpm et
   de la 0003 ; le déplacement de la doc attend la dernière RFC qui l'écrit
   (G3).
@@ -124,8 +130,8 @@ refontes, à la place d'une release intermédiaire.
 | --- | --- | --- |
 | 0.2.0 | 0001 à 0009 | `feat!:` : règles sans `allowed_ports` ou sans `verbs` restreintes sous restriction, `nodes/proxy` refusé, politique `exec`, schéma d'audit v1 ; serveur sur axum ; nouvelle UI |
 | 0.3.0 | — | partie sans la 0010 ni la 0011 : CRD IDE (kit v0.24.0), scan trivy des images |
-| 0.4.0 | 0011, puis 0010 | conditions, Events, codes de raison et rythme de reconcile du kit (0011) ; échange de jetons (0010) |
-| 0.5.0 | 0012 | mode agent : tunnel sortant depuis le cluster distant, nouvelle image et nouveau chart |
+| 0.4.0 | 0011, 0012 | `feat!:` : conditions, Events, codes de raison et rythme de reconcile du kit, élection de leader du kit (retour arrière : supprimer le lease) (0011) ; mode agent : tunnel sortant depuis le cluster distant, nouvelle image et nouveau chart (0012) |
+| 0.5.0 | 0010 | échange de jetons : une connexion SSO au proxy pour tous les clusters |
 | 1.0.0 | bascules | voir ci-dessous |
 
 ## v1.0.0 : bascules de défauts

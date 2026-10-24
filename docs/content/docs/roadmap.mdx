@@ -37,9 +37,9 @@ import { Callout } from 'fumadocs-ui/components/callout';
       Sécurité         : Scan trivy des images
     section v0.4.0 🚧
       Contrôleur       : Conditions, Events, codes de raison (RFC 0011) ✅
-      Exchange Token   : Une connexion au proxy pour tous les clusters (RFC 0010)
-    section v0.5.0 🚧
       Proxy & Agent    : Mode agent, tunnel sortant (RFC 0012)
+    section v0.5.0 🚧
+      Exchange Token   : Une connexion au proxy pour tous les clusters (RFC 0010)
     section v1.0.0 🚧
       Production       : Redis cluster HA ✅, bloc sécurité ✅
                        : Bascules de défauts, tests front
@@ -220,11 +220,12 @@ de la refonte UI). Voir la RFC 0001.
 
 ---
 
-## v0.4.0 — Contrôleur et échange de jeton {"\uD83D\uDEA7"}
+## v0.4.0 — Contrôleur et mode agent {"\uD83D\uDEA7"}
 
 <Callout>
-  La 0.3.0 (CRD IDE, scan trivy des images) est partie sans ces deux RFC ;
-  l'ordre est dans le
+  La 0.3.0 (CRD IDE, scan trivy des images) est partie sans la RFC 0011. Le
+  mode agent (RFC 0012, Accepted) est avancé de la v2.0.0 et sort avec elle ;
+  l'échange de jeton (RFC 0010) passe en 0.5.0. L'ordre est dans le
   [plan de livraison des RFC](https://github.com/batleforc/ProxyAuthK8S/blob/main/.rfc/PLAN.md).
 </Callout>
 
@@ -240,9 +241,12 @@ de la refonte UI). Voir la RFC 0001.
 </Step>
 
 <Step>
-### Échange de jeton (RFC 0010)
+### Mode Agent (RFC 0012)
 
-- ⏳ Une connexion SSO au proxy, échangée contre un jeton par cluster (fédération d'IdP)
+- ⏳ Un agent installé sur le cluster distant ouvre un tunnel sortant (WebSocket + yamux) vers ProxyAuthK8S : l'apiserver n'a plus à être exposé
+- ⏳ TLS de bout en bout entre le proxy et l'apiserver : l'agent ne voit que des octets chiffrés et n'a aucun RBAC
+- ⏳ Enrôlement GitOps (jeton de ServiceAccount, jeton à usage unique via External Secrets + Vault, puis CA externe)
+- ⏳ Sortie de l'agent par un proxy `CONNECT`, SOCKS5 ou un overlay Netbird
 
 </Step>
 
@@ -250,22 +254,19 @@ de la refonte UI). Voir la RFC 0001.
 
 ---
 
-## v0.5.0 — Mode agent {"\uD83D\uDEA7"}
+## v0.5.0 — Échange de jeton {"\uD83D\uDEA7"}
 
 <Callout>
-  RFC 0012 (`.rfc/0012-agent-tunnel.md`, In review) : avancée de la v2.0.0 à la
-  0.5.0, avant la v1.0.0.
+  RFC 0010 (`.rfc/0010-token-exchange.md`, Accepted) : relue face au mode
+  agent avant d'être codée.
 </Callout>
 
 <Steps>
 
 <Step>
-### Mode Agent (RFC 0012)
+### Échange de jeton (RFC 0010)
 
-- ⏳ Un agent installé sur le cluster distant ouvre un tunnel sortant (WebSocket + yamux) vers ProxyAuthK8S : l'apiserver n'a plus à être exposé
-- ⏳ TLS de bout en bout entre le proxy et l'apiserver : l'agent ne voit que des octets chiffrés et n'a aucun RBAC
-- ⏳ Enrôlement GitOps (jeton de ServiceAccount, jeton à usage unique via External Secrets + Vault, puis CA externe)
-- ⏳ Sortie de l'agent par un proxy `CONNECT`, SOCKS5 ou un overlay Netbird
+- ⏳ Une connexion SSO au proxy, échangée contre un jeton par cluster (fédération d'IdP)
 
 </Step>
 
