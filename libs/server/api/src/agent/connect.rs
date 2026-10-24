@@ -24,6 +24,7 @@ use tokio_util::compat::FuturesAsyncReadCompatExt;
 use tracing::{debug, warn};
 
 use super::registry::{OpenError, TunnelRegistry};
+use crate::metrics::{record_agent_bytes, record_agent_stream};
 
 /// Names the cluster, by the UID of its `ProxyKubeApi`.
 pub const AGENT_HEADER: &str = "x-proxyauth-agent";
@@ -82,20 +83,26 @@ impl ConnectService {
         };
         let stream = match self.registry.open_stream(&uid).await {
             Ok(stream) => stream,
-            Err(OpenError::Limited) => return status(StatusCode::TOO_MANY_REQUESTS),
+            Err(OpenError::Limited) => {
+                record_agent_stream("limited");
+                return status(StatusCode::TOO_MANY_REQUESTS);
+            }
             Err(err) => {
+                record_agent_stream("unavailable");
                 debug!(%uid, error = %err, "CONNECT refused: no usable tunnel");
                 return status(StatusCode::SERVICE_UNAVAILABLE);
             }
         };
+        record_agent_stream("opened");
         let on_upgrade = hyper::upgrade::on(&mut req);
         tokio::spawn(async move {
             match on_upgrade.await {
                 Ok(upgraded) => {
                     let mut client = TokioIo::new(upgraded);
                     let mut agent = stream.compat();
-                    if let Err(err) = tokio::io::copy_bidirectional(&mut client, &mut agent).await {
-                        debug!(error = %err, "CONNECT relay ended");
+                    match tokio::io::copy_bidirectional(&mut client, &mut agent).await {
+                        Ok((to_agent, from_agent)) => record_agent_bytes(to_agent, from_agent),
+                        Err(err) => debug!(error = %err, "CONNECT relay ended"),
                     }
                 }
                 Err(err) => debug!(error = %err, "CONNECT upgrade failed"),

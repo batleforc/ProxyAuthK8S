@@ -2826,10 +2826,13 @@ dependencies = [
 name = "proxyauthk8s-fuzz"
 version = "0.0.0"
 dependencies = [
+ "agent_pki",
+ "agent_proto",
  "api",
  "arbitrary",
  "crd",
  "libfuzzer-sys",
+ "rustls-pki-types",
 ]
 
 [[package]]

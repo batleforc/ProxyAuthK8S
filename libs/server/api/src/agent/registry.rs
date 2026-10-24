@@ -82,6 +82,7 @@ impl TunnelGuard {
 
 impl Drop for TunnelGuard {
     fn drop(&mut self) {
+        crate::metrics::record_agent_tunnel(-1);
         let mut tunnels = self
             .registry
             .tunnels
@@ -128,6 +129,7 @@ impl TunnelRegistry {
             close,
             info: None,
         });
+        crate::metrics::record_agent_tunnel(1);
         Ok(TunnelGuard {
             registry: Arc::clone(self),
             uid,

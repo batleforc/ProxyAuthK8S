@@ -7,6 +7,7 @@
 //! read as identity. The first stream the agent opens is the control channel
 //! (`AgentInfo` from the agent, then `Hello`); the agent opens no other.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -29,7 +30,11 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::{ServerConfig, WebPkiClientVerifier};
 use tokio_rustls::TlsAcceptor;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
+
+use crate::cluster::redirect::audit::{AuditEvent, Event, Outcome};
+use crate::cluster::redirect::forwarded::throttle_client_ip;
+use crate::helper::{forwarded_for, peer_ip};
 
 use super::registry::TunnelRegistry;
 
@@ -88,7 +93,20 @@ impl Gateway {
         Ok(config)
     }
 
-    async fn serve(self: Arc<Self>, socket: WebSocket) {
+    async fn serve(self: Arc<Self>, socket: WebSocket, client: String) {
+        let refused = |identity: Option<&AgentIdentity>, reason: Reason| {
+            warn!(%client, cluster = identity.map(AgentIdentity::cluster), reason, "agent tunnel refused");
+            let line = AuditEvent::new(Event::AgentRefused, Outcome::Denied)
+                .client_ip(&client)
+                .reason(reason);
+            match identity {
+                Some(identity) => line
+                    .cluster(&identity.namespace, &identity.name)
+                    .agent(identity.epoch, None),
+                None => line,
+            }
+            .emit();
+        };
         let socket = socket
             .map(|message| message.map(to_tungstenite))
             .with(|message| future::ready(Ok::<_, axum::Error>(from_tungstenite(message))));
@@ -99,8 +117,11 @@ impl Gateway {
         let handshake = TlsAcceptor::from(tls).accept(WsIo::new(socket).compat());
         let tls = match tokio::time::timeout(self.settings.handshake_timeout, handshake).await {
             Ok(Ok(tls)) => tls,
-            Ok(Err(err)) => return warn!(error = %err, "agent tunnel refused: TLS"),
-            Err(_) => return warn!("agent tunnel refused: TLS handshake timed out"),
+            Ok(Err(err)) => {
+                debug!(error = %err, "agent tunnel TLS failed");
+                return refused(None, "tls");
+            }
+            Err(_) => return refused(None, "tls timeout"),
         };
         let identity = match tls
             .get_ref()
@@ -110,13 +131,11 @@ impl Gateway {
             .map(|cert| identity_of(cert))
         {
             Some(Ok(peer)) => peer.identity,
-            _ => return warn!("agent tunnel refused: no agent identity"),
+            _ => return refused(None, "identity"),
         };
         let agent = match still_valid(&self.state, &identity).await {
             Ok(agent) => agent,
-            Err(reason) => {
-                return warn!(cluster = %identity.cluster(), reason, "agent tunnel refused");
-            }
+            Err(reason) => return refused(Some(&identity), reason),
         };
         // Decision 27: the CR may raise its bound, never past the gateway's.
         let (streams, capped) = agent.streams_per_tunnel(
@@ -129,6 +148,7 @@ impl Gateway {
 
         let (handle, mut inbound, driver) =
             mux::new(TokioAsyncReadCompatExt::compat(tls), Mode::Client, streams);
+        let connected = AtomicBool::new(false);
         let session = async {
             let mut control = tokio::time::timeout(self.settings.handshake_timeout, inbound.recv())
                 .await
@@ -136,7 +156,13 @@ impl Gateway {
                 .flatten()
                 .ok_or("no control stream")?;
             let ended = self
-                .session(&identity, &mut control, (handle, streams), &mut inbound)
+                .session(
+                    &identity,
+                    &mut control,
+                    (handle, streams),
+                    &mut inbound,
+                    (&client, &connected),
+                )
                 .await;
             if let Err(reason) = ended {
                 // Best effort: the agent learns why before the tunnel drops.
@@ -162,10 +188,17 @@ impl Gateway {
             // The `Close` frame is only queued: drive it out, or let the agent hang up.
             drop(tokio::time::timeout(Duration::from_secs(1), driver).await);
         }
-        match ended {
-            Ok(()) => info!(cluster = %identity.cluster(), "agent tunnel closed by the agent"),
-            Err(reason) => info!(cluster = %identity.cluster(), reason, "agent tunnel closed"),
+        let reason = ended.err().unwrap_or("agent");
+        if !connected.load(Ordering::Acquire) {
+            return refused(Some(&identity), reason);
         }
+        info!(cluster = %identity.cluster(), reason, "agent tunnel closed");
+        AuditEvent::new(Event::AgentDisconnected, Outcome::Allowed)
+            .client_ip(&client)
+            .cluster(&identity.namespace, &identity.name)
+            .agent(identity.epoch, None)
+            .reason(reason)
+            .emit();
     }
 
     async fn session(
@@ -174,6 +207,7 @@ impl Gateway {
         control: &mut mux::Stream,
         (handle, streams): (agent_proto::mux::MuxHandle, usize),
         inbound: &mut tokio::sync::mpsc::Receiver<mux::Stream>,
+        (client, connected): (&str, &AtomicBool),
     ) -> Result<(), Reason> {
         // yamux announces a stream with its first frame: the agent speaks first.
         let info =
@@ -207,6 +241,12 @@ impl Gateway {
             .map_err(|_| "too many tunnels")?;
         guard.describe(version, ca_fingerprint);
         info!(cluster = %identity.cluster(), %version, streams, "agent tunnel open");
+        connected.store(true, Ordering::Release);
+        AuditEvent::new(Event::AgentConnected, Outcome::Allowed)
+            .client_ip(client)
+            .cluster(&identity.namespace, &identity.name)
+            .agent(identity.epoch, Some(version))
+            .emit();
         let mut closed = guard.closed.clone();
         tokio::select! {
             ended = self.control_loop(identity, control) => ended,
@@ -325,13 +365,15 @@ fn from_tungstenite(message: Message) -> ws::Message {
 
 async fn connect(
     axum::extract::State(gateway): axum::extract::State<Arc<Gateway>>,
+    parts: axum::http::request::Parts,
     upgrade: WebSocketUpgrade,
 ) -> Response {
+    let client = throttle_client_ip(forwarded_for(&parts.headers), peer_ip(&parts));
     // `WsIo` writes frames of `MAX_FRAME` at most: the agent sends no larger.
     upgrade
         .max_message_size(MAX_FRAME)
         .max_frame_size(MAX_FRAME)
-        .on_upgrade(move |socket| gateway.serve(socket))
+        .on_upgrade(move |socket| gateway.serve(socket, client))
 }
 
 /// Ready while Redis answers: no tunnel can be checked, nor enrolment counted,

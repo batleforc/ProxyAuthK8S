@@ -23,20 +23,45 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use super::listener::{Gateway, Reason};
+use crate::cluster::redirect::audit::{AuditEvent, Event, Outcome};
 use crate::cluster::redirect::forwarded::throttle_client_ip;
 use crate::helper::{forwarded_for, peer_ip};
+use crate::metrics::record_agent_enrollment;
 
 /// Bound on an enrolment body: a CSR and a token.
 pub const MAX_ENROLL_BYTES: usize = 16 * 1024;
 const WINDOW_SECONDS: i64 = 60;
 
 #[derive(Deserialize)]
-struct EnrollRequest {
+pub struct EnrollRequest {
     /// `<namespace>/<name>` of the `ProxyKubeApi`.
-    cluster: String,
+    pub cluster: String,
     /// PEM.
-    csr: String,
+    pub csr: String,
     proof: Proof,
+}
+
+/// The enrolment body, `None` when it is not one (public for the
+/// `fuzz_agent_enroll` target).
+#[must_use]
+pub fn parse_body(body: &[u8]) -> Option<EnrollRequest> {
+    serde_json::from_slice(body).ok()
+}
+
+const METHOD: &str = "service_account_token";
+
+/// The `agent_refused` line and count of a refused enrolment.
+fn refused(client: &str, cluster: Option<&str>, reason: Reason) {
+    warn!(%client, cluster, reason, "agent enrolment refused");
+    record_agent_enrollment(METHOD, "refused");
+    let line = AuditEvent::new(Event::AgentRefused, Outcome::Denied)
+        .client_ip(client)
+        .reason(reason);
+    match cluster.and_then(|cluster| cluster.split_once('/')) {
+        Some((ns, name)) => line.cluster(ns, name),
+        None => line,
+    }
+    .emit();
 }
 
 #[derive(Deserialize)]
@@ -56,13 +81,15 @@ pub(super) async fn enroll(State(gateway): State<Arc<Gateway>>, request: Request
     let (parts, body) = request.into_parts();
     let client = throttle_client_ip(forwarded_for(&parts.headers), peer_ip(&parts));
     if let Err(reason) = gateway.within_limits(&client).await {
-        warn!(%client, reason, "agent enrolment refused");
+        refused(&client, None, reason);
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
     let Ok(body) = axum::body::to_bytes(body, MAX_ENROLL_BYTES).await else {
+        refused(&client, None, "body too large");
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     };
-    let Ok(request) = serde_json::from_slice::<EnrollRequest>(&body) else {
+    let Some(request) = parse_body(&body) else {
+        refused(&client, None, "body");
         return StatusCode::BAD_REQUEST.into_response();
     };
     let issued = async {
@@ -76,6 +103,12 @@ pub(super) async fn enroll(State(gateway): State<Arc<Gateway>>, request: Request
     match issued.await {
         Ok((identity, cert)) => {
             info!(cluster = %identity.cluster(), epoch = identity.epoch, %client, "agent enrolled");
+            record_agent_enrollment(METHOD, "enrolled");
+            AuditEvent::new(Event::AgentEnrolled, Outcome::Allowed)
+                .client_ip(&client)
+                .cluster(&identity.namespace, &identity.name)
+                .agent(identity.epoch, None)
+                .emit();
             Json(EnrollResponse {
                 cert,
                 ca: gateway.ca.cert_pem().to_string(),
@@ -83,7 +116,7 @@ pub(super) async fn enroll(State(gateway): State<Arc<Gateway>>, request: Request
             .into_response()
         }
         Err(reason) => {
-            warn!(cluster = %request.cluster, %client, reason, "agent enrolment refused");
+            refused(&client, Some(&request.cluster), reason);
             StatusCode::UNAUTHORIZED.into_response()
         }
     }

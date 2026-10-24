@@ -773,6 +773,8 @@ plutôt que de passer sans trace.
 | `oauth_token_issued`, `oauth_token_denied` | `/oauth/token` : jetons remis ou refusés |
 | `client_banned` | un client est banni après trop d'échecs (`failures`, `ban_seconds`, `0` : permanent) |
 | `session_closed` | fin d'un tunnel (exec, attach, port-forward, proxy) : `duration_ms`, `bytes_in` (du client), `bytes_out` (vers le client), `close_reason` (`client`, `upstream`, `filter`, `error`) |
+| `agent_enrolled`, `agent_refused` | passerelle d'agents (RFC 0012) : un agent reçoit son certificat, ou un enrôlement ou un tunnel est refusé (`reason`) |
+| `agent_connected`, `agent_disconnected` | passerelle d'agents : un tunnel s'ouvre, ou se ferme (`reason`) ; `agent_epoch` et `agent_version` |
 
 Champs communs à chaque ligne :
 
@@ -787,7 +789,8 @@ Champs communs à chaque ligne :
 | `ns`, `cluster` | le cluster concerné |
 
 `request` et `policy_decision` ajoutent `http_method`, `k8s_verb` (le verbe Kubernetes, calculé
-comme l'apiserver), `path` (sans la query string), `status` et `latency_ms`. Pour une API
+comme l'apiserver), `path` (sans la query string), `status`, `latency_ms` et `upstream_via`
+(`direct`, ou `agent` pour un cluster joint par son tunnel). Pour une API
 virtuelle, `upstream_path` et `upstream_k8s_verb` décrivent la requête réécrite. Quand
 l'apiserver refuse un upgrade (exec, attach, port-forward), `upstream_reason` reprend le
 `message` de son `Status` (256 caractères au plus).

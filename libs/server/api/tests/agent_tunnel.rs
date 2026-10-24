@@ -902,3 +902,101 @@ async fn a_self_subject_review_crosses_the_gateway_and_the_tunnel() {
 
     delete_proxy(&pool, &ns, &cluster).await;
 }
+
+/// T14: every enrolment and every tunnel leaves an audit line, refusals with
+/// their reason, and a relayed request says it went through the agent.
+#[tokio::test]
+async fn enrollment_and_tunnels_write_audit_events() {
+    use api::cluster::redirect::audit::capture;
+
+    let pool = redis_or_skip!();
+    capture::start();
+    let (addr, gateway) = agent_gateway().await;
+    let issuer = Issuer::new();
+    let identity = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
+    let key = rcgen::KeyPair::generate().unwrap();
+    let csr = rcgen::CertificateParams::default()
+        .serialize_request(&key)
+        .unwrap()
+        .pem()
+        .unwrap();
+    let token = issuer.token(SUBJECT, DEFAULT_AUDIENCE, 600);
+    let (status, _) = enroll(addr, &identity.cluster(), &csr, &token).await;
+    assert_eq!(status, 200);
+    let bad = issuer.token("system:serviceaccount:x:y", DEFAULT_AUDIENCE, 600);
+    let (status, _) = enroll(addr, &identity.cluster(), &csr, &bad).await;
+    assert_eq!(status, 401);
+
+    let (cert, agent_key) = agent_cert(&gateway.ca, &identity);
+    let (_control, _inbound, _) = dial_agent(addr, gateway.ca.cert_pem(), &cert, &agent_key)
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while gateway.registry.identities().is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+    api::agent::presence::refresh(&gateway).await;
+
+    let lines = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let lines = capture::lines();
+            if lines
+                .iter()
+                .any(|line| line["event"] == "agent_disconnected")
+            {
+                return lines;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the tunnel should close with an audit line");
+    let of = |event: &str| -> Vec<&serde_json::Value> {
+        lines.iter().filter(|line| line["event"] == event).collect()
+    };
+    let enrolled = of("agent_enrolled");
+    assert_eq!(enrolled.len(), 1, "{lines:?}");
+    assert_eq!(enrolled[0]["cluster"], identity.name.as_str());
+    assert_eq!(enrolled[0]["agent_epoch"], 0);
+    let refused = of("agent_refused");
+    assert_eq!(refused.len(), 1, "{lines:?}");
+    assert_eq!(refused[0]["reason"], "subject");
+    assert_eq!(refused[0]["outcome"], "denied");
+    let connected = of("agent_connected");
+    assert_eq!(connected.len(), 1, "{lines:?}");
+    assert_eq!(connected[0]["agent_version"], "test");
+    assert_eq!(of("agent_disconnected")[0]["reason"], "revoked");
+    // No line carries the proof.
+    assert!(lines.iter().all(|line| !line.to_string().contains(&token)));
+}
+
+/// T14: a request relayed through the gateway says so in its audit line.
+#[tokio::test]
+async fn a_relayed_request_is_audited_as_upstream_via_agent() {
+    use api::cluster::redirect::audit::capture;
+
+    let pool = redis_or_skip!();
+    capture::start();
+    let (state, ns, cluster, _tunnel) = agent_cluster(&pool).await;
+    let app = test::init_service(harness::app(state)).await;
+    let request = test::TestRequest::get()
+        .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
+        .insert_header(("authorization", "Bearer user-token"))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, request).await.status(),
+        StatusCode::OK
+    );
+    let lines = capture::lines();
+    let request = lines
+        .iter()
+        .find(|line| line["event"] == "request" && line["cluster"] == cluster.as_str())
+        .unwrap_or_else(|| panic!("a request line: {lines:?}"));
+    assert_eq!(request["upstream_via"], "agent");
+
+    delete_proxy(&pool, &ns, &cluster).await;
+}

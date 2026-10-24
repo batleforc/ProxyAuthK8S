@@ -1054,6 +1054,7 @@ les écarts sont notés ici.
 | 1c' proxy en `CONNECT` (décision 25) | fait | `common::agent_gateway::GatewayClient` (présences en sorted set Redis à l'heure de Redis, nom de pod validé, `<pod>.<service>:<port>`, cache 5 s, 60 s si Redis tombe) ; `upstream.rs` : `Proxy::custom` + `Proxy::headers`, jamais `None` (une URL `.invalid` à la place, pour qu'aucun repli direct ne soit possible) ; `upgrade/connect.rs` : `CONNECT` envoyé par hyper ; tests de bout en bout `agent_tunnel` (requête et exec à travers passerelle et tunnel jusqu'à un apiserver TLS) et unitaires (T19) |
 | 1e' CRD et contrôleur : limites, `status.agent`, joignabilité | fait | `AgentService.limits.streams_per_tunnel` (≥ 1 à l'admission ; `streams_per_tunnel(default, max)` le borne, la passerelle l'applique au mux et au registre) ; chaque pod de la passerelle publie à côté de sa présence un enregistrement (`presence_info_key` : tunnels, versions, empreintes de CA annoncées par `AgentInfo`) ; `State::agent_presences` ; `is_reachable` d'un cluster `Agent` = au moins une présence ; le contrôleur : `Ready` faux en `AgentNoTunnel`, `status.agent { tunnels, gateways, versions, caFingerprints }`, avis `AgentLimitCapped`, reconcile au plus toutes les 60 s ; CRD régénérée ; tests `controller` (évaluation), `agent_tunnel`, envtest `envtest_agent_crd` 8/8 |
 | 1e'' `validate_against: Kubernetes` par la passerelle | fait | `kube_redirect::self_subject_review_through_agent` : le `SelfSubjectReview` part sur le client reqwest du cluster sans identité front-proxy (`ca_only_client`), donc par le `CONNECT` ; `UserAuthError::AgentSelfSubjectReview` (401/403 de l'apiserver = faute de l'appelant pour fail2login, tunnel absent = non) ; `to_kubeconfig` reste refusé ; test `agent_tunnel` 11/11 |
+| 1e-iii audit, métriques, fuzz | fait | `Event::{AgentEnrolled, AgentRefused, AgentConnected, AgentDisconnected}` (raison, `agent_epoch`, `agent_version`, `client_ip`), `upstream_via` (`direct` / `agent`) sur chaque ligne d'une requête relayée ; `proxyauth_agent_tunnels`, `proxyauth_agent_streams_total{result}`, `proxyauth_agent_enrollments_total{method,result}`, `proxyauth_agent_bytes_total{direction}` (`to_agent`, `from_agent`) ; cibles `fuzz_agent_control` et `fuzz_agent_enroll` (30 s chacune sans plantage) ; tests T14 `agent_tunnel` 13/13 ; `security.mdx` |
 | 1d `apps/agent`, image, chart | à faire | |
 | 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
 
@@ -1090,7 +1091,7 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 | `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
 
 **État du dépôt au moment de l'arrêt** : voir `git status` ; les étapes 1 et
-8 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, `91161b0`, `184eb11`, `8b34416`, `ca0edb9`, `6df11fe`, puis `validate_against`).
+9 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, `91161b0`, `184eb11`, `8b34416`, `ca0edb9`, `6df11fe`, `3286539`, puis l'audit).
 
 **Suite, dans l'ordre** (chaque étape : code, tests, §17 « État », commit) :
 
@@ -1114,11 +1115,10 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 8. ~~**`to_kube_client` par le `CONNECT`**.~~ Fait autrement : pas de
    client kube (kube ne sait pas poser les en-têtes du `CONNECT`), le seul
    appel qu'en fait `auth_against_kubernetes` passe par reqwest.
-9. **Audit et métriques** (T14, §10.1) : `upstream_via`, `agent_enrolled`,
-   `agent_refused` (raisons), `agent_connected`, `agent_disconnected` au
-   schéma de la RFC 0008 (`api/src/cluster/redirect/audit.rs`) ; métriques
-   `proxyauth_agent_*`. Cibles de fuzz : messages de contrôle, corps
-   d'enrôlement (`fuzz/`).
+9. ~~**Audit et métriques**.~~ Fait. Les raisons d'`agent_refused` sont
+   celles du code (`subject`, `token`, `jwks`, `unknown key`, `epoch`,
+   `uid`, `identity`, `tls`, `rate limit`…) : `token` regroupe audience,
+   signature et expiration, que `jwt_validator` ne distingue pas.
 10. **L'agent** : `apps/agent` (dial WebSocket, `WsIo`, TLS client vers
     `agent-tunnel.proxyauth.internal` avec la CA reçue à l'enrôlement, mux
     `Mode::Server`, ouvre le flux de contrôle, chaque flux entrant relié à
@@ -1179,9 +1179,10 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
   (`api/src/model/user.rs`, `validate_against: Kubernetes`), auraient joint
   `https://kubernetes.default.svc`, c'est-à-dire le cluster du proxy. Ils sont
   fermés dès l'étape 1a : la sonde rend `false`, `to_kubeconfig` une erreur, le
-  relais un `503`. En 1c, la sonde et `to_kube_client` passent par le tunnel ;
-  d'ici là, `validate_against: Kubernetes` échoue fermé pour un cluster en
-  `Agent`.
+  relais un `503`. Depuis l'étape 7, la sonde lit les présences ; depuis
+  l'étape 8, `validate_against: Kubernetes` envoie son `SelfSubjectReview`
+  par reqwest et le `CONNECT` (pas de `kube::Client` : kube ne pose pas les
+  en-têtes du `CONNECT`). `to_kubeconfig` reste refusé.
 - **L'`epoch` est dans l'URI SAN**, pas dans une extension privée :
   `proxyauth://<ns>/<nom>/<uid>/<epoch>`. Une extension demande un OID que le
   projet ne possède pas, et rcgen borne chaque composant d'OID à un `u64`, ce

@@ -18,6 +18,9 @@ libfuzzer-sys = "0.4.13"
 arbitrary = { version = "1.5.0", features = ["derive"] }
 api = { path = "../libs/server/api", default-features = false }
 crd = { path = "../libs/server/crd" }
+agent_proto = { path = "../libs/agent/proto" }
+agent_pki = { path = "../libs/agent/pki" }
+rustls-pki-types = "1"
 
 [[bin]]
 name = "fuzz_port_target"
@@ -43,6 +46,20 @@ bench = false
 [[bin]]
 name = "fuzz_exec_channels"
 path = "fuzz_targets/fuzz_exec_channels.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_agent_control"
+path = "fuzz_targets/fuzz_agent_control.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_agent_enroll"
+path = "fuzz_targets/fuzz_agent_enroll.rs"
 test = false
 doc = false
 bench = false
