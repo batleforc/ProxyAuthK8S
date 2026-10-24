@@ -1,6 +1,6 @@
 # Matrice §6.P → tests
 
-Une ligne par point numéroté d'un §6.P des RFC 0001 à 0010 (RFC 0009 §6.5).
+Une ligne par point numéroté d'un §6.P des RFC (RFC 0009 §6.5).
 `task it:matrix` (et donc `task lint`) échoue si un point manque, si une ligne
 `suite` cite un test absent, si une ligne `hors suite` n'a ni renvoi ni
 raison, ou si une `quarantaine` n'a pas d'issue.
@@ -130,3 +130,15 @@ Statuts :
 | 0011 | 15    | hors suite  | workflow `perf` (`task perf`, `tests/perf/tests/perf.rs::proxyauthk8s_costs_within_its_budget`) |
 | 0011 | 16    | hors suite  | job `back-clippy` (`task lint`, `[workspace.lints]` adopté par toutes les crates sauf `client_api`) |
 | 0011 | 17    | hors suite  | CI : `back-cargo-test`, `back-envtest`, `integration` (aucun test modifié dans son attendu) |
+| 0012 | 1     | à écrire    | `rfc0012::p1_…` |
+| 0012 | 2     | à écrire    | `rfc0012::p2_…` |
+| 0012 | 3     | à écrire    | `rfc0012::p3_…` |
+| 0012 | 4     | à écrire    | `rfc0012::p4_…` |
+| 0012 | 5     | à écrire    | `rfc0012::p5_…` |
+| 0012 | 6     | à écrire    | `rfc0012::p6_…` |
+| 0012 | 7     | à écrire    | `rfc0012::p7_…` |
+| 0012 | 8     | à écrire    | `rfc0012::p8_…` |
+| 0012 | 9     | à écrire    | `rfc0012::p9_…` |
+| 0012 | 10    | à écrire    | `rfc0012::p10_…` |
+| 0012 | 11    | à écrire    | `rfc0012::p11_…` |
+| 0012 | 12    | à écrire    | `rfc0012::p12_…` |

@@ -18,6 +18,7 @@ RFC passe au `/grill-me` avant d'être `In review`.
 | [0009](0009-integration-suite.md) | Banc et suite d'intégration sur un vrai cluster | à créer | Implemented | medium |
 | [0010](0010-token-exchange.md) | Échange de jeton : une connexion au proxy pour tous les clusters | à créer | Accepted | high |
 | [0011](0011-adopt-kit-runtime-crates.md) | Conditions, Events et codes de raison : adopter les crates du kit | à créer | Accepted | medium |
+| [0012](0012-agent-tunnel.md) | Mode agent : joindre un apiserver qui n'est pas exposé | à créer | In review | high |
 | [REVIEW](REVIEW-roadmap-readme.md) | Revue de la roadmap et du README (2026-10-17) | — | — | — |
 
 Chaque document se termine par une section « Still open » (ou « Questions pour le
@@ -35,4 +36,6 @@ Le plan détaillé, avec les points de synchronisation entre RFC, est dans
   `tests/integration/MATRIX.md`.
 - **0.4.0** : la 0011 (conditions, Events, rythme du kit), puis la 0010
   (échange de jeton) ; la 0.3.0 est partie sans elles.
+- **0.5.0** : la 0012 (mode agent), avancée de la v2.0.0 ; elle dépend de la
+  0011 (conditions), pas de la 0010.
 - **v1.0.0** : les bascules de défauts.

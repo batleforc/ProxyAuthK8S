@@ -25,9 +25,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MATRIX = ROOT / "tests/integration/MATRIX.md"
-# RFCs whose rows may still say `à écrire`: 0010, whose code is not written
-# yet; each leaves this set in the PR that lands its code and tests.
-PENDING = {"0010"}
+# RFCs whose rows may still say `à écrire`: 0010 and 0012, whose code is not
+# written yet; each leaves this set in the PR that lands its code and tests.
+PENDING = {"0010", "0012"}
 STATUSES = {"suite", "hors suite", "quarantaine", "à écrire"}
 
 

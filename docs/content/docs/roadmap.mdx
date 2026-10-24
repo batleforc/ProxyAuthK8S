@@ -38,11 +38,12 @@ import { Callout } from 'fumadocs-ui/components/callout';
     section v0.4.0 🚧
       Contrôleur       : Conditions, Events, codes de raison (RFC 0011)
       Exchange Token   : Une connexion au proxy pour tous les clusters (RFC 0010)
+    section v0.5.0 🚧
+      Proxy & Agent    : Mode agent, tunnel sortant (RFC 0012)
     section v1.0.0 🚧
       Production       : Redis cluster HA ✅, bloc sécurité ✅
                        : Bascules de défauts, tests front
     section v2.0.0 🔮
-      Proxy & Agent    : Mode agent, tunnel
       Device code      : Login SSO sans navigateur local
 `} />
 
@@ -249,6 +250,29 @@ de la refonte UI). Voir la RFC 0001.
 
 ---
 
+## v0.5.0 — Mode agent {"\uD83D\uDEA7"}
+
+<Callout>
+  RFC 0012 (`.rfc/0012-agent-tunnel.md`, In review) : avancée de la v2.0.0 à la
+  0.5.0, avant la v1.0.0.
+</Callout>
+
+<Steps>
+
+<Step>
+### Mode Agent (RFC 0012)
+
+- ⏳ Un agent installé sur le cluster distant ouvre un tunnel sortant (WebSocket + yamux) vers ProxyAuthK8S : l'apiserver n'a plus à être exposé
+- ⏳ TLS de bout en bout entre le proxy et l'apiserver : l'agent ne voit que des octets chiffrés et n'a aucun RBAC
+- ⏳ Enrôlement GitOps (jeton de ServiceAccount, jeton à usage unique via External Secrets + Vault, puis CA externe)
+- ⏳ Sortie de l'agent par un proxy `CONNECT`, SOCKS5 ou un overlay Netbird
+
+</Step>
+
+</Steps>
+
+---
+
 ## v1.0.0 — Production Ready {"\uD83D\uDEA7"}
 
 <Callout>
@@ -327,13 +351,6 @@ de la refonte UI). Voir la RFC 0001.
 ### Support Proxy
 
 Ajout de la possibilité de passer par un proxy (ex: Netbird) pour les connexions aux clusters.
-
-</Step>
-
-<Step>
-### Mode Agent
-
-Permet de ne pas exposer chaque cluster directement mais d'utiliser un agent qui crée un tunnel entre l'API Server du cluster et ProxyAuthK8S.
 
 </Step>
 

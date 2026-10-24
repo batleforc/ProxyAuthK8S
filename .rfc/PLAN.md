@@ -48,7 +48,8 @@ flowchart LR
     B5 --> R020(["tag 0.2.0"])
     C2 --> R020
     R020 --> R040(["tag 0.4.0 : 0011 puis 0010"])
-    R040 --> V1(["v1.0.0 : bascules de défauts"])
+    R040 --> R050(["tag 0.5.0 : 0012 (mode agent)"])
+    R050 --> V1(["v1.0.0 : bascules de défauts"])
 ```
 
 Les flèches pleines sont des dépendances strictes. Les pointillées sont des
@@ -78,7 +79,9 @@ mergée.
 | 13b | **`fix(deps)`** crdgen | C | — | `weebo-kit-api` de crdgen dans `[workspace.dependencies]`, là où `kit:sync` réécrit le tag (0011, décision 19) | `Cargo.lock` inchangé, `kit:cog` lit `v0.24.0` dans `Cargo.toml` | à faire, avant l'étape 13 |
 | 15 | **0010** (échange de jeton) | B | 13 | phases 1 à 4 de la 0010 | §6.P de la 0010 | acceptée ; pour la 0.4.0, après la 0011 |
 | 16 | **tag 0.4.0** | — | 13, 15 | — | `integration.yaml` vert, la 0010 et la 0011 retirées de `PENDING` | à faire |
-| 14 | **v1.0.0** | — | 16 | bascules de défauts (§ « v1.0.0 ») | — | à faire |
+| 17 | **0012** (mode agent) | B | 13, 16 | phases 1 à 4 de la 0012 | §6.P de la 0012 (phase 4 hors suite) | In review (grill du 2026-10-23, décisions 1 à 23 ; POC §6.6) |
+| 18 | **tag 0.5.0** | — | 17 | — | `integration.yaml` vert, la 0012 retirée de `PENDING` | à faire |
+| 14 | **v1.0.0** | — | 18 | bascules de défauts (§ « v1.0.0 ») | — | à faire |
 
 Les numéros d'étape sont gardés pour les renvois des RFC ; la table suit
 l'ordre d'exécution.
@@ -122,6 +125,7 @@ refontes, à la place d'une release intermédiaire.
 | 0.2.0 | 0001 à 0009 | `feat!:` : règles sans `allowed_ports` ou sans `verbs` restreintes sous restriction, `nodes/proxy` refusé, politique `exec`, schéma d'audit v1 ; serveur sur axum ; nouvelle UI |
 | 0.3.0 | — | partie sans la 0010 ni la 0011 : CRD IDE (kit v0.24.0), scan trivy des images |
 | 0.4.0 | 0011, puis 0010 | conditions, Events, codes de raison et rythme de reconcile du kit (0011) ; échange de jetons (0010) |
+| 0.5.0 | 0012 | mode agent : tunnel sortant depuis le cluster distant, nouvelle image et nouveau chart |
 | 1.0.0 | bascules | voir ci-dessous |
 
 ## v1.0.0 : bascules de défauts
