@@ -787,6 +787,28 @@ async fn p15_a_connect_without_the_proxy_token_is_refused() {
         statuses.iter().all(|line| line.contains(" 407")),
         "{answers}"
     );
+    // The gateway's own metrics (`WEEBO_METRICS_ADDR`), through the apiserver's
+    // pod proxy. Their stream counters are shared with the tests running
+    // alongside: not compared here.
+    let bench = Bench::get();
+    let pod = bench.admin(&[
+        "-n",
+        STACK_NS,
+        "get",
+        "pods",
+        "-l",
+        &format!("app={GATEWAY}"),
+        "-o",
+        "jsonpath={.items[0].metadata.name}",
+    ]);
+    let pod = String::from_utf8_lossy(&pod.stdout).to_string();
+    let metrics = bench.admin(&[
+        "get",
+        "--raw",
+        &format!("/api/v1/namespaces/{STACK_NS}/pods/{pod}:9464/proxy/metrics"),
+    ]);
+    let metrics = String::from_utf8_lossy(&metrics.stdout);
+    assert!(metrics.contains("proxyauth_agent_tunnels"), "{metrics}");
 }
 
 /// The gateway's `agent_refused` lines for a TLS failure (no cluster known).

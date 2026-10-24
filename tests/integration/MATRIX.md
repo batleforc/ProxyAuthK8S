@@ -144,4 +144,4 @@ Statuts :
 | 0012 | 12    | suite       | `rfc0012::p12_no_agent_certificate_no_tunnel_and_no_user_route` |
 | 0012 | 13    | suite       | `rfc0012::p13_a_jwks_from_without_the_key_refuses_then_recovers` (raison unknown key : le kid absent du jeu) |
 | 0012 | 14    | suite       | `rfc0012_restart::p14_a_proxy_restart_keeps_the_tunnels` (sans le kubectl get pods -w : un watch coupé n'est pas rouvert par kubectl) |
-| 0012 | 15    | suite       | `rfc0012::p15_a_connect_without_the_proxy_token_is_refused` (407 seulement : la passerelle n'expose pas ses métriques sur le banc) |
+| 0012 | 15    | suite       | `rfc0012::p15_a_connect_without_the_proxy_token_is_refused` (407 ; les métriques de la passerelle répondent, mais leurs compteurs de flux, partagés avec les tests parallèles, ne sont pas comparés) |

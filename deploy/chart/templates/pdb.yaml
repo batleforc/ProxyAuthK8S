@@ -33,3 +33,21 @@ spec:
     matchLabels:
       app: "{{ include "proxyauthk8s.front.name" . }}"
 {{- end }}
+---
+{{- if and .Values.agentGateway.enabled (eq .Values.agentGateway.mode "separate") .Values.agentGateway.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" . }}-pdb"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  {{- with .Values.agentGateway.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ . }}
+  {{- end }}
+  {{- with .Values.agentGateway.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app: "{{ include "proxyauthk8s.gateway.name" . }}"
+{{- end }}

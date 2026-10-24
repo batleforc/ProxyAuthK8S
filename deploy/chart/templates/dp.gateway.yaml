@@ -16,6 +16,12 @@ spec:
     metadata:
       labels:
         app: "{{ include "proxyauthk8s.gateway.name" . }}"
+      {{- if and .Values.metrics.prometheus.enabled (not .Values.metrics.serviceMonitor.enabled) }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "{{ .Values.agentGateway.metricsPort }}"
+      {{- end }}
     spec:
       serviceAccountName: "{{ include "proxyauthk8s.gateway.name" . }}"
       automountServiceAccountToken: true
@@ -30,9 +36,18 @@ spec:
               containerPort: {{ .Values.agentGateway.port }}
             - name: connect
               containerPort: {{ .Values.agentGateway.connectPort }}
+            {{- if .Values.metrics.prometheus.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.agentGateway.metricsPort }}
+            {{- end }}
           env:
             - name: PROXYAUTH_ROLE
               value: gateway
+            {{- if .Values.metrics.prometheus.enabled }}
+            # The gateway serves no API: its metrics on a listener of their own.
+            - name: WEEBO_METRICS_ADDR
+              value: "0.0.0.0:{{ .Values.agentGateway.metricsPort }}"
+            {{- end }}
             - name: ENV
               value: "production"
             - name: LOG_FORMAT

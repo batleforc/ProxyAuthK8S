@@ -200,6 +200,8 @@ agentGateway:
   port: 8444
   # CONNECT from the back, inside this cluster only: never in an Ingress.
   connectPort: 8445
+  # Separate mode, with metrics.prometheus.enabled: the gateway's /metrics.
+  metricsPort: 9464
   # inner: TLS ends at the ingress, the mutual TLS with the agent runs inside
   # the WebSocket (§5.3). passthrough: the gateway ends the TLS itself with
   # `tls.secretName` and reads the agent's client certificate; the ingress (or
@@ -209,6 +211,16 @@ agentGateway:
     # passthrough only: a kubernetes.io/tls Secret (tls.crt, tls.key) for the
     # agents' host, re-read daily (cert-manager renewals are picked up).
     secretName: ""
+  # Separate mode: the gateway pods holding the tunnels. A disruption moves
+  # the agents to the remaining pods; keep one up.
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 80
   oneShotToken:
     # Let the controller write the Secret <name>-agent-bootstrap of each
     # `bootstrap: OneShotToken` ProxyKubeApi: `create` and `patch` on Secrets,

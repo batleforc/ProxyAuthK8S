@@ -19,3 +19,26 @@ spec:
       interval: {{ .Values.metrics.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
 {{- end }}
+{{- if and .Values.metrics.prometheus.enabled .Values.metrics.serviceMonitor.enabled .Values.agentGateway.enabled (eq .Values.agentGateway.mode "separate") }}
+---
+# The gateway pods' /metrics (no Service carries that port).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" . }}"
+  namespace: "{{ .Release.Namespace }}"
+  labels:
+    app: "{{ include "proxyauthk8s.gateway.name" . }}"
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app: "{{ include "proxyauthk8s.gateway.name" . }}"
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
+{{- end }}

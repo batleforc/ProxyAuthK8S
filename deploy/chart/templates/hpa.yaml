@@ -61,3 +61,37 @@ spec:
           averageUtilization: {{ . }}
     {{- end }}
 {{- end }}
+---
+{{- if and .Values.agentGateway.enabled (eq .Values.agentGateway.mode "separate") .Values.agentGateway.autoscaling.enabled }}
+# A scale-down closes the tunnels of the removed pods: their agents dial again
+# and land on the others.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" . }}-hpa"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: "{{ include "proxyauthk8s.gateway.name" . }}"
+  minReplicas: {{ .Values.agentGateway.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.agentGateway.autoscaling.maxReplicas }}
+  metrics:
+    {{- with .Values.agentGateway.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+    {{- with .Values.agentGateway.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ . }}
+    {{- end }}
+{{- end }}
