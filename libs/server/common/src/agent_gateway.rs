@@ -45,6 +45,23 @@ pub fn presence_info_key(uid: &str, pod: &str) -> String {
     format!("{}:{pod}", presence_key(uid))
 }
 
+/// How long a `OneShotToken` stays usable (RFC 0012 §4.1).
+pub const BOOTSTRAP_TTL: Duration = Duration::from_secs(60 * 60);
+
+/// Where the controller marks a `OneShotToken` of cluster `uid` as usable,
+/// for [`BOOTSTRAP_TTL`]: by the token's SHA-256, never the token (T6). The
+/// gateway takes it with `GETDEL`, so two enrolments cannot both use it, and
+/// a wrong token burns nothing.
+#[must_use]
+pub fn bootstrap_key(uid: &str, token: &str) -> String {
+    use sha2::{Digest as _, Sha256};
+    let hash: String = Sha256::digest(token.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    format!("{}:agent-bootstrap:{uid}:{hash}", crd::REDIS_PREFIX)
+}
+
 /// What a gateway pod reports about its tunnels of one cluster, for
 /// `status.agent` (RFC 0012 §6.4).
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -368,6 +385,18 @@ mod tests {
             8445,
             Some("t0ken".into()),
         )
+    }
+
+    #[test]
+    fn a_bootstrap_key_holds_the_token_hash_never_the_token() {
+        let key = bootstrap_key("uid-1", "s3cret-token");
+        assert!(
+            key.starts_with("proxyk8sauth:agent-bootstrap:uid-1:"),
+            "{key}"
+        );
+        assert!(!key.contains("s3cret"), "{key}");
+        assert_eq!(key.rsplit(':').next().map(str::len), Some(64));
+        assert_ne!(key, bootstrap_key("uid-2", "s3cret-token"));
     }
 
     #[test]

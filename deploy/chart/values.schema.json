@@ -764,6 +764,16 @@
             }
           }
         },
+        "oneShotToken": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Grant the controller create/patch on Secrets for OneShotToken bootstrap Secrets."
+            }
+          }
+        },
         "tokenSecretName": {
           "type": "string",
           "description": "Secret holding the CONNECT token (key `token`); empty = generated."

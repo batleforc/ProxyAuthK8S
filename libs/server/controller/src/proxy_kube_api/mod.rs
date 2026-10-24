@@ -16,6 +16,7 @@ use weebo_kit_runtime::controller::{requeue_after, retry_after_error};
 use crate::error::ControllerError;
 use crate::error::Result;
 
+pub mod bootstrap;
 pub mod cleanup;
 pub mod reconcile;
 

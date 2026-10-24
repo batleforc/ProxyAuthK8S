@@ -34,6 +34,9 @@ weebo_kit_domain::reason_codes! {
         /// Advisory: `limits.streams_per_tunnel` is above the gateway's
         /// maximum and was capped (RFC 0012, decision 27).
         AgentLimitCapped,
+        /// Advisory: no agent is connected and no usable `OneShotToken` waits
+        /// for one, or it could not be written (RFC 0012 §4.3).
+        AgentBootstrapNeeded,
     }
 }
 
@@ -50,7 +53,8 @@ impl Reason for ReasonCode {
             | Self::RulesRestricted
             | Self::DeprecatedInsecureCert
             | Self::Deleted
-            | Self::AgentLimitCapped => Severity::Advisory,
+            | Self::AgentLimitCapped
+            | Self::AgentBootstrapNeeded => Severity::Advisory,
             Self::InvalidSpec
             | Self::OidcConfigUnresolved
             | Self::TargetUnreachable
@@ -73,8 +77,8 @@ mod tests {
     }
 
     #[test]
-    fn the_catalog_has_the_eleven_codes_of_rfc_0011_and_two_of_rfc_0012() {
-        assert_eq!(ReasonCode::ALL.len(), 13);
+    fn the_catalog_has_the_eleven_codes_of_rfc_0011_and_three_of_rfc_0012() {
+        assert_eq!(ReasonCode::ALL.len(), 14);
     }
 
     #[test]
@@ -91,6 +95,7 @@ mod tests {
                 &ReasonCode::DeprecatedInsecureCert,
                 &ReasonCode::Deleted,
                 &ReasonCode::AgentLimitCapped,
+                &ReasonCode::AgentBootstrapNeeded,
             ]
         );
     }

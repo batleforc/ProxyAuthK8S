@@ -209,6 +209,11 @@ agentGateway:
     # passthrough only: a kubernetes.io/tls Secret (tls.crt, tls.key) for the
     # agents' host, re-read daily (cert-manager renewals are picked up).
     secretName: ""
+  oneShotToken:
+    # Let the controller write the Secret <name>-agent-bootstrap of each
+    # `bootstrap: OneShotToken` ProxyKubeApi: `create` and `patch` on Secrets,
+    # cluster-wide unless rbac.referencedNamespaces lists the namespaces.
+    enabled: false
   # The CONNECT token (key `token`). Empty: the chart generates one and keeps
   # it across upgrades.
   tokenSecretName: ""

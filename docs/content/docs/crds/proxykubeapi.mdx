@@ -550,7 +550,16 @@ Exactly one of `KubernetesService`, `ExternalService`, `Agent`.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| [`ServiceAccountToken`](#spec.service.Agent.bootstrap.ServiceAccountToken) | `object` | yes |  | A projected ServiceAccount token of the remote cluster, checked against that cluster's public keys: nothing secret goes into git |
+| [`OneShotToken`](#spec.service.Agent.bootstrap.OneShotToken) | `object` | one of |  | A single-use token the controller writes to the Secret `<name>-agent-bootstrap` next to this resource, valid one hour; carry it to the remote cluster (External Secrets, Vault) |
+| [`ServiceAccountToken`](#spec.service.Agent.bootstrap.ServiceAccountToken) | `object` | one of |  | A projected ServiceAccount token of the remote cluster, checked against that cluster's public keys: nothing secret goes into git |
+
+Exactly one of `ServiceAccountToken`, `OneShotToken`.
+
+### `spec.service.Agent.bootstrap.OneShotToken` [#spec.service.Agent.bootstrap.OneShotToken]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `auto_rotate` | `boolean` | no | `false` | Write a new token as soon as the previous one is used or expired; otherwise, annotate this resource with proxyauth.weebo.si.rs/regenerate-bootstrap (any new value) for one Default: false |
 
 ### `spec.service.Agent.bootstrap.ServiceAccountToken` [#spec.service.Agent.bootstrap.ServiceAccountToken]
 

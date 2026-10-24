@@ -1100,6 +1100,7 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 name = "controller"
 version = "0.3.0"
 dependencies = [
+ "base64 0.23.1",
  "common",
  "crd",
  "crd_runtime",
@@ -1107,6 +1108,7 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "opentelemetry",
+ "ring",
  "rustls",
  "serde_json",
  "thiserror 2.0.21",

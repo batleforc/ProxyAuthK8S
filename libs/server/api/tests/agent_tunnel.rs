@@ -31,6 +31,16 @@ macro_rules! redis_or_skip {
     };
 }
 
+/// The `ServiceAccountToken` of `bootstrap`, the one `agent_service` sets.
+fn service_account_token(
+    bootstrap: &mut AgentBootstrap,
+) -> Option<&mut ServiceAccountTokenBootstrap> {
+    match bootstrap {
+        AgentBootstrap::ServiceAccountToken(sa) => Some(sa),
+        AgentBootstrap::OneShotToken(_) => None,
+    }
+}
+
 fn agent_service() -> Service {
     Service::Agent(AgentService {
         server_name: DEFAULT_SERVER_NAME.to_string(),
@@ -515,7 +525,7 @@ async fn seeded_cluster_with_jwks(
     if let Service::Agent(agent) = &mut proxy.spec.service {
         agent.epoch = epoch;
         if jwks.is_some() {
-            let AgentBootstrap::ServiceAccountToken(bootstrap) = &mut agent.bootstrap;
+            let bootstrap = service_account_token(&mut agent.bootstrap).unwrap();
             bootstrap.jwks = jwks;
             bootstrap.jwks_url = None;
         }
@@ -1267,7 +1277,7 @@ async fn an_agent_cannot_serve_another_proxykubeapi() {
         .unwrap()
         .unwrap();
     if let Service::Agent(agent) = &mut proxy_b.spec.service {
-        let AgentBootstrap::ServiceAccountToken(bootstrap) = &mut agent.bootstrap;
+        let bootstrap = service_account_token(&mut agent.bootstrap).unwrap();
         bootstrap.subject = "system:serviceaccount:tenant-b:agent".to_string();
     }
     seed_proxy(&pool, &proxy_b).await;
@@ -1507,6 +1517,71 @@ async fn enrollment_never_returns_the_private_key() {
     delete_proxy(&pool, &identity.namespace, &identity.name).await;
 }
 
+/// T6: a `OneShotToken` enrols once, whatever the race; a wrong token, the
+/// other proof, or a refused CSR burns nothing.
+#[tokio::test]
+async fn a_one_shot_token_is_accepted_once() {
+    let pool = redis_or_skip!();
+    let (addr, gateway) = agent_gateway().await;
+    let identity = seeded_agent_cluster(&pool, 0).await;
+    let mut proxy: crd::ProxyKubeApi = gateway
+        .state
+        .get_object_from_redis(crd::REDIS_PREFIX, &identity.cluster())
+        .await
+        .unwrap()
+        .unwrap();
+    if let Service::Agent(agent) = &mut proxy.spec.service {
+        agent.bootstrap =
+            AgentBootstrap::OneShotToken(crd::service::OneShotTokenBootstrap::default());
+    }
+    seed_proxy(&pool, &proxy).await;
+    let token = "one-shot-token-of-the-test";
+    gateway
+        .state
+        .set_flag(
+            &common::agent_gateway::bootstrap_key(&identity.uid, token),
+            common::agent_gateway::BOOTSTRAP_TTL.as_secs(),
+        )
+        .await
+        .unwrap();
+    let one_shot = |csr: String, token: &str| {
+        let body = serde_json::json!({
+            "cluster": identity.cluster(),
+            "csr": csr,
+            "proof": { "one_shot_token": token },
+        });
+        async move {
+            reqwest::Client::new()
+                .post(format!("http://{addr}/agent/v1/enroll"))
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
+        }
+    };
+
+    assert_eq!(one_shot(new_csr(), "not-the-token").await, 401);
+    assert_eq!(one_shot("not a CSR".to_string(), token).await, 401);
+    assert_eq!(
+        enroll(addr, &identity.cluster(), &new_csr(), token).await.0,
+        401
+    );
+    let race = futures_util::future::join_all((0..8).map(|_| one_shot(new_csr(), token))).await;
+    assert_eq!(
+        race.iter().filter(|status| **status == 200).count(),
+        1,
+        "{race:?}"
+    );
+    assert!(
+        race.iter().all(|status| [200, 401].contains(status)),
+        "{race:?}"
+    );
+    assert_eq!(one_shot(new_csr(), token).await, 401);
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
 /// T10: past the per-address limit, an enrolment is refused before its body
 /// is read: no certificate is issued.
 #[tokio::test]
@@ -1653,7 +1728,7 @@ async fn jwks_url_refuses_http_and_redirects() {
         .unwrap()
         .unwrap();
     if let Service::Agent(agent) = &mut proxy.spec.service {
-        let AgentBootstrap::ServiceAccountToken(bootstrap) = &mut agent.bootstrap;
+        let bootstrap = service_account_token(&mut agent.bootstrap).unwrap();
         bootstrap.jwks_url = Some(format!("{}/keys", server.uri()));
     }
     seed_proxy(&pool, &proxy).await;
@@ -1767,7 +1842,7 @@ async fn a_jwks_from_change_is_picked_up_and_an_empty_one_refuses() {
         .unwrap()
         .unwrap();
     if let Service::Agent(agent) = &mut proxy.spec.service {
-        let AgentBootstrap::ServiceAccountToken(bootstrap) = &mut agent.bootstrap;
+        let bootstrap = service_account_token(&mut agent.bootstrap).unwrap();
         bootstrap.jwks_url = None;
         bootstrap.jwks_from = Some(crd::service::JwksSource::ConfigMap {
             name: name.clone(),

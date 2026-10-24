@@ -1,8 +1,10 @@
-//! `POST /agent/v1/enroll` (RFC 0012 §5.2, `ServiceAccountToken`).
+//! `POST /agent/v1/enroll` (RFC 0012 §5.2).
 //!
-//! The agent sends a CSR and a projected ServiceAccount token of its own
-//! cluster; the token is checked against that cluster's public keys, as the
-//! `ProxyKubeApi` names them. A valid proof gets a 24 h certificate for the
+//! The agent sends a CSR and a proof: a projected ServiceAccount token of its
+//! own cluster, checked against that cluster's public keys as the
+//! `ProxyKubeApi` names them, or the `OneShotToken` the controller wrote,
+//! taken from Redis by its hash (`GETDEL`, T6). A valid proof gets a 24 h
+//! certificate for the
 //! CR's identity (namespace, name, UID, `epoch`), never for one the request
 //! names. Every refusal is a bare `401`: the reason goes to the logs only.
 
@@ -48,12 +50,10 @@ pub fn parse_body(body: &[u8]) -> Option<EnrollRequest> {
     serde_json::from_slice(body).ok()
 }
 
-const METHOD: &str = "service_account_token";
-
 /// The `agent_refused` line and count of a refused enrolment.
-fn refused(client: &str, cluster: Option<&str>, reason: Reason) {
+fn refused(client: &str, cluster: Option<&str>, method: &'static str, reason: Reason) {
     warn!(%client, cluster, reason, "agent enrolment refused");
-    record_agent_enrollment(METHOD, "refused");
+    record_agent_enrollment(method, "refused");
     let line = AuditEvent::new(Event::AgentRefused, Outcome::Denied)
         .client_ip(client)
         .reason(reason);
@@ -64,9 +64,22 @@ fn refused(client: &str, cluster: Option<&str>, reason: Reason) {
     .emit();
 }
 
+/// One of the two, as the CR's `bootstrap` asks.
 #[derive(Deserialize)]
 struct Proof {
-    service_account_token: String,
+    service_account_token: Option<String>,
+    one_shot_token: Option<String>,
+}
+
+impl Proof {
+    /// The `method` label of `proxyauth_agent_enrollments_total`.
+    fn method(&self) -> &'static str {
+        if self.one_shot_token.is_some() {
+            "one_shot_token"
+        } else {
+            "service_account_token"
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -80,30 +93,42 @@ struct EnrollResponse {
 pub(super) async fn enroll(State(gateway): State<Arc<Gateway>>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
     let client = throttle_client_ip(forwarded_for(&parts.headers), peer_ip(&parts));
+    // Before the body is read: the method is not known yet.
+    let unknown = "unknown";
     if let Err(reason) = gateway.within_limits(&client).await {
-        refused(&client, None, reason);
+        refused(&client, None, unknown, reason);
         return StatusCode::TOO_MANY_REQUESTS.into_response();
     }
     let Ok(body) = axum::body::to_bytes(body, MAX_ENROLL_BYTES).await else {
-        refused(&client, None, "body too large");
+        refused(&client, None, unknown, "body too large");
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     };
     let Some(request) = parse_body(&body) else {
-        refused(&client, None, "body");
+        refused(&client, None, unknown, "body");
         return StatusCode::BAD_REQUEST.into_response();
     };
+    let method = request.proof.method();
     let issued = async {
-        let identity = gateway.verify(&request).await?;
+        let (identity, one_shot) = gateway.verify(&request).await?;
         let cert = gateway
             .ca
             .issue_agent(&request.csr, &identity)
             .map_err(|_| "csr")?;
+        // Taken last: a request refused for its CSR burns no token.
+        if let Some(key) = one_shot {
+            gateway
+                .state
+                .redis_take(&key)
+                .await
+                .map_err(|_| "redis")?
+                .ok_or("token")?;
+        }
         Ok::<_, Reason>((identity, cert))
     };
     match issued.await {
         Ok((identity, cert)) => {
             info!(cluster = %identity.cluster(), epoch = identity.epoch, %client, "agent enrolled");
-            record_agent_enrollment(METHOD, "enrolled");
+            record_agent_enrollment(method, "enrolled");
             AuditEvent::new(Event::AgentEnrolled, Outcome::Allowed)
                 .client_ip(&client)
                 .cluster(&identity.namespace, &identity.name)
@@ -116,7 +141,7 @@ pub(super) async fn enroll(State(gateway): State<Arc<Gateway>>, request: Request
             .into_response()
         }
         Err(reason) => {
-            refused(&client, Some(&request.cluster), reason);
+            refused(&client, Some(&request.cluster), method, reason);
             StatusCode::UNAUTHORIZED.into_response()
         }
     }
@@ -149,7 +174,12 @@ impl Gateway {
         Ok(())
     }
 
-    async fn verify(&self, request: &EnrollRequest) -> Result<AgentIdentity, Reason> {
+    /// The identity a valid proof enrols, and for a `OneShotToken` the Redis
+    /// key to take before the certificate goes out.
+    async fn verify(
+        &self,
+        request: &EnrollRequest,
+    ) -> Result<(AgentIdentity, Option<String>), Reason> {
         let proxy: ProxyKubeApi = self
             .state
             .get_object_from_redis(crd::REDIS_PREFIX, &request.cluster)
@@ -159,10 +189,27 @@ impl Gateway {
         let Service::Agent(agent) = &proxy.spec.service else {
             return Err("not an agent cluster");
         };
-        let AgentBootstrap::ServiceAccountToken(bootstrap) = &agent.bootstrap;
-        let token = &request.proof.service_account_token;
-        let kid = jsonwebtoken::decode_header(token).map_err(|_| "token")?.kid;
         let namespace = proxy.namespace().unwrap_or_default();
+        let identity = AgentIdentity {
+            namespace: namespace.clone(),
+            name: proxy.name_any(),
+            uid: proxy.metadata.uid.clone().ok_or("uid")?,
+            epoch: agent.epoch,
+        };
+        let bootstrap = match &agent.bootstrap {
+            AgentBootstrap::ServiceAccountToken(bootstrap) => bootstrap,
+            AgentBootstrap::OneShotToken(_) => {
+                let token = request.proof.one_shot_token.as_deref().ok_or("method")?;
+                let key = common::agent_gateway::bootstrap_key(&identity.uid, token);
+                return Ok((identity, Some(key)));
+            }
+        };
+        let token = request
+            .proof
+            .service_account_token
+            .as_deref()
+            .ok_or("method")?;
+        let kid = jsonwebtoken::decode_header(token).map_err(|_| "token")?.kid;
         let jwk = self.jwk(bootstrap, &namespace, kid.as_deref()).await?;
         let claims = jwt_validator::verify_with_key(token, &jwk, &bootstrap.audience)
             .map_err(|_| "token")?;
@@ -170,12 +217,7 @@ impl Gateway {
         {
             return Err("subject");
         }
-        Ok(AgentIdentity {
-            namespace,
-            name: proxy.name_any(),
-            uid: proxy.metadata.uid.clone().ok_or("uid")?,
-            epoch: agent.epoch,
-        })
+        Ok((identity, None))
     }
 
     /// The key `kid` names in the cluster's JWKS; without a `kid`, the only

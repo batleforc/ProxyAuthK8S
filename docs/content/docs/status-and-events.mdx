@@ -47,6 +47,7 @@ Chaque avis devient une condition `True` à côté de `Ready`, de type égal à 
 | `Deleted` | avis | le finalizer a retiré le cluster de Redis |
 | `AgentNoTunnel` | bloquant | un cluster `service: Agent` dont aucun pod de la passerelle ne tient de tunnel (RFC 0012) ; le détail est dans `status.agent` |
 | `AgentLimitCapped` | avis | `limits.streams_per_tunnel` dépasse `agentGateway.limits.maxStreamsPerTunnel` et y est ramené |
+| `AgentBootstrapNeeded` | avis | `OneShotToken` : aucun agent connecté et le jeton est consommé ou expiré (annoter `proxyauth.weebo.si.rs/regenerate-bootstrap`), ou il n'a pas pu être écrit |
 
 ## Les Events
 

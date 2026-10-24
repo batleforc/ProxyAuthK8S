@@ -1564,9 +1564,25 @@
                   "required": [
                     "ServiceAccountToken"
                   ]
+                },
+                {
+                  "required": [
+                    "OneShotToken"
+                  ]
                 }
               ],
               "properties": {
+                "OneShotToken": {
+                  "description": "A single-use token the controller writes to the Secret\n`<name>-agent-bootstrap` next to this resource, valid one hour; carry\nit to the remote cluster (External Secrets, Vault)",
+                  "properties": {
+                    "auto_rotate": {
+                      "default": false,
+                      "description": "Write a new token as soon as the previous one is used or expired;\notherwise, annotate this resource with\nproxyauth.weebo.si.rs/regenerate-bootstrap (any new value) for one\nDefault: false",
+                      "type": "boolean"
+                    }
+                  },
+                  "type": "object"
+                },
                 "ServiceAccountToken": {
                   "description": "A projected ServiceAccount token of the remote cluster, checked against\nthat cluster's public keys: nothing secret goes into git",
                   "properties": {

@@ -7,7 +7,8 @@ mod error;
 
 pub use agent::{
     AgentBootstrap, AgentLimits, AgentService, DEFAULT_AUDIENCE, DEFAULT_SERVER_NAME, JwksSource,
-    MAX_JWKS_BYTES, SERVICE_ACCOUNT_PREFIX, ServiceAccountTokenBootstrap,
+    MAX_JWKS_BYTES, OneShotTokenBootstrap, REGENERATE_BOOTSTRAP_ANNOTATION, SERVICE_ACCOUNT_PREFIX,
+    ServiceAccountTokenBootstrap, bootstrap_secret_name,
 };
 pub use error::ServiceError;
 

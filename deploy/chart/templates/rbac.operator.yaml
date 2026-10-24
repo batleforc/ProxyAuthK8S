@@ -48,6 +48,18 @@ rules:
       - get
       - update
       - patch
+{{- if and .Values.agentGateway.oneShotToken.enabled (not .Values.rbac.referencedNamespaces) }}
+  # RFC 0012 OneShotToken: the controller writes <name>-agent-bootstrap next
+  # to each ProxyKubeApi (server-side apply). Names are per CR, so no
+  # resourceNames: list rbac.referencedNamespaces to scope it.
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+      - patch
+{{- end }}
 {{- if not .Values.rbac.referencedNamespaces }}
   # CA / client certificates and OIDC material referenced by a ProxyKubeApi
   # (CertSource::Secret / ConfigMap) and the Services it targets. The code only
@@ -139,6 +151,16 @@ rules:
       - services
     verbs:
       - get
+  {{- if $.Values.agentGateway.oneShotToken.enabled }}
+  # RFC 0012 OneShotToken: <name>-agent-bootstrap next to each ProxyKubeApi.
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+      - patch
+  {{- end }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

@@ -1,5 +1,5 @@
 use common::{State, traits::ObjectRedis};
-use crd::service::Service;
+use crd::service::{AgentBootstrap, Service};
 use crd::status::AgentStatus;
 use crd::{ProxyKubeApi, status::ProxyKubeApiStatus};
 use crd_runtime::ProxyKubeApiRuntime;
@@ -232,7 +232,29 @@ pub async fn cache(proxy: &ProxyKubeApi, status: &ProxyKubeApiStatus, ctx: &Stat
 pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Result<Action> {
     debug!("Reconciling ProxyKubeApi: {}", proxy.to_identifier());
     let started = Instant::now();
-    let evaluation = evaluate(proxy, ctx.clone()).await;
+    let mut evaluation = evaluate(proxy, ctx.clone()).await;
+    if let Service::Agent(agent) = &proxy.spec.service
+        && let AgentBootstrap::OneShotToken(bootstrap) = &agent.bootstrap
+    {
+        let message = match super::bootstrap::ensure_one_shot_token(proxy, bootstrap, &ctx).await {
+            Ok(true) => None,
+            Ok(false) => (evaluation.reason() == ReasonCode::AgentNoTunnel).then(|| {
+                format!(
+                    "No agent is connected and its OneShotToken is used or expired: annotate the \
+                     ProxyKubeApi with {}=<new value> for another",
+                    crd::service::REGENERATE_BOOTSTRAP_ANNOTATION
+                )
+            }),
+            Err(err) => Some(format!("Cannot write the agent's OneShotToken: {err}")),
+        };
+        if let Some(message) = message {
+            warn!("ProxyKubeApi {}: {}", proxy.to_identifier(), message);
+            evaluation.advisories.push(Advisory {
+                reason: ReasonCode::AgentBootstrapNeeded,
+                message,
+            });
+        }
+    }
     let published = publish(proxy, &evaluation, &ctx).await;
     // Counted under the code the run ended on: the evaluation's, or the write
     // that failed after it (both always carry one).

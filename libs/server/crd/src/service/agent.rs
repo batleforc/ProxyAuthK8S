@@ -14,6 +14,16 @@ pub const DEFAULT_AUDIENCE: &str = "proxyauth";
 pub const SERVICE_ACCOUNT_PREFIX: &str = "system:serviceaccount:";
 /// Bound on an inline or fetched JWKS (RFC 0012 §4.3).
 pub const MAX_JWKS_BYTES: usize = 64 * 1024;
+/// A new value on a `ProxyKubeApi` asks the controller for a new
+/// `OneShotToken` (RFC 0012 §6.4).
+pub const REGENERATE_BOOTSTRAP_ANNOTATION: &str = "proxyauth.weebo.si.rs/regenerate-bootstrap";
+
+/// The Secret holding the `OneShotToken` of `ProxyKubeApi` `name` (key
+/// `token`), next to it.
+#[must_use]
+pub fn bootstrap_secret_name(name: &str) -> String {
+    format!("{name}-agent-bootstrap")
+}
 
 fn default_server_name() -> String {
     DEFAULT_SERVER_NAME.to_string()
@@ -73,6 +83,20 @@ pub enum AgentBootstrap {
     /// A projected ServiceAccount token of the remote cluster, checked against
     /// that cluster's public keys: nothing secret goes into git
     ServiceAccountToken(ServiceAccountTokenBootstrap),
+    /// A single-use token the controller writes to the Secret
+    /// `<name>-agent-bootstrap` next to this resource, valid one hour; carry
+    /// it to the remote cluster (External Secrets, Vault)
+    OneShotToken(OneShotTokenBootstrap),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, JsonSchema, PartialEq, Eq)]
+pub struct OneShotTokenBootstrap {
+    /// Write a new token as soon as the previous one is used or expired;
+    /// otherwise, annotate this resource with
+    /// proxyauth.weebo.si.rs/regenerate-bootstrap (any new value) for one
+    /// Default: false
+    #[serde(default)]
+    pub auto_rotate: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, JsonSchema)]
@@ -184,6 +208,7 @@ impl AgentService {
         }
         match &self.bootstrap {
             AgentBootstrap::ServiceAccountToken(sa) => sa.validate(),
+            AgentBootstrap::OneShotToken(_) => Ok(()),
         }
     }
 }
@@ -337,7 +362,22 @@ mod tests {
         .expect("a minimal agent service should deserialize");
         assert_eq!(agent.server_name, DEFAULT_SERVER_NAME);
         assert_eq!(agent.epoch, 0);
-        let AgentBootstrap::ServiceAccountToken(sa) = agent.bootstrap;
-        assert_eq!(sa.audience, DEFAULT_AUDIENCE);
+        assert!(matches!(
+            &agent.bootstrap,
+            AgentBootstrap::ServiceAccountToken(sa) if sa.audience == DEFAULT_AUDIENCE
+        ));
+    }
+
+    #[test]
+    fn a_one_shot_token_needs_no_more_than_its_name() {
+        let agent: AgentService = serde_json::from_value(serde_json::json!({
+            "bootstrap": { "OneShotToken": {} },
+        }))
+        .expect("a one-shot agent service should deserialize");
+        assert!(matches!(
+            &agent.bootstrap,
+            AgentBootstrap::OneShotToken(OneShotTokenBootstrap { auto_rotate: false })
+        ));
+        assert_eq!(agent.validate(&ca()), Ok(()));
     }
 }
