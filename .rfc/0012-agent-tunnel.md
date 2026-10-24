@@ -1052,6 +1052,7 @@ les écarts sont notés ici.
 | 1c-vii passerelle : rôle | fait | `api::agent::run` (jeton exigé, CA chargée ou créée, `port` et `connect_port` liés, présences ; à l'arrêt `withdraw`) ; `apps/server` : `gateway` seul (ni contrôleur, ni API, ni découverte OIDC), `embedded` à côté du proxy (un échec de la passerelle arrête le pod, un arrêt sur signal est attendu 5 s), `proxy` inchangé ; sondes `/healthz` et `/readyz` (Redis) sur l'écoute des agents ; `api::server::shutdown_signal` extrait ; tests `agent_tunnel` 10/10, envtest `envtest_agent_ca` 2/2 |
 | 1c-viii chart de la passerelle | fait | `agentGateway` (valeurs et schéma ; `tlsMode` limité à `inner`) ; `dp.gateway.yaml` (mode `separate`, rôle `gateway`, son propre ServiceAccount, `subdomain` du Service headless, sondes `/healthz` et `/readyz`) ou le back en rôle `embedded` ; `svc.gateway.yaml` (headless `-gateway-pods` pour le `CONNECT`, ClusterIP `-gateway` pour l'ingress des agents) ; `secret.gateway.yaml` (jeton généré, gardé d'une mise à jour à l'autre par `lookup`) ; `ingress.gateway.yaml` (`/agent/v1/` seul) ; `rbac.gateway.yaml` (`create` sur les Secrets, `get` sur la seule CA, `get` des sources `jwks_from`) ; NetworkPolicy (le `connectPort` depuis les seuls pods du back, T18 ; le back vers la passerelle) ; rendu désactivé identique à avant, `helm lint` et `kubeconform -strict` verts dans les deux modes |
 | 1c' proxy en `CONNECT` (décision 25) | fait | `common::agent_gateway::GatewayClient` (présences en sorted set Redis à l'heure de Redis, nom de pod validé, `<pod>.<service>:<port>`, cache 5 s, 60 s si Redis tombe) ; `upstream.rs` : `Proxy::custom` + `Proxy::headers`, jamais `None` (une URL `.invalid` à la place, pour qu'aucun repli direct ne soit possible) ; `upgrade/connect.rs` : `CONNECT` envoyé par hyper ; tests de bout en bout `agent_tunnel` (requête et exec à travers passerelle et tunnel jusqu'à un apiserver TLS) et unitaires (T19) |
+| 1e' CRD et contrôleur : limites, `status.agent`, joignabilité | fait | `AgentService.limits.streams_per_tunnel` (≥ 1 à l'admission ; `streams_per_tunnel(default, max)` le borne, la passerelle l'applique au mux et au registre) ; chaque pod de la passerelle publie à côté de sa présence un enregistrement (`presence_info_key` : tunnels, versions, empreintes de CA annoncées par `AgentInfo`) ; `State::agent_presences` ; `is_reachable` d'un cluster `Agent` = au moins une présence ; le contrôleur : `Ready` faux en `AgentNoTunnel`, `status.agent { tunnels, gateways, versions, caFingerprints }`, avis `AgentLimitCapped`, reconcile au plus toutes les 60 s ; CRD régénérée ; tests `controller` (évaluation), `agent_tunnel`, envtest `envtest_agent_crd` 8/8 |
 | 1d `apps/agent`, image, chart | à faire | |
 | 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
 
@@ -1088,7 +1089,7 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 | `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
 
 **État du dépôt au moment de l'arrêt** : voir `git status` ; les étapes 1 et
-6 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, `91161b0`, `184eb11`, `8b34416`, puis le chart).
+7 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, `91161b0`, `184eb11`, `8b34416`, `ca0edb9`, puis le contrôleur).
 
 **Suite, dans l'ordre** (chaque étape : code, tests, §17 « État », commit) :
 
@@ -1107,10 +1108,8 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
    des agents) : le chart les vise là.
 6. ~~**Chart** (`deploy/chart/`).~~ Fait. Restent : HPA et PDB de la
    passerelle, la page `helm-chart.mdx` (phase 3, documentation).
-7. **CRD et contrôleur** : `spec.service.Agent.limits.streams_per_tunnel`
-   (borné par `max_streams_per_tunnel`, avertissement au-delà, décision 27) ;
-   `status.agent` et la condition `AgentConnected` agrégés depuis les
-   présences ; `is_reachable` d'un cluster `Agent` = au moins une présence.
+7. ~~**CRD et contrôleur**.~~ Fait, avec deux écarts (plus bas) :
+   pas de condition `AgentConnected`, pas de `expected` ni de `lastSeen`.
 8. **`to_kube_client` par le `CONNECT`** (écart noté plus bas), pour
    `validate_against: Kubernetes`.
 9. **Audit et métriques** (T14, §10.1) : `upstream_via`, `agent_enrolled`,
@@ -1143,6 +1142,19 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 
 ### Écarts
 
+- **Pas de condition `AgentConnected`** (§6.1, décision 17) : la
+  publication du kit (`weebo_kit_runtime::status::publish`) n'écrit que
+  `Ready` et une condition par avis, de type égal à la raison et toujours
+  `True` ; un second patch qui ajouterait `AgentConnected` serait défait par
+  le suivant, et chaque écriture relance un reconcile. L'état du tunnel est
+  donc la raison de `Ready` (`AgentNoTunnel`), le détail `status.agent`.
+  `Degraded` et `Refused` attendent un type de condition libre dans le kit
+  (correctif à proposer au kit, pas ici).
+- **`status.agent` sans `expected` ni `lastSeen`** : `AgentInfo` ne porte pas
+  le nombre de replicas de l'agent (phase 1 : `replicas_expected` vaut 1), et
+  un horodatage changerait le statut à chaque reconcile, qui en relancerait
+  un (le contrôleur ne filtre pas sur `generation`). `gateways`, `versions`
+  et `caFingerprints` (listes triées) le remplacent.
 - **T12 et le RBAC du back** : sans `rbac.referencedNamespaces`, le
   ClusterRole du back garde un `get` sur tous les Secrets, CA des agents
   comprise ; RBAC n'a pas de refus. T12 ne tient pleinement, en mode

@@ -21,7 +21,7 @@ use axum::routing::get;
 use common::State;
 use common::config::AgentGatewaySettings;
 use crd::ProxyKubeApi;
-use crd::service::Service;
+use crd::service::{AgentService, Service};
 use futures_util::{SinkExt, StreamExt, future};
 use rustls::RootCertStore;
 use rustls::pki_types::pem::PemObject as _;
@@ -112,15 +112,23 @@ impl Gateway {
             Some(Ok(peer)) => peer.identity,
             _ => return warn!("agent tunnel refused: no agent identity"),
         };
-        if let Err(reason) = still_valid(&self.state, &identity).await {
-            return warn!(cluster = %identity.cluster(), reason, "agent tunnel refused");
+        let agent = match still_valid(&self.state, &identity).await {
+            Ok(agent) => agent,
+            Err(reason) => {
+                return warn!(cluster = %identity.cluster(), reason, "agent tunnel refused");
+            }
+        };
+        // Decision 27: the CR may raise its bound, never past the gateway's.
+        let (streams, capped) = agent.streams_per_tunnel(
+            self.settings.streams_per_tunnel,
+            self.settings.max_streams_per_tunnel,
+        );
+        if capped {
+            warn!(cluster = %identity.cluster(), streams, "limits.streams_per_tunnel capped at the gateway's maximum");
         }
 
-        let (handle, mut inbound, driver) = mux::new(
-            TokioAsyncReadCompatExt::compat(tls),
-            Mode::Client,
-            self.settings.streams_per_tunnel,
-        );
+        let (handle, mut inbound, driver) =
+            mux::new(TokioAsyncReadCompatExt::compat(tls), Mode::Client, streams);
         let session = async {
             let mut control = tokio::time::timeout(self.settings.handshake_timeout, inbound.recv())
                 .await
@@ -128,7 +136,7 @@ impl Gateway {
                 .flatten()
                 .ok_or("no control stream")?;
             let ended = self
-                .session(&identity, &mut control, handle, &mut inbound)
+                .session(&identity, &mut control, (handle, streams), &mut inbound)
                 .await;
             if let Err(reason) = ended {
                 // Best effort: the agent learns why before the tunnel drops.
@@ -164,7 +172,7 @@ impl Gateway {
         &self,
         identity: &AgentIdentity,
         control: &mut mux::Stream,
-        handle: agent_proto::mux::MuxHandle,
+        (handle, streams): (agent_proto::mux::MuxHandle, usize),
         inbound: &mut tokio::sync::mpsc::Receiver<mux::Stream>,
     ) -> Result<(), Reason> {
         // yamux announces a stream with its first frame: the agent speaks first.
@@ -184,17 +192,21 @@ impl Gateway {
         control::write(control, hello)
             .await
             .map_err(|_| "control")?;
-        let AgentInfo { version, .. } = &info;
+        let AgentInfo {
+            version,
+            ca_fingerprint,
+        } = &info;
         let guard = self
             .registry
             .register(
                 identity.clone(),
                 handle,
                 self.settings.tunnels_per_identity,
-                self.settings.streams_per_tunnel,
+                streams,
             )
             .map_err(|_| "too many tunnels")?;
-        info!(cluster = %identity.cluster(), %version, "agent tunnel open");
+        guard.describe(version, ca_fingerprint);
+        info!(cluster = %identity.cluster(), %version, streams, "agent tunnel open");
         let mut closed = guard.closed.clone();
         tokio::select! {
             ended = self.control_loop(identity, control) => ended,
@@ -236,18 +248,22 @@ impl Gateway {
 }
 
 /// Whether `identity` still names its `ProxyKubeApi`: same UID, same `epoch`,
-/// still an `Agent` service (T8).
-pub async fn still_valid(state: &State, identity: &AgentIdentity) -> Result<(), Reason> {
-    if current_epoch(state, identity).await? == identity.epoch {
-        Ok(())
+/// still an `Agent` service (T8). Returns that service.
+pub async fn still_valid(state: &State, identity: &AgentIdentity) -> Result<AgentService, Reason> {
+    let agent = current_agent(state, identity).await?;
+    if agent.epoch == identity.epoch {
+        Ok(agent)
     } else {
         Err("epoch")
     }
 }
 
-/// The `epoch` of the `ProxyKubeApi` `identity` names, or why that CR no
-/// longer accepts the identity's UID (`"redis"` when it cannot be read).
-pub async fn current_epoch(state: &State, identity: &AgentIdentity) -> Result<u64, Reason> {
+/// The `Agent` service of the `ProxyKubeApi` `identity` names, or why that CR
+/// no longer accepts the identity's UID (`"redis"` when it cannot be read).
+pub async fn current_agent(
+    state: &State,
+    identity: &AgentIdentity,
+) -> Result<AgentService, Reason> {
     let proxy: ProxyKubeApi = state
         .get_object_from_redis(crd::REDIS_PREFIX, &identity.cluster())
         .await
@@ -256,8 +272,8 @@ pub async fn current_epoch(state: &State, identity: &AgentIdentity) -> Result<u6
     if proxy.metadata.uid.as_deref() != Some(identity.uid.as_str()) {
         return Err("uid");
     }
-    match &proxy.spec.service {
-        Service::Agent(agent) => Ok(agent.epoch),
+    match proxy.spec.service {
+        Service::Agent(agent) => Ok(agent),
         _ => Err("not an agent cluster"),
     }
 }

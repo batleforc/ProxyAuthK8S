@@ -6,7 +6,7 @@ mod agent;
 mod error;
 
 pub use agent::{
-    AgentBootstrap, AgentService, DEFAULT_AUDIENCE, DEFAULT_SERVER_NAME, JwksSource,
+    AgentBootstrap, AgentLimits, AgentService, DEFAULT_AUDIENCE, DEFAULT_SERVER_NAME, JwksSource,
     MAX_JWKS_BYTES, SERVICE_ACCOUNT_PREFIX, ServiceAccountTokenBootstrap,
 };
 pub use error::ServiceError;

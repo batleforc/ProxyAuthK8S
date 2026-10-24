@@ -40,6 +40,7 @@ fn agent_service() -> Service {
             jwks_url: Some("https://issuer.example.com/keys".to_string()),
             jwks_from: None,
         }),
+        limits: None,
     })
 }
 
@@ -740,6 +741,14 @@ async fn presences_follow_the_cr_and_revoke_its_tunnels() {
         gateway.state.presence_members(&key).await.unwrap(),
         vec!["gw-0"]
     );
+    // The record `status.agent` reads: one tunnel, what its agent announced.
+    let presences = gateway.state.agent_presences(&identity.uid).await.unwrap();
+    let [(pod, info)] = presences.as_slice() else {
+        panic!("one gateway pod: {presences:?}");
+    };
+    assert_eq!(pod, "gw-0");
+    assert_eq!(info.tunnels, 1);
+    assert_eq!(info.versions, vec!["test"]);
 
     // `epoch` 4 -> 5: the agent hears why, the tunnel leaves the registry.
     let mut proxy = proxy_fixture(

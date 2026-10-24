@@ -1,4 +1,6 @@
 use common::{State, traits::ObjectRedis};
+use crd::service::Service;
+use crd::status::AgentStatus;
 use crd::{ProxyKubeApi, status::ProxyKubeApiStatus};
 use crd_runtime::ProxyKubeApiRuntime;
 use kube::{Api, runtime::controller::Action};
@@ -21,6 +23,10 @@ use crate::reason::ReasonCode;
 /// `/management/metrics` exports.
 static METRICS: LazyLock<ReconcileMetrics> =
     LazyLock::new(|| ReconcileMetrics::new("proxyauthk8s", "proxyauth"));
+
+/// At most this long between two reconciles of a `service: Agent` cluster,
+/// for `status.agent` to follow its tunnels.
+const AGENT_REQUEUE_SECS: u64 = 60;
 
 /// The `kind` label of the reconcile metrics.
 const KIND: &str = "ProxyKubeApi";
@@ -107,6 +113,13 @@ pub async fn evaluate(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Evaluation {
                     ),
                 }
             }
+            Ok(false) if matches!(proxy.spec.service, Service::Agent(_)) => {
+                warn!("ProxyKubeApi {} has no agent tunnel", id);
+                Evaluation::failed(
+                    ReasonCode::AgentNoTunnel,
+                    "No agent tunnel: no gateway pod holds one for this cluster".to_string(),
+                )
+            }
             Ok(false) => {
                 warn!("ProxyKubeApi {} is not reachable", id);
                 Evaluation::failed(
@@ -124,6 +137,22 @@ pub async fn evaluate(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Evaluation {
         }
     };
 
+    if let Service::Agent(agent) = &proxy.spec.service {
+        evaluation.status.agent = agent_status(proxy, &ctx).await;
+        let gateway = &common::config::get().agent_gateway;
+        let (streams, capped) =
+            agent.streams_per_tunnel(gateway.streams_per_tunnel, gateway.max_streams_per_tunnel);
+        if capped {
+            let message = format!(
+                "limits.streams_per_tunnel is above the gateway's maximum: capped at {streams}"
+            );
+            warn!("ProxyKubeApi {}: {}", id, message);
+            evaluation.advisories.push(Advisory {
+                reason: ReasonCode::AgentLimitCapped,
+                message,
+            });
+        }
+    }
     if proxy.spec.cert.is_deprecated_insecure() {
         let message = "`cert: Insecure` is deprecated: it still verifies the target with the \
                        system trust store, rename it to `cert: SystemRoots`";
@@ -144,6 +173,32 @@ pub async fn evaluate(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Evaluation {
         }
     }
     evaluation
+}
+
+/// `status.agent` from the gateway pods' presences; `None` while Redis cannot
+/// be read.
+async fn agent_status(proxy: &ProxyKubeApi, ctx: &State) -> Option<AgentStatus> {
+    let uid = proxy.metadata.uid.as_deref()?;
+    let presences = ctx.agent_presences(uid).await.ok()?;
+    let mut status = AgentStatus::default();
+    for (pod, info) in presences {
+        status.tunnels = status
+            .tunnels
+            .saturating_add(u32::try_from(info.tunnels).unwrap_or(u32::MAX));
+        status.gateways.push(pod);
+        status.versions.extend(info.versions);
+        status.ca_fingerprints.extend(info.ca_fingerprints);
+    }
+    // Sorted: an unchanged set of tunnels writes an identical status.
+    for values in [
+        &mut status.gateways,
+        &mut status.versions,
+        &mut status.ca_fingerprints,
+    ] {
+        values.sort();
+        values.dedup();
+    }
+    Some(status)
 }
 
 /// Write `proxy` with `status` to Redis, where the dashboard and the proxy
@@ -187,7 +242,9 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
     };
     METRICS.record(KIND, reason, started.elapsed());
     published?;
-    Ok(requeue_after(proxy, evaluation.steady(), None))
+    // An agent's tunnels come and go without a change to the CR.
+    let due_in = matches!(proxy.spec.service, Service::Agent(_)).then_some(AGENT_REQUEUE_SECS);
+    Ok(requeue_after(proxy, evaluation.steady(), due_in))
 }
 
 /// Cache `evaluation`, then publish it on the CR.

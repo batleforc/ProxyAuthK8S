@@ -538,6 +538,7 @@ Exactly one of `KubernetesService`, `ExternalService`, `Agent`.
 | --- | --- | --- | --- | --- |
 | [`bootstrap`](#spec.service.Agent.bootstrap) | `object` | yes |  | How an agent proves it serves this cluster before it gets a certificate |
 | `epoch` | `integer` | no | `0` | Raise it to revoke every agent certificate issued so far: open tunnels close within 30 s and the agent has to enrol again Default: 0<br /><br />Constraints: `minimum: 0` |
+| [`limits`](#spec.service.Agent.limits) | `object` | no |  | Overrides of the gateway's tunnel bounds, for this cluster only |
 | `server_name` | `string` | no | `"kubernetes.default.svc"` | Name checked against the remote apiserver's certificate Default: kubernetes.default.svc<br /><br />Constraints: `minLength: 1`, `maxLength: 253` |
 
 **Rules**
@@ -591,6 +592,12 @@ Exactly one of `ConfigMap`, `Secret`.
 | `key` | `string` | yes |  |  |
 | `name` | `string` | yes |  |  |
 | `namespace` | `string` | no |  | If not set, the resource namespace (same policy as `cert`) |
+
+### `spec.service.Agent.limits` [#spec.service.Agent.limits]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `streams_per_tunnel` | `integer` | no |  | Streams one tunnel carries at once, for a cluster with many concurrent clients (an operator driving it through the proxy). Capped by the gateway's maxStreamsPerTunnel, with a warning on the CR Default: the gateway's streamsPerTunnel<br /><br />Constraints: `minimum: 1` |
 
 ### `spec.service.ExternalService` [#spec.service.ExternalService]
 

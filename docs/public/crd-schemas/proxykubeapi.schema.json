@@ -1683,6 +1683,20 @@
               "minimum": 0,
               "type": "integer"
             },
+            "limits": {
+              "description": "Overrides of the gateway's tunnel bounds, for this cluster only",
+              "nullable": true,
+              "properties": {
+                "streams_per_tunnel": {
+                  "description": "Streams one tunnel carries at once, for a cluster with many concurrent\nclients (an operator driving it through the proxy). Capped by the\ngateway's maxStreamsPerTunnel, with a warning on the CR\nDefault: the gateway's streamsPerTunnel",
+                  "format": "uint32",
+                  "minimum": 1,
+                  "nullable": true,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
             "server_name": {
               "default": "kubernetes.default.svc",
               "description": "Name checked against the remote apiserver's certificate\nDefault: kubernetes.default.svc",

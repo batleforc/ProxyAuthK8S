@@ -50,6 +50,21 @@ pub struct AgentService {
     pub epoch: u64,
     /// How an agent proves it serves this cluster before it gets a certificate
     pub bootstrap: AgentBootstrap,
+    /// Overrides of the gateway's tunnel bounds, for this cluster only
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<AgentLimits>,
+}
+
+/// Per-cluster tunnel bounds (RFC 0012, decision 27).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, JsonSchema, PartialEq, Eq)]
+pub struct AgentLimits {
+    /// Streams one tunnel carries at once, for a cluster with many concurrent
+    /// clients (an operator driving it through the proxy). Capped by the
+    /// gateway's maxStreamsPerTunnel, with a warning on the CR
+    /// Default: the gateway's streamsPerTunnel
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1))]
+    pub streams_per_tunnel: Option<u32>,
 }
 
 /// The proof an agent presents at enrolment. One variant.
@@ -142,6 +157,23 @@ impl JwksSource {
 }
 
 impl AgentService {
+    /// Streams per tunnel for this cluster: its override, else `default`,
+    /// never above `max`. `true` when the override was capped.
+    #[must_use]
+    pub fn streams_per_tunnel(&self, default: usize, max: usize) -> (usize, bool) {
+        match self
+            .limits
+            .as_ref()
+            .and_then(|limits| limits.streams_per_tunnel)
+        {
+            Some(wanted) => {
+                let wanted = usize::try_from(wanted).unwrap_or(usize::MAX);
+                (wanted.min(max), wanted > max)
+            }
+            None => (default.min(max), false),
+        }
+    }
+
     /// What the admission rules refuse, for a spec that skipped admission.
     pub fn validate(&self, cert: &CertSource) -> Result<(), String> {
         if matches!(cert, CertSource::SystemRoots(_) | CertSource::Insecure(_)) {
@@ -193,6 +225,20 @@ impl ServiceAccountTokenBootstrap {
 mod tests {
     use super::*;
 
+    #[test]
+    fn an_override_of_streams_per_tunnel_is_capped_by_the_gateway() {
+        let mut service = agent(bootstrap());
+        assert_eq!(service.streams_per_tunnel(128, 512), (128, false));
+        service.limits = Some(AgentLimits {
+            streams_per_tunnel: Some(384),
+        });
+        assert_eq!(service.streams_per_tunnel(128, 512), (384, false));
+        service.limits = Some(AgentLimits {
+            streams_per_tunnel: Some(4096),
+        });
+        assert_eq!(service.streams_per_tunnel(128, 512), (512, true));
+    }
+
     fn bootstrap() -> ServiceAccountTokenBootstrap {
         ServiceAccountTokenBootstrap {
             subject: "system:serviceaccount:proxyauth-agent:proxyauth-agent".into(),
@@ -212,6 +258,7 @@ mod tests {
             server_name: DEFAULT_SERVER_NAME.into(),
             epoch: 0,
             bootstrap: AgentBootstrap::ServiceAccountToken(sa),
+            limits: None,
         }
     }
 

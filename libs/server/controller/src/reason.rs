@@ -28,6 +28,12 @@ weebo_kit_domain::reason_codes! {
         DeprecatedInsecureCert,
         /// Advisory: the finalizer removed the cluster from Redis.
         Deleted,
+        /// A `service: Agent` cluster with no gateway pod holding its tunnel
+        /// (RFC 0012).
+        AgentNoTunnel,
+        /// Advisory: `limits.streams_per_tunnel` is above the gateway's
+        /// maximum and was capped (RFC 0012, decision 27).
+        AgentLimitCapped,
     }
 }
 
@@ -43,14 +49,16 @@ impl Reason for ReasonCode {
             Self::Reconciled
             | Self::RulesRestricted
             | Self::DeprecatedInsecureCert
-            | Self::Deleted => Severity::Advisory,
+            | Self::Deleted
+            | Self::AgentLimitCapped => Severity::Advisory,
             Self::InvalidSpec
             | Self::OidcConfigUnresolved
             | Self::TargetUnreachable
             | Self::ProbeFailed
             | Self::CacheWriteFailed
             | Self::StatusWriteFailed
-            | Self::FinalizerFailed => Severity::Blocking,
+            | Self::FinalizerFailed
+            | Self::AgentNoTunnel => Severity::Blocking,
         }
     }
 }
@@ -65,8 +73,8 @@ mod tests {
     }
 
     #[test]
-    fn the_catalog_has_the_rfc_s_eleven_codes() {
-        assert_eq!(ReasonCode::ALL.len(), 11);
+    fn the_catalog_has_the_eleven_codes_of_rfc_0011_and_two_of_rfc_0012() {
+        assert_eq!(ReasonCode::ALL.len(), 13);
     }
 
     #[test]
@@ -82,6 +90,7 @@ mod tests {
                 &ReasonCode::RulesRestricted,
                 &ReasonCode::DeprecatedInsecureCert,
                 &ReasonCode::Deleted,
+                &ReasonCode::AgentLimitCapped,
             ]
         );
     }

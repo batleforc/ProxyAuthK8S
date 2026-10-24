@@ -200,10 +200,17 @@ impl ProxyKubeApiRuntime for ProxyKubeApi {
     /// Check if the service is reachable
     #[instrument(skip(self, ctx))]
     async fn is_reachable(&self, ctx: Arc<State>) -> Result<bool, ProxyRuntimeError> {
-        // An agent cluster is never probed directly; its reachability is its
-        // tunnels (RFC 0012).
+        // An agent cluster is never probed directly: it is reachable while a
+        // gateway pod holds one of its tunnels (RFC 0012), the presences the
+        // proxy routes by. A presence set that cannot be read counts as none.
         if matches!(self.spec.service, Service::Agent(_)) {
-            return Ok(false);
+            let Some(uid) = self.metadata.uid.as_deref() else {
+                return Ok(false);
+            };
+            return Ok(ctx
+                .agent_presences(uid)
+                .await
+                .is_ok_and(|presences| !presences.is_empty()));
         }
         let ip = match self
             .spec
@@ -828,6 +835,7 @@ mod tests {
                     jwks_from: None,
                 },
             ),
+            limits: None,
         });
         proxy
     }

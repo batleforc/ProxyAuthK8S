@@ -4,17 +4,20 @@
 //! Every [`PRESENCE_REFRESH`], each cluster this pod holds a tunnel for is
 //! checked again against its `ProxyKubeApi`: still there, same UID, still an
 //! `Agent` service, `epoch` not raised. A cluster that passes gets this pod's
-//! name in its presence set, which the proxy reads to route a `CONNECT`; one
+//! name in its presence set, which the proxy reads to route a `CONNECT`, and
+//! a record of its tunnels the controller reads for `status.agent`; one
 //! that fails loses it, and its tunnels are closed. A Redis failure changes
 //! nothing: the presences expire on their own, the tunnels stay up.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use common::agent_gateway::{PRESENCE_REFRESH, PRESENCE_TTL, presence_key};
+use common::agent_gateway::{
+    PRESENCE_REFRESH, PRESENCE_TTL, PresenceInfo, presence_info_key, presence_key,
+};
 use tracing::{info, warn};
 
-use super::listener::{Gateway, current_epoch};
+use super::listener::{Gateway, current_agent};
 
 /// Refresh the presences and close the revoked tunnels, forever.
 pub async fn run(gateway: Arc<Gateway>) {
@@ -30,10 +33,10 @@ pub async fn run(gateway: Arc<Gateway>) {
 pub async fn refresh(gateway: &Gateway) {
     // uid -> the CR's epoch, or `None` once the CR no longer accepts the UID.
     let mut current: HashMap<String, Option<u64>> = HashMap::new();
-    for (identity, _) in gateway.registry.identities() {
+    for (identity, info) in gateway.registry.identities() {
         let key = presence_key(&identity.uid);
-        let epoch = match current_epoch(&gateway.state, &identity).await {
-            Ok(epoch) => Some(epoch),
+        let epoch = match current_agent(&gateway.state, &identity).await {
+            Ok(agent) => Some(agent.epoch),
             Err("redis") => continue,
             Err(reason) => {
                 info!(cluster = %identity.cluster(), reason, "agent tunnels revoked");
@@ -41,12 +44,7 @@ pub async fn refresh(gateway: &Gateway) {
             }
         };
         let published = match epoch {
-            Some(_) => {
-                gateway
-                    .state
-                    .presence_refresh(&key, &gateway.pod, PRESENCE_TTL.as_secs())
-                    .await
-            }
+            Some(_) => publish(gateway, &identity.uid, &info).await,
             None => gateway.state.presence_remove(&key, &gateway.pod).await,
         };
         if let Err(err) = published {
@@ -62,6 +60,28 @@ pub async fn refresh(gateway: &Gateway) {
             Some(None) => true,
             None => false,
         });
+}
+
+/// This pod's record for `status.agent`, then its member in the presence set
+/// the proxy routes by: a member never lacks its record for long.
+async fn publish(
+    gateway: &Gateway,
+    uid: &str,
+    info: &PresenceInfo,
+) -> Result<(), common::redis_pool::RedisPoolError> {
+    let record = serde_json::to_string(info).unwrap_or_default();
+    gateway
+        .state
+        .redis_set(
+            &presence_info_key(uid, &gateway.pod),
+            &record,
+            Some(PRESENCE_TTL.as_secs()),
+        )
+        .await?;
+    gateway
+        .state
+        .presence_refresh(&presence_key(uid), &gateway.pod, PRESENCE_TTL.as_secs())
+        .await
 }
 
 /// At shutdown: withdraw this pod from every presence set and close its

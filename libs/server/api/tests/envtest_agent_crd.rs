@@ -263,3 +263,25 @@ async fn the_epoch_never_decreases() {
 
     let _cleanup = api.delete("agent-epoch", &DeleteParams::default()).await;
 }
+
+/// Decision 27: a per-cluster `streams_per_tunnel` is a positive count; the
+/// cap at the gateway's maximum is the controller's advisory, not admission's.
+#[tokio::test]
+async fn a_streams_per_tunnel_override_is_positive() {
+    let env_test = envtest_or_skip!();
+    let client = env_test.client().expect("client should build");
+    install_crd(client.clone()).await;
+    let api = proxies(client);
+
+    let mut service = agent(bootstrap());
+    service["limits"] = json!({ "streams_per_tunnel": 384 });
+    create(&api, resource("agent-limits", service, private_ca()))
+        .await
+        .expect("a positive override should be admitted");
+    let _cleanup = api.delete("agent-limits", &DeleteParams::default()).await;
+
+    let mut service = agent(bootstrap());
+    service["limits"] = json!({ "streams_per_tunnel": 0 });
+    let err = rejected(&api, resource("agent-limits-zero", service, private_ca())).await;
+    assert!(err.contains("streams_per_tunnel"), "{err}");
+}

@@ -1656,6 +1656,21 @@ spec:
                         format: uint64
                         minimum: 0.0
                         type: integer
+                      limits:
+                        description: Overrides of the gateway's tunnel bounds, for this cluster only
+                        nullable: true
+                        properties:
+                          streams_per_tunnel:
+                            description: |-
+                              Streams one tunnel carries at once, for a cluster with many concurrent
+                              clients (an operator driving it through the proxy). Capped by the
+                              gateway's maxStreamsPerTunnel, with a warning on the CR
+                              Default: the gateway's streamsPerTunnel
+                            format: uint32
+                            minimum: 1.0
+                            nullable: true
+                            type: integer
+                        type: object
                       server_name:
                         default: kubernetes.default.svc
                         description: |-
@@ -1808,6 +1823,35 @@ spec:
           status:
             nullable: true
             properties:
+              agent:
+                description: |-
+                  The agent tunnels of a `service: Agent` cluster (RFC 0012), from the
+                  gateway pods' presences.
+                nullable: true
+                properties:
+                  caFingerprints:
+                    description: SHA-256 of the remote `kube-root-ca.crt`, as the agents report it.
+                    items:
+                      type: string
+                    type: array
+                  gateways:
+                    description: The gateway pods holding them.
+                    items:
+                      type: string
+                    type: array
+                  tunnels:
+                    description: Open tunnels, every gateway pod together.
+                    format: uint32
+                    minimum: 0.0
+                    type: integer
+                  versions:
+                    description: The agents' versions, as they announce them.
+                    items:
+                      type: string
+                    type: array
+                required:
+                - tunnels
+                type: object
               conditions:
                 description: |-
                   `Ready`, then one condition per advisory (RFC 0011). Written by the

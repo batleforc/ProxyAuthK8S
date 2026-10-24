@@ -34,6 +34,52 @@ pub fn presence_key(uid: &str) -> String {
     format!("{}:agent:{uid}", crd::REDIS_PREFIX)
 }
 
+/// Where gateway pod `pod` describes its tunnels of the cluster `uid`, next to
+/// its member in [`presence_key`]; lives [`PRESENCE_TTL`].
+#[must_use]
+pub fn presence_info_key(uid: &str, pod: &str) -> String {
+    format!("{}:{pod}", presence_key(uid))
+}
+
+/// What a gateway pod reports about its tunnels of one cluster, for
+/// `status.agent` (RFC 0012 §6.4).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PresenceInfo {
+    pub tunnels: usize,
+    pub versions: Vec<String>,
+    pub ca_fingerprints: Vec<String>,
+}
+
+impl State {
+    /// The live gateway pods of cluster `uid`, each with what it reported (an
+    /// expired or unreadable record reads as empty).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::redis_pool::RedisPoolError`] when the presence set
+    /// cannot be read.
+    pub async fn agent_presences(
+        &self,
+        uid: &str,
+    ) -> Result<Vec<(String, PresenceInfo)>, crate::redis_pool::RedisPoolError> {
+        let mut presences = Vec::new();
+        for pod in self.presence_members(&presence_key(uid)).await? {
+            if !is_pod_name(&pod) {
+                continue;
+            }
+            let info = self
+                .redis_get(&presence_info_key(uid, &pod))
+                .await
+                .ok()
+                .flatten()
+                .and_then(|json| serde_json::from_str(&json).ok())
+                .unwrap_or_default();
+            presences.push((pod, info));
+        }
+        Ok(presences)
+    }
+}
+
 /// A pod name usable as the first label of a DNS name.
 #[must_use]
 pub fn is_pod_name(name: &str) -> bool {

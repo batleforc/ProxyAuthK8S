@@ -14,6 +14,7 @@ use std::task::{Context, Poll};
 
 use agent_pki::AgentIdentity;
 use agent_proto::mux::{MuxError, MuxHandle};
+use common::agent_gateway::PresenceInfo;
 use futures_util::io::{AsyncRead, AsyncWrite};
 use tokio::sync::watch;
 
@@ -41,6 +42,8 @@ struct Tunnel {
     max_streams: usize,
     /// Set to `true` to ask the connection task to close the tunnel.
     close: watch::Sender<bool>,
+    /// What the agent announced (`AgentInfo`): version, CA fingerprint.
+    info: Option<(String, String)>,
 }
 
 #[derive(Default)]
@@ -58,6 +61,23 @@ pub struct TunnelGuard {
     /// Becomes `true` when the registry wants this tunnel closed (`epoch`
     /// raised, CR deleted, gateway shutting down).
     pub closed: watch::Receiver<bool>,
+}
+
+impl TunnelGuard {
+    /// Record what the agent announced, for `status.agent`.
+    pub fn describe(&self, version: &str, ca_fingerprint: &str) {
+        let mut tunnels = self
+            .registry
+            .tunnels
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(tunnel) = tunnels
+            .get_mut(&self.uid)
+            .and_then(|list| list.iter_mut().find(|tunnel| tunnel.id == self.id))
+        {
+            tunnel.info = Some((version.to_string(), ca_fingerprint.to_string()));
+        }
+    }
 }
 
 impl Drop for TunnelGuard {
@@ -106,6 +126,7 @@ impl TunnelRegistry {
             streams: Arc::new(AtomicUsize::new(0)),
             max_streams,
             close,
+            info: None,
         });
         Ok(TunnelGuard {
             registry: Arc::clone(self),
@@ -144,15 +165,29 @@ impl TunnelRegistry {
         })
     }
 
-    /// Every identity with its number of tunnels, for the presence records.
+    /// One identity per cluster with this pod's presence record: its number of
+    /// tunnels, and what their agents announced.
     #[must_use]
-    pub fn identities(&self) -> Vec<(AgentIdentity, usize)> {
+    pub fn identities(&self) -> Vec<(AgentIdentity, PresenceInfo)> {
         let tunnels = self.tunnels.lock().unwrap_or_else(PoisonError::into_inner);
         tunnels
             .values()
             .filter_map(|list| {
-                list.first()
-                    .map(|first| (first.identity.clone(), list.len()))
+                let first = list.first()?;
+                let mut info = PresenceInfo {
+                    tunnels: list.len(),
+                    ..PresenceInfo::default()
+                };
+                for (version, fingerprint) in list.iter().filter_map(|tunnel| tunnel.info.as_ref())
+                {
+                    info.versions.push(version.clone());
+                    info.ca_fingerprints.push(fingerprint.clone());
+                }
+                for values in [&mut info.versions, &mut info.ca_fingerprints] {
+                    values.sort();
+                    values.dedup();
+                }
+                Some((first.identity.clone(), info))
             })
             .collect()
     }
@@ -315,6 +350,26 @@ pub(crate) mod tests {
             .map(|tunnel| tunnel.streams.load(Ordering::Relaxed))
             .collect();
         assert_eq!(loads, vec![1, 1]);
+    }
+
+    #[tokio::test]
+    async fn identities_report_tunnels_and_what_their_agents_announced() {
+        let registry = TunnelRegistry::new();
+        let first = registry
+            .register(identity("aa"), echo_tunnel(), 4, 8)
+            .unwrap();
+        let second = registry
+            .register(identity("aa"), echo_tunnel(), 4, 8)
+            .unwrap();
+        first.describe("0.4.0", "ab");
+        second.describe("0.4.0", "cd");
+        let identities = registry.identities();
+        let [(_, info)] = identities.as_slice() else {
+            panic!("one cluster: {identities:?}");
+        };
+        assert_eq!(info.tunnels, 2);
+        assert_eq!(info.versions, vec!["0.4.0"]);
+        assert_eq!(info.ca_fingerprints, vec!["ab", "cd"]);
     }
 
     #[tokio::test]
