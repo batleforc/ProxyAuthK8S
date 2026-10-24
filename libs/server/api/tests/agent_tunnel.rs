@@ -1591,8 +1591,9 @@ async fn user_routes_are_not_served_on_the_agent_port() {
     }
 }
 
-/// T19: a presence member that is not a pod name never becomes an address:
-/// the proxy composes `<pod>.<service>:<port>` itself.
+/// T19: a presence member is a pod name, never an address, and it only
+/// routes to a ready pod of the gateway's Service as the Kubernetes API lists
+/// it: here the API cannot be read, so nothing routes, forged or not.
 #[tokio::test]
 async fn a_presence_names_a_gateway_pod_never_an_address() {
     use common::agent_gateway::{GatewayClient, presence_key};
@@ -1601,7 +1602,8 @@ async fn a_presence_names_a_gateway_pod_never_an_address() {
     let state = test_state("https://idp.example.com".to_string());
     let uid = format!("{:08x}-0000-4000-8000-0000000000f1", std::process::id());
     let key = presence_key(&uid);
-    for member in ["attacker.example.com:443", "10.0.0.1", "gw-0.evil"] {
+    let members = ["attacker.example.com:443", "10.0.0.1", "gw-0.evil", "gw-1"];
+    for member in members {
         state.presence_refresh(&key, member, 30).await.unwrap();
     }
     let client = GatewayClient::with(
@@ -1609,23 +1611,9 @@ async fn a_presence_names_a_gateway_pod_never_an_address() {
         8445,
         Some("t0ken".to_string()),
     );
-    assert!(
-        client.route(&state, &uid).await.is_err(),
-        "no pod name, no route"
-    );
-
-    state.presence_refresh(&key, "gw-1", 30).await.unwrap();
-    let client = GatewayClient::with(
-        Some("proxyauth-gateway-pods.proxyauth.svc".to_string()),
-        8445,
-        Some("t0ken".to_string()),
-    );
-    let route = client.route(&state, &uid).await.unwrap();
-    assert_eq!(
-        route.address,
-        "gw-1.proxyauth-gateway-pods.proxyauth.svc:8445"
-    );
-    for member in ["attacker.example.com:443", "10.0.0.1", "gw-0.evil", "gw-1"] {
+    let route = client.route(&state, &uid).await;
+    assert!(route.is_err(), "{route:?}");
+    for member in members {
         drop(state.presence_remove(&key, member).await);
     }
 }
@@ -1728,4 +1716,38 @@ async fn a_jwks_from_change_is_picked_up_and_an_empty_one_refuses() {
             .await,
     );
     delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
+/// §4.2: with `validate_against: Kubernetes`, a cluster without a tunnel is
+/// `503 agent unavailable`, not a `401`: the token could not be reviewed,
+/// it was not refused.
+#[tokio::test]
+async fn token_review_without_a_tunnel_is_agent_unavailable() {
+    let pool = redis_or_skip!();
+    let (ns, cluster) = unique_cluster();
+    let mut proxy = proxy_fixture(&ns, &cluster, "https://unused.example.com");
+    proxy.spec.service = agent_service();
+    proxy.spec.auth_config = Some(harness::kubernetes_auth_config());
+    proxy.metadata.uid = Some(format!(
+        "{:08x}-0000-4000-8000-0000000000e1",
+        std::process::id()
+    ));
+    seed_proxy(&pool, &proxy).await;
+
+    let mut state = test_state("https://idp.example.com".to_string());
+    state.agent_gateway = std::sync::Arc::new(common::agent_gateway::GatewayClient::with(
+        Some("gw.test".to_string()),
+        0,
+        Some("t0ken".to_string()),
+    ));
+    let app = test::init_service(harness::app(state)).await;
+    let request = test::TestRequest::get()
+        .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
+        .insert_header(("authorization", "Bearer some-token"))
+        .to_request();
+    let resp = test::call_service(&app, request).await;
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(body["message"], "agent unavailable");
+    delete_proxy(&pool, &ns, &cluster).await;
 }

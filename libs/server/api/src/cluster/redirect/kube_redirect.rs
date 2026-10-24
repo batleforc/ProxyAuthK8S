@@ -191,6 +191,14 @@ pub async fn redirect(
                 } else {
                     warn!("not counting a server-side auth failure against the caller");
                 }
+                // RFC 0012: no tunnel to review the token through is the
+                // cluster being unavailable, not the token being wrong.
+                if matches!(
+                    e,
+                    crate::model::user::UserAuthError::AgentSelfSubjectReview { status: None, .. }
+                ) {
+                    audited!(audit, agent_unavailable());
+                }
                 audited!(audit, unauthorized("the token could not be validated"));
             }
         }

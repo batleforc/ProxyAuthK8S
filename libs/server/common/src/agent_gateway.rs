@@ -2,9 +2,11 @@
 //! (RFC 0012, decisions 25 and 26).
 //!
 //! A gateway pod publishes, in the presence set of each `ProxyKubeApi` UID it
-//! holds a tunnel for, its pod name. The proxy reads that set, keeps a pod
-//! name that is a DNS label, and composes `<pod>.<service>:<port>` from its
-//! own settings: never an address read from Redis (T19).
+//! holds a tunnel for, its pod name. The proxy reads that set, keeps the pod
+//! names that are ready endpoints of the gateway's headless Service, and
+//! dials the address the Kubernetes API gives for that pod: never an address
+//! read from Redis (T19). A Deployment's pods have no DNS name of their own
+//! (only pods that set `hostname` do), hence the EndpointSlice.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -12,6 +14,8 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use http::{HeaderMap, HeaderValue, header};
+use k8s_openapi::api::discovery::v1::EndpointSlice;
+use kube::api::{Api, ListParams};
 use tracing::warn;
 
 use crate::State;
@@ -119,7 +123,14 @@ impl std::fmt::Debug for GatewayRoute {
 
 struct Presences {
     read_at: Instant,
-    pods: Vec<String>,
+    /// `ip:port` of the gateway pods holding a tunnel.
+    targets: Vec<String>,
+}
+
+struct Endpoints {
+    read_at: Instant,
+    /// Pod name → address, the ready endpoints of the headless Service.
+    by_pod: HashMap<String, String>,
 }
 
 pub struct GatewayClient {
@@ -127,6 +138,7 @@ pub struct GatewayClient {
     port: u16,
     token: Option<String>,
     presences: Mutex<HashMap<String, Presences>>,
+    endpoints: Mutex<Option<Endpoints>>,
     rotation: AtomicUsize,
     /// Tests only: every route goes to this `host:port`.
     #[cfg(feature = "test-util")]
@@ -150,6 +162,7 @@ impl GatewayClient {
             port,
             token,
             presences: Mutex::new(HashMap::new()),
+            endpoints: Mutex::new(None),
             rotation: AtomicUsize::new(0),
             #[cfg(feature = "test-util")]
             fixed_address: Mutex::new(None),
@@ -169,14 +182,15 @@ impl GatewayClient {
             return Err(GatewayError::NotConfigured);
         };
         let cached = self.cached(uid, FRESH);
-        let pods = match cached {
-            Some(pods) => pods,
+        let targets = match cached {
+            Some(targets) => targets,
             None => match state.presence_members(&presence_key(uid)).await {
                 Ok(members) => {
                     let pods: Vec<String> =
                         members.into_iter().filter(|pod| is_pod_name(pod)).collect();
-                    self.store(uid, pods.clone());
-                    pods
+                    let targets = self.resolve(state, &pods).await;
+                    self.store(uid, targets.clone());
+                    targets
                 }
                 Err(error) => {
                     warn!(%error, uid, "could not read the agent presences; using the last ones");
@@ -184,7 +198,63 @@ impl GatewayClient {
                 }
             },
         };
-        self.pick(uid, &pods)
+        self.pick(uid, &targets)
+    }
+
+    /// The addresses of `pods` among the gateway's endpoints; a pod that is
+    /// not one (a forged or stale presence) is dropped.
+    async fn resolve(&self, state: &State, pods: &[String]) -> Vec<String> {
+        #[cfg(feature = "test-util")]
+        if let Some(fixed) = self
+            .fixed_address
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+        {
+            return pods.iter().map(|_| fixed.clone()).collect();
+        }
+        let by_pod = self.endpoints(state).await;
+        pods.iter()
+            .filter_map(|pod| by_pod.get(pod).map(|address| target(address, self.port)))
+            .collect()
+    }
+
+    /// The ready endpoints of the headless Service, reused for a few seconds,
+    /// and for a minute while the apiserver cannot be read.
+    async fn endpoints(&self, state: &State) -> HashMap<String, String> {
+        let cached = |max_age: Duration| {
+            self.endpoints
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_ref()
+                .filter(|entry| entry.read_at.elapsed() < max_age)
+                .map(|entry| entry.by_pod.clone())
+        };
+        if let Some(fresh) = cached(FRESH) {
+            return fresh;
+        }
+        let Some((name, namespace)) = self.service.as_deref().and_then(service_parts) else {
+            return HashMap::new();
+        };
+        let slices: Api<EndpointSlice> = Api::namespaced(state.client.clone(), namespace);
+        let params = ListParams::default().labels(&format!("kubernetes.io/service-name={name}"));
+        match slices.list(&params).await {
+            Ok(list) => {
+                let by_pod = pod_addresses(&list.items);
+                *self
+                    .endpoints
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = Some(Endpoints {
+                    read_at: Instant::now(),
+                    by_pod: by_pod.clone(),
+                });
+                by_pod
+            }
+            Err(error) => {
+                warn!(%error, "could not read the agent gateway's endpoints; using the last ones");
+                cached(STALE).unwrap_or_default()
+            }
+        }
     }
 
     /// The route from the presences already read: what reqwest's
@@ -211,10 +281,10 @@ impl GatewayClient {
         presences
             .get(uid)
             .filter(|entry| entry.read_at.elapsed() < max_age)
-            .map(|entry| entry.pods.clone())
+            .map(|entry| entry.targets.clone())
     }
 
-    fn store(&self, uid: &str, pods: Vec<String>) {
+    fn store(&self, uid: &str, targets: Vec<String>) {
         self.presences
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -222,23 +292,23 @@ impl GatewayClient {
                 uid.to_string(),
                 Presences {
                     read_at: Instant::now(),
-                    pods,
+                    targets,
                 },
             );
     }
 
-    fn pick(&self, uid: &str, pods: &[String]) -> Result<GatewayRoute, GatewayError> {
-        let (Some(service), Some(token)) = (&self.service, &self.token) else {
+    fn pick(&self, uid: &str, targets: &[String]) -> Result<GatewayRoute, GatewayError> {
+        let (Some(_), Some(token)) = (&self.service, &self.token) else {
             return Err(GatewayError::NotConfigured);
         };
-        if pods.is_empty() {
+        if targets.is_empty() {
             return Err(GatewayError::NoTunnel);
         }
         let turn = self.rotation.fetch_add(1, Ordering::Relaxed);
-        let pod = pods
-            .get(turn.checked_rem(pods.len()).unwrap_or(0))
-            .ok_or(GatewayError::NoTunnel)?;
-        let address = self.address(pod, service);
+        let address = targets
+            .get(turn.checked_rem(targets.len()).unwrap_or(0))
+            .ok_or(GatewayError::NoTunnel)?
+            .clone();
         let mut headers = HeaderMap::new();
         let bearer = HeaderValue::from_str(&format!("Bearer {token}"))
             .map_err(|_| GatewayError::NotConfigured)?;
@@ -247,20 +317,45 @@ impl GatewayClient {
         headers.insert(AGENT_HEADER, agent);
         Ok(GatewayRoute { address, headers })
     }
+}
 
-    #[cfg(feature = "test-util")]
-    fn address(&self, pod: &str, service: &str) -> String {
-        self.fixed_address
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-            .unwrap_or_else(|| format!("{pod}.{service}:{}", self.port))
-    }
+/// `<name>.<namespace>.svc` (the settings' form) as its name and namespace.
+fn service_parts(service: &str) -> Option<(&str, &str)> {
+    let mut labels = service.split('.');
+    Some((labels.next()?, labels.next()?))
+}
 
-    #[cfg(not(feature = "test-util"))]
-    fn address(&self, pod: &str, service: &str) -> String {
-        format!("{pod}.{service}:{}", self.port)
+/// `ip:port`, bracketed for IPv6.
+fn target(address: &str, port: u16) -> String {
+    if address.contains(':') {
+        format!("[{address}]:{port}")
+    } else {
+        format!("{address}:{port}")
     }
+}
+
+/// The address of each ready pod of `slices`, by pod name.
+fn pod_addresses(slices: &[EndpointSlice]) -> HashMap<String, String> {
+    slices
+        .iter()
+        .flat_map(|slice| &slice.endpoints)
+        .filter(|endpoint| {
+            endpoint
+                .conditions
+                .as_ref()
+                .and_then(|conditions| conditions.ready)
+                .unwrap_or(true)
+        })
+        .filter_map(|endpoint| {
+            let pod = endpoint
+                .target_ref
+                .as_ref()
+                .filter(|target| target.kind.as_deref() == Some("Pod"))?
+                .name
+                .clone()?;
+            Some((pod, endpoint.addresses.first()?.clone()))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -291,12 +386,36 @@ mod tests {
         }
     }
 
-    /// T19: the address is composed from this replica's settings.
+    /// T19: a presence names a pod; only the ready pods of the gateway's
+    /// Service resolve, to the address its EndpointSlice gives.
     #[test]
     fn a_route_names_a_gateway_pod_never_an_address() {
-        let client = client();
-        let route = client.pick("aa", &["gw-0".to_string()]).unwrap();
-        assert_eq!(route.address, "gw-0.proxyauth-gateway.proxyauth.svc:8445");
+        let slice: EndpointSlice = serde_json::from_value(serde_json::json!({
+            "addressType": "IPv4",
+            "metadata": { "name": "gw-abcde" },
+            "endpoints": [
+                { "addresses": ["10.42.0.11"], "conditions": { "ready": true },
+                  "targetRef": { "kind": "Pod", "name": "gw-0" } },
+                { "addresses": ["10.42.0.12"], "conditions": { "ready": false },
+                  "targetRef": { "kind": "Pod", "name": "gw-1" } },
+                { "addresses": ["10.42.0.13"],
+                  "targetRef": { "kind": "Node", "name": "gw-2" } },
+            ],
+        }))
+        .unwrap();
+        let by_pod = pod_addresses(&[slice]);
+        assert_eq!(by_pod.len(), 1, "{by_pod:?}");
+        assert_eq!(target(&by_pod["gw-0"], 8445), "10.42.0.11:8445");
+        assert_eq!(target("fd00::1", 8445), "[fd00::1]:8445");
+        assert_eq!(
+            service_parts("gw-pods.proxyauth.svc"),
+            Some(("gw-pods", "proxyauth"))
+        );
+
+        let route = client()
+            .pick("aa", &["10.42.0.11:8445".to_string()])
+            .unwrap();
+        assert_eq!(route.address, "10.42.0.11:8445");
         assert_eq!(route.headers[header::PROXY_AUTHORIZATION], "Bearer t0ken");
         assert_eq!(route.headers[AGENT_HEADER], "aa");
         assert!(!format!("{route:?}").contains("t0ken"));

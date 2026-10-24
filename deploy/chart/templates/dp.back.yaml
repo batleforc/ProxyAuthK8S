@@ -25,10 +25,6 @@ spec:
       serviceAccountName: "{{ .Release.Name }}-proxyauthk8s-operator"
       terminationGracePeriodSeconds: {{ add .Values.back.shutdownTimeoutSeconds 15 }}
       automountServiceAccountToken: true
-      {{- if and .Values.agentGateway.enabled (eq .Values.agentGateway.mode "embedded") }}
-      # `<pod>.<headless>`: the address CONNECTs reach this pod's gateway by.
-      subdomain: "{{ include "proxyauthk8s.gateway.headless" . }}"
-      {{- end }}
       {{- include "proxyauthk8s.podSecurityContext" . | nindent 6 }}
       containers:
         - name: proxyauthk8s-back

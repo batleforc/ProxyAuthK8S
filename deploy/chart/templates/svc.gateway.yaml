@@ -1,5 +1,6 @@
 {{- if .Values.agentGateway.enabled }}
-# Headless: one DNS name per gateway pod, for the back's CONNECT (decision 25).
+# Headless: its EndpointSlices give the back each gateway pod's address, for
+# its CONNECT (decision 25).
 apiVersion: v1
 kind: Service
 metadata:

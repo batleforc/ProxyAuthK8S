@@ -19,8 +19,6 @@ spec:
     spec:
       serviceAccountName: "{{ include "proxyauthk8s.gateway.name" . }}"
       automountServiceAccountToken: true
-      # `<pod>.<headless>`: the address the back CONNECTs to.
-      subdomain: "{{ include "proxyauthk8s.gateway.headless" . }}"
       {{- include "proxyauthk8s.podSecurityContext" . | nindent 6 }}
       containers:
         - name: proxyauthk8s-gateway

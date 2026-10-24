@@ -57,8 +57,8 @@ non-default port or through another proxy.
 
 {{/*
 The agent gateway (RFC 0012). Its pods are the gateway Deployment's, or the
-back's in embedded mode; the headless Service gives each one a DNS name,
-`<pod>.<headless>.<namespace>.svc`, which the back composes itself (T19).
+back's in embedded mode; the back finds the pod a presence names among the
+EndpointSlices of the headless Service (T19).
 */}}
 {{- define "proxyauthk8s.gateway.name" -}}
 {{ .Release.Name }}-proxyauthk8s-gateway
