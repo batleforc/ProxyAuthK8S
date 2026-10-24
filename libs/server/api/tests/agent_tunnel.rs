@@ -338,6 +338,19 @@ async fn agent_listener() -> (
     std::sync::Arc<api::agent::registry::TunnelRegistry>,
     std::sync::Arc<agent_pki::AgentCa>,
 ) {
+    let (addr, gateway) = agent_gateway().await;
+    (
+        addr,
+        std::sync::Arc::clone(&gateway.registry),
+        std::sync::Arc::clone(&gateway.ca),
+    )
+}
+
+/// [`agent_listener`], the gateway itself returned.
+async fn agent_gateway() -> (
+    std::net::SocketAddr,
+    std::sync::Arc<api::agent::listener::Gateway>,
+) {
     let state = test_state("https://idp.example.com".to_string());
     let ca = std::sync::Arc::new(agent_pki::AgentCa::generate().unwrap());
     let registry = api::agent::registry::TunnelRegistry::new();
@@ -346,19 +359,15 @@ async fn agent_listener() -> (
     // Every test enrols from the same address, in one shared Redis.
     settings.enroll_per_minute = 10_000;
     settings.enroll_per_minute_total = 10_000;
-    let gateway = api::agent::listener::Gateway::new(
-        state,
-        std::sync::Arc::clone(&registry),
-        std::sync::Arc::clone(&ca),
-        settings,
-        "gw-0".to_string(),
-    );
+    let gateway =
+        api::agent::listener::Gateway::new(state, registry, ca, settings, "gw-0".to_string());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
+    let router = api::agent::listener::router(std::sync::Arc::clone(&gateway));
     tokio::spawn(async move {
-        drop(axum::serve(listener, api::agent::listener::router(gateway)).await);
+        drop(axum::serve(listener, router).await);
     });
-    (addr, registry, ca)
+    (addr, gateway)
 }
 
 /// An agent's side of the tunnel: WebSocket, mutual TLS with `cert_pem` and
@@ -699,4 +708,102 @@ async fn a_bad_proof_is_refused_without_detail() {
 
     delete_proxy(&pool, &identity.namespace, &identity.name).await;
     delete_proxy(&pool, &other_ns, &other).await;
+}
+
+/// T8: a raised `epoch` closes the tunnels of the old certificates at the
+/// next presence round, and a deleted CR withdraws this pod's presence.
+#[tokio::test]
+async fn presences_follow_the_cr_and_revoke_its_tunnels() {
+    use agent_proto::control::{self, Kind};
+    use api::agent::presence;
+    use common::agent_gateway::presence_key;
+
+    let pool = redis_or_skip!();
+    let (addr, gateway) = agent_gateway().await;
+    let identity = seeded_cluster_with_jwks(&pool, 4, None).await;
+    let key = presence_key(&identity.uid);
+    let (cert, agent_key) = agent_cert(&gateway.ca, &identity);
+    let (mut control, _inbound, _) = dial_agent(addr, gateway.ca.cert_pem(), &cert, &agent_key)
+        .await
+        .unwrap();
+    // Registered once `Hello` is sent; give the gateway a moment.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while gateway.registry.identities().is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    presence::refresh(&gateway).await;
+    assert_eq!(
+        gateway.state.presence_members(&key).await.unwrap(),
+        vec!["gw-0"]
+    );
+
+    // `epoch` 4 -> 5: the agent hears why, the tunnel leaves the registry.
+    let mut proxy = proxy_fixture(
+        &identity.namespace,
+        &identity.name,
+        "https://unused.example.com",
+    );
+    proxy.spec.service = agent_service();
+    if let Service::Agent(agent) = &mut proxy.spec.service {
+        agent.epoch = 5;
+    }
+    proxy.metadata.uid = Some(identity.uid.clone());
+    seed_proxy(&pool, &proxy).await;
+    presence::refresh(&gateway).await;
+    let closed = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        control::read(&mut control),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        closed,
+        Kind::Close(control::Close {
+            reason: "revoked".to_string()
+        })
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !gateway.registry.identities().is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    // A tunnel at the new epoch, then the CR deleted: presence withdrawn.
+    let renewed = agent_pki::AgentIdentity {
+        epoch: 5,
+        ..identity.clone()
+    };
+    let (cert, agent_key) = agent_cert(&gateway.ca, &renewed);
+    let (_control, _inbound, _) = dial_agent(addr, gateway.ca.cert_pem(), &cert, &agent_key)
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while gateway.registry.identities().is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    presence::refresh(&gateway).await;
+    assert_eq!(
+        gateway.state.presence_members(&key).await.unwrap(),
+        vec!["gw-0"]
+    );
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+    presence::refresh(&gateway).await;
+    assert!(
+        gateway
+            .state
+            .presence_members(&key)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

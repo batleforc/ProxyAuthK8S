@@ -1048,7 +1048,8 @@ les écarts sont notés ici.
 | 1c-iii passerelle : CA | fait | `api::agent::ca::load_or_create` ; envtest `envtest_agent_ca` (quatre pods en course : une seule CA, jamais remplacée) |
 | 1c-iv passerelle : écoute des agents (WebSocket, mTLS interne, contrôle) | fait | `api::agent::listener` (`Gateway`, `router`, `still_valid`) : axum `ws` (messages bornés à 16 Kio), `WsIo`, TLS mutuel sous la seule CA des agents (certificat serveur réémis chaque jour), identité du certificat comparée au `ProxyKubeApi` de Redis (UID, `epoch`, service `Agent`), contrôle `AgentInfo` puis `Hello`, `Ping`/`Pong`, `RenewRequest` (`epoch` revérifié), 90 s de silence ferment le tunnel ; tests `agent_tunnel` 5/5 (tunnel ouvert, flux, renouvellement ; `epoch` passé et CA étrangère refusés) |
 | 1c-v passerelle : enrôlement `ServiceAccountToken` | fait | `api::agent::enroll` sur le `router` de l'écoute : corps ≤ 16 Kio, limites par adresse (`TRUSTED_PROXY_COUNT`) et totale à la minute (Redis, fermé sans Redis), `ProxyKubeApi` de Redis, JWKS en ligne / `jwks_from` / `jwks_url` (`JwksCache::key_at`), clé par `kid` (`select_key`), `jwt_validator::verify_with_key` (algorithme de la clé, asymétrique seulement, `exp`, `nbf`, `aud`), `sub` ; certificat pour l'identité du CR, jamais celle de la requête ; `401` nu ; tests `agent_tunnel` 7/7 (enrôlement valide ; sujet, audience, expiration, autre clé, jeton illisible, cluster non `Agent` ou absent refusés) |
-| 1c-vi passerelle : présences, rôle, chart | à faire | voir « Reprise », étapes 4 à 6 |
+| 1c-vi passerelle : présences et révocation | fait | `api::agent::presence` : `run` (toutes les `PRESENCE_REFRESH`), `refresh` (le CR relu par `listener::current_epoch` ; présent, même UID, `Agent` : présence publiée ; sinon retirée et tunnels fermés ; `epoch` relevé : tunnels des anciens certificats fermés, un par un ; Redis en panne : rien ne change), `withdraw` à l'arrêt ; le `Close { reason }` d'une fermeture atteint l'agent (le pilote yamux tourne encore 1 s) ; test `agent_tunnel` 8/8 |
+| 1c-vii passerelle : rôle, chart | à faire | voir « Reprise », étapes 5 et 6 |
 | 1c' proxy en `CONNECT` (décision 25) | fait | `common::agent_gateway::GatewayClient` (présences en sorted set Redis à l'heure de Redis, nom de pod validé, `<pod>.<service>:<port>`, cache 5 s, 60 s si Redis tombe) ; `upstream.rs` : `Proxy::custom` + `Proxy::headers`, jamais `None` (une URL `.invalid` à la place, pour qu'aucun repli direct ne soit possible) ; `upgrade/connect.rs` : `CONNECT` envoyé par hyper ; tests de bout en bout `agent_tunnel` (requête et exec à travers passerelle et tunnel jusqu'à un apiserver TLS) et unitaires (T19) |
 | 1d `apps/agent`, image, chart | à faire | |
 | 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
@@ -1078,12 +1079,14 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 | `libs/server/api/src/agent/registry.rs` | `TunnelRegistry` (`register` → `TunnelGuard`, `open_stream`, `identities`, `close_where`) |
 | `libs/server/api/src/agent/connect.rs` | écoute `CONNECT` de la passerelle (`ConnectService`, `serve`) |
 | `libs/server/api/src/agent/ca.rs` | `load_or_create` du Secret de la CA (`create`, relecture sur `409`) |
-| `libs/server/api/src/agent/listener.rs` | écoute des agents : `Gateway::new`, `router` (`/agent/v1/connect`), `still_valid` (réutilisable par les présences) |
+| `libs/server/api/src/agent/listener.rs` | écoute des agents : `Gateway::new`, `router` (`/agent/v1/connect`, `/agent/v1/enroll`), `still_valid`, `current_epoch` |
+| `libs/server/api/src/agent/enroll.rs` | enrôlement `ServiceAccountToken` |
+| `libs/server/api/src/agent/presence.rs` | présences et révocation : `run`, `refresh`, `withdraw` |
 | `libs/server/api/src/cluster/redirect/kube_redirect/{upstream.rs,upgrade/connect.rs}` | le proxy en `CONNECT` (`agent_proxy`, `connect_through_gateway`) |
 | `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
 
 **État du dépôt au moment de l'arrêt** : voir `git status` ; les étapes 1 et
-3 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, puis l'enrôlement).
+4 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, `91161b0`, puis les présences).
 
 **Suite, dans l'ordre** (chaque étape : code, tests, §17 « État », commit) :
 
@@ -1095,11 +1098,8 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
    30 s pour `jwks_from` (`shortcut:` dans le code : borné par
    `enroll_per_minute_total`) ; pas de test de la limite de débit (la clé
    Redis est partagée entre les tests).
-4. **Présences et révocation** (`api/src/agent/presence.rs`) : toutes les
-   `PRESENCE_REFRESH`, `presence_refresh(presence_key(uid), pod, 30)` pour
-   chaque `registry.identities()` ; relire chaque `ProxyKubeApi` et
-   `close_where` si absent, UID différent, `epoch` plus grand ou service qui
-   n'est plus `Agent` (T8) ; `presence_remove` à l'arrêt.
+4. ~~**Présences et révocation** (`api/src/agent/presence.rs`).~~ Fait ;
+   `run` et `withdraw` sont à brancher dans `main.rs` (étape 5).
 5. **Rôle dans `apps/server/src/main.rs`** : `config.agent_gateway.role` ;
    `gateway` : CA, écoute `port`, `CONNECT` sur `connect_port` (refuser de
    démarrer sans `AGENT_GATEWAY_TOKEN`), présences ; `proxy` : comme

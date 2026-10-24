@@ -121,6 +121,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "jsonwebtoken",
  "jwt_validator",
  "k8s-openapi",
  "kube",

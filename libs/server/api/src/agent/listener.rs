@@ -145,10 +145,15 @@ impl Gateway {
             }
             ended
         };
+        let mut driver = std::pin::pin!(driver);
         let ended = tokio::select! {
             ended = session => ended,
-            _ = driver => Err("tunnel closed"),
+            _ = &mut driver => Err("driver"),
         };
+        if ended != Err("driver") {
+            // The `Close` frame is only queued: drive it out, or let the agent hang up.
+            drop(tokio::time::timeout(Duration::from_secs(1), driver).await);
+        }
         match ended {
             Ok(()) => info!(cluster = %identity.cluster(), "agent tunnel closed by the agent"),
             Err(reason) => info!(cluster = %identity.cluster(), reason, "agent tunnel closed"),
@@ -233,6 +238,16 @@ impl Gateway {
 /// Whether `identity` still names its `ProxyKubeApi`: same UID, same `epoch`,
 /// still an `Agent` service (T8).
 pub async fn still_valid(state: &State, identity: &AgentIdentity) -> Result<(), Reason> {
+    if current_epoch(state, identity).await? == identity.epoch {
+        Ok(())
+    } else {
+        Err("epoch")
+    }
+}
+
+/// The `epoch` of the `ProxyKubeApi` `identity` names, or why that CR no
+/// longer accepts the identity's UID (`"redis"` when it cannot be read).
+pub async fn current_epoch(state: &State, identity: &AgentIdentity) -> Result<u64, Reason> {
     let proxy: ProxyKubeApi = state
         .get_object_from_redis(crd::REDIS_PREFIX, &identity.cluster())
         .await
@@ -242,8 +257,7 @@ pub async fn still_valid(state: &State, identity: &AgentIdentity) -> Result<(), 
         return Err("uid");
     }
     match &proxy.spec.service {
-        Service::Agent(agent) if agent.epoch == identity.epoch => Ok(()),
-        Service::Agent(_) => Err("epoch"),
+        Service::Agent(agent) => Ok(agent.epoch),
         _ => Err("not an agent cluster"),
     }
 }

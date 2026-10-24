@@ -5,4 +5,5 @@ pub mod ca;
 pub mod connect;
 pub mod enroll;
 pub mod listener;
+pub mod presence;
 pub mod registry;
