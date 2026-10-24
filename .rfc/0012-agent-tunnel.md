@@ -9,7 +9,7 @@
 | Co-author   | Claude Opus 5.5 (1M context)                                           |
 | Created     | 2026-10-23                                                             |
 | Supersedes  | —                                                                      |
-| Touches     | `apps/agent/` (nouveau), `libs/agent/proto/` (nouveau), `libs/server/crd/src/service/`, `libs/server/api/src/agent/` (nouveau : écoute, enrôlement, registre des tunnels), `libs/server/api/src/cluster/redirect/kube_redirect/{upstream.rs,upgrade/connect.rs}`, `libs/server/api/src/cluster/redirect/audit.rs`, `libs/server/api/src/metrics.rs`, `libs/server/controller/` (CA des agents, jeton d'enrôlement, condition `AgentConnected`), `deploy/chart/`, `deploy/chart-agent/` (nouveau), `deploy/build/agent/Containerfile` (nouveau), CRD générée, `swagger.json`, `.it/`, `tests/integration/`, `docs/content/docs/` |
+| Touches     | `apps/agent/` (nouveau), `libs/agent/proto/` (nouveau), `libs/server/crd/src/service/`, `libs/server/api/src/agent/` (nouveau : passerelle d'agents, décision 26 : écoute, enrôlement, CA, registre des tunnels, `CONNECT`), `libs/agent/pki/` (nouveau), `apps/server/` (rôle `gateway`), `libs/server/api/src/cluster/redirect/kube_redirect/{upstream.rs,upgrade/connect.rs}` (`CONNECT` vers la passerelle, décision 25), `libs/server/api/src/cluster/redirect/audit.rs`, `libs/server/api/src/metrics.rs`, `libs/server/controller/` (CA des agents, jeton d'enrôlement, condition `AgentConnected`), `deploy/chart/`, `deploy/chart-agent/` (nouveau), `deploy/build/agent/Containerfile` (nouveau), CRD générée, `swagger.json`, `.it/`, `tests/integration/`, `docs/content/docs/` |
 | Risk        | high                                                                   |
 
 > Document de référence (environ 7 500 mots) : §1 à §4 suffisent pour en
@@ -67,6 +67,11 @@ flowchart LR
         G -- "octets chiffrés" --> A2["apiserver<br/>(aucun port entrant)"]
     end
 ```
+
+Révisé par les décisions 25 et 26 : l'agent appelle une **passerelle
+d'agents** (un Deployment à part, ou le pod du proxy en mode `embedded`) qui
+tient les tunnels, et le proxy joint la passerelle en `CONNECT`, pod à pod,
+dans le cluster relais ; le TLS proxy↔apiserver traverse les deux.
 
 La flèche nouvellement fiable est la connexion de l'agent vers le proxy :
 c'est elle qu'authentifie le mTLS de l'agent. Le flux en pointillé ne crée
@@ -186,19 +191,36 @@ service:
   à `ca_ref`.
 
 **Côté chart du proxy** (`deploy/chart/values.yaml`), tout est désactivé par
-défaut :
+défaut. Révisé par les décisions 26 et 27 : les tunnels vivent dans une
+**passerelle d'agents**, un Deployment à part (même image, rôle `gateway`),
+ou dans le pod du proxy en mode `embedded` pour une petite installation :
 
 ```yaml
-agentTunnel:
+agentGateway:
   enabled: false
-  port: 8444
-  tlsMode: inner            # inner | passthrough (§5.3)
+  mode: separate              # separate (Deployment) | embedded (dans le pod du proxy)
+  replicaCount: 2
+  port: 8444                  # écoute des agents (enrôlement, tunnels)
+  connectPort: 8445           # CONNECT du proxy, interne au cluster relais, jamais dans un Ingress
+  tlsMode: inner              # inner | passthrough (§5.3)
   ingress: { enabled: false, className: "", host: "", annotations: {} }
-  limits:
-    tunnelsPerAgentIdentity: 16   # tous replicas de l'agent confondus
-    streamsPerTunnel: 512
+  limits:                     # décision 27, toutes réglables
+    tunnelsPerAgentIdentity: 4    # par pod de la passerelle, replicas de l'agent confondus
+    streamsPerTunnel: 128         # 32 Mio de fenêtre yamux au pire par tunnel
+    maxStreamsPerTunnel: 512      # plafond d'une surcharge par cluster
     handshakeTimeoutSeconds: 10
-    enrollPerMinute: 10           # par adresse
+    enrollPerMinute: 10           # par adresse cliente réelle
+    enrollPerMinuteTotal: 120     # tous agents confondus
+```
+
+Côté `ProxyKubeApi`, un cluster qui en a besoin (un opérateur qui pilote le
+cluster enfant à travers le proxy, des clients HTTP/1.1 nombreux) relève sa
+borne, sans dépasser le plafond du chart :
+
+```yaml
+service:
+  Agent:
+    limits: { streams_per_tunnel: 384 }   # ≤ maxStreamsPerTunnel, sinon ramené au plafond et averti
 ```
 
 **Côté chart de l'agent** (`deploy/chart-agent/values.yaml`) :
@@ -244,10 +266,18 @@ replicaCount: 2
   dire « une connexion vers ton `upstream` ». Le proxy fait ensuite son TLS
   avec `cached_tls_config` (`kube_redirect/tls.rs`) et
   `ServerName = server_name`.
-- **Un tunnel par paire (replica de l'agent, réplica du proxy).** Chaque
-  réplica du proxy annonce son identité et le nombre de réplicas vivants (lu
-  dans Redis) ; l'agent se reconnecte à travers le load balancer jusqu'à les
-  couvrir tous, comme Konnectivity.
+- ~~**Un tunnel par paire (replica de l'agent, réplica du proxy).**~~
+  Révisé par la décision 26 : **chaque replica de l'agent tient un tunnel vers
+  un pod de la passerelle**, celui où le load balancer l'envoie (une affinité
+  ne gêne pas). Le pod publie la présence dans Redis
+  (`proxyk8sauth:agent:<uid>:<pod>:<agent>`, TTL 30 s). Un réplica du proxy
+  lit les pods qui tiennent un tunnel pour l'UID et joint l'un d'eux en
+  `CONNECT`, pod à pod, par le nom DNS du Service headless de la passerelle
+  (`<pod>.<service>.<ns>.svc`), jamais par une adresse lue dans Redis
+  (T19). Il en essaie un autre si le premier refuse ; aucun : `503`.
+- **Un rolling update du proxy ne coupe aucun tunnel** : ils vivent dans la
+  passerelle. Une requête en cours sur un réplica arrêté est coupée et
+  retentée par le client, comme aujourd'hui.
 - **Enrôlement** : seulement quand l'agent n'a pas de certificat valide (premier
   démarrage, plus de 24 h hors ligne). Ensuite, renouvellement à 2/3 de la vie
   du certificat, par le canal de contrôle d'un tunnel déjà authentifié.
@@ -290,6 +320,7 @@ le dashboard) :
 | --- | --- | --- | --- | --- |
 | POST | `/agent/v1/enroll` (port `agentTunnel.port`) | jeton d'enrôlement ou jeton de ServiceAccount, dans le corps | un agent pas encore enrôlé | `enrollPerMinute` par adresse, corps ≤ 16 Kio |
 | GET (upgrade WebSocket) | `/agent/v1/connect` (même port) | mTLS : certificat d'agent (§5.3) | un agent enrôlé | `tunnelsPerAgentIdentity`, `handshakeTimeoutSeconds` |
+| CONNECT | `kubernetes.default.svc:443` sur `connectPort` (décision 25) | `Proxy-Authorization: Bearer` (jeton du Secret `proxy-auth-k8s-gateway-token`), en-tête `X-Proxyauth-Agent: <uid>` | les réplicas du proxy, et eux seuls (NetworkPolicy) | un flux yamux par `CONNECT`, sous `streamsPerTunnel` |
 
 Les deux routes vivent sur une écoute à part : aucune n'est servie sur le port
 de l'API utilisateur, et aucune route utilisateur sur ce port. `/agent/v1/enroll`
@@ -445,9 +476,12 @@ WireGuard / Netbird est le cas 1 : la route existe au niveau IP, seul
 - `protocol` est un entier ; un réplica refuse une version qu'il ne connaît pas,
   avec `Close { reason: "protocol" }`.
 
-### 6.3 Côté proxy (`libs/server/api/src/agent/`, nouveau)
+### 6.3 Passerelle et proxy (`libs/server/api/src/agent/`, nouveau)
 
-- `listener.rs` : l'écoute `agentTunnel.port`, axum avec la feature `ws`,
+Révisé par les décisions 25 et 26 : `listener.rs`, `enroll.rs` et
+`registry.rs` sont la passerelle ; le proxy ne garde que le `CONNECT`.
+
+- `listener.rs` : l'écoute `agentGateway.port`, axum avec la feature `ws`,
   `handshakeTimeoutSeconds`, mTLS selon `tlsMode`.
 - `enroll.rs` : `POST /agent/v1/enroll`, vérifie la preuve (§5.2), signe le CSR,
   écrit `agent_enrolled` ou `agent_refused`.
@@ -456,21 +490,28 @@ WireGuard / Netbird est le cas 1 : la route existe au niveau IP, seul
   `open_stream(identity) -> Result<yamux::Stream, AgentUnavailable>`. Il publie
   la présence dans Redis (`proxyk8sauth:agent:<uid>:<réplica>:<agent>`, TTL 30 s)
   et ferme les tunnels dont l'epoch ou l'UID ne correspond plus.
-- `upgrade/connect.rs::connect_upgrade_stream` : pour `Agent`, le `TcpStream`
-  est remplacé par `registry.open_stream`, le TLS qui suit est inchangé.
-- `upstream.rs::build_upstream_client` : pour `Agent`, le client est un
-  `hyper_util::client::legacy::Client` dont le connecteur ouvre un flux yamux
-  puis le TLS (`cached_tls_config`), au lieu d'un `reqwest::Client`. reqwest ne
-  le permet pas : `connector_layer` ne peut que reprendre le `Conn` du
-  connecteur interne, et `Conn` vit dans un module privé `sealed`
-  (`reqwest-0.13.5/src/connect.rs:1338-1348`) ; aucune couche ne peut en
-  fabriquer un (décision 22). `standard.rs` passe par un trait commun aux deux
-  clients, mis en cache par cluster comme aujourd'hui.
+- `connect.rs` (passerelle) : l'écoute `connectPort`, un `CONNECT` par flux :
+  jeton comparé en temps constant, `X-Proxyauth-Agent` lu, `registry.open_stream`,
+  puis `copy_bidirectional` entre la connexion du proxy et le flux yamux ; un
+  `407` sans jeton valide, un `503` sans tunnel pour cet UID.
+- ~~`upgrade/connect.rs` : `registry.open_stream` à la place du `TcpStream`.~~
+  ~~`upstream.rs` : un client `hyper_util` (décision 22).~~ Révisé par la
+  décision 25 : **reqwest passe par la passerelle comme par un proxy
+  `CONNECT`.** Le client du cluster, toujours mis en cache par cluster
+  (`UPSTREAM_CLIENTS`), reçoit `Proxy::custom`, qui choisit le pod de la
+  passerelle pour l'UID (présences Redis, cache local), et `Proxy::headers`,
+  qui porte `Proxy-Authorization` et `X-Proxyauth-Agent`. Le TLS vers
+  l'apiserver (`spec.cert`, `server_name`) passe ensuite dans le tunnel
+  `CONNECT`, comme dans un proxy d'entreprise. Les cinq sites reqwest du relais
+  (`standard.rs`, `virtual_redirect` ×2, `list_fallback` ×2) ne changent pas.
+  `upgrade/connect.rs` envoie son `CONNECT` lui-même, puis fait son TLS actuel.
 
 ### 6.4 Côté contrôleur (`libs/server/controller/`)
 
-- Crée la CA des agents si absente (leader seul ; les autres réplicas attendent
-  le Secret).
+- ~~Crée la CA des agents si absente (leader seul).~~ La passerelle la crée
+  (décision 26) : chaque pod tente un `create` du Secret, l'apiserver n'en
+  laisse passer qu'un, les autres relisent après le `409` ; le proxy ne la lit
+  plus (T12).
 - `OneShotToken` : écrit `<name>-agent-bootstrap` et le hash dans Redis ;
   régénère après consommation si `auto_rotate`, ou sur l'annotation
   `proxyauth.weebo.si.rs/regenerate-bootstrap`.
@@ -554,7 +595,8 @@ sans ingress.
 
 1. `kubectl get pods` sur le cluster en `Agent` (bootstrap
    `ServiceAccountToken`) — succès ; la ligne d'audit porte `upstream_via:
-   agent` ; `status.agent.tunnels` vaut 4 (2 replicas d'agent × 2 réplicas).
+   agent` ; `status.agent.tunnels` vaut 2 (2 replicas d'agent, un tunnel
+   chacun vers un pod de la passerelle, décision 26).
 2. `kubectl exec -- echo ok` et `kubectl port-forward` à travers le tunnel —
    `ok` reçu, le port relayé répond ; les politiques des RFC 0003 et 0004
    s'appliquent (un exec interdit est refusé en `403`).
@@ -587,6 +629,13 @@ sans ingress.
     clé du cluster — l'agent redémarré reçoit `401`, `agent_refused` reason
     `signature` ; le ConfigMap corrigé (ancienne clé fictive et vraie clé),
     l'agent s'enrôle dans les 30 s, sans modification du `ProxyKubeApi`.
+14. Le proxy à 2 réplicas, la passerelle à 2 pods : `kubectl rollout restart`
+    du proxy pendant un `kubectl get pods -w` — `status.agent.tunnels` reste à
+    2, aucune ligne `agent_disconnected` ; le watch coupé avec son réplica est
+    rouvert par kubectl et reçoit l'évènement suivant.
+15. **Refus** : depuis un pod de test du cluster relais, un `CONNECT` vers le
+    `connectPort` de la passerelle sans jeton, puis avec un faux — `407`, et
+    aucun flux ouvert chez l'agent (`proxyauth_agent_streams_total` inchangé).
 
 Hors suite, avec un pointeur dans `MATRIX.md` : la variante `OneShotToken` +
 External Secrets + Vault, `ExternalCA` et l'agent derrière Netbird sont
@@ -622,13 +671,20 @@ la confidentialité), un réplica du proxy compromis.
 
 ```mermaid
 flowchart LR
-    X["Internet<br/>(non fiable)"] -- "B1 : écoute :8444" --> P["proxy"]
+    X["Internet<br/>(non fiable)"] -- "B1 : écoute :8444" --> P["passerelle d'agents"]
     G["agent<br/>(fiable pour la disponibilité seulement)"] -- "B1 : enrôlement, tunnel" --> P
     N["ingress, proxy sortant<br/>(non fiables)"] -. "transportent B1" .- G
-    P -- "B2 : TLS dans le flux" --> A["apiserver"]
+    Q["proxy (réplicas)"] -- "B5 : CONNECT pod à pod<br/>(jeton, NetworkPolicy)" --> P
+    Q -. "B2 : TLS dans le CONNECT puis le flux" .-> A["apiserver"]
     G -- "B3 : TCP fixe" --> A
     P -- "B4 : CA, présences" --> R["Secret CA, Redis"]
+    Q -- "B4 : présences (lecture)" --> R
 ```
+
+Révisé par la décision 26 : la passerelle (`P`) tient l'écoute des agents, la
+CA et les tunnels ; le proxy (`Q`) la joint par B5, lit les présences et ne
+lit plus la CA. B2 part du proxy : ni la passerelle ni l'agent ne le
+terminent.
 
 | # | Threat (STRIDE) | Where | Mitigation | Residual risk |
 | --- | --- | --- | --- | --- |
@@ -641,12 +697,14 @@ flowchart LR
 | T7 | Spoofing : jeton de ServiceAccount d'un autre SA, d'une autre audience, ou expiré | B1 | `sub`, `aud`, `exp` et signature vérifiés (`enroll.rs`) | un attaquant qui peut créer un jeton pour ce SA sur le cluster distant est déjà admin de ce cluster |
 | T8 | Elevation : un certificat révoqué reste utilisable | B1 | durée 24 h ; epoch et UID vérifiés à chaque connexion et renouvellement ; tunnels fermés en ≤ 30 s ; `epoch` ne peut pas baisser (CEL) | aucun au-delà de 30 s |
 | T9 | Info disclosure : l'ingress ou un proxy sortant capture la preuve d'enrôlement | B1 | la preuve est à usage unique (`OneShotToken`) ou courte et liée à une audience (jeton projeté, 10 min) ; jamais le certificat ni la clé, qui restent dans le mTLS | un ingress hostile pendant la fenêtre d'enrôlement enrôle un agent hostile ; voir T3 ; accepté (mainteneur) |
-| T10 | DoS : flot de connexions ou d'enrôlements sur `:8444` | B1 | `handshakeTimeoutSeconds`, `enrollPerMinute` par adresse, corps ≤ 16 Kio, aucune lecture Redis avant le mTLS | saturation réseau en amont du proxy ; hors périmètre |
-| T11 | DoS : un agent légitime ouvre des tunnels ou des flux sans fin | B1 | `tunnelsPerAgentIdentity`, `streamsPerTunnel`, fenêtre yamux par flux, messages de contrôle ≤ 64 Kio | aucun |
-| T12 | Elevation : vol de la clé de la CA des agents | B4 | Secret lisible par le ServiceAccount du proxy seul (`rbac.operator`, `resourceNames`) ; jamais loggée | un voleur émet des identités d'agent ; voir T3 ; rotation par nouvelle CA et `epoch` de tous les clusters |
+| T10 | DoS : flot de connexions ou d'enrôlements sur `:8444` | B1 | `handshakeTimeoutSeconds`, `enrollPerMinute` par adresse cliente **réelle** (`X-Forwarded-For` lu avec `TRUSTED_PROXY_COUNT`, sans quoi tous les agents derrière l'ingress partagent une adresse), `enrollPerMinuteTotal`, corps ≤ 16 Kio, aucune lecture Redis avant le mTLS (décision 27) | saturation réseau en amont de la passerelle ; hors périmètre |
+| T11 | DoS : un agent légitime ouvre des tunnels ou des flux sans fin | B1 | `tunnelsPerAgentIdentity` (4 par pod), `streamsPerTunnel` (128), fenêtre yamux de 256 Kio par flux : 32 Mio au pire par tunnel, 128 Mio par identité et par pod (décision 27 ; 2 Gio avec les bornes de départ) ; messages de contrôle ≤ 64 Kio | une surcharge par cluster relève la borne jusqu'au plafond du chart ; accepté (mainteneur) |
+| T12 | Elevation : vol de la clé de la CA des agents | B4 | Secret lisible par le ServiceAccount de **la passerelle** seul (`resourceNames`) ; le proxy, exposé aux utilisateurs, ne la lit plus (décision 26) ; jamais loggée | un voleur émet des identités d'agent : il ne lit rien (T3), mais ses tunnels attirent du trafic qu'il coupe (disponibilité) ; rotation par nouvelle CA et `epoch` de tous les clusters |
 | T13 | Tampering : SSRF par `jwks_url` | B4 | `https` seulement, aucune redirection suivie, 64 Kio, 5 s, réponse lue comme JWKS uniquement | le même que `ExternalService.url` aujourd'hui : un locataire fait émettre un `GET` par le proxy ; accepté (mainteneur) |
 | T14 | Repudiation : enrôlement ou tunnel sans trace | P | `agent_enrolled`, `agent_refused`, `agent_connected`, `agent_disconnected` ; `upstream_via` sur chaque requête | aucun |
 | T15 | Info disclosure : l'écoute de l'agent sert l'API utilisateur, ou l'inverse | B1 | routeurs axum distincts sur des ports distincts | aucun |
+| T18 | Elevation : un pod du cluster relais autre que le proxy se sert du `CONNECT` de la passerelle pour joindre les apiservers enfants | B5 | `Proxy-Authorization` (Secret `proxy-auth-k8s-gateway-token`, lisible par le seul ServiceAccount du proxy, comparé en temps constant) ; NetworkPolicy : `connectPort` n'accepte que les pods du proxy ; `connectPort` jamais dans un Ingress ni un Service exposé | il lui faudrait encore les identifiants de l'apiserver, comme pour un apiserver exposé ; accepté (mainteneur, décision 26) |
+| T19 | Tampering : une présence forgée dans Redis envoie le `CONNECT`, et son jeton, à une machine hostile | B4 | la présence ne porte qu'un nom de pod, validé comme label DNS ; le proxy compose `<pod>.<service headless>.<ns>.svc`, jamais une adresse lue dans Redis ; un mauvais pod n'a pas le tunnel et répond `503` ; le TLS de l'apiserver (`spec.cert`) refuse tout autre pair | qui écrit dans Redis rend un cluster indisponible ; il ne reçoit ni le jeton ni le trafic |
 | T16 | Spoofing : vol de la clé d'agent dans `identitySecret` (`OneShotToken`) | cluster distant | Secret lisible par le seul ServiceAccount de l'agent et les admins du cluster distant ; `epoch` pour révoquer | un voleur prend la place de l'agent : voir T3, il ne lit rien ; accepté (mainteneur) |
 | T17 | Tampering : qui écrit la source de `jwks_from` (le ConfigMap, ou le chemin Vault qui l'alimente) choisit les clés acceptées et enrôle un agent hostile | B4 | même politique de namespaces que `spec.cert` ; le `subject` et l'`audience` restent ceux de la CRD ; JWKS borné à 64 Kio, vide ou illisible = refus ; `agent_enrolled` audité | celui qui écrit ce ConfigMap ou ce chemin Vault enrôle un agent, qui ne lit rien (T3) ; accepté (mainteneur, décision 24) |
 
@@ -695,7 +753,8 @@ flowchart LR
   `/agent/v1/enroll` (`enrollPerMinute` par adresse, vérification de
   signature avant toute écriture).
 - Un agent authentifié est borné par `tunnelsPerAgentIdentity` et
-  `streamsPerTunnel` ; un flux yamux a une fenêtre de 256 Kio.
+  `streamsPerTunnel` ; un flux yamux a une fenêtre de 256 Kio (décision 27 :
+  32 Mio au pire par tunnel avec les défauts).
 
 ### 7.6 Existing defences that still hold
 
@@ -717,7 +776,7 @@ flowchart LR
 | `tokio-socks` | 0.5.3 (2026-05) | client SOCKS5 avec authentification | MIT | à confirmer en phase 2 | 3,9 M |
 | `axum` feature `ws` | 0.8.9, déjà là | upgrade WebSocket côté proxy | MIT | inchangé | inchangé |
 | `rcgen` | 0.14.10, passe de dépendance de test à dépendance de `api` | émission des certificats d'agent | MIT OR Apache-2.0 | inchangé | inchangé |
-| `x509-parser`, `jsonwebtoken`, `prost`, `hyper`, `hyper-util` (`client-legacy`), `rand` | déjà dans `Cargo.lock` | CSR, jetons de ServiceAccount, canal de contrôle, `CONNECT`, client upstream des clusters en `Agent`, jeton | inchangé | inchangé | inchangé |
+| `x509-parser`, `jsonwebtoken`, `prost`, `hyper`, `rand` | déjà dans `Cargo.lock` | CSR, jetons de ServiceAccount, canal de contrôle, `CONNECT`, jeton ; `hyper-util` (`client-legacy`) n'est plus nécessaire (décision 25) : le proxy de reqwest fait le `CONNECT` | inchangé | inchangé | inchangé |
 | image de l'agent | distroless statique, épinglée par digest | image finale sans shell | Apache-2.0 | `trivy` dans `task audit` | updatecli |
 | tinyproxy, microsocks (banc seulement) | épinglées dans `.it/images.lock` | proxys sortants de §6.P | GPL-2.0 / MIT, jamais livrées | `trivy` sur le banc | à choisir en phase 3 |
 
@@ -778,6 +837,9 @@ flowchart LR
 | aucun tunnel pour un cluster | `registry.open_stream` | **fermé** : `503 agent unavailable`, jamais de connexion directe | l'agent se reconnecte (backoff 1 s à 60 s) |
 | tunnel coupé pendant un flux | yamux | le flux est coupé, le client k8s retente | automatique |
 | Redis injoignable | erreurs du pool | les tunnels déjà ouverts servent ; enrôlement `OneShotToken` **refusé** (pas de `GETDEL`) ; statut figé | automatique |
+| pod de la passerelle arrêté | présence expirée (≤ 30 s) ou `CONNECT` refusé | les agents qu'il portait se reconnectent ailleurs (backoff 1 s à 60 s) ; le proxy essaie un autre pod de la présence, sinon `503` | automatique |
+| Redis injoignable, côté proxy | erreurs du pool | le cache local des présences (60 s) sert, puis `503` : jamais de connexion directe | automatique |
+| rolling update du proxy | — | aucun tunnel coupé ; les requêtes en cours sur un réplica arrêté sont retentées par le client | automatique |
 | JWKS par URL injoignable | délai de 5 s | le cache de 10 min sert ; au-delà, enrôlement **refusé** | automatique |
 | source de `jwks_from` absente, vide ou illisible | lecture à l'enrôlement | enrôlement **refusé** (reason `jwks`), Event `Warning` ; les tunnels déjà ouverts servent | corriger le ConfigMap ou le Secret, relu dans les 30 s |
 | Secret de la CA absent ou illisible | démarrage de l'écoute | l'écoute refuse toute connexion ; `AgentConnected=False` reason `Refused` | le leader le recrée ; une CA recréée oblige à réenrôler |
@@ -794,8 +856,13 @@ chemin que son tunnel.
   `reqwest` réutilisé, ce coût est payé une fois par connexion du pool. À
   mesurer sur le banc en phase 3 (`kubectl get pods`, médiane avec et sans
   agent).
-- Mémoire : une fenêtre yamux de 256 Kio par flux actif au plus ; 512 flux
-  font 128 Mio au pire par tunnel, d'où `streamsPerTunnel`.
+- Mémoire : une fenêtre yamux de 256 Kio par flux actif au plus ; 128 flux
+  font 32 Mio au pire par tunnel (décision 27 ; 512 en faisaient 128 Mio).
+- Tunnels : M clusters × A replicas d'agent, quel que soit le nombre de
+  réplicas du proxy (décision 26) ; 50 clusters et 2 agents font 100
+  WebSockets, répartis sur les pods de la passerelle.
+- Un saut de plus, pod à pod dans le cluster relais (moins d'une
+  milliseconde), entre le proxy et la passerelle.
 - Débit : un `port-forward` passe par trois couches de TLS en `inner` ; à
   mesurer, sans engagement chiffré avant la phase 3.
 
@@ -830,6 +897,11 @@ chemin que son tunnel.
 | CA de l'apiserver remontée par l'agent | un agent compromis ferait l'homme du milieu (T4, décision 14) |
 | Exposer l'apiserver avec un filtre IP | voir §2.2 |
 | VPN (Netbird) côté proxy pour chaque cluster | reste possible (« Support Proxy ») ; coûte un pair et une configuration réseau par cluster |
+| Un tunnel par paire (replica d'agent, réplica du proxy), à la Konnectivity | derrière un load balancer à affinité non configurable, l'agent retombe toujours sur le même réplica et n'atteint jamais les autres : `503` sur tous les réplicas sans tunnel ; chaque rolling update du proxy coupe tous les tunnels (décision 26, remplace la 7) |
+| Exiger un load balancer sans affinité | l'opérateur n'a pas toujours la main sur son load balancer (cas réel du mainteneur) |
+| Router l'agent vers un réplica choisi par un en-tête, à l'ingress | peu d'ingress savent le faire, et pas ceux du mainteneur |
+| Client `hyper-util` dans le proxy (décision 22) | il fallait réécrire les cinq sites reqwest du relais (en-têtes, refus des redirections, timeout par requête, bornes de corps) autour d'un type commun : des contrôles déjà prouvés, réécrits dans le chemin chaud ; le `CONNECT` de reqwest les garde tels quels (décision 25) |
+| Une socket Unix par cluster, que reqwest joint par `unix_socket()` | un objet local de plus par cluster et par réplica, et il laisse entier le problème de l'affinité (décision 25) |
 | Ne rien faire | les clusters non exposés restent hors du proxy |
 
 ---
@@ -886,6 +958,10 @@ chemin que son tunnel.
   - T16 `the_agent_rbac_is_limited_to_its_identity_secret` (rendu du chart,
     `helm template` : un seul `resourceNames`, aucun `create`)
   - T17 `a_jwks_from_change_is_picked_up_and_an_empty_one_refuses`
+  - T18 `a_connect_without_the_proxy_token_is_refused`
+  - T19 `a_presence_names_a_gateway_pod_never_an_address`
+- **Unit** (décision 27) : une surcharge par cluster au-delà du plafond est
+  ramenée au plafond et avertie ; la limite d'enrôlement lit l'adresse réelle.
 - **Unit** (`libs/server/api/src/agent/`, décision 24) : choix de la clé par
   `kid`, relecture d'une URL sur `kid` inconnu au plus une fois par minute.
 - **Fuzz** : messages de contrôle, corps d'enrôlement.
@@ -911,7 +987,7 @@ Tranchées au `/grill-me` du 2026-10-23.
 | 4 | Qui s'authentifie à l'apiserver | **Rien ne change** : jeton de l'utilisateur et `client_cert` dans un TLS de bout en bout ; l'agent est un tuyau opaque. |
 | 5 | Authentification de l'agent | **Enrôlement, puis mTLS** avec un certificat court lié à un seul `ProxyKubeApi`. |
 | 6 | Livrable de la session | **La RFC seule**, en Draft, avec ses index ; pas de code. |
-| 7 | Plusieurs réplicas du proxy | **Un tunnel par paire (replica d'agent, réplica du proxy)**, comme Konnectivity ; pas de saut entre réplicas ni de routage dans Redis. |
+| 7 | Plusieurs réplicas du proxy | ~~**Un tunnel par paire (replica d'agent, réplica du proxy)**, comme Konnectivity ; pas de saut entre réplicas ni de routage dans Redis.~~ Remplacée par la décision 26. |
 | 8 | Déclaration dans la CRD | **`spec.service: Agent`** ; un binaire `apps/agent`, sa propre image et son chart. |
 | 9 | CA des agents | **CA dédiée** générée par le contrôleur, certificats de 24 h, URI SAN `proxyauth://ns/nom/uid`, renouvellement à 2/3 par le canal de contrôle. |
 | 10 | Révocation | **Pas de CRL** : durée courte, contrôle à chaque connexion et renouvellement, champ `epoch`. |
@@ -926,9 +1002,12 @@ Tranchées au `/grill-me` du 2026-10-23.
 | 19 | Preuve sans deuxième cluster | **Un seul cluster k3d**, l'agent dans `it-remote` ; preuves par l'audit, l'agent coupé et l'`epoch`. |
 | 20 | Sortie par proxy | **`CONNECT` et SOCKS5**, tous deux dans la suite ; Netbird documenté hors suite avec `caBundle`. La recommandation (sans SOCKS5) a été écartée : le mainteneur a les deux. |
 | 21 | Où l'agent garde son certificat en `OneShotToken` | **Dans un Secret du cluster distant, en lecture-écriture** pour l'agent (`get`, `update`, `patch`, `resourceNames`), créé par le chart et partagé par les replicas ; en mémoire seulement en `ServiceAccountToken`, qui reste sans RBAC. Sans lui, chaque redémarrage et chaque replica consommerait un jeton. Tranchée après la rédaction, le 2026-10-23. |
-| 22 | Le client upstream des clusters en `Agent` | **`hyper-util`** (`client::legacy::Client` et un connecteur yamux + `tokio-rustls`), pas reqwest : `Conn` est scellé, `connector_layer` ne peut pas l'imiter. Deux POC le prouvent (2026-10-23, §6.6) : en mémoire (pool, flux brut, mauvais `server_name` refusé, jamais le jeton en clair chez l'agent), puis contre k3s 1.35.9 (HTTP/2, certificat client, exec, port-forward, watch, logs, mTLS de l'agent). |
+| 22 | Le client upstream des clusters en `Agent` | Remplacée par la décision 25. ~~**`hyper-util`** (`client::legacy::Client` et un connecteur yamux + `tokio-rustls`), pas reqwest : `Conn` est scellé, `connector_layer` ne peut pas l'imiter. Deux POC le prouvent (2026-10-23, §6.6) : en mémoire (pool, flux brut, mauvais `server_name` refusé, jamais le jeton en clair chez l'agent), puis contre k3s 1.35.9 (HTTP/2, certificat client, exec, port-forward, watch, logs, mTLS de l'agent).~~ |
 | 23 | Version de `tokio-tungstenite` | **0.29.0**, celle de la feature `ws` d'axum 0.8.9. |
 | 24 | JWKS d'un émetteur interne, rotation, GitOps | **Une troisième source, `jwks_from`** (ConfigMap ou Secret, cache 30 s), à côté de `jwks` et `jwks_url` ; clé choisie par `kid`, URL relue sur `kid` inconnu ; CronJob `jwksPublisher` optionnel dans le chart de l'agent, sous son propre ServiceAccount, pour la chaîne External Secrets + Vault. Rejeté : le JWKS fourni par l'agent lui-même (il s'auto-attesterait, contraire au principe de T4). T17 ajouté. Tranchée le 2026-10-24, après l'acceptation : un émetteur interne (kubeadm, k3s, le cas de ce mode) n'avait que `jwks` en ligne, cassé par la moindre rotation. |
+| 25 | Comment le proxy fait passer ses requêtes dans un tunnel | **reqwest par un proxy `CONNECT`** : la passerelle (décision 26) est un proxy `CONNECT` authentifié ; `Proxy::custom` choisit le pod pour l'UID, `Proxy::headers` porte `Proxy-Authorization` et `X-Proxyauth-Agent` (reqwest 0.13.5) ; `upgrade/connect.rs` envoie son `CONNECT` lui-même. Le TLS vers l'apiserver passe dans le tunnel `CONNECT`, inchangé. Rejetés : `hyper-util` (réécriture des cinq sites reqwest du chemin chaud et de leurs contrôles), une socket Unix par cluster (objet local de plus, et l'affinité reste entière). Remplace la décision 22. Tranchée le 2026-10-24, pendant la phase 1. |
+| 26 | Couvrir tous les réplicas du proxy derrière un load balancer à affinité non configurable | **Une passerelle d'agents** : un Deployment à part (même image, rôle `gateway` ; mode `embedded` dans le pod du proxy pour une petite installation) tient les tunnels, l'enrôlement et la CA ; chaque replica de l'agent tient un tunnel vers le pod où le load balancer l'envoie ; le pod publie la présence dans Redis ; le proxy joint ce pod en `CONNECT`, pod à pod, par le DNS du Service headless. Un rolling update du proxy ne coupe plus les tunnels ; la clé de la CA quitte le proxy (T12). T18 et T19 ajoutés. Rejetés : un load balancer sans affinité exigé (pas toujours configurable), un routage par en-tête à l'ingress (pas d'ingress capable), un relais entre réplicas du proxy (le même saut, sans les deux avantages). Remplace la décision 7. Proposée par le mainteneur le 2026-10-24. |
+| 27 | Bornes des tunnels et de l'enrôlement | **Toutes réglables dans le chart**, avec des défauts resserrés : 128 flux par tunnel (32 Mio de fenêtre au pire), 4 tunnels par identité et par pod ; une **surcharge par cluster** (`spec.service.Agent.limits`) bornée par `maxStreamsPerTunnel`, pour un opérateur qui pilote un cluster enfant à travers le proxy ; enrôlement limité par l'adresse cliente réelle (`X-Forwarded-For`, `TRUSTED_PROXY_COUNT`) et par `enrollPerMinuteTotal`. Les bornes de départ laissaient 2 Gio de fenêtre par identité. Tranchée le 2026-10-24. |
 
 ### Still open
 
@@ -940,7 +1019,7 @@ Aucune.
 
 | Phase | Content |
 | --- | --- |
-| 1 | Le chemin complet en `ServiceAccountToken` (les trois sources de JWKS) et `tlsMode: inner` : CRD (`Agent`, CEL, statut), `libs/agent/proto`, écoute, enrôlement, CA, registre des tunnels, branchement dans `upstream.rs` et `upgrade/connect.rs`, `epoch`, limites, audit, métriques, binaire, image et chart de l'agent, tests unitaires, d'intégration et de sécurité (T1 à T15, T17), cibles de fuzz. Utile seul : un cluster non exposé devient proxifiable. |
+| 1 | Le chemin complet en `ServiceAccountToken` (les trois sources de JWKS) et `tlsMode: inner` : CRD (`Agent`, CEL, statut, `limits`), `libs/agent/proto`, `libs/agent/pki`, **la passerelle** (rôle `gateway`, modes `separate` et `embedded` : écoute, enrôlement, CA, registre, présences, `CONNECT` authentifié), le proxy en `CONNECT` (`Proxy::custom` dans `upstream.rs`, `upgrade/connect.rs`), `epoch`, limites (décision 27), audit, métriques, binaire, image et chart de l'agent, tests unitaires, d'intégration et de sécurité (T1 à T15, T17 à T19), cibles de fuzz. Utile seul : un cluster non exposé devient proxifiable. |
 | 2 | `OneShotToken` (avec `auto_rotate` et le Secret d'identité de la décision 21, T16), `tlsMode: passthrough`, sortie `CONNECT` et SOCKS5, CronJob `jwksPublisher` (décision 24). |
 | 3 | Banc : agent dans `it-remote`, tinyproxy et microsocks, `rfc0012.rs`, lignes de `MATRIX.md`, retrait de `PENDING` ; mesures de §10.3 ; documentation. |
 | 4 | `ExternalCA` (cert-manager, Vault PKI), hors suite. |
@@ -965,7 +1044,8 @@ les écarts sont notés ici.
 | 1a' fermeture des chemins directs | fait | relais `503 agent unavailable` (`agent_tunnel.rs`), sonde `is_reachable` à `false`, `to_kubeconfig` refusé (`ReachedThroughAgent`) ; tests `crd_runtime` 2/2, `agent_tunnel` 1/1 |
 | 1b `libs/agent/proto` : adaptateur WebSocket, messages de contrôle, pilote yamux | fait | crate `agent_proto` ; `ws_io` (trames binaires de 16 Kio au plus, une trame texte échoue), `control` (7 messages, bornés à 64 Kio avant lecture), `mux` (un pilote, des poignées) ; 11 tests ; `task audit` vert avec `yamux` 0.14.1 et `tokio-tungstenite` 0.29.0 |
 | 1c-i PKI des agents | fait | crate `agent_pki` : `AgentIdentity`, `AgentCa` (P-256, 10 ans), certificat d'agent (24 h) depuis la seule clé publique du CSR, certificat serveur du tunnel (7 jours) ; 7 tests |
-| 1c proxy : création de la CA, enrôlement, écoute, registre, connecteur | à faire | |
+| 1c passerelle (décision 26) : CA, enrôlement, écoute, registre, présences, `CONNECT` | à faire | `AgentTunnelSettings` (non commité) sera renommé en réglages de la passerelle |
+| 1c' proxy en `CONNECT` (décision 25) | à faire | |
 | 1d `apps/agent`, image, chart | à faire | |
 | 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
 
