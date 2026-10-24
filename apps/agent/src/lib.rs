@@ -8,6 +8,8 @@
 //! every stream the gateway opens to its one `upstream`, the local apiserver,
 //! without reading a byte: the TLS to the apiserver is the proxy's.
 
+mod store;
+
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
@@ -62,8 +64,12 @@ pub struct Config {
     pub ca_bundle: Option<String>,
     /// The one destination: `host:port` of the local apiserver.
     pub upstream: String,
-    /// The projected ServiceAccount token (`aud` = the CR's audience).
+    /// The enrolment proof: the projected ServiceAccount token (`aud` = the
+    /// CR's audience), or the `OneShotToken` from `tokenSecret`.
     pub token_path: PathBuf,
+    /// `AGENT_BOOTSTRAP_METHOD=OneShotToken`: the identity Secret the
+    /// replicas share; `None` (`ServiceAccountToken`): memory only.
+    pub store: Option<store::IdentityStore>,
     /// The local cluster's CA, whose SHA-256 the agent reports.
     pub kube_ca_path: Option<PathBuf>,
     /// How the agent reaches the proxy (§5.4).
@@ -292,6 +298,15 @@ impl Config {
             }
             Some(other) => return Err(format!("AGENT_TLS_MODE `{other}`: inner or passthrough")),
         };
+        let store = match var("AGENT_BOOTSTRAP_METHOD").as_deref() {
+            None | Some("ServiceAccountToken") => None,
+            Some("OneShotToken") => Some(store::IdentityStore::from_lookup(var)?),
+            Some(other) => {
+                return Err(format!(
+                    "AGENT_BOOTSTRAP_METHOD `{other}`: ServiceAccountToken or OneShotToken"
+                ));
+            }
+        };
         let egress = Egress::from_lookup(var, proxy_url.host_str().unwrap_or_default())?;
         Ok(Self {
             proxy_url,
@@ -301,6 +316,7 @@ impl Config {
             token_path: var("AGENT_TOKEN_PATH")
                 .unwrap_or_else(|| "/var/run/secrets/proxyauth/token".to_string())
                 .into(),
+            store,
             kube_ca_path: var("AGENT_KUBE_CA_PATH").map(PathBuf::from),
             egress,
             tls_mode,
@@ -375,7 +391,8 @@ fn unix_now() -> i64 {
 }
 
 /// The agent's identity: its key, the certificate the gateway issued for it,
-/// and the agent CA that anchors the tunnel TLS. Memory only.
+/// and the agent CA that anchors the tunnel TLS. In memory, and in the
+/// identity Secret with `OneShotToken`.
 struct Identity {
     key: AgentKey,
     cert_pem: String,
@@ -392,6 +409,12 @@ impl Identity {
             i64::try_from(agent_pki::AGENT_CERT_LIFETIME.as_secs() / 3).unwrap_or(0),
         );
         Duration::from_secs(u64::try_from(renew_at.saturating_sub(unix_now())).unwrap_or(0))
+    }
+
+    /// Still good for a tunnel, a renewal due or not: a `OneShotToken` agent
+    /// renews over its tunnel rather than spend a token.
+    fn usable(&self) -> bool {
+        self.not_after > unix_now().saturating_add(60)
     }
 
     /// This agent's certificate and key, as a TLS client presents them.
@@ -483,9 +506,16 @@ pub async fn run(config: Config, health: Arc<Health>) {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .as_ref()
-            .is_none_or(|current| current.renew_in().is_zero());
+            .is_none_or(|current| match config.store {
+                Some(_) => !current.usable(),
+                None => current.renew_in().is_zero(),
+            });
         let ended = if expired {
-            match enroll(&config, &http).await {
+            let obtained = match &config.store {
+                Some(store) => obtain(&config, &http, store).await,
+                None => enroll(&config, &http).await,
+            };
+            match obtained {
                 Ok(enrolled) => {
                     health
                         .cert_not_after
@@ -505,6 +535,16 @@ pub async fn run(config: Config, health: Arc<Health>) {
         if reason == "revoked" {
             *identity.lock().unwrap_or_else(PoisonError::into_inner) = None;
             health.cert_not_after.store(0, Ordering::Relaxed);
+            // No replica may reuse it: the next one needs a new token.
+            if let Some(store) = &config.store {
+                let cleared = match store.load().await {
+                    Ok((secret, _)) => store.save(secret, serde_json::json!({})).await,
+                    Err(reason) => Err(reason),
+                };
+                if !matches!(cleared, Ok(true)) {
+                    warn!("the revoked identity is still in the identity Secret");
+                }
+            }
         }
         health.reconnected(reason);
         if was_up {
@@ -516,13 +556,46 @@ pub async fn run(config: Config, health: Arc<Health>) {
     }
 }
 
+/// `OneShotToken`: the identity the Secret holds, else a new one, written
+/// there unless another replica was first; then the winner's.
+async fn obtain(
+    config: &Config,
+    http: &reqwest::Client,
+    store: &store::IdentityStore,
+) -> Result<Identity, Reason> {
+    let (secret, stored) = store.load().await?;
+    if let Some(stored) = stored.filter(Identity::usable) {
+        info!("agent identity read from its Secret");
+        return Ok(stored);
+    }
+    let enrolled = match enroll(config, http).await {
+        Ok(enrolled) => enrolled,
+        // Spent by a replica that may have written the Secret since.
+        Err(reason) => return store.load().await?.1.filter(Identity::usable).ok_or(reason),
+    };
+    if store.save(secret, enrolled.to_data()).await? {
+        return Ok(enrolled);
+    }
+    store
+        .load()
+        .await?
+        .1
+        .filter(Identity::usable)
+        .ok_or("enroll")
+}
+
 async fn enroll(config: &Config, http: &reqwest::Client) -> Result<Identity, Reason> {
     let token = tokio::fs::read_to_string(&config.token_path)
         .await
         .map_err(|err| {
-            warn!(error = %err, path = %config.token_path.display(), "no ServiceAccount token");
+            warn!(error = %err, path = %config.token_path.display(), "no enrolment token");
             "enroll"
         })?;
+    let proof = if config.store.is_some() {
+        "one_shot_token"
+    } else {
+        "service_account_token"
+    };
     let key = AgentKey::generate().map_err(|_| "enroll")?;
     let csr = key.csr_pem().map_err(|_| "enroll")?;
     let response = http
@@ -530,7 +603,7 @@ async fn enroll(config: &Config, http: &reqwest::Client) -> Result<Identity, Rea
         .json(&serde_json::json!({
             "cluster": config.cluster,
             "csr": csr,
-            "proof": { "service_account_token": token.trim() },
+            "proof": { proof: token.trim() },
         }))
         .send()
         .await
@@ -684,16 +757,20 @@ async fn tunnel(
                     Kind::RenewResponse(renewed) => {
                         let cert = String::from_utf8(renewed.cert).map_err(|_| "closed")?;
                         let not_after = Identity::not_after_of(&cert)?;
-                        if let Some(current) = identity
+                        let data = identity
                             .lock()
                             .unwrap_or_else(PoisonError::into_inner)
                             .as_mut()
-                        {
-                            current.cert_pem = cert;
-                            current.not_after = not_after;
-                        }
+                            .map(|current| {
+                                current.cert_pem = cert;
+                                current.not_after = not_after;
+                                current.to_data()
+                            });
                         health.cert_not_after.store(not_after, Ordering::Relaxed);
                         info!("agent certificate renewed");
+                        if let (Some(store), Some(data)) = (&config.store, data) {
+                            share_renewal(store, data, not_after).await;
+                        }
                     }
                     Kind::Close(close) => return Ok::<_, Reason>(close_reason(&close.reason)),
                     _ => return Err("closed"),
@@ -751,6 +828,24 @@ async fn tunnel(
     tokio::select! {
         ended = session => ended,
         _ = driver => Err("closed"),
+    }
+}
+
+/// A renewed certificate goes to the identity Secret unless a replica wrote
+/// a later one; losing that race is fine, the Secret holds a valid one.
+async fn share_renewal(store: &store::IdentityStore, data: serde_json::Value, not_after: i64) {
+    match store.load().await {
+        Ok((secret, stored))
+            if stored
+                .as_ref()
+                .is_none_or(|stored| stored.not_after < not_after) =>
+        {
+            if !matches!(store.save(secret, data).await, Ok(true)) {
+                debug!("renewed certificate not shared: the Secret moved on");
+            }
+        }
+        Ok(_) => {}
+        Err(reason) => debug!(reason, "renewed certificate not shared"),
     }
 }
 

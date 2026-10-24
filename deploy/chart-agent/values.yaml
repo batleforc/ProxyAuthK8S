@@ -24,12 +24,21 @@ egress:
     # A Secret of this namespace with the keys `username` and `password`.
     credentialsSecret: ""
 bootstrap:
-  # Phase 1: ServiceAccountToken only. The ProxyKubeApi's `subject` is this
-  # release's ServiceAccount: system:serviceaccount:<namespace>:<release>-proxyauthk8s-agent
+  # ServiceAccountToken: the ProxyKubeApi's `subject` is this release's
+  # ServiceAccount, system:serviceaccount:<namespace>:<release>-proxyauthk8s-agent;
+  # no RBAC. OneShotToken: the token the proxy's controller wrote, carried
+  # here in `tokenSecret`; the identity goes to `identitySecret`.
   method: ServiceAccountToken
-  # The `aud` of the projected token: the ProxyKubeApi's `audience`.
+  # ServiceAccountToken: the `aud` of the projected token, the ProxyKubeApi's
+  # `audience`.
   audience: proxyauth
   expirationSeconds: 3600
+  # OneShotToken: a Secret of this namespace with the key `token` (an
+  # ExternalSecret fed by the proxy's <name>-agent-bootstrap, say).
+  tokenSecret: ""
+# OneShotToken: the key and certificate the replicas share, created empty by
+# the chart; the agent may `get` and `update` this Secret only (§6.5, T16).
+identitySecret: proxyauth-agent-identity
 
 replicaCount: 2
 podDisruptionBudget:

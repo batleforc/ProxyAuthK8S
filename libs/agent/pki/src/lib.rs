@@ -171,13 +171,19 @@ fn random_serial() -> Result<SerialNumber, PkiError> {
     Ok(SerialNumber::from_slice(&serial))
 }
 
-/// An agent's own key: ECDSA P-256, held in memory only
-/// (`ServiceAccountToken`, §6.5), and the CSRs it signs.
+/// An agent's own key: ECDSA P-256, held in memory (`ServiceAccountToken`)
+/// or in the `identitySecret` its replicas share (`OneShotToken`, §6.5), and
+/// the CSRs it signs.
 pub struct AgentKey(KeyPair);
 
 impl AgentKey {
     pub fn generate() -> Result<Self, PkiError> {
         Ok(Self(KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?))
+    }
+
+    /// A key [`Self::key_pem`] wrote.
+    pub fn from_pem(pem: &str) -> Result<Self, PkiError> {
+        Ok(Self(KeyPair::from_pem(pem)?))
     }
 
     /// For the TLS client: never logged.
@@ -305,6 +311,14 @@ mod tests {
         let cert = ca.issue_agent(&key.csr_pem().unwrap(), &identity).unwrap();
         let der = rcgen_der(&cert);
         assert_eq!(identity_of(&der).unwrap().identity, identity);
+    }
+
+    #[test]
+    fn an_agent_key_reloads_from_its_pem() {
+        let key = AgentKey::generate().unwrap();
+        let again = AgentKey::from_pem(&key.key_pem()).unwrap();
+        assert_eq!(again.key_pem(), key.key_pem());
+        assert!(AgentKey::from_pem("not a key").is_err());
     }
 
     fn identity() -> AgentIdentity {

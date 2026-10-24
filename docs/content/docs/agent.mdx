@@ -115,6 +115,30 @@ spec:
 clé du cluster distant passe sans toucher au `ProxyKubeApi` (gardez l'ancienne et la nouvelle
 clé le temps de la rotation). Un JWKS vide ou illisible refuse l'enrôlement.
 
+### Sans JWKS : un jeton à usage unique (`OneShotToken`)
+
+Quand les clés du cluster distant ne sont pas lisibles, le contrôleur du proxy émet un jeton à
+usage unique, valable une heure, dans le Secret `<name>-agent-bootstrap` (clé `token`) à côté du
+`ProxyKubeApi`. Activez d'abord `agentGateway.oneShotToken.enabled` dans le chart du proxy : le
+contrôleur reçoit `create` et `patch` sur les Secrets (par namespace avec
+`rbac.referencedNamespaces`).
+
+```yaml
+    Agent:
+      bootstrap:
+        OneShotToken:
+          auto_rotate: true   # un nouveau jeton dès que le précédent est consommé ou expiré
+```
+
+Portez ce Secret sur le cluster distant, à la main ou par un `PushSecret` d'External Secrets
+vers Vault et un `ExternalSecret` en face. Le premier replica de l'agent consomme le jeton et
+écrit sa clé et son certificat dans le Secret `identitySecret` de son namespace ; les autres,
+et tout pod redémarré, les relisent sans consommer de jeton. Sans `auto_rotate`, un jeton
+consommé reste dans le Secret : le `ProxyKubeApi` porte l'avis `AgentBootstrapNeeded` tant
+qu'aucun agent n'est connecté, et une nouvelle valeur de l'annotation
+`proxyauth.weebo.si.rs/regenerate-bootstrap` en fait émettre un autre. Le jeton n'est jamais
+gardé en clair côté proxy : seule son empreinte est dans Redis, prise une seule fois.
+
 ## 3. Installer l'agent
 
 Sur le cluster distant, avec `deploy/chart-agent` (publié en
@@ -131,6 +155,18 @@ helm install agent oci://ghcr.io/batleforc/proxyauthk8s/chart-agent \
 Le nom du release fixe celui du ServiceAccount (`<release>-proxyauthk8s-agent`), c'est-à-dire
 le `subject` du `ProxyKubeApi`. L'agent n'a **aucun RBAC** et aucun jeton d'API monté : seul son
 jeton projeté (audience `bootstrap.audience`) sert, à l'enrôlement.
+
+En `OneShotToken` :
+
+```bash
+helm install agent … \
+  --set bootstrap.method=OneShotToken \
+  --set bootstrap.tokenSecret=prod-agent-bootstrap   # Secret local, clé `token`
+```
+
+Le chart crée vide le Secret `identitySecret` (`proxyauth-agent-identity`) ; le seul droit de
+l'agent est `get` et `update` sur ce Secret, par son nom. Pour révoquer, montez `epoch` : l'agent
+vide ce Secret, et il faudra un nouveau jeton.
 
 ### Sortir par un proxy d'entreprise
 
@@ -185,5 +221,4 @@ cluster, celui-ci compris : listez vos namespaces pour que la clé reste à la p
 
 ## Pas encore disponible
 
-`OneShotToken` (jeton à usage unique) et le CronJob `jwksPublisher` arrivent avec la phase 2
-de la RFC 0012.
+Le CronJob `jwksPublisher` arrive avec la phase 2 de la RFC 0012.
