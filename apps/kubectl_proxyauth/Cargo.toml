@@ -19,3 +19,6 @@ cli = { path = "../../libs/cli/cli" , version = "0.3.0" }
 # from `cli_trace`); kept on purpose for future events in `main.rs`.
 [package.metadata.cargo-machete]
 ignored = ["tracing"]
+
+[lints]
+workspace = true

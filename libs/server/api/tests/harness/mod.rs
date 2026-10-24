@@ -9,7 +9,11 @@
 //! unless `REQUIRE_TEST_REDIS` is set, which turns that into a failure. CI sets
 //! it so a missing service container can never silently green the suite.
 
-#![allow(dead_code)]
+#![expect(dead_code, reason = "Not every binary uses every helper.")]
+#![expect(
+    clippy::expect_used,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -132,7 +136,7 @@ pub fn unique_cluster() -> (String, String) {
 pub fn install_crypto_provider() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        let _already_installed = rustls::crypto::ring::default_provider().install_default();
     });
 }
 
@@ -386,8 +390,8 @@ pub async fn seed_proxy(pool: &Pool, proxy: &ProxyKubeApi) {
 pub async fn delete_proxy(pool: &Pool, ns: &str, cluster: &str) {
     let key = format!("{}:{}/{}", REDIS_PREFIX, ns, cluster);
     let mut conn = pool.get().await.expect("redis connection");
-    let _ = conn.del(&key).await;
-    let _ = conn.srem(format!("{}:index", REDIS_PREFIX), &key).await;
+    let _cleanup = conn.del(&key).await;
+    let _cleanup = conn.srem(format!("{}:index", REDIS_PREFIX), &key).await;
 }
 
 /// A fixed RSA-2048 test keypair, generated once with `openssl genrsa` purely
@@ -457,7 +461,7 @@ pub fn sign_id_token(issuer: &str, audience: &str, subject: &str, nonce: &str) -
         "sub": subject,
         "aud": audience,
         "iat": now,
-        "exp": now + 300,
+        "exp": now.saturating_add(300),
         "nonce": nonce,
     });
     let mut header = Header::new(Algorithm::RS256);

@@ -18,7 +18,7 @@ version: "3"
 # without them.
 
 vars:
-  ENVTEST_K8S_VERSION: '{{ .ENVTEST_K8S_VERSION | default "1.31.0" }}'
+  ENVTEST_K8S_VERSION: '{{ .ENVTEST_K8S_VERSION | default "1.34.1" }}'
   ENVTEST_DIR: '{{ .ENVTEST_DIR | default (printf "%s/.local/share/kubebuilder-envtest" .HOME) }}'
   # Resolve the directory to hand to KUBEBUILDER_ASSETS, preferring the flat
   # layout and falling back to the highest-versioned nested one. Prints nothing

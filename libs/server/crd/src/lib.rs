@@ -41,6 +41,13 @@ pub const REDIS_PREFIX: &str = "proxyk8sauth";
     namespaced
 )]
 #[kube(status = "ProxyKubeApiStatus")]
+// `READY` and `REASON` from the `Ready` condition (RFC 0011); declaring
+// columns drops kubectl's default `AGE`, hence the third.
+#[kube(
+    printcolumn = r#"{"name":"Ready","type":"string","jsonPath":".status.conditions[?(@.type==\"Ready\")].status"}"#,
+    printcolumn = r#"{"name":"Reason","type":"string","jsonPath":".status.conditions[?(@.type==\"Ready\")].reason"}"#,
+    printcolumn = r#"{"name":"Age","type":"date","jsonPath":".metadata.creationTimestamp"}"#
+)]
 #[schemars(extend("x-kubernetes-validations" = [
     serde_json::json!({
         "rule": "!has(self.dashboard_group) || self.dashboard_group != ''",

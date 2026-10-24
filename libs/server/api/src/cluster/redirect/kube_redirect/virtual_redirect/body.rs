@@ -38,7 +38,7 @@ pub(super) async fn read_client_body(payload: Body, limit: usize) -> Result<Byte
     let mut payload = payload.into_data_stream();
     while let Some(chunk) = payload.next().await {
         let chunk = chunk.map_err(|err| ReadCapError::Upstream(err.to_string()))?;
-        if body.len() + chunk.len() > limit {
+        if body.len().saturating_add(chunk.len()) > limit {
             return Err(ReadCapError::TooLarge);
         }
         body.extend_from_slice(&chunk);
@@ -72,7 +72,7 @@ pub(super) async fn read_response_capped(
     let mut stream = res.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|err| ReadCapError::Upstream(err.to_string()))?;
-        if body.len() + chunk.len() > limit {
+        if body.len().saturating_add(chunk.len()) > limit {
             return Err(ReadCapError::TooLarge);
         }
         body.extend_from_slice(&chunk);

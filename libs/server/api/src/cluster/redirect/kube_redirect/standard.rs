@@ -36,14 +36,17 @@ fn announced_content_length(headers: &http::header::HeaderMap) -> Option<usize> 
 }
 
 fn body_for_debug_log(body: &[u8]) -> String {
-    if body.len() <= DEBUG_BODY_LOG_LIMIT {
+    let Some((head, rest)) = body
+        .split_at_checked(DEBUG_BODY_LOG_LIMIT)
+        .filter(|(_, rest)| !rest.is_empty())
+    else {
         return String::from_utf8_lossy(body).to_string();
-    }
+    };
 
     format!(
         "{}... [truncated {} bytes]",
-        String::from_utf8_lossy(&body[..DEBUG_BODY_LOG_LIMIT]),
-        body.len() - DEBUG_BODY_LOG_LIMIT
+        String::from_utf8_lossy(head),
+        rest.len()
     )
 }
 
@@ -104,7 +107,7 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> Response {
         while let Some(item) = payload.next().await {
             match item {
                 Ok(chunk) => {
-                    if body.len() + chunk.len() > debug_body_limit {
+                    if body.len().saturating_add(chunk.len()) > debug_body_limit {
                         overflowed = true;
                         break;
                     }
@@ -178,7 +181,8 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> Response {
     // One extra second of slack so the upstream timeout fires first.
     if let Some(timeout) = extract_timeout_from_query(&query_string) {
         let capped = timeout.min(MAX_UPSTREAM_TIMEOUT);
-        forwarded_req = forwarded_req.timeout(capped + std::time::Duration::from_secs(1));
+        forwarded_req =
+            forwarded_req.timeout(capped.saturating_add(std::time::Duration::from_secs(1)));
     }
 
     let res = match forwarded_req.send().await {

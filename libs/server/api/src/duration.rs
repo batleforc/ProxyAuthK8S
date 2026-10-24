@@ -62,7 +62,13 @@ pub fn parse_kube_duration(value: &str) -> Option<Duration> {
     if total_nanos > u64::MAX as f64 {
         return None;
     }
-    Some(Duration::from_nanos(total_nanos as u64))
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "non-negative and bounded by u64::MAX just above; the fraction is dropped"
+    )]
+    let nanos = total_nanos as u64;
+    Some(Duration::from_nanos(nanos))
 }
 
 /// Extract the `timeout` query parameter and parse it as a Kubernetes duration.

@@ -43,8 +43,11 @@ pub(super) async fn check_access(
     // namespace attribute set to `{name}`, so a RoleBinding inside it grants
     // the read. Ask the same question, or a caller who can get their namespace
     // directly would never see it listed.
-    if probe.group.is_empty() && probe.resource == "namespaces" {
-        attributes["namespace"] = json!(name);
+    if probe.group.is_empty()
+        && probe.resource == "namespaces"
+        && let Some(attributes) = attributes.as_object_mut()
+    {
+        attributes.insert("namespace".into(), json!(name));
     }
     let body = json!({
         "kind": "SelfSubjectAccessReview",
@@ -65,7 +68,9 @@ pub(super) async fn check_access(
         return Err(());
     }
     let json: Value = res.json().await.map_err(|_| ())?;
-    json["status"]["allowed"].as_bool().ok_or(())
+    json.pointer("/status/allowed")
+        .and_then(Value::as_bool)
+        .ok_or(())
 }
 
 /// What a `SelfSubjectRulesReview` resolved about `probe`.

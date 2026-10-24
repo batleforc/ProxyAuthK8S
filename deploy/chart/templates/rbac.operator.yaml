@@ -17,6 +17,15 @@ rules:
       - get
       - list
       - watch
+  # The Events announcing a ProxyKubeApi's failures and transitions, in the
+  # CR's own namespace (RFC 0011). `patch` bumps the count of a repeated one.
+  - apiGroups:
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
   # Permissions to reconcile ProxyKubeAPI custom resources. The controller only
   # reads them and writes finalizers (patch on the object) and status (the
   # status subresource, a separate resource for RBAC); the CRs are authored by
@@ -86,9 +95,13 @@ rules:
       - coordination.k8s.io
     resources:
       - leases
+    # `update`: the kit's LeaseLock writes by `replace`, carrying the
+    # resourceVersion it read (RFC 0011, decision 37). `patch` stays one
+    # release for a rollback to `kube-leader-election`.
     verbs:
       - get
       - create
+      - update
       - patch
 ---
 apiVersion: rbac.authorization.k8s.io/v1

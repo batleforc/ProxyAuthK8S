@@ -161,7 +161,7 @@ async fn accept_callback(listeners: &[TcpListener]) -> Result<(String, String), 
         // need; a single read of the first packet holds it.
         let mut buffer = [0u8; 8192];
         let read = stream.read(&mut buffer).await.unwrap_or(0);
-        let request = String::from_utf8_lossy(&buffer[..read]);
+        let request = String::from_utf8_lossy(buffer.get(..read).unwrap_or_default());
         let target = request
             .lines()
             .next()
@@ -198,8 +198,13 @@ async fn respond(stream: &mut tokio::net::TcpStream, status: &str, body: &str) {
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
-    let _ = stream.write_all(response.as_bytes()).await;
-    let _ = stream.flush().await;
+    // The browser may already have gone away; nothing to do but note it.
+    if let Err(e) = stream.write_all(response.as_bytes()).await {
+        debug!(error = %e, "failed to write the loopback callback response");
+    }
+    if let Err(e) = stream.flush().await {
+        debug!(error = %e, "failed to flush the loopback callback response");
+    }
 }
 
 #[cfg(test)]

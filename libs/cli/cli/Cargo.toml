@@ -51,3 +51,6 @@ zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] 
 
 [target.'cfg(target_os = "linux")'.dependencies]
 linux-keyutils-keyring-store = "1"
+
+[lints]
+workspace = true

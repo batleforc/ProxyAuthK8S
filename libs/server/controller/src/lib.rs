@@ -11,20 +11,20 @@ use std::{
 
 use common::State;
 use crd::ProxyKubeApi;
-use futures_util::StreamExt;
 use kube::{
     Api,
     runtime::{Controller, watcher::Config},
 };
-use kube_leader_election::{LeaseLock, LeaseLockParams, LeaseLockResult};
-use tokio::time::interval;
-use tracing::info;
+use tracing::{info, warn};
+use weebo_kit_runtime::controller::drive;
+use weebo_kit_runtime::leader::{self, LeaseLock};
 
 use crate::error::{ControllerError, Result};
 use crate::proxy_kube_api::{error_policy_proxy_kube_api, main_reconcile_proxy_kube_api};
 
 pub mod error;
 pub mod proxy_kube_api;
+pub mod reason;
 
 /// Name of the Lease the replicas compete for, in `State::lease_namespace`.
 pub const LEASE_NAME: &str = "proxy-auth-k8s-leader-election";
@@ -34,19 +34,10 @@ pub const LEASE_TTL: Duration = Duration::from_secs(15);
 /// a live leader never lets it lapse.
 pub const LEASE_RENEW_INTERVAL: Duration = Duration::from_secs(5);
 
-/// Decide whether a lease renewal outcome changes this instance's leadership.
-///
-/// Returns `Some(new_value)` when `is_leader` must be updated (promotion when
-/// the lease was acquired, demotion when it was not), `None` when the state is
-/// unchanged. Demotion matters as much as promotion: `try_acquire_or_renew`
-/// reports a lost lease as `Ok(NotAcquired)`, not as an error.
-#[must_use]
-pub fn leadership_transition(currently_leader: bool, acquired: bool) -> Option<bool> {
-    (currently_leader != acquired).then_some(acquired)
-}
-
 /// The Lease `holder_id` competes for as [`LEASE_NAME`] in `namespace`, held
-/// for `ttl` without renewal.
+/// for `ttl` without renewal: the kit's `LeaseLock`, whose writes carry the
+/// `resourceVersion` they were computed from (a conflict means "not leader")
+/// and which judges expiry on this replica's monotonic clock (RFC 0011, T7).
 #[must_use]
 pub fn lease_lock(
     client: kube::Client,
@@ -54,47 +45,28 @@ pub fn lease_lock(
     holder_id: &str,
     ttl: Duration,
 ) -> LeaseLock {
-    LeaseLock::new(
-        client,
-        namespace,
-        LeaseLockParams {
-            holder_id: holder_id.to_string(),
-            lease_name: LEASE_NAME.into(),
-            lease_ttl: ttl,
-        },
-    )
+    leader::lease(client, namespace, LEASE_NAME, holder_id.to_string(), ttl)
 }
 
-/// Keep `state.is_leader` in step with `leadership`, renewing (or trying to
-/// acquire) it every `renew_every`. Never returns.
-pub async fn run_leader_election(state: State, leadership: LeaseLock, renew_every: Duration) {
-    let mut interval = interval(renew_every);
+/// Keep `state.is_leader` in step with `lease`, forever: acquire it (retried
+/// every `renew_every`), lead while `hold` renews it, and step down as soon as
+/// `hold` says it may be lost — taken over, or not renewed within `ttl` —
+/// then compete again. Never exits the process: every replica also serves the
+/// proxy (RFC 0011, decision 28).
+pub async fn run_leader_election(
+    state: State,
+    lease: Arc<LeaseLock>,
+    renew_every: Duration,
+    ttl: Duration,
+) {
     loop {
-        match leadership.try_acquire_or_renew().await {
-            Ok(lease) => {
-                let acquired = matches!(lease, LeaseLockResult::Acquired(_));
-                // The election must demote as well as promote: `try_acquire_or_renew`
-                // returns `Ok(NotAcquired)` (not an `Err`) when another instance holds
-                // the lease, so a leader that fails to renew in time would keep
-                // `is_leader = true` and run a second, competing reconcile loop
-                // (split-brain) unless we clear it here.
-                if let Some(is_leader) =
-                    leadership_transition(state.is_leader.load(Ordering::Relaxed), acquired)
-                {
-                    if is_leader {
-                        info!("Successfully acquired leadership");
-                    } else {
-                        info!("Lost leadership, stepping down as leader");
-                    }
-                    state.is_leader.store(is_leader, Ordering::Relaxed);
-                }
-            }
-            Err(e) => {
-                tracing::error!("Not the leader: {}", e);
-                state.is_leader.store(false, Ordering::Relaxed);
-            }
-        }
-        interval.tick().await;
+        state.is_leader.store(false, Ordering::Relaxed);
+        leader::acquire(&lease, renew_every).await;
+        info!("Successfully acquired leadership");
+        state.is_leader.store(true, Ordering::Relaxed);
+        let why = leader::hold(&lease, renew_every, ttl).await;
+        state.is_leader.store(false, Ordering::Relaxed);
+        warn!(reason = %why, "Lost leadership, stepping down as leader");
     }
 }
 
@@ -116,69 +88,59 @@ pub async fn run(state: State) -> Result<()> {
         return Err(err);
     }
 
-    let leadership = lease_lock(
+    let leadership = Arc::new(lease_lock(
         state.client.clone(),
         &state.lease_namespace,
         &state.lease_name,
         LEASE_TTL,
-    );
-
-    match leadership.try_acquire_or_renew().await {
-        Ok(lease) => {
-            let acquired = matches!(lease, LeaseLockResult::Acquired(_));
-            state.is_leader.store(acquired, Ordering::Relaxed);
-            if acquired {
-                info!("Successfully acquired leadership (initial)");
-            } else {
-                info!("Another instance holds the lease, starting as non-leader");
-            }
-        }
-        Err(e) => {
-            tracing::error!("Initial leader election attempt failed: {}", e);
-        }
-    }
+    ));
+    // `proxyauth_leader`: 1 on the replica holding the Lease (RFC 0011,
+    // decision 35). Kept alive by this binding.
+    let is_leader = state.is_leader.clone();
+    let _leader = opentelemetry::global::meter("proxyauthk8s")
+        .u64_observable_gauge("proxyauth_leader")
+        .with_description("1 on the replica holding the leader Lease")
+        .with_callback(move |gauge| {
+            gauge.observe(u64::from(is_leader.load(Ordering::Relaxed)), &[])
+        })
+        .build();
 
     let controller_state = Arc::new(state.clone());
+    // `proxyauth_controller_watch_failing`: 1 while the watch has kept failing
+    // past the kit's threshold (5 min), else 0. Kept alive by this binding.
+    let health = state.controller_health.clone();
+    let _watch_failing = opentelemetry::global::meter("proxyauthk8s")
+        .u64_observable_gauge("proxyauth_controller_watch_failing")
+        .with_description("1 while the ProxyKubeApi watch keeps failing")
+        .with_callback(move |gauge| gauge.observe(u64::from(health.live().is_err()), &[]))
+        .build();
 
     tokio::select! {
-        () = Controller::new(proxy_kube_apis.clone(), Config::default().any_semantic())
-            .shutdown_on_signal()
-            .run(
-                main_reconcile_proxy_kube_api,
-                error_policy_proxy_kube_api,
-                controller_state.clone(),
-            )
-            .filter_map(|x| async move { std::result::Result::ok(x) })
-            .for_each(|_| futures_util::future::ready(())) => {
+        // `drive` logs every failure (they were dropped here before) and
+        // reports watch errors to `controller_health`; reconcile failures
+        // already show on the CR as conditions and Events.
+        () = drive(
+            "ProxyKubeApi",
+            state.controller_health.clone(),
+            Controller::new(proxy_kube_apis.clone(), Config::default().any_semantic())
+                .shutdown_on_signal()
+                .run(
+                    main_reconcile_proxy_kube_api,
+                    error_policy_proxy_kube_api,
+                    controller_state.clone(),
+                ),
+        ) => {
         },
-        () = run_leader_election(state.clone(), leadership, LEASE_RENEW_INTERVAL) => {
+        () = run_leader_election(state.clone(), leadership.clone(), LEASE_RENEW_INTERVAL, LEASE_TTL) => {
         }
     };
+    // Shutting down: hand the Lease over now instead of letting the next
+    // leader wait out its TTL (decision 36).
+    if state.is_leader.swap(false, Ordering::Relaxed) {
+        match leadership.step_down().await {
+            Ok(()) => info!("Released the leader Lease"),
+            Err(error) => warn!(%error, "Could not release the leader Lease"),
+        }
+    }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::leadership_transition;
-
-    #[test]
-    fn follower_that_acquires_the_lease_is_promoted() {
-        assert_eq!(leadership_transition(false, true), Some(true));
-    }
-
-    #[test]
-    fn leader_that_fails_to_renew_is_demoted() {
-        // Guards against split-brain: a `NotAcquired` renewal must clear the flag.
-        assert_eq!(leadership_transition(true, false), Some(false));
-    }
-
-    #[test]
-    fn renewing_leader_is_left_unchanged() {
-        assert_eq!(leadership_transition(true, true), None);
-    }
-
-    #[test]
-    fn follower_that_still_lacks_the_lease_is_left_unchanged() {
-        assert_eq!(leadership_transition(false, false), None);
-    }
 }

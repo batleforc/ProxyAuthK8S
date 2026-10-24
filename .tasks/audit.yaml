@@ -2,11 +2,12 @@ version: "3"
 
 tasks:
   default:
-    desc: "Run every CVE and policy audit: Rust deps (cargo deny + trivy, kit), the fuzz workspace, JS deps (pnpm audit), Containerfiles (trivy config, kit)"
+    desc: "Run every CVE and policy audit: Rust deps (cargo deny + trivy, kit), the fuzz and perf workspaces, JS deps (pnpm audit), Containerfiles (trivy config, kit)"
     silent: true
     cmds:
       - task: :rust:audit
       - task: fuzz
+      - task: perf
       - task: js
       - task: :repo:audit
 
@@ -15,6 +16,12 @@ tasks:
     silent: true
     cmds:
       - mise exec -- cargo deny --manifest-path fuzz/Cargo.toml check
+
+  perf:
+    desc: "Audit the separate tests/perf workspace with the root deny.toml (rust:audit only sees the main workspace)"
+    silent: true
+    cmds:
+      - mise exec -- cargo deny --manifest-path tests/perf/Cargo.toml check
 
   js:
     desc: "Audit JS/TS dependencies of every workspace package for known CVEs (pnpm audit)"

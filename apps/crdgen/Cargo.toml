@@ -16,6 +16,9 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
 # The CRD IDE's links and schematic kinds (links.json); nothing else of the kit.
-weebo-kit-api = { git = "https://github.com/batleforc/weebo-operator-kit", tag = "v0.24.0" }
+weebo-kit-api = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lints]
+workspace = true

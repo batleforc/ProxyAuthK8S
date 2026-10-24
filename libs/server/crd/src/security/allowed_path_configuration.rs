@@ -12,6 +12,10 @@ use crate::security::verb::{VERBS_RULE, Verb, validate_verbs};
 
 /// Mustache-like parameters (`{{username}}`, `{{group}}`) inside a configured path.
 /// Compiled once: the pattern is a literal, so it cannot fail to compile.
+#[expect(
+    clippy::expect_used,
+    reason = "the pattern is a literal: it compiles, and every test exercises it"
+)]
 static MUSTACHE_REGEX: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\{\{(\w+)\}\}").expect("static regex is valid"));
 
@@ -21,14 +25,14 @@ static MUSTACHE_REGEX: LazyLock<regex::Regex> =
 pub(crate) fn mustache_captures(template: &str) -> Vec<String> {
     MUSTACHE_REGEX
         .captures_iter(template)
-        .map(|capture| capture[1].to_string())
+        .filter_map(|capture| capture.get(1).map(|name| name.as_str().to_string()))
         .collect()
 }
 
 /// RE2 pattern accepting only the supported placeholders, shared between the
 /// CEL admission rule and the test that keeps it honest against `validate()`.
 // Only referenced from tests, but kept next to the rule it mirrors.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) const PLACEHOLDER_PATTERN: &str = "^[^{}]*(([{][{](username|group)[}][}])[^{}]*)*$";
 
 /// The CEL rule built from [`PLACEHOLDER_PATTERN`].

@@ -1,0 +1,131 @@
+name: 📏 Resource budget
+
+# 📏 What the `server` binary costs to run (RFC 0011, phase 5): `task perf`
+# drives the release binary against envtest with weebo-kit-perf and checks a
+# budget. Once a week and by hand, never on a pull request (long, noisy). The
+# report is kept as an artefact and refreshes the docs' "Resource budget"
+# page through a pull request; an exceeded budget fails the job last, after
+# the report is published, and blocks no merge.
+#
+# Modelled on weebo-operator-kit's reusable perf.yml (v0.24.0), which cannot be
+# called as is here: it installs the docs with `npm ci` (this repository's docs
+# are a pnpm workspace package) and expects the report under target/ (the
+# target-dir here is dist/target).
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf
+  cancel-in-progress: false
+
+jobs:
+  perf:
+    name: 📏 Measure the server
+    runs-on: ubuntu-latest
+    permissions:
+      # Pushes the refresh branch, opens its pull request.
+      contents: write
+      pull-requests: write
+    services:
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      LABEL: proxyauthk8s
+      DOCS: docs
+      BRANCH: perf/refresh
+      REDIS_URL: redis://127.0.0.1:6379
+      # Report only until the first measure on this runner sets the budget
+      # (RFC 0011, decision 38): drop it with the measured Budget in
+      # tests/perf/tests/perf.rs.
+      WEEBO_PERF_REPORT_ONLY: "1"
+    steps:
+      # Credentials kept: the job pushes the refresh branch.
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: 🛠️ Install mise
+        uses: ./.github/actions/setup-mise
+      - name: 🛠️ Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+
+      # The testkit's envtest bindings (bindgen) need libclang; the CLI's
+      # keyring needs libdbus.
+      - name: 🧱 Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev libdbus-1-dev pkg-config
+          LIBCLANG_SO="$(find /usr/lib -iname 'libclang.so*' 2>/dev/null | head -n1)"
+          if [ -z "$LIBCLANG_SO" ]; then
+            echo "::error::libclang.so not found after installing libclang-dev" >&2
+            exit 1
+          fi
+          {
+            echo "LIBCLANG_PATH=$(dirname "$LIBCLANG_SO")"
+            echo "BINDGEN_EXTRA_CLANG_ARGS="
+          } >> "$GITHUB_ENV"
+
+      - name: 📏 Measure
+        id: measure
+        run: |
+          # Compared with the committed report; the verdict is kept for the
+          # last step, the report is published either way.
+          set +e
+          WEEBO_PERF_BASELINE="$DOCS/perf/$LABEL.json" WEEBO_PERF_OUT="$PWD/target/perf" \
+            mise exec -- task perf
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          test -f "target/perf/$LABEL.json"
+
+      - name: 📦 Keep the report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: perf-${{ env.LABEL }}
+          path: target/perf/
+      - run: cat "target/perf/$LABEL.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 📚 Regenerate the docs
+        run: |
+          mkdir -p "$DOCS/perf"
+          cp "target/perf/$LABEL.json" "$DOCS/perf/$LABEL.json"
+          mise exec -- pnpm install --frozen-lockfile --filter "./$DOCS"
+          mise exec -- pnpm -C "$DOCS" run gen:crds
+
+      - name: 🔁 Push the refresh and open its pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          git add -- "$DOCS"
+          if git diff --cached --quiet; then
+            echo "Nothing changed in $DOCS." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          title="docs(perf): resource budget measured on $(date -u +%F)"
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "$title"
+          git push -f origin "HEAD:$BRANCH"
+          body="$(cat "target/perf/$LABEL.md")"
+          if gh pr view "$BRANCH" --json state -q .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$BRANCH" --title "$title" --body "$body"
+          else
+            gh pr create --base "$BASE" --head "$BRANCH" --title "$title" --body "$body"
+          fi
+
+      - name: 🚦 Budget verdict
+        if: steps.measure.outputs.status != '0'
+        run: |
+          echo "::error::the server is over its resource budget (see the report)"
+          exit 1

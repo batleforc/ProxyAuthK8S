@@ -119,19 +119,19 @@ impl AllowedCrdConfiguration {
             .map(crate::security::path_matcher::percent_decode_once)
             .collect();
         let segments: Vec<&str> = decoded.iter().map(String::as_str).collect();
-        let mut idx = 0;
+        let mut idx: usize = 0;
 
         // API group prefix.
         match segments.first().copied() {
             Some("apis") if !self.group.is_empty() => {
-                idx += 1;
+                idx = idx.saturating_add(1);
                 if segments.get(idx).copied() != Some(self.group.as_str()) {
                     return false;
                 }
-                idx += 1;
+                idx = idx.saturating_add(1);
             }
             Some("api") if self.group.is_empty() => {
-                idx += 1;
+                idx = idx.saturating_add(1);
             }
             _ => return false,
         }
@@ -140,7 +140,7 @@ impl AllowedCrdConfiguration {
         if segments.get(idx).copied() != Some(self.version.as_str()) {
             return false;
         }
-        idx += 1;
+        idx = idx.saturating_add(1);
 
         let resource = self.resource_segment();
 
@@ -150,11 +150,11 @@ impl AllowedCrdConfiguration {
                 // `.../namespaces/{ns}/{plural}`; the ns must be followed by the
                 // resource, otherwise this is a different path (e.g. GET on the
                 // namespace object itself).
-                namespace = match segments.get(idx + 1).copied() {
+                namespace = match segments.get(idx.saturating_add(1)).copied() {
                     Some(ns) => Some(ns),
                     None => return false,
                 };
-                idx += 2;
+                idx = idx.saturating_add(2);
             }
             if segments.get(idx).copied() != Some(resource.as_str()) {
                 return false;

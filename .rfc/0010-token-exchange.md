@@ -644,7 +644,7 @@ Tranchées au `/grill-me` du 2026-10-18.
 | --- | --- | --- |
 | 1 | Un cluster en échange accepte-t-il aussi un jeton du cluster ? | **Non : un seul mode par cluster.** Deviner le mode depuis l'`iss` non vérifié du jeton ajoute un chemin de validation et une ambiguïté exploitable. |
 | 2 | Où vit le jeton échangé ? | **En mémoire seulement, par réplica.** Redis exposerait des jetons de cluster pour économiser au plus N−1 échanges (§12). |
-| 3 | Release | **0.3.0**, après la RFC 0008, dont `token_exchanged` reprend le schéma. |
+| 3 | Release | ~~**0.3.0**~~ **0.4.0** (révisée le 2026-10-23 par [PLAN.md](PLAN.md) : la 0.3.0 est partie sans elle), après la RFC 0008, dont `token_exchanged` reprend le schéma, et après la RFC 0011. |
 | 4 | Quel client échange ? | **Le client du cluster** (`oidc_provider.client_id`) : il marche aussi en fédération ; le mapper d'audience Keycloak est documenté. |
 | 5 | `max_cache_seconds` par défaut | **300 s** (la durée d'un jeton d'accès Keycloak par défaut), 3 600 s au plus. |
 | 6 | Où se place l'échange | **Après toutes les portes**, juste avant le relais : une requête refusée ne coûte aucun appel à l'IdP. |

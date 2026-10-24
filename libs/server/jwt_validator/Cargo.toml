@@ -19,3 +19,6 @@ jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 kube-cel = "0.8"
 
 crd = { path = "../crd", version = "0.3.0" }
+
+[lints]
+workspace = true

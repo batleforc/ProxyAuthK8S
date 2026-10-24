@@ -13,7 +13,6 @@
 //! root) is never offered: pinning would either fail or hide a real problem.
 
 use std::{
-    fmt::Write as _,
     io::{self, BufRead, IsTerminal, Write},
     sync::{Arc, Mutex},
     time::Duration,
@@ -87,14 +86,11 @@ impl PresentedCertificate {
 
 fn fingerprint(der: &[u8]) -> String {
     let digest = Sha256::digest(der);
-    let mut out = String::with_capacity(digest.len() * 3);
-    for (i, byte) in digest.iter().enumerate() {
-        if i > 0 {
-            out.push(':');
-        }
-        let _ = write!(out, "{byte:02X}");
-    }
-    out
+    digest
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 /// What to do with the chain a server presented.
@@ -259,11 +255,13 @@ pub(super) async fn probe_chain(
         .map_err(|_| "timed out connecting".to_string())?
         .map_err(|e| e.to_string())?;
     // Expected to fail: the verifier aborts once it has the chain.
-    let _ = tokio::time::timeout(
-        PROBE_TIMEOUT,
-        TlsConnector::from(Arc::new(config)).connect(server_name, tcp),
-    )
-    .await;
+    drop(
+        tokio::time::timeout(
+            PROBE_TIMEOUT,
+            TlsConnector::from(Arc::new(config)).connect(server_name, tcp),
+        )
+        .await,
+    );
 
     capture
         .chain

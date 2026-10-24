@@ -10,3 +10,6 @@ api = { path = "../../libs/server/api", version = "0.3.0", default-features = fa
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lints]
+workspace = true

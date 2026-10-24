@@ -6,6 +6,10 @@
 //! seed an `IssuedCode` directly, the same shape `/oauth/callback` would
 //! have written, and exercise the token endpoint's own contract: PKCE
 //! verification, `redirect_uri` binding, and single-use redemption.
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 

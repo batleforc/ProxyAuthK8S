@@ -26,21 +26,32 @@ fn split_segments(value: &str) -> Vec<&str> {
 pub fn percent_decode_once(segment: &str) -> String {
     let bytes = segment.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hi = (bytes[i + 1] as char).to_digit(16);
-            let lo = (bytes[i + 2] as char).to_digit(16);
-            if let (Some(hi), Some(lo)) = (hi, lo) {
-                out.push((hi * 16 + lo) as u8);
-                i += 3;
-                continue;
-            }
+    let mut i: usize = 0;
+    while let Some(&byte) = bytes.get(i) {
+        if byte == b'%'
+            && let Some(decoded) = bytes
+                .get(i.saturating_add(1)..i.saturating_add(3))
+                .and_then(decode_hex_pair)
+        {
+            out.push(decoded);
+            i = i.saturating_add(3);
+            continue;
         }
-        out.push(bytes[i]);
-        i += 1;
+        out.push(byte);
+        i = i.saturating_add(1);
     }
     String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The byte two hex digits spell, or `None` when either is not a hex digit.
+fn decode_hex_pair(pair: &[u8]) -> Option<u8> {
+    let [hi, lo] = pair else {
+        return None;
+    };
+    let hi = char::from(*hi).to_digit(16)?;
+    let lo = char::from(*lo).to_digit(16)?;
+    // Two hex digits are at most 0xFF, so the conversion never fails.
+    u8::try_from(hi.checked_mul(16)?.checked_add(lo)?).ok()
 }
 
 /// A request segment that carries no authorization meaning by itself but changes
@@ -83,7 +94,8 @@ pub(crate) fn segment_matches(pattern: &str, segment: &str) -> bool {
     }
 
     let parts: Vec<&str> = pattern.split('*').collect();
-    let last_index = parts.len() - 1;
+    // `split` always yields at least one part.
+    let last_index = parts.len().saturating_sub(1);
     let mut rest = segment;
 
     for (index, part) in parts.iter().enumerate() {
@@ -99,8 +111,8 @@ pub(crate) fn segment_matches(pattern: &str, segment: &str) -> bool {
             }
             return rest.len() >= part.len() && rest.ends_with(part);
         } else {
-            match rest.find(part) {
-                Some(idx) => rest = &rest[idx + part.len()..],
+            match rest.split_once(part) {
+                Some((_, after)) => rest = after,
                 None => return false,
             }
         }
@@ -116,7 +128,10 @@ fn match_segments(pattern: &[&str], path: &[&str]) -> bool {
             if rest.is_empty() {
                 return true;
             }
-            (0..=path.len()).any(|skipped| match_segments(rest, &path[skipped..]))
+            (0..=path.len()).any(|skipped| {
+                path.get(skipped..)
+                    .is_some_and(|tail| match_segments(rest, tail))
+            })
         }
         Some((head, rest)) => match path.split_first() {
             Some((path_head, path_rest)) if segment_matches(head, path_head) => {

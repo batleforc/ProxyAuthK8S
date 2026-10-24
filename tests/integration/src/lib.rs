@@ -5,6 +5,13 @@
 //! for indirect checks (logs, metrics, object state), never for the action.
 //! Run with `task it:up` then `task it:test`.
 
+#![expect(
+    clippy::expect_used,
+    clippy::panic,
+    clippy::indexing_slicing,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
+
 pub mod bench;
 pub mod cli;
 pub mod fixture;

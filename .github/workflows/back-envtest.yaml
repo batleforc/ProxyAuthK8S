@@ -45,7 +45,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      ENVTEST_K8S_VERSION: "1.31.0"
+      ENVTEST_K8S_VERSION: "1.34.1"
       KUBEBUILDER_ASSETS: /home/runner/.local/share/kubebuilder-envtest
       REQUIRE_ENVTEST: "1"
       TEST_REDIS_URL: redis://127.0.0.1:6379

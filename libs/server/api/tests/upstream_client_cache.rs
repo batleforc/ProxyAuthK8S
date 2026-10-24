@@ -9,6 +9,11 @@
 //! The cache is off under `common`'s `test-util` feature; this binary turns it
 //! on for itself, and every test uses its own proxy name and listener so they
 //! cannot share an entry.
+#![expect(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 
@@ -67,7 +72,7 @@ async fn counting_upstream() -> (String, Arc<AtomicUsize>) {
                     }
                     pending.extend_from_slice(&buf[..read]);
                     while let Some(end) = pending.windows(4).position(|w| w == b"\r\n\r\n") {
-                        pending.drain(..end + 4);
+                        pending.drain(..end.saturating_add(4));
                         let response = b"HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: 2\r\n\r\nok";
                         if socket.write_all(response).await.is_err() {
                             return;

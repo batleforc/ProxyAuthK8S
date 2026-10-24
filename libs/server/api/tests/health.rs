@@ -63,6 +63,7 @@ async fn readiness_is_200_when_redis_answers() {
     let body: serde_json::Value = test::read_body_json(res).await;
     assert_eq!(body["redis"], "ok");
     assert_eq!(body["oidc"], "ok");
+    assert_eq!(body["controller"], "ok");
 }
 
 #[tokio::test]
@@ -159,4 +160,40 @@ async fn oidc_discovery_keeps_retrying_while_the_idp_is_down() {
     );
     assert!(!state.is_oidc_ready());
     discovery.abort();
+}
+
+#[tokio::test]
+async fn a_failing_controller_watch_shows_without_failing_the_probes() {
+    // RFC 0011, decision 26: every replica runs the watch, so failing a probe
+    // on it would restart (or unroute) them all during a host apiserver
+    // outage, while the proxy can still serve from Redis.
+    if try_redis_pool().await.is_none() {
+        return;
+    }
+    let mut state = test_state("http://127.0.0.1:1".to_string());
+    let health = weebo_kit_runtime::Health::new(Duration::ZERO);
+    health.failed("ProxyKubeApi", "watch error");
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    state.controller_health = std::sync::Arc::new(health);
+    let app = probe_app!(state);
+
+    let res = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/management/ready")
+            .to_request(),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body: serde_json::Value = test::read_body_json(res).await;
+    assert_eq!(body["controller"], "failing");
+
+    let res = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/management/health")
+            .to_request(),
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
 }

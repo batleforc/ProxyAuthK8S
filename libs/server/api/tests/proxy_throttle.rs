@@ -156,10 +156,10 @@ async fn bans_a_client_after_repeated_authentication_failures() {
     // Clean up the counters this test left behind.
     let mut conn = pool.get().await.expect("redis connection");
     use deadpool_redis::redis::AsyncTypedCommands;
-    let _ = conn
+    let _cleanup = conn
         .del(format!("proxyk8sauth:ban:{ns}/{cluster}:unknown"))
         .await;
-    let _ = conn
+    let _cleanup = conn
         .del(format!("proxyk8sauth:fail2login:{ns}/{cluster}:unknown"))
         .await;
 
@@ -223,7 +223,7 @@ async fn a_successful_authentication_clears_the_failure_counter() {
 
     let mut conn = pool.get().await.expect("redis connection");
     use deadpool_redis::redis::AsyncTypedCommands;
-    let _ = conn
+    let _cleanup = conn
         .del(format!("proxyk8sauth:fail2login:{ns}/{cluster}:unknown"))
         .await;
 

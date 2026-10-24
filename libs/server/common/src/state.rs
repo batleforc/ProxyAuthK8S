@@ -3,14 +3,16 @@
 //! Construction lives here; the Redis access methods are in [`redis`].
 
 use std::sync::{
-    Arc,
+    Arc, OnceLock,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::Duration;
 
 use jwt_validator::JwtValidator;
 use kube::Client;
+use kube::runtime::events::Recorder;
 use tracing::{info, instrument, warn};
+use weebo_kit_runtime::Health;
 
 use crate::{
     config, error::StateInitError, oidc_conf, oidc_config_cache::OidcConfigCache,
@@ -52,6 +54,14 @@ pub struct State {
     /// Set once the service-wide OIDC provider has been discovered. Until then
     /// `/management/ready` answers 503 (see [`State::discover_oidc_until_ready`]).
     pub oidc_ready: Arc<AtomicBool>,
+    /// The controller's Event recorder, built on first use: one per process,
+    /// so kube folds a repeated Event into a series instead of creating a new
+    /// one each time (RFC 0011).
+    pub event_recorder: Arc<OnceLock<Recorder>>,
+    /// The controller's watch: `controller::run` reports its failures here,
+    /// `/management/ready` shows them without failing on them (RFC 0011,
+    /// decision 26).
+    pub controller_health: Arc<Health>,
 }
 
 impl State {
@@ -88,6 +98,8 @@ impl State {
             jwt_validator: Arc::new(JwtValidator::new()),
             oidc_config_cache: Arc::new(OidcConfigCache::new()),
             oidc_ready: Arc::new(AtomicBool::new(false)),
+            event_recorder: Arc::default(),
+            controller_health: Arc::default(),
         })
     }
 
@@ -151,6 +163,8 @@ impl State {
             oidc_config_cache: Arc::new(OidcConfigCache::new()),
             // Tests drive handlers directly; they opt into the not-ready path.
             oidc_ready: Arc::new(AtomicBool::new(true)),
+            event_recorder: Arc::default(),
+            controller_health: Arc::default(),
         }
     }
 }

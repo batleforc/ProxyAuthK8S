@@ -1,0 +1,9 @@
+# weebo-operator-kit's clippy.toml (v0.24.0, RFC 0011 phase 6): a failing test
+# should fail loudly, so tests may panic; the denies of [workspace.lints]
+# (Cargo.toml) apply to everything else. Test helpers outside #[test] and
+# #[cfg(test)] lift them per module with #![expect(…, reason)].
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-dbg-in-tests = true

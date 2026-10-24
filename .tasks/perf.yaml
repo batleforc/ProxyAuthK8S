@@ -1,0 +1,29 @@
+version: "3"
+
+# What the `server` binary costs to run (RFC 0011, phase 5): `tests/perf` is
+# its own workspace, so its envtest bindings (Go and libclang at build time)
+# stay out of every other build. The `perf` workflow runs `task perf` once a
+# week.
+
+tasks:
+  default:
+    desc: "Measure the release server binary against envtest with weebo-kit-perf (needs Go, libclang and a Redis at REDIS_URL, default redis://127.0.0.1:6379); writes target/perf/proxyauthk8s.{json,md}, WEEBO_PERF_REPORT_ONLY=1 to only report"
+    cmds:
+      - cargo build --release -p server
+      - >-
+        PROXYAUTH_SERVER_BIN="{{.ROOT_DIR}}/dist/target/release/server"
+        WEEBO_PERF_OUT="${WEEBO_PERF_OUT:-{{.ROOT_DIR}}/target/perf}"
+        cargo test --release --manifest-path tests/perf/Cargo.toml -- --ignored --nocapture
+
+  check-tag:
+    desc: "Check that tests/perf pins the kit at the root Cargo.toml's tag (kit:sync only rewrites the root manifest)"
+    silent: true
+    cmds:
+      - |
+        tag() { sed -n 's|.*github.com/batleforc/weebo-operator-kit", tag = "\([^"]*\)".*|\1|p' "$1" | sort -u; }
+        root="$(tag Cargo.toml)"
+        perf="$(tag tests/perf/Cargo.toml)"
+        if [ "$root" != "$perf" ]; then
+          echo "tests/perf/Cargo.toml pins the kit at '$perf', the root Cargo.toml at '$root'" >&2
+          exit 1
+        fi

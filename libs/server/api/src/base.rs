@@ -40,6 +40,10 @@ pub struct ReadinessBody {
     /// `ok` once the service-wide OIDC provider has been discovered, `pending`
     /// while the boot-time discovery is still retrying.
     pub oidc: &'static str,
+    /// `failing` while the controller's `ProxyKubeApi` watch has kept failing
+    /// for 5 minutes, `ok` otherwise. Informational: it never makes the pod
+    /// unready, the proxy keeps serving from Redis.
+    pub controller: &'static str,
 }
 
 /// Readiness: the pod can serve proxied traffic.
@@ -74,9 +78,17 @@ pub async fn ready(State(state): State<Arc<common::State>>) -> Response {
     if !oidc_ok {
         warn!("Readiness check failed: OIDC discovery has not succeeded yet");
     }
+    let controller = match state.controller_health.live() {
+        Ok(()) => "ok",
+        Err(unhealthy) => {
+            warn!("Controller watch failing: {}", unhealthy.0.join("; "));
+            "failing"
+        }
+    };
     let body = ReadinessBody {
         redis: if redis_ok { "ok" } else { "unavailable" },
         oidc: if oidc_ok { "ok" } else { "pending" },
+        controller,
     };
     let status = if redis_ok && oidc_ok {
         StatusCode::OK

@@ -102,8 +102,10 @@ impl Service {
                             name: name.clone(),
                         })?
                 } else {
-                    // Safe: `ports` is guaranteed non-empty above.
-                    &ports[0]
+                    // `ports` is non-empty (filtered above); the error is only a guard.
+                    ports
+                        .first()
+                        .ok_or_else(|| ServiceError::NoPorts { name: name.clone() })?
                 };
 
                 let host = service_host(spec.cluster_ip.as_deref(), name, target_ns);

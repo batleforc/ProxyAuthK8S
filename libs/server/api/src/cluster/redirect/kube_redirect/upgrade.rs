@@ -453,8 +453,10 @@ pub(super) mod test_request {
             Self(self.0.header(name, value))
         }
 
-        // actix's name, so the ported tests read as they did.
-        #[allow(clippy::wrong_self_convention)]
+        #[expect(
+            clippy::wrong_self_convention,
+            reason = "actix's name, so the ported tests read as they did"
+        )]
         pub(crate) fn to_http_request(self) -> Parts {
             self.0.body(()).expect("valid test request").into_parts().0
         }

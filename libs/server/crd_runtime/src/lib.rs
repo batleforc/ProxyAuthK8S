@@ -51,7 +51,10 @@ pub enum ProxyRuntimeError {
 /// Kept separate from the schema so the CRD crate stays free of `common`,
 /// `reqwest`, and the kube client. Bring it into scope (`use
 /// crd_runtime::ProxyKubeApiRuntime;`) to call these on a `ProxyKubeApi`.
-#[allow(async_fn_in_trait)]
+#[expect(
+    async_fn_in_trait,
+    reason = "in-workspace trait, callers never need a `Send` bound on the futures"
+)]
 pub trait ProxyKubeApiRuntime {
     /// The public, dashboard-facing URL of this cluster.
     #[must_use]
@@ -446,7 +449,8 @@ mod tests {
     fn state() -> Arc<State> {
         // Both rustls providers are linked in the workspace; the server picks
         // ring in `main`, so tests must too or the kube client build panics.
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        // Err only means another test already installed it.
+        drop(rustls::crypto::ring::default_provider().install_default());
         let kube_config = kube::Config::new("http://127.0.0.1:1".parse().expect("static uri"));
         Arc::new(State::from_parts(
             Client::try_from(kube_config).expect("kube client should build"),

@@ -7,11 +7,15 @@ use api::{
 use common::config::CorsOrigins;
 use trace::{shutdown_tracing, start_tracing};
 
+/// How long the HTTP server's shutdown waits for the controller to stop and
+/// release the leader Lease.
+const CONTROLLER_STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     rustls::crypto::ring::default_provider()
         .install_default()
-        .expect("Failed to install default CryptoProvider");
+        .map_err(|_| anyhow::anyhow!("Failed to install default CryptoProvider"))?;
     println!(include_str!("../../../docs/public/banner.art"));
     // Read the whole configuration once; it is installed (and its fallback
     // warnings logged) only once tracing is up.
@@ -23,7 +27,8 @@ async fn main() -> anyhow::Result<()> {
             common::config::LogFormat::Text => trace::LogFormat::Text,
             common::config::LogFormat::Json => trace::LogFormat::Json,
         },
-        prometheus_enabled: config.observability.metrics_prometheus_enabled,
+        prometheus_enabled: config.observability.metrics_prometheus_enabled
+            || config.observability.weebo_metrics_addr.is_some(),
     })?;
     let config = common::config::init(config);
     // `None` when disabled: `/management/metrics` then answers 404.
@@ -31,6 +36,19 @@ async fn main() -> anyhow::Result<()> {
     if prometheus_registry.0.is_some() {
         tracing::info!("Prometheus metrics served on /management/metrics");
     }
+    // `WEEBO_METRICS_ADDR`: the same registry on `/metrics`, a listener of its
+    // own (what weebo-kit-perf scrapes, RFC 0011 decision 42).
+    let metrics_listener = match config.observability.weebo_metrics_addr {
+        Some(addr) => {
+            let listener = tokio::net::TcpListener::bind(addr).await?;
+            tracing::info!(%addr, "Prometheus metrics also served on /metrics");
+            Some(tokio::spawn(api::metrics::serve_metrics(
+                listener,
+                prometheus_registry.clone(),
+            )))
+        }
+        None => None,
+    };
     // Created after `start_tracing` installed the global meter provider.
     let http_metrics = HttpMetrics::new(&opentelemetry::global::meter("proxyauthk8s"));
 
@@ -49,7 +67,10 @@ async fn main() -> anyhow::Result<()> {
         }
     });
     let server_config = common::ServerConfig::new();
-    let controller = controller::run(state.clone());
+    // A task of its own: on SIGTERM the HTTP server may finish first, and the
+    // controller must still get to release the leader Lease (RFC 0011,
+    // decision 36) instead of being dropped mid-shutdown.
+    let mut controller = tokio::spawn(controller::run(state.clone()));
     let shutdown_timeout = config.server.shutdown_timeout_secs;
     tracing::info!(seconds = shutdown_timeout, "Graceful shutdown timeout");
     // CORS: same-origin only unless `CORS_ALLOWED_ORIGINS` lists the origins
@@ -95,16 +116,28 @@ async fn main() -> anyhow::Result<()> {
     // shows up as CrashLoopBackOff, instead of a pod that looks healthy but
     // whose Redis is never filled.
     let result: anyhow::Result<()> = tokio::select! {
-        res = controller => match res {
-            Ok(()) => {
+        res = &mut controller => match res {
+            Ok(Ok(())) => {
                 tracing::warn!("Controller task exited, shutting down");
                 Ok(())
             }
-            Err(e) => Err(anyhow::Error::new(e).context("controller failed to start")),
+            Ok(Err(e)) => Err(anyhow::Error::new(e).context("controller failed to start")),
+            Err(e) => Err(anyhow::Error::new(e).context("controller task panicked")),
         },
-        res = server => res.map_err(Into::into),
+        res = server => {
+            // The controller saw the same signal: give it a moment to stop and
+            // release the Lease.
+            if tokio::time::timeout(CONTROLLER_STOP_TIMEOUT, &mut controller).await.is_err() {
+                tracing::warn!("Controller did not stop in time");
+                controller.abort();
+            }
+            res.map_err(Into::into)
+        }
     };
     oidc_discovery.abort();
+    if let Some(metrics) = metrics_listener {
+        metrics.abort();
+    }
     if let Err(e) = &result {
         tracing::error!(error = format!("{e:#}"), "Server stopped with an error");
     }

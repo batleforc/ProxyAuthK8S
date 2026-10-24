@@ -33,8 +33,8 @@ pub(super) fn stream_watch(
         // Only whole lines can be parsed; a partial one stays buffered until
         // the rest of it arrives.
         while let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
-            let line = buffer.split_to(newline + 1);
-            let trimmed = &line[..line.len() - 1];
+            let line = buffer.split_to(newline.saturating_add(1));
+            let trimmed = line.strip_suffix(b"\n").unwrap_or(&line);
             if trimmed.is_empty() {
                 continue;
             }

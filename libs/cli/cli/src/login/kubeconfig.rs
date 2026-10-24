@@ -117,7 +117,7 @@ pub fn set_server_certificate_authority(
     certificate_authority_data: Option<&str>,
 ) -> usize {
     let prefix = format!("{}/clusters/", server_url.trim_end_matches('/'));
-    let mut changed = 0;
+    let mut changed: usize = 0;
     for cluster in kubeconfig
         .clusters
         .iter_mut()
@@ -131,7 +131,7 @@ pub fn set_server_certificate_authority(
     {
         if cluster.certificate_authority_data.as_deref() != certificate_authority_data {
             cluster.certificate_authority_data = certificate_authority_data.map(str::to_string);
-            changed += 1;
+            changed = changed.saturating_add(1);
         }
     }
     changed

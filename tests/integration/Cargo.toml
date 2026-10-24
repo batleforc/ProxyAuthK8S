@@ -16,3 +16,6 @@ serde_yaml_ng = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true, features = ["process", "io-util", "time"] }
 url = "2"
+
+[lints]
+workspace = true

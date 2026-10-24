@@ -148,6 +148,10 @@ pub(super) async fn list_projects_filtered(
         kept = kept.len(),
         from_cache, "filtered LIST projects to visible namespaces"
     );
-    candidates["items"] = Value::Array(kept);
+    // Not an object: refused, never the unfiltered candidates.
+    candidates
+        .as_object_mut()
+        .ok_or_else(|| DiscoveryError("namespace list is not an object".into()))?
+        .insert("items".into(), Value::Array(kept));
     Ok(candidates)
 }

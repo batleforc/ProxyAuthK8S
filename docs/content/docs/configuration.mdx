@@ -88,6 +88,7 @@ les flux `watch`, `exec`, `attach`, `port-forward` ou `logs -f`.
 | `RUST_LOG`                    | `info`      | Niveau des logs (syntaxe `tracing` `EnvFilter`, ex. `info,api=debug`), pour la sortie console comme pour l'export OTLP. Les crates de transport (`hyper`, `h2`, `tonic`, `reqwest`) restent muettes |
 | `LOG_FORMAT`                  | `text`      | Format de la sortie console : `text` ou `json` (un objet par ligne : `timestamp`, `level`, `target`, `fields`, `span`, `spans`) |
 | `METRICS_PROMETHEUS_ENABLED`  | `false`     | Sert `GET /management/metrics` au format Prometheus, en plus de l'export OTLP |
+| `WEEBO_METRICS_ADDR`          | (vide)      | Sert aussi les métriques Prometheus sur `GET /metrics`, à cette adresse (ex. `127.0.0.1:9464`), sur un listener à part ; active l'export Prometheus. Utilisé par la mesure de coût (`task perf`) |
 | `POD_NAME`                    | `not_a_pod` | Nom du pod, ajouté aux ressources OTel ; le chart le remplit via la downward API    |
 
 ### Sondes

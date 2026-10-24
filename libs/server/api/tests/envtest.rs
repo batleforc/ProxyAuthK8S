@@ -11,7 +11,15 @@
 //!   serde.
 //!
 //! Gated behind the `envtest` feature so a plain `cargo test` needs no binaries.
-
+#![cfg_attr(
+    feature = "envtest",
+    expect(
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic,
+        reason = "test helpers: a panic is a failed test, with its message"
+    )
+)]
 #![cfg(feature = "envtest")]
 
 mod envtest_support;
@@ -129,7 +137,7 @@ async fn a_valid_resource_is_accepted() {
         .expect("a valid ProxyKubeApi should be accepted");
 
     assert_eq!(created.name_any(), "valid");
-    let _ = api.delete("valid", &DeleteParams::default()).await;
+    let _cleanup = api.delete("valid", &DeleteParams::default()).await;
 }
 
 /// The schema default must be applied by the apiserver, not only by serde:
@@ -155,7 +163,7 @@ async fn expose_via_dashboard_defaults_to_false_at_admission() {
     assert_eq!(created.data["spec"]["enabled"], json!(true));
     assert_eq!(created.data["spec"]["virtual_apis"], json!([]));
 
-    let _ = api.delete("defaults", &DeleteParams::default()).await;
+    let _cleanup = api.delete("defaults", &DeleteParams::default()).await;
 }
 
 /// The CEL rule mirroring `AuthenticationConfiguration::validate`.
@@ -253,7 +261,7 @@ async fn admission_accepts_the_supported_path_placeholders() {
     .await
     .expect("supported placeholders should be accepted");
 
-    let _ = api
+    let _cleanup = api
         .delete("good-placeholder", &DeleteParams::default())
         .await;
 }
@@ -324,7 +332,7 @@ async fn admission_accepts_valid_ports_and_ranges() {
     .await
     .expect("valid ports should be accepted");
 
-    let _ = api.delete("good-ports", &DeleteParams::default()).await;
+    let _cleanup = api.delete("good-ports", &DeleteParams::default()).await;
 }
 
 fn crd_ports_spec(kind: &str, ports: &[&str]) -> serde_json::Value {
@@ -374,7 +382,7 @@ async fn admission_limits_crd_allowed_ports_to_pods_and_services() {
         )
         .await
         .expect("a Pod or Service rule with ports should be accepted");
-        let _ = api.delete(name, &DeleteParams::default()).await;
+        let _cleanup = api.delete(name, &DeleteParams::default()).await;
     }
 }
 
@@ -441,7 +449,7 @@ async fn admission_checks_verbs() {
         )
         .await
         .unwrap_or_else(|err| panic!("verbs {verbs} should be accepted: {err}"));
-        let _ = api.delete(name, &DeleteParams::default()).await;
+        let _cleanup = api.delete(name, &DeleteParams::default()).await;
     }
 }
 
@@ -505,7 +513,7 @@ async fn the_deprecated_allowed_ressources_spelling_survives_admission() {
         "the deprecated field must not be pruned"
     );
 
-    let _ = api
+    let _cleanup = api
         .delete("legacy-spelling", &DeleteParams::default())
         .await;
 }
@@ -626,7 +634,7 @@ async fn the_status_subresource_is_served() {
 
     assert_eq!(patched.data["status"]["exposed"], json!(true));
 
-    let _ = api.delete("with-status", &DeleteParams::default()).await;
+    let _cleanup = api.delete("with-status", &DeleteParams::default()).await;
 }
 
 /// A finalizer must survive a delete: the object stays until it is removed.

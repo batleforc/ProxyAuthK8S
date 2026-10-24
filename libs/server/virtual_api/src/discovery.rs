@@ -64,8 +64,10 @@ pub fn api_group(mapper: &dyn VirtualApiMapper) -> Value {
 /// Full body for `GET /apis/{group}`.
 pub fn api_group_response(mapper: &dyn VirtualApiMapper) -> Value {
     let mut body = api_group(mapper);
-    body["kind"] = json!("APIGroup");
-    body["apiVersion"] = json!("v1");
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("kind".to_string(), json!("APIGroup"));
+        obj.insert("apiVersion".to_string(), json!("v1"));
+    }
     body
 }
 
@@ -73,9 +75,11 @@ pub fn api_group_response(mapper: &dyn VirtualApiMapper) -> Value {
 pub fn api_resource_list_response(mapper: &dyn VirtualApiMapper) -> Value {
     let resources = mapper.api_resources();
     let mut body = serde_json::to_value(&resources).unwrap_or_else(|_| json!({}));
-    body["kind"] = json!("APIResourceList");
-    body["apiVersion"] = json!("v1");
-    body["groupVersion"] = json!(resources.group_version);
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("kind".to_string(), json!("APIResourceList"));
+        obj.insert("apiVersion".to_string(), json!("v1"));
+        obj.insert("groupVersion".to_string(), json!(resources.group_version));
+    }
     body
 }
 

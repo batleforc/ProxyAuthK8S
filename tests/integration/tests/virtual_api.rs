@@ -3,6 +3,11 @@
 //! (aggregated discovery, `apidiscovery.k8s.io/v2`), or they never resolve
 //! the resource.
 
+#![expect(
+    clippy::panic,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
+
 use std::time::Duration;
 
 use integration::{

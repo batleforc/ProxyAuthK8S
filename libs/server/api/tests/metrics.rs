@@ -1,5 +1,9 @@
 //! Prometheus pull endpoint (`/management/metrics`) and the HTTP server
 //! request-duration instrument it exposes.
+#![expect(
+    clippy::expect_used,
+    reason = "test helpers: a panic is a failed test, with its message"
+)]
 
 mod harness;
 

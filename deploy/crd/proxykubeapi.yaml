@@ -10,7 +10,17 @@ spec:
     singular: proxykubeapi
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Reason
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
     schema:
       openAPIV3Schema:
         description: Auto-generated derived type for ProxyKubeApiSpec via `CustomResource`
@@ -1678,11 +1688,48 @@ spec:
           status:
             nullable: true
             properties:
+              conditions:
+                description: |-
+                  `Ready`, then one condition per advisory (RFC 0011). Written by the
+                  controller's status publication, never in the Redis copy.
+                items:
+                  properties:
+                    lastTransitionTime:
+                      description: Time is a wrapper around time.Time which supports correct marshaling to YAML and JSON.  Wrappers are provided for many of the factory methods that the time package offers.
+                      format: date-time
+                      nullable: true
+                      type: string
+                    message:
+                      type: string
+                    observedGeneration:
+                      format: int64
+                      nullable: true
+                      type: integer
+                    reason:
+                      description: One of the operator's reason codes — never a hand-written string.
+                      type: string
+                    status:
+                      description: '`"True"`, `"False"`, or `"Unknown"`.'
+                      type: string
+                    type:
+                      type: string
+                  required:
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
               error:
                 nullable: true
                 type: string
               exposed:
                 type: boolean
+              observedGeneration:
+                description: The generation last reconciled successfully.
+                format: int64
+                nullable: true
+                type: integer
               path:
                 nullable: true
                 type: string

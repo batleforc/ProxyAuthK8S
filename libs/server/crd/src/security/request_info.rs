@@ -71,29 +71,36 @@ pub fn request_info(method: &str, path: &str, query: &str) -> Result<RequestInfo
         }
     };
 
-    if parts.len() < 3 || !matches!(parts[0], "api" | "apis") {
-        return non_resource(info);
-    }
-    let mut rest = &parts[1..];
-    if parts[0] == "apis" {
-        if rest.len() < 3 {
-            return non_resource(info);
+    let (prefix, mut rest) = match parts.split_first() {
+        Some((prefix @ (&"api" | &"apis"), rest)) if parts.len() >= 3 => (*prefix, rest),
+        _ => return non_resource(info),
+    };
+    if prefix == "apis" {
+        match rest {
+            [group, tail @ ..] if rest.len() >= 3 => {
+                info.api_group = (*group).to_string();
+                rest = tail;
+            }
+            _ => return non_resource(info),
         }
-        info.api_group = rest[0].to_string();
-        rest = &rest[1..];
     }
+    // The length checks above leave at least the version and one more segment;
+    // this error only guards the slice patterns.
+    let [version, first, ..] = rest else {
+        return Err("a resource path without a resource".to_string());
+    };
     info.is_resource_request = true;
-    info.version = rest[0].to_string();
-    rest = &rest[1..];
+    info.version = (*version).to_string();
+    let first = *first;
+    rest = rest.get(1..).unwrap_or_default();
 
-    let mut verb = match rest[0] {
+    let mut verb = match first {
         "watch" | "proxy" => {
             if rest.len() < 2 {
                 return Err("a special verb without a resource".to_string());
             }
-            let special = rest[0];
-            rest = &rest[1..];
-            match special {
+            rest = rest.get(1..).unwrap_or_default();
+            match first {
                 // The apiserver only serves `/watch/` to reads; any other
                 // method has no verb a rule could name.
                 "watch" if matches!(method, "GET" | "HEAD") => Some(Verb::Watch),
@@ -112,10 +119,13 @@ pub fn request_info(method: &str, path: &str, query: &str) -> Result<RequestInfo
         },
     };
 
-    if rest[0] == "namespaces" && rest.len() > 1 {
-        info.namespace = rest[1].to_string();
-        if rest.len() > 2 && !NAMESPACE_SUBRESOURCES.contains(&rest[2]) {
-            rest = &rest[2..];
+    if let ["namespaces", namespace, tail @ ..] = rest {
+        info.namespace = (*namespace).to_string();
+        if tail
+            .first()
+            .is_some_and(|next| !NAMESPACE_SUBRESOURCES.contains(next))
+        {
+            rest = tail;
         }
     }
     // resource/name/subresource/what/the/apiserver/does/not/interpret

@@ -1,0 +1,28 @@
+# Separate workspace (its own Cargo.lock), never built by `cargo check
+# --workspace`: weebo-kit-perf pulls weebo-kit-testkit, whose envtest
+# bindings need Go and libclang at build time, which only the `perf`
+# workflow installs (RFC 0011, decision 31). `task perf` runs it.
+[workspace]
+
+[package]
+name = "proxyauthk8s-perf"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MIT"
+
+[dev-dependencies]
+# No version feature, and no dependency on this repository's crates: the
+# testkit's `envtest` 0.3 enables k8s-openapi's `latest` (v1_36), and `crd`
+# inherits the root workspace's `v1_34`; two version features do not build.
+# The test declares the few ProxyKubeApi fields it needs itself.
+k8s-openapi = "0.28"
+kube = { version = "4", features = ["client", "derive", "runtime"] }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "process", "time"] }
+# Same tag as the root Cargo.toml's kit crates: `task lint` checks it
+# (kit:sync only rewrites the root manifest).
+weebo-kit-perf = { git = "https://github.com/batleforc/weebo-operator-kit", tag = "v0.24.0" }
+weebo-kit-testkit = { git = "https://github.com/batleforc/weebo-operator-kit", tag = "v0.24.0" }

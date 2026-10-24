@@ -3,6 +3,11 @@
 //! limited to 8080, a `Crd` `Pod` rule without `allowed_ports`, and a `Crd`
 //! `Service` rule allowing port 80.
 
+#![expect(
+    clippy::expect_used,
+    reason = "test harness: a panic is a failed test, with its message"
+)]
+
 use integration::{
     Bench, Output,
     fixture::{self, CLUSTER, Proxied},
