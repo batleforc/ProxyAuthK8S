@@ -750,9 +750,19 @@
         "tlsMode": {
           "type": "string",
           "enum": [
-            "inner"
-          ],
-          "description": "`passthrough` comes with phase 2."
+            "inner",
+            "passthrough"
+          ]
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "secretName": {
+              "type": "string",
+              "description": "passthrough: the TLS Secret (tls.crt, tls.key) the gateway serves."
+            }
+          }
         },
         "tokenSecretName": {
           "type": "string",

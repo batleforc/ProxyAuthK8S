@@ -137,12 +137,18 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if and .Values.agentGateway.enabled (eq .Values.agentGateway.mode "embedded") }}
+            {{- include "proxyauthk8s.gateway.tlsVolumeMount" . | nindent 12 }}
+            {{- end }}
             {{- with .Values.back.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if and .Values.agentGateway.enabled (eq .Values.agentGateway.mode "embedded") }}
+        {{- include "proxyauthk8s.gateway.tlsVolume" . | nindent 8 }}
+        {{- end }}
         {{- with .Values.back.extraVolumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

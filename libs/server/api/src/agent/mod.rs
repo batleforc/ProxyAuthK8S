@@ -9,7 +9,7 @@ pub mod presence;
 pub mod registry;
 
 use std::future::Future;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 use std::sync::Arc;
 
 use common::State;
@@ -23,6 +23,8 @@ pub enum GatewayError {
     NoToken,
     #[error(transparent)]
     Ca(#[from] ca::CaError),
+    #[error("agent gateway TLS: {0}")]
+    Tls(String),
     #[error("agent gateway listener: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -47,11 +49,10 @@ pub async fn run(
     );
     let registry = registry::TunnelRegistry::new();
     let gateway = listener::Gateway::new(state, Arc::clone(&registry), ca, settings, pod);
-    // The peer address names the enrolling client (`TRUSTED_PROXY_COUNT`).
-    let app =
-        listener::router(Arc::clone(&gateway)).into_make_service_with_connect_info::<SocketAddr>();
+    // A `passthrough` certificate that cannot be read stops the pod now.
+    gateway.tls_config().map_err(GatewayError::Tls)?;
     let result = tokio::select! {
-        served = axum::serve(agents, app) => served.map_err(GatewayError::from),
+        served = listener::serve_agents(agents, Arc::clone(&gateway)) => served.map_err(GatewayError::from),
         () = connect::serve(connect, connect::ConnectService::new(registry, Some(token))) => Ok(()),
         () = presence::run(Arc::clone(&gateway)) => Ok(()),
         () = shutdown => Ok(()),

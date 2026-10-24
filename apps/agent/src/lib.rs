@@ -1,9 +1,10 @@
-//! The agent of RFC 0012 (§6.5): `ServiceAccountToken` bootstrap,
-//! `tlsMode: inner`, egress direct or through a `CONNECT` or SOCKS5 proxy.
+//! The agent of RFC 0012 (§6.5): `ServiceAccountToken` bootstrap, both TLS
+//! modes, egress direct or through a `CONNECT` or SOCKS5 proxy.
 //!
 //! The agent enrols with a projected ServiceAccount token, dials the proxy's
-//! agent gateway over a WebSocket, runs a mutual TLS under the agent CA inside
-//! it, and yamux over that TLS. It opens the control stream, then relays
+//! agent gateway over a WebSocket, and runs yamux on a mutual TLS under the
+//! agent CA: inside the WebSocket (`tlsMode: inner`), or the WebSocket's own
+//! TLS, its certificate presented to the gateway (`passthrough`). It opens the control stream, then relays
 //! every stream the gateway opens to its one `upstream`, the local apiserver,
 //! without reading a byte: the TLS to the apiserver is the proxy's.
 
@@ -18,7 +19,7 @@ use agent_proto::control::{self, AgentInfo, Kind, Ping, RenewRequest};
 use agent_proto::mux::{self, Mode};
 use agent_proto::ws_io::WsIo;
 use base64::Engine as _;
-use futures_util::io::AsyncReadExt as _;
+use futures_util::io::{AsyncRead as FuturesRead, AsyncReadExt as _, AsyncWrite as FuturesWrite};
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::connect::proxy::{SocksV5, Tunnel};
 use reqwest::Url;
@@ -67,6 +68,18 @@ pub struct Config {
     pub kube_ca_path: Option<PathBuf>,
     /// How the agent reaches the proxy (§5.4).
     pub egress: Egress,
+    /// `AGENT_TLS_MODE`: the gateway's `tlsMode` (§5.3).
+    pub tls_mode: TlsMode,
+}
+
+/// Where the agent's certificate is presented (§5.3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TlsMode {
+    /// In a mutual TLS inside the WebSocket, under the agent CA.
+    #[default]
+    Inner,
+    /// In the TLS of the WebSocket itself, which the gateway ends.
+    Passthrough,
 }
 
 /// How the agent opens its TCP to the proxy, the enrolment's and the
@@ -271,6 +284,14 @@ impl Config {
                 .port_or_known_default()
                 .ok_or("AGENT_UPSTREAM has no port")?
         );
+        let tls_mode = match var("AGENT_TLS_MODE").as_deref() {
+            None | Some("inner") => TlsMode::Inner,
+            Some("passthrough") if proxy_url.scheme() == "wss" => TlsMode::Passthrough,
+            Some("passthrough") => {
+                return Err("AGENT_TLS_MODE=passthrough needs a wss:// AGENT_PROXY_URL".to_string());
+            }
+            Some(other) => return Err(format!("AGENT_TLS_MODE `{other}`: inner or passthrough")),
+        };
         let egress = Egress::from_lookup(var, proxy_url.host_str().unwrap_or_default())?;
         Ok(Self {
             proxy_url,
@@ -282,6 +303,7 @@ impl Config {
                 .into(),
             kube_ca_path: var("AGENT_KUBE_CA_PATH").map(PathBuf::from),
             egress,
+            tls_mode,
         })
     }
 
@@ -372,6 +394,16 @@ impl Identity {
         Duration::from_secs(u64::try_from(renew_at.saturating_sub(unix_now())).unwrap_or(0))
     }
 
+    /// This agent's certificate and key, as a TLS client presents them.
+    fn client_auth(
+        &self,
+    ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>), Reason> {
+        Ok((
+            vec![CertificateDer::from_pem_slice(self.cert_pem.as_bytes()).map_err(|_| "tls")?],
+            PrivateKeyDer::from_pem_slice(self.key.key_pem().as_bytes()).map_err(|_| "tls")?,
+        ))
+    }
+
     fn not_after_of(cert_pem: &str) -> Result<i64, Reason> {
         let der = CertificateDer::from_pem_slice(cert_pem.as_bytes()).map_err(|_| "enroll")?;
         let peer = identity_of(&der).map_err(|_| "enroll")?;
@@ -385,10 +417,11 @@ struct Enrolled {
     ca: String,
 }
 
-/// The TLS of the proxy's URL: `ca_bundle`, or the system roots.
-fn outer_tls(config: &Config) -> Result<ClientConfig, String> {
+/// The TLS of the proxy's URL: `ca_bundle`, or the system roots; with
+/// `identity` (`passthrough`), its certificate presented to the gateway.
+fn outer_tls(config: &Config, identity: Option<&Identity>) -> Result<ClientConfig, String> {
     let builder = ClientConfig::builder();
-    match &config.ca_bundle {
+    let builder = match &config.ca_bundle {
         Some(pem) => {
             let mut roots = RootCertStore::empty();
             for cert in CertificateDer::pem_slice_iter(pem.as_bytes()) {
@@ -396,14 +429,22 @@ fn outer_tls(config: &Config) -> Result<ClientConfig, String> {
                     .add(cert.map_err(|err| err.to_string())?)
                     .map_err(|err| err.to_string())?;
             }
-            Ok(builder.with_root_certificates(roots).with_no_client_auth())
+            builder.with_root_certificates(roots)
         }
         None => {
             use rustls_platform_verifier::BuilderVerifierExt as _;
-            Ok(builder
+            builder
                 .with_platform_verifier()
                 .map_err(|err| err.to_string())?
-                .with_no_client_auth())
+        }
+    };
+    match identity {
+        None => Ok(builder.with_no_client_auth()),
+        Some(identity) => {
+            let (certs, key) = identity.client_auth().map_err(str::to_string)?;
+            builder
+                .with_client_auth_cert(certs, key)
+                .map_err(|err| err.to_string())
         }
     }
 }
@@ -411,7 +452,7 @@ fn outer_tls(config: &Config) -> Result<ClientConfig, String> {
 /// The agent: enrols, holds one tunnel, reconnects with a backoff from 1 to
 /// 60 s. Never returns.
 pub async fn run(config: Config, health: Arc<Health>) {
-    let outer = match outer_tls(&config) {
+    let outer = match outer_tls(&config, None) {
         Ok(outer) => Arc::new(outer),
         Err(err) => {
             warn!(error = %err, "the proxy's CA bundle is unusable");
@@ -514,6 +555,10 @@ async fn enroll(config: &Config, http: &reqwest::Client) -> Result<Identity, Rea
 trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
 
+/// What yamux runs on: the inner TLS, or the WebSocket itself.
+trait MuxIo: FuturesRead + FuturesWrite + Unpin + Send {}
+impl<T: FuturesRead + FuturesWrite + Unpin + Send> MuxIo for T {}
+
 /// The inner TLS (`tlsMode: inner`): this agent's certificate, the gateway's
 /// under the agent CA alone.
 fn inner_tls(identity: &Identity) -> Result<ClientConfig, Reason> {
@@ -521,12 +566,10 @@ fn inner_tls(identity: &Identity) -> Result<ClientConfig, Reason> {
     roots
         .add(CertificateDer::from_pem_slice(identity.ca_pem.as_bytes()).map_err(|_| "tls")?)
         .map_err(|_| "tls")?;
+    let (certs, key) = identity.client_auth()?;
     ClientConfig::builder()
         .with_root_certificates(roots)
-        .with_client_auth_cert(
-            vec![CertificateDer::from_pem_slice(identity.cert_pem.as_bytes()).map_err(|_| "tls")?],
-            PrivateKeyDer::from_pem_slice(identity.key.key_pem().as_bytes()).map_err(|_| "tls")?,
-        )
+        .with_client_auth_cert(certs, key)
         .map_err(|_| "tls")
 }
 
@@ -543,14 +586,23 @@ async fn tunnel(
     let tcp = dial(&config.egress, host, port).await?;
     let stream: Box<dyn Io> = if url.scheme() == "wss" {
         let name = ServerName::try_from(host.to_string()).map_err(|_| "connect")?;
+        let outer = match config.tls_mode {
+            TlsMode::Inner => Arc::clone(outer),
+            TlsMode::Passthrough => {
+                let identity = identity.lock().unwrap_or_else(PoisonError::into_inner);
+                Arc::new(
+                    outer_tls(config, Some(identity.as_ref().ok_or("enroll")?)).map_err(|err| {
+                        warn!(error = %err, "no client TLS for the gateway");
+                        "tls"
+                    })?,
+                )
+            }
+        };
         Box::new(
-            tokio::time::timeout(
-                STEP_TIMEOUT,
-                TlsConnector::from(Arc::clone(outer)).connect(name, tcp),
-            )
-            .await
-            .map_err(|_| "connect")?
-            .map_err(|_| "connect")?,
+            tokio::time::timeout(STEP_TIMEOUT, TlsConnector::from(outer).connect(name, tcp))
+                .await
+                .map_err(|_| "connect")?
+                .map_err(|_| "connect")?,
         )
     } else {
         Box::new(tcp)
@@ -565,23 +617,30 @@ async fn tunnel(
         warn!(error = %err, "WebSocket handshake failed");
         "connect"
     })?;
-    let inner = {
-        let identity = identity.lock().unwrap_or_else(PoisonError::into_inner);
-        inner_tls(identity.as_ref().ok_or("enroll")?)?
+    let io: Box<dyn MuxIo> = match config.tls_mode {
+        // The gateway checked this agent's certificate in the WebSocket's TLS.
+        TlsMode::Passthrough => Box::new(WsIo::new(ws)),
+        TlsMode::Inner => {
+            let inner = {
+                let identity = identity.lock().unwrap_or_else(PoisonError::into_inner);
+                inner_tls(identity.as_ref().ok_or("enroll")?)?
+            };
+            let server = ServerName::try_from(TUNNEL_SERVER_NAME).map_err(|_| "tls")?;
+            let tls = tokio::time::timeout(
+                STEP_TIMEOUT,
+                TlsConnector::from(Arc::new(inner)).connect(server, WsIo::new(ws).compat()),
+            )
+            .await
+            .map_err(|_| "tls")?
+            .map_err(|err| {
+                warn!(error = %err, "tunnel TLS failed");
+                "tls"
+            })?;
+            Box::new(tls.compat())
+        }
     };
-    let server = ServerName::try_from(TUNNEL_SERVER_NAME).map_err(|_| "tls")?;
-    let tls = tokio::time::timeout(
-        STEP_TIMEOUT,
-        TlsConnector::from(Arc::new(inner)).connect(server, WsIo::new(ws).compat()),
-    )
-    .await
-    .map_err(|_| "tls")?
-    .map_err(|err| {
-        warn!(error = %err, "tunnel TLS failed");
-        "tls"
-    })?;
 
-    let (handle, mut inbound, driver) = mux::new(tls.compat(), Mode::Server, MAX_STREAMS);
+    let (handle, mut inbound, driver) = mux::new(io, Mode::Server, MAX_STREAMS);
     let session = async {
         let mut control = handle.open().await.map_err(|_| "closed")?;
         // yamux announces the stream with its first frame: this one.
@@ -769,6 +828,21 @@ mod tests {
             _ => None,
         });
         assert!(bad.is_err());
+    }
+
+    #[test]
+    fn passthrough_needs_a_wss_url() {
+        let base = ("AGENT_CLUSTER", "team-a/prod");
+        let wss = ("AGENT_PROXY_URL", "wss://p/agent/v1/connect");
+        assert_eq!(config(&[base, wss]).unwrap().tls_mode, TlsMode::Inner);
+        let mode = ("AGENT_TLS_MODE", "passthrough");
+        assert_eq!(
+            config(&[base, wss, mode]).unwrap().tls_mode,
+            TlsMode::Passthrough
+        );
+        let ws = ("AGENT_PROXY_URL", "ws://127.0.0.1:8444/agent/v1/connect");
+        assert!(config(&[base, ws, mode]).is_err());
+        assert!(config(&[base, wss, ("AGENT_TLS_MODE", "outer")]).is_err());
     }
 
     #[test]

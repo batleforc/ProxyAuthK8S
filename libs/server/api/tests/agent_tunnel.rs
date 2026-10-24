@@ -410,11 +410,10 @@ async fn agent_gateway_with(
         api::agent::listener::Gateway::new(state, registry, ca, settings, "gw-0".to_string());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let router = api::agent::listener::router(std::sync::Arc::clone(&gateway))
-        .into_make_service_with_connect_info::<std::net::SocketAddr>();
-    tokio::spawn(async move {
-        drop(axum::serve(listener, router).await);
-    });
+    tokio::spawn(api::agent::listener::serve_agents(
+        listener,
+        std::sync::Arc::clone(&gateway),
+    ));
     (addr, gateway)
 }
 
@@ -1104,6 +1103,103 @@ async fn the_real_agent_enrols_and_carries_a_relayed_request() {
     );
 
     drop(std::fs::remove_file(&token_path));
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
+/// A TLS client of `addr` trusting `ca_pem`, presenting `client` if given.
+async fn tls_to(
+    addr: std::net::SocketAddr,
+    ca_pem: &str,
+    client: Option<(&str, &rcgen::KeyPair)>,
+) -> tokio_rustls::client::TlsStream<tokio::net::TcpStream> {
+    use rustls::pki_types::pem::PemObject as _;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(CertificateDer::from_pem_slice(ca_pem.as_bytes()).unwrap())
+        .unwrap();
+    let builder = rustls::ClientConfig::builder().with_root_certificates(roots);
+    let config = match client {
+        Some((cert, key)) => builder
+            .with_client_auth_cert(
+                vec![CertificateDer::from_pem_slice(cert.as_bytes()).unwrap()],
+                PrivateKeyDer::from_pem_slice(key.serialize_pem().as_bytes()).unwrap(),
+            )
+            .unwrap(),
+        None => builder.with_no_client_auth(),
+    };
+    let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+    tokio_rustls::TlsConnector::from(std::sync::Arc::new(config))
+        .connect(ServerName::try_from("localhost").unwrap(), tcp)
+        .await
+        .unwrap()
+}
+
+/// §6.P point 11, `tlsMode: passthrough`: the gateway ends the TLS itself;
+/// the real agent enrols without a certificate and opens its tunnel with
+/// one; a WebSocket without one, or with one from another CA, opens nothing.
+#[tokio::test]
+async fn the_real_agent_opens_a_passthrough_tunnel() {
+    use std::sync::atomic::Ordering;
+
+    let pool = redis_or_skip!();
+    harness::install_crypto_provider();
+    let dir = std::env::temp_dir().join(format!("agent-passthrough-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let server = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+    let (cert_path, key_path) = (dir.join("tls.crt"), dir.join("tls.key"));
+    std::fs::write(&cert_path, server.cert.pem()).unwrap();
+    std::fs::write(&key_path, server.signing_key.serialize_pem()).unwrap();
+    let (addr, gateway) = agent_gateway_with(|settings| {
+        settings.tls_mode = common::config::AgentTlsMode::Passthrough {
+            cert_path: cert_path.display().to_string(),
+            key_path: key_path.display().to_string(),
+        };
+    })
+    .await;
+    let issuer = Issuer::new();
+    let identity = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
+    let url = format!("wss://localhost:{}/agent/v1/connect", addr.port());
+
+    let refused =
+        tokio_tungstenite::client_async(&url, tls_to(addr, &server.cert.pem(), None).await)
+            .await
+            .map(|_| ())
+            .unwrap_err();
+    assert!(
+        matches!(&refused, tokio_tungstenite::tungstenite::Error::Http(response) if response.status() == 401),
+        "{refused:?}"
+    );
+    let foreign = agent_pki::AgentCa::generate().unwrap();
+    let (cert, key) = agent_cert(&foreign, &identity);
+    let tls = tls_to(addr, &server.cert.pem(), Some((&cert, &key))).await;
+    assert!(tokio_tungstenite::client_async(&url, tls).await.is_err());
+
+    let token_path = dir.join("token");
+    std::fs::write(&token_path, issuer.token(SUBJECT, DEFAULT_AUDIENCE, 600)).unwrap();
+    let vars = std::collections::HashMap::from([
+        ("AGENT_PROXY_URL", url.clone()),
+        ("AGENT_PROXY_CA_BUNDLE", cert_path.display().to_string()),
+        ("AGENT_TLS_MODE", "passthrough".to_string()),
+        ("AGENT_CLUSTER", identity.cluster()),
+        ("AGENT_TOKEN_PATH", token_path.display().to_string()),
+    ]);
+    let config = agent::Config::from_lookup(|name| vars.get(name).cloned()).unwrap();
+    let health = std::sync::Arc::new(agent::Health::default());
+    tokio::spawn(agent::run(config, std::sync::Arc::clone(&health)));
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !health.tunnel_up.load(Ordering::Relaxed) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the agent should open its passthrough tunnel");
+    let tunnels = gateway.registry.identities();
+    assert_eq!(tunnels.len(), 1);
+    assert_eq!(tunnels[0].0, identity);
+
+    drop(std::fs::remove_dir_all(&dir));
     delete_proxy(&pool, &identity.namespace, &identity.name).await;
 }
 

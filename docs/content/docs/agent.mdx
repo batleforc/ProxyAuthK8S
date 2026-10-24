@@ -59,6 +59,32 @@ porte un jeton généré par le chart (`agentGateway.tokenSecretName` pour fourn
 | `agentGateway.limits.enrollPerMinute` | `10` | Enrôlements par adresse cliente (`TRUSTED_PROXY_COUNT` derrière un Ingress) |
 | `agentGateway.limits.enrollPerMinuteTotal` | `120` | Enrôlements de tous les agents |
 
+### TLS de bout en bout jusqu'à la passerelle (`passthrough`)
+
+Par défaut (`tlsMode: inner`), l'Ingress termine le TLS et l'agent ouvre un second TLS, mutuel,
+dans le WebSocket. Si votre Ingress ou votre load balancer sait router sur le SNI sans
+déchiffrer, `passthrough` retire cette couche : la passerelle termine elle-même le TLS avec
+votre certificat, et y lit le certificat client de l'agent.
+
+```yaml
+agentGateway:
+  tlsMode: passthrough
+  tls:
+    secretName: agent-proxy-tls     # tls.crt / tls.key pour agent.proxy.example.com
+  ingress:
+    enabled: true
+    host: agent.proxy.example.com
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-passthrough: "true"   # ingress-nginx, --enable-ssl-passthrough
+```
+
+Le Secret est relu chaque jour : un renouvellement par cert-manager est pris sans redémarrage.
+L'Ingress rendu n'a alors pas de section `tls`. Avec Traefik, déclarez un `IngressRouteTCP`
+(`tls.passthrough: true`) vers le Service `<release>-proxyauthk8s-gateway` à la place.
+L'agent doit être installé avec le même mode (`--set tlsMode=passthrough`), et `proxy.caBundle`
+si ce certificat vient d'une PKI privée. L'enrôlement passe sans certificat client ;
+`/agent/v1/connect` en exige un, émis par la CA des agents (`401` sinon).
+
 ## 2. Déclarer le cluster
 
 Le JWKS du cluster distant se lit avec `kubectl get --raw /openid/v1/jwks` sur ce cluster ; il
@@ -159,5 +185,5 @@ cluster, celui-ci compris : listez vos namespaces pour que la clé reste à la p
 
 ## Pas encore disponible
 
-`OneShotToken` (jeton à usage unique), `tlsMode: passthrough` et le CronJob `jwksPublisher`
-arrivent avec la phase 2 de la RFC 0012.
+`OneShotToken` (jeton à usage unique) et le CronJob `jwksPublisher` arrivent avec la phase 2
+de la RFC 0012.

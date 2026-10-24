@@ -1067,9 +1067,9 @@ l'historique de la conversation.
 
 **Phase 2** : branche `feat/rfc-0012-phase-2`, partie de
 `feat/rfc-0012-agent-tunnel` (`1ed52fc`), PR à empiler sur #294. Fait : 2a
-(sortie `CONNECT` / SOCKS5). Ensuite, dans l'ordre : 2b `tlsMode:
-passthrough`, 2c `OneShotToken` (T6, T16), 2d `jwksPublisher`, 2e banc
-(points 8 à 11, `MATRIX.md`).
+(sortie `CONNECT` / SOCKS5, `0cd92ea`), 2b (`tlsMode: passthrough`).
+Ensuite, dans l'ordre : 2c `OneShotToken` (T6, T16), 2d `jwksPublisher`,
+2e banc (points 8 à 11, `MATRIX.md`).
 
 **Phase 1** : branche `feat/rfc-0012-agent-tunnel`, partie de `main` après la PR #293
 (`d8f7341`), poussée ; **PR #294** ouverte
@@ -1197,6 +1197,7 @@ doit être fermée après `Analyze (rust)`), `git status`, puis
 | Étape (phase 2) | État | Notes |
 | --- | --- | --- |
 | 2a sortie de l'agent par `CONNECT` et SOCKS5 (§5.4) | fait | `apps/agent` : `Egress` (`AGENT_EGRESS_PROXY_URL`, sinon `HTTPS_PROXY` / `ALL_PROXY` hors `NO_PROXY`, sinon direct ; `http`, `socks5h`, `socks5` ; identifiants `AGENT_EGRESS_PROXY_USERNAME` / `_PASSWORD`, jamais dans un `Debug`), `dial` pour le tunnel, le même proxy pour le client reqwest de l'enrôlement ; chart : `egress.proxy.url`, `egress.proxy.credentialsSecret` ; `agent.mdx` ; tests unitaires 3 (résolution, `CONNECT` et SOCKS5 contre des serveurs en mémoire, avec et sans identifiants). Écart à §8 : ni `tokio-socks` ni `CONNECT` écrit à la main, les connecteurs `Tunnel` et `SocksV5` de `hyper-util` (`client-proxy`, déjà activé par reqwest) font les deux ; aucun crate nouveau dans `Cargo.lock`. `NO_PROXY` sans plages CIDR ni ports (`shortcut:`) |
+| 2b `tlsMode: passthrough` (§5.3) | fait | `common::config::AgentTlsMode` (`AGENT_GATEWAY_TLS_MODE`, `AGENT_GATEWAY_TLS_CERT_PATH` / `_KEY_PATH`, défaut `/agent-tls/tls.{crt,key}`) ; `listener::serve_agents` : `axum::serve` en `inner`, sinon TLS de la passerelle (certificat du chart relu chaque jour, certificat client de la CA des agents facultatif à la poignée de main, une autre CA échoue), `ClientCertificate` posé sur chaque requête, hyper HTTP/1.1 avec upgrades ; `connect` refuse en `401` sans certificat, avant l'upgrade (audit `identity`) ; yamux sur le WebSocket ; certificat illisible : la passerelle ne démarre pas. Agent : `AGENT_TLS_MODE` (`passthrough` exige `wss://`), certificat présenté au TLS externe. Charts : `agentGateway.tlsMode: passthrough` + `agentGateway.tls.secretName` (volume `/agent-tls` en `separate` et `embedded`, sondes en HTTPS, Ingress sans `tls`), `tlsMode` du chart de l'agent ; rendu désactivé identique ; `agent.mdx`. Tests : `agent_tunnel::the_real_agent_opens_a_passthrough_tunnel` (29/29), unitaires `common` et `agent` |
 
 ### Preuve par menace (§7, §14)
 

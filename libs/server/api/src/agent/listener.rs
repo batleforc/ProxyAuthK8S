@@ -1,12 +1,17 @@
-//! The gateway's agent listener (RFC 0012 §5.3, §6.3, `tlsMode: inner`).
+//! The gateway's agent listener (RFC 0012 §5.3, §6.3).
 //!
-//! `GET /agent/v1/connect` upgrades to a WebSocket; inside it, the agent and
-//! this pod run a mutual TLS under the agent CA, and yamux over that TLS. The
-//! agent's identity is its certificate's, checked against the `ProxyKubeApi`
+//! `GET /agent/v1/connect` upgrades to a WebSocket. With `tlsMode: inner`,
+//! the agent and this pod run a mutual TLS under the agent CA inside it, and
+//! yamux over that TLS; with `passthrough`, this pod ends the TLS of the
+//! connection itself, the agent's certificate is that TLS's client
+//! certificate, and yamux runs on the WebSocket. Either way, the TLS that
+//! names the agent ends in this pod. The agent's identity is its
+//! certificate's, checked against the `ProxyKubeApi`
 //! it names (UID, `epoch`, `Agent` service): no header set by an ingress is
 //! read as identity. The first stream the agent opens is the control channel
 //! (`AgentInfo` from the agent, then `Hello`); the agent opens no other.
 
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -15,15 +20,18 @@ use agent_pki::{AgentCa, AgentIdentity, identity_of};
 use agent_proto::control::{self, AgentInfo, Close, Hello, Kind, Pong, RenewResponse};
 use agent_proto::mux::{self, Mode};
 use agent_proto::ws_io::{MAX_FRAME, Message, WsIo};
-use axum::Router;
 use axum::extract::ws::{self, WebSocket, WebSocketUpgrade};
-use axum::response::Response;
+use axum::extract::{ConnectInfo, Extension};
+use axum::response::{IntoResponse as _, Response};
 use axum::routing::get;
+use axum::{Router, http::StatusCode};
 use common::State;
-use common::config::AgentGatewaySettings;
+use common::config::{AgentGatewaySettings, AgentTlsMode};
 use crd::ProxyKubeApi;
 use crd::service::{AgentService, Service};
-use futures_util::{SinkExt, StreamExt, future};
+use futures_util::{AsyncRead, AsyncWrite, SinkExt, StreamExt, future};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::service::TowerToHyperService;
 use rustls::RootCertStore;
 use rustls::pki_types::pem::PemObject as _;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
@@ -42,10 +50,41 @@ use super::registry::TunnelRegistry;
 /// every 30 s.
 const CONTROL_IDLE: Duration = Duration::from_secs(90);
 /// The tunnel server certificate lives 7 days; a new one is issued daily.
+/// In `passthrough`, the chart's certificate is read again as often.
 const SERVER_CERT_REISSUE: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Why a tunnel was refused or closed, for the logs and the audit (T14).
 pub type Reason = &'static str;
+
+/// The client certificate of a `passthrough` connection, set by
+/// [`serve_agents`] on each of its requests; never present with `inner`.
+#[derive(Clone)]
+pub struct ClientCertificate(pub Option<CertificateDer<'static>>);
+
+trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
+
+fn refused(client: &str, identity: Option<&AgentIdentity>, reason: Reason) {
+    warn!(%client, cluster = identity.map(AgentIdentity::cluster), reason, "agent tunnel refused");
+    let line = AuditEvent::new(Event::AgentRefused, Outcome::Denied)
+        .client_ip(client)
+        .reason(reason);
+    match identity {
+        Some(identity) => line
+            .cluster(&identity.namespace, &identity.name)
+            .agent(identity.epoch, None),
+        None => line,
+    }
+    .emit();
+}
+
+/// The agent identity a client certificate carries, if the agent CA issued it.
+fn identity_of_peer(cert: Option<&CertificateDer<'_>>) -> Result<AgentIdentity, Reason> {
+    match cert.map(|cert| identity_of(cert)) {
+        Some(Ok(peer)) => Ok(peer.identity),
+        _ => Err("identity"),
+    }
+}
 
 pub struct Gateway {
     pub state: State,
@@ -87,57 +126,66 @@ impl Gateway {
         })
     }
 
-    fn tls_config(&self) -> Result<Arc<ServerConfig>, String> {
+    pub(super) fn tls_config(&self) -> Result<Arc<ServerConfig>, String> {
         let mut tls = self.tls.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some((issued, config)) = tls.as_ref()
             && issued.elapsed() < SERVER_CERT_REISSUE
         {
             return Ok(Arc::clone(config));
         }
-        let config = Arc::new(server_config(&self.ca)?);
+        let config = Arc::new(match &self.settings.tls_mode {
+            AgentTlsMode::Inner => server_config(&self.ca)?,
+            AgentTlsMode::Passthrough {
+                cert_path,
+                key_path,
+            } => passthrough_config(&self.ca, cert_path, key_path)?,
+        });
         *tls = Some((Instant::now(), Arc::clone(&config)));
         Ok(config)
     }
 
-    async fn serve(self: Arc<Self>, socket: WebSocket, client: String) {
+    async fn serve(
+        self: Arc<Self>,
+        socket: WebSocket,
+        client: String,
+        client_cert: Option<CertificateDer<'static>>,
+    ) {
         let refused = |identity: Option<&AgentIdentity>, reason: Reason| {
-            warn!(%client, cluster = identity.map(AgentIdentity::cluster), reason, "agent tunnel refused");
-            let line = AuditEvent::new(Event::AgentRefused, Outcome::Denied)
-                .client_ip(&client)
-                .reason(reason);
-            match identity {
-                Some(identity) => line
-                    .cluster(&identity.namespace, &identity.name)
-                    .agent(identity.epoch, None),
-                None => line,
+            refused(&client, identity, reason);
+        };
+        let socket = WsIo::new(
+            socket
+                .map(|message| message.map(to_tungstenite))
+                .with(|message| future::ready(Ok::<_, axum::Error>(from_tungstenite(message)))),
+        );
+        let (io, identity): (Box<dyn Io>, _) = match &self.settings.tls_mode {
+            // `connect` let no request without a certificate through.
+            AgentTlsMode::Passthrough { .. } => match identity_of_peer(client_cert.as_ref()) {
+                Ok(identity) => (Box::new(socket), identity),
+                Err(reason) => return refused(None, reason),
+            },
+            AgentTlsMode::Inner => {
+                let tls = match self.tls_config() {
+                    Ok(tls) => tls,
+                    Err(err) => {
+                        return warn!(error = %err, "agent tunnel: no server certificate");
+                    }
+                };
+                let handshake = TlsAcceptor::from(tls).accept(socket.compat());
+                let tls =
+                    match tokio::time::timeout(self.settings.handshake_timeout, handshake).await {
+                        Ok(Ok(tls)) => tls,
+                        Ok(Err(err)) => {
+                            debug!(error = %err, "agent tunnel TLS failed");
+                            return refused(None, "tls");
+                        }
+                        Err(_) => return refused(None, "tls timeout"),
+                    };
+                match identity_of_peer(tls.get_ref().1.peer_certificates().and_then(<[_]>::first)) {
+                    Ok(identity) => (Box::new(TokioAsyncReadCompatExt::compat(tls)), identity),
+                    Err(reason) => return refused(None, reason),
+                }
             }
-            .emit();
-        };
-        let socket = socket
-            .map(|message| message.map(to_tungstenite))
-            .with(|message| future::ready(Ok::<_, axum::Error>(from_tungstenite(message))));
-        let tls = match self.tls_config() {
-            Ok(tls) => tls,
-            Err(err) => return warn!(error = %err, "agent tunnel: no server certificate"),
-        };
-        let handshake = TlsAcceptor::from(tls).accept(WsIo::new(socket).compat());
-        let tls = match tokio::time::timeout(self.settings.handshake_timeout, handshake).await {
-            Ok(Ok(tls)) => tls,
-            Ok(Err(err)) => {
-                debug!(error = %err, "agent tunnel TLS failed");
-                return refused(None, "tls");
-            }
-            Err(_) => return refused(None, "tls timeout"),
-        };
-        let identity = match tls
-            .get_ref()
-            .1
-            .peer_certificates()
-            .and_then(<[_]>::first)
-            .map(|cert| identity_of(cert))
-        {
-            Some(Ok(peer)) => peer.identity,
-            _ => return refused(None, "identity"),
         };
         let agent = match still_valid(&self.state, &identity).await {
             Ok(agent) => agent,
@@ -154,7 +202,7 @@ impl Gateway {
 
         let (handle, mut inbound, driver) =
             // One more for the control stream, which yamux counts too.
-            mux::new(TokioAsyncReadCompatExt::compat(tls), Mode::Client, streams.saturating_add(1));
+            mux::new(io, Mode::Client, streams.saturating_add(1));
         let connected = AtomicBool::new(false);
         let session = async {
             let mut control = tokio::time::timeout(self.settings.handshake_timeout, inbound.recv())
@@ -326,10 +374,8 @@ pub async fn current_agent(
     }
 }
 
-/// The tunnel TLS: a fresh server certificate under the agent CA, and a
-/// client certificate required from that CA alone.
-fn server_config(ca: &AgentCa) -> Result<ServerConfig, String> {
-    let (cert_pem, key_pem) = ca.issue_server().map_err(|err| err.to_string())?;
+/// The agent CA, the one root of agent certificates.
+fn agent_roots(ca: &AgentCa) -> Result<Arc<RootCertStore>, String> {
     let mut roots = RootCertStore::empty();
     roots
         .add(
@@ -337,7 +383,40 @@ fn server_config(ca: &AgentCa) -> Result<ServerConfig, String> {
                 .map_err(|err| err.to_string())?,
         )
         .map_err(|err| err.to_string())?;
-    let verifier = WebPkiClientVerifier::builder(Arc::new(roots))
+    Ok(Arc::new(roots))
+}
+
+/// The `passthrough` TLS: the chart's certificate, and a client certificate
+/// from the agent CA, optional at the handshake (enrolment and probes have
+/// none) and required by `connect`. A certificate from another CA still
+/// fails the handshake.
+fn passthrough_config(
+    ca: &AgentCa,
+    cert_path: &str,
+    key_path: &str,
+) -> Result<ServerConfig, String> {
+    let certs = CertificateDer::pem_file_iter(cert_path)
+        .and_then(Iterator::collect::<Result<Vec<_>, _>>)
+        .map_err(|err| format!("{cert_path}: {err}"))?;
+    let key = PrivateKeyDer::from_pem_file(key_path).map_err(|err| format!("{key_path}: {err}"))?;
+    let verifier = WebPkiClientVerifier::builder(agent_roots(ca)?)
+        .allow_unauthenticated()
+        .build()
+        .map_err(|err| err.to_string())?;
+    let mut config = ServerConfig::builder()
+        .with_client_cert_verifier(verifier)
+        .with_single_cert(certs, key)
+        .map_err(|err| err.to_string())?;
+    // A WebSocket upgrade is HTTP/1.1.
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(config)
+}
+
+/// The tunnel TLS: a fresh server certificate under the agent CA, and a
+/// client certificate required from that CA alone.
+fn server_config(ca: &AgentCa) -> Result<ServerConfig, String> {
+    let (cert_pem, key_pem) = ca.issue_server().map_err(|err| err.to_string())?;
+    let verifier = WebPkiClientVerifier::builder(agent_roots(ca)?)
         .build()
         .map_err(|err| err.to_string())?;
     ServerConfig::builder()
@@ -377,11 +456,22 @@ async fn connect(
     upgrade: WebSocketUpgrade,
 ) -> Response {
     let client = throttle_client_ip(forwarded_for(&parts.headers), peer_ip(&parts));
+    let client_cert = parts
+        .extensions
+        .get::<ClientCertificate>()
+        .and_then(|cert| cert.0.clone());
+    if matches!(gateway.settings.tls_mode, AgentTlsMode::Passthrough { .. }) {
+        // Before the upgrade: no WebSocket for a client without one.
+        if let Err(reason) = identity_of_peer(client_cert.as_ref()) {
+            refused(&client, None, reason);
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+    }
     // `WsIo` writes frames of `MAX_FRAME` at most: the agent sends no larger.
     upgrade
         .max_message_size(MAX_FRAME)
         .max_frame_size(MAX_FRAME)
-        .on_upgrade(move |socket| gateway.serve(socket, client))
+        .on_upgrade(move |socket| gateway.serve(socket, client, client_cert))
 }
 
 /// Ready while Redis answers: no tunnel can be checked, nor enrolment counted,
@@ -392,6 +482,70 @@ async fn ready(
     match tokio::time::timeout(Duration::from_secs(2), gateway.state.redis_ping()).await {
         Ok(Ok(())) => axum::http::StatusCode::OK,
         _ => axum::http::StatusCode::SERVICE_UNAVAILABLE,
+    }
+}
+
+/// Serve [`router`] on `listener` until it fails: plain HTTP with `inner`
+/// (the ingress ends the TLS), this pod's TLS with `passthrough`, each
+/// request carrying the connection's [`ClientCertificate`].
+pub async fn serve_agents(
+    listener: tokio::net::TcpListener,
+    gateway: Arc<Gateway>,
+) -> std::io::Result<()> {
+    let app = router(Arc::clone(&gateway));
+    if gateway.settings.tls_mode == AgentTlsMode::Inner {
+        // The peer address names the enrolling client (`TRUSTED_PROXY_COUNT`).
+        return axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await;
+    }
+    loop {
+        let (tcp, peer) = match listener.accept().await {
+            Ok(accepted) => accepted,
+            Err(err) => {
+                // Out of descriptors, say: wait, as `axum::serve` does.
+                warn!(error = %err, "agent listener accept failed");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
+            }
+        };
+        let (gateway, app) = (Arc::clone(&gateway), app.clone());
+        tokio::spawn(async move {
+            let client = throttle_client_ip(None, Some(peer.ip()));
+            let tls = match gateway.tls_config() {
+                Ok(tls) => tls,
+                Err(err) => return warn!(error = %err, "agent listener: no server certificate"),
+            };
+            let handshake = TlsAcceptor::from(tls).accept(tcp);
+            let tls =
+                match tokio::time::timeout(gateway.settings.handshake_timeout, handshake).await {
+                    Ok(Ok(tls)) => tls,
+                    Ok(Err(err)) => {
+                        debug!(error = %err, "agent listener TLS failed");
+                        return refused(&client, None, "tls");
+                    }
+                    Err(_) => return refused(&client, None, "tls timeout"),
+                };
+            let cert = ClientCertificate(
+                tls.get_ref()
+                    .1
+                    .peer_certificates()
+                    .and_then(<[_]>::first)
+                    .map(|cert| cert.clone().into_owned()),
+            );
+            let app = app
+                .layer(Extension(cert))
+                .layer(Extension(ConnectInfo(peer)));
+            let served = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new())
+                .http1_only()
+                .serve_connection_with_upgrades(TokioIo::new(tls), TowerToHyperService::new(app))
+                .await;
+            if let Err(err) = served {
+                debug!(error = %err, "agent listener connection ended");
+            }
+        });
     }
 }
 

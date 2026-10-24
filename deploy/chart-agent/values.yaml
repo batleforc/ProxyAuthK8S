@@ -11,7 +11,7 @@ proxy:
   cluster: ""
   # The CA of `url`, PEM (private PKI, Netbird); empty = the system roots.
   caBundle: ""
-# Must be the proxy's (agentGateway.tlsMode). Phase 1: inner only.
+# Must be the proxy's (agentGateway.tlsMode): inner or passthrough.
 tlsMode: inner
 # The agent's one destination: this cluster's apiserver.
 upstream: https://kubernetes.default.svc:443

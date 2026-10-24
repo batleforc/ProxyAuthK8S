@@ -256,6 +256,18 @@ impl Role {
     }
 }
 
+/// Who ends the agents' TLS (RFC 0012 §5.3).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum AgentTlsMode {
+    /// The ingress ends the outer TLS; the gateway runs a mutual TLS under
+    /// the agent CA inside the WebSocket.
+    #[default]
+    Inner,
+    /// The gateway ends the TLS itself with the chart's certificate, and
+    /// reads the agent's client certificate from it.
+    Passthrough { cert_path: String, key_path: String },
+}
+
 /// The agent gateway (RFC 0012 §4.1, decisions 26 and 27): its listeners and
 /// bounds when this process is one, and how the proxy reaches it.
 #[derive(Clone, PartialEq, Eq)]
@@ -296,6 +308,11 @@ pub struct AgentGatewaySettings {
     /// `AGENT_GATEWAY_ENROLL_PER_MINUTE_TOTAL` (default `120`, > 0):
     /// enrolments of every agent together.
     pub enroll_per_minute_total: usize,
+    /// `AGENT_GATEWAY_TLS_MODE` (`inner`, default, or `passthrough`, its
+    /// certificate at `AGENT_GATEWAY_TLS_CERT_PATH` and
+    /// `AGENT_GATEWAY_TLS_KEY_PATH`, default `/agent-tls/tls.crt` and
+    /// `/agent-tls/tls.key`).
+    pub tls_mode: AgentTlsMode,
 }
 
 impl fmt::Debug for AgentGatewaySettings {
@@ -313,6 +330,7 @@ impl fmt::Debug for AgentGatewaySettings {
             .field("handshake_timeout", &self.handshake_timeout)
             .field("enroll_per_minute", &self.enroll_per_minute)
             .field("enroll_per_minute_total", &self.enroll_per_minute_total)
+            .field("tls_mode", &self.tls_mode)
             .finish()
     }
 }
@@ -500,6 +518,21 @@ impl Config {
             enroll_per_minute: loader.positive_usize("AGENT_GATEWAY_ENROLL_PER_MINUTE", 10),
             enroll_per_minute_total: loader
                 .positive_usize("AGENT_GATEWAY_ENROLL_PER_MINUTE_TOTAL", 120),
+            tls_mode: if loader.parsed("AGENT_GATEWAY_TLS_MODE", "inner", |v| {
+                match v.trim().to_ascii_lowercase().as_str() {
+                    "inner" => Some("inner"),
+                    "passthrough" => Some("passthrough"),
+                    _ => None,
+                }
+            }) == "passthrough"
+            {
+                AgentTlsMode::Passthrough {
+                    cert_path: loader.or("AGENT_GATEWAY_TLS_CERT_PATH", "/agent-tls/tls.crt"),
+                    key_path: loader.or("AGENT_GATEWAY_TLS_KEY_PATH", "/agent-tls/tls.key"),
+                }
+            } else {
+                AgentTlsMode::Inner
+            },
         };
 
         Self {
@@ -785,6 +818,7 @@ mod tests {
                 handshake_timeout: Duration::from_secs(10),
                 enroll_per_minute: 10,
                 enroll_per_minute_total: 120,
+                tls_mode: AgentTlsMode::Inner,
             }
         );
     }
@@ -801,6 +835,8 @@ mod tests {
             ("AGENT_GATEWAY_MAX_STREAMS_PER_TUNNEL", "200"),
             ("AGENT_GATEWAY_TUNNELS_PER_IDENTITY", "0"),
             ("AGENT_GATEWAY_HANDSHAKE_TIMEOUT", "0"),
+            ("AGENT_GATEWAY_TLS_MODE", "Passthrough"),
+            ("AGENT_GATEWAY_TLS_KEY_PATH", "/tls/key.pem"),
         ]);
         let gateway = &config.agent_gateway;
         assert_eq!(gateway.role, Role::Gateway);
@@ -823,6 +859,13 @@ mod tests {
         assert_eq!(gateway.tunnels_per_identity, 4);
         assert_eq!(gateway.handshake_timeout, Duration::from_secs(10));
         assert!(!format!("{gateway:?}").contains("s3cret"));
+        assert_eq!(
+            gateway.tls_mode,
+            AgentTlsMode::Passthrough {
+                cert_path: "/agent-tls/tls.crt".to_string(),
+                key_path: "/tls/key.pem".to_string(),
+            }
+        );
     }
 
     #[test]

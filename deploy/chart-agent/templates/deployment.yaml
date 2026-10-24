@@ -1,5 +1,5 @@
-{{- if ne .Values.tlsMode "inner" }}
-{{- fail "tlsMode: only inner exists in this version (passthrough comes with phase 2)" }}
+{{- if not (has .Values.tlsMode (list "inner" "passthrough")) }}
+{{- fail "tlsMode: inner or passthrough (the proxy's agentGateway.tlsMode)" }}
 {{- end }}
 {{- if ne .Values.bootstrap.method "ServiceAccountToken" }}
 {{- fail "bootstrap.method: only ServiceAccountToken exists in this version" }}
@@ -44,6 +44,8 @@ spec:
               value: {{ required "proxy.cluster is required (namespace/name of the ProxyKubeApi)" .Values.proxy.cluster | quote }}
             - name: AGENT_UPSTREAM
               value: {{ .Values.upstream | quote }}
+            - name: AGENT_TLS_MODE
+              value: {{ .Values.tlsMode | quote }}
             - name: AGENT_TOKEN_PATH
               value: /var/run/secrets/proxyauth/token
             - name: AGENT_KUBE_CA_PATH
