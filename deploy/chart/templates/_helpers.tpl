@@ -54,3 +54,84 @@ non-default port or through another proxy.
 {{- define "proxyauthk8s.publicUrl" -}}
 {{- .Values.ingress.publicUrl | default (printf "%s://%s" (ternary "https" "http" .Values.ingress.tls.enabled) .Values.ingress.host) | trimSuffix "/" -}}
 {{- end -}}
+
+{{/*
+The agent gateway (RFC 0012). Its pods are the gateway Deployment's, or the
+back's in embedded mode; the headless Service gives each one a DNS name,
+`<pod>.<headless>.<namespace>.svc`, which the back composes itself (T19).
+*/}}
+{{- define "proxyauthk8s.gateway.name" -}}
+{{ .Release.Name }}-proxyauthk8s-gateway
+{{- end -}}
+
+{{- define "proxyauthk8s.gateway.headless" -}}
+{{ include "proxyauthk8s.gateway.name" . }}-pods
+{{- end -}}
+
+{{- define "proxyauthk8s.gateway.podApp" -}}
+{{- if eq .Values.agentGateway.mode "embedded" -}}
+{{ include "proxyauthk8s.back.name" . }}
+{{- else -}}
+{{ include "proxyauthk8s.gateway.name" . }}
+{{- end -}}
+{{- end -}}
+
+{{- define "proxyauthk8s.gateway.tokenSecret" -}}
+{{ .Values.agentGateway.tokenSecretName | default (printf "%s-token" (include "proxyauthk8s.gateway.name" .)) }}
+{{- end -}}
+
+{{/*
+The gateway settings, for the gateway and for the back that CONNECTs to it.
+*/}}
+{{- define "proxyauthk8s.gateway.env" -}}
+{{- with .Values.agentGateway }}
+- name: AGENT_GATEWAY_SERVICE
+  value: "{{ include "proxyauthk8s.gateway.headless" $ }}.{{ $.Release.Namespace }}.svc"
+- name: AGENT_GATEWAY_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: "{{ include "proxyauthk8s.gateway.tokenSecret" $ }}"
+      key: token
+- name: AGENT_GATEWAY_PORT
+  value: "{{ .port }}"
+- name: AGENT_GATEWAY_CONNECT_PORT
+  value: "{{ .connectPort }}"
+- name: AGENT_GATEWAY_TUNNELS_PER_IDENTITY
+  value: "{{ .limits.tunnelsPerAgentIdentity }}"
+- name: AGENT_GATEWAY_STREAMS_PER_TUNNEL
+  value: "{{ .limits.streamsPerTunnel }}"
+- name: AGENT_GATEWAY_MAX_STREAMS_PER_TUNNEL
+  value: "{{ .limits.maxStreamsPerTunnel }}"
+- name: AGENT_GATEWAY_HANDSHAKE_TIMEOUT
+  value: "{{ .limits.handshakeTimeoutSeconds }}"
+- name: AGENT_GATEWAY_ENROLL_PER_MINUTE
+  value: "{{ .limits.enrollPerMinute }}"
+- name: AGENT_GATEWAY_ENROLL_PER_MINUTE_TOTAL
+  value: "{{ .limits.enrollPerMinuteTotal }}"
+- name: POD_NAMESPACE
+  valueFrom:
+    fieldRef:
+      fieldPath: metadata.namespace
+{{- end }}
+{{- end -}}
+
+{{/*
+Ingress rules of the pods holding the gateway: the agents' port from the
+exposure layer, the CONNECT port from the back's pods only (T18).
+*/}}
+{{- define "proxyauthk8s.gateway.netpolIngress" -}}
+- {{- if .Values.networkPolicy.ingressFrom }}
+  from:
+    {{- toYaml .Values.networkPolicy.ingressFrom | nindent 4 }}
+  {{- end }}
+  ports:
+    - port: {{ .Values.agentGateway.port }}
+      protocol: TCP
+- from:
+    - podSelector:
+        matchLabels:
+          app: "{{ include "proxyauthk8s.back.name" . }}"
+  ports:
+    - port: {{ .Values.agentGateway.connectPort }}
+      protocol: TCP
+{{- end -}}

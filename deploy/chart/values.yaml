@@ -187,6 +187,54 @@ metrics:
   #      matchLabels:
   #        kubernetes.io/metadata.name: monitoring
 
+# The agent gateway (RFC 0012, decisions 26 and 27): it holds the tunnels of
+# the agents of clusters the proxy cannot reach (`service: { Agent: ... }`),
+# their enrolment and the agent CA; the proxy reaches it by CONNECT.
+agentGateway:
+  enabled: false
+  # separate: a Deployment of its own (same image, role `gateway`); a rolling
+  # update of the proxy keeps the tunnels. embedded: in the back's pods.
+  mode: separate
+  replicaCount: 2
+  # The agents' listener (enrolment, tunnels, /healthz, /readyz).
+  port: 8444
+  # CONNECT from the back, inside this cluster only: never in an Ingress.
+  connectPort: 8445
+  # inner: TLS ends at the ingress, the mutual TLS with the agent runs inside
+  # the WebSocket (§5.3). `passthrough` comes with phase 2.
+  tlsMode: inner
+  # The CONNECT token (key `token`). Empty: the chart generates one and keeps
+  # it across upgrades.
+  tokenSecretName: ""
+  ingress:
+    enabled: false
+    className: ""
+    host: ""
+    annotations: {}
+    tls:
+      enabled: true
+      secretName: proxyauthk8s-agent-tls
+  limits:
+    # Per gateway pod, agent replicas together.
+    tunnelsPerAgentIdentity: 4
+    # 32 MiB of yamux window per tunnel at worst.
+    streamsPerTunnel: 128
+    # Ceiling of a per-cluster override.
+    maxStreamsPerTunnel: 512
+    handshakeTimeoutSeconds: 10
+    # Per real client address (behind the ingress: TRUSTED_PROXY_COUNT in
+    # agentGateway.env).
+    enrollPerMinute: 10
+    enrollPerMinuteTotal: 120
+  env: []
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
 rbac:
   # Namespaces whose Secrets / ConfigMaps / Services a ProxyKubeApi may
   # reference (certificates, OIDC material, in-cluster targets). Empty (default)

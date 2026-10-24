@@ -1,0 +1,82 @@
+{{- if and .Values.agentGateway.enabled (eq .Values.agentGateway.mode "separate") }}
+# The agent gateway (RFC 0012, decision 26): the same image as the back, role
+# `gateway`. It holds the agents' tunnels and reads the clusters the back's
+# controller writes to Redis.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" . }}"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  replicas: {{ .Values.agentGateway.replicaCount }}
+  selector:
+    matchLabels:
+      app: "{{ include "proxyauthk8s.gateway.name" . }}"
+  template:
+    metadata:
+      labels:
+        app: "{{ include "proxyauthk8s.gateway.name" . }}"
+    spec:
+      serviceAccountName: "{{ include "proxyauthk8s.gateway.name" . }}"
+      automountServiceAccountToken: true
+      # `<pod>.<headless>`: the address the back CONNECTs to.
+      subdomain: "{{ include "proxyauthk8s.gateway.headless" . }}"
+      {{- include "proxyauthk8s.podSecurityContext" . | nindent 6 }}
+      containers:
+        - name: proxyauthk8s-gateway
+          image: '{{ .Values.registry.back.image.repository }}:{{ .Values.registry.back.image.tag | default .Chart.AppVersion }}'
+          imagePullPolicy: '{{ .Values.registry.back.image.pullPolicy }}'
+          {{- include "proxyauthk8s.containerSecurityContext" . | nindent 10 }}
+          ports:
+            - name: agents
+              containerPort: {{ .Values.agentGateway.port }}
+            - name: connect
+              containerPort: {{ .Values.agentGateway.connectPort }}
+          env:
+            - name: PROXYAUTH_ROLE
+              value: gateway
+            - name: ENV
+              value: "production"
+            - name: LOG_FORMAT
+              value: "{{ .Values.back.logFormat }}"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- include "proxyauthk8s.gateway.env" . | nindent 12 }}
+            {{- if eq .Values.back.redis.source "env" }}
+            - name: REDIS_URL
+              value: '{{ include "proxyauthk8s.redisUrl" . }}'
+            {{- end }}
+            {{- range .Values.agentGateway.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          {{- if eq .Values.back.redis.source "secret" }}
+          envFrom:
+            - secretRef:
+                name: '{{ .Values.back.redis.secretName }}'
+          {{- end }}
+          {{- with .Values.agentGateway.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.agentGateway.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: {{ .Values.agentGateway.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

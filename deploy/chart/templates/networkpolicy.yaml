@@ -24,6 +24,9 @@ spec:
       ports:
         - port: {{ .Values.back.port }}
           protocol: TCP
+    {{- if and .Values.agentGateway.enabled (eq .Values.agentGateway.mode "embedded") }}
+    {{- include "proxyauthk8s.gateway.netpolIngress" . | nindent 4 }}
+    {{- end }}
     {{- if and .Values.metrics.prometheus.enabled .Values.metrics.scrapeFrom }}
     # Prometheus scraping /management/metrics.
     - from:
@@ -48,9 +51,55 @@ spec:
               {{- toYaml . | nindent 14 }}
             {{- end }}
     {{- end }}
+    {{- if and .Values.agentGateway.enabled (eq .Values.agentGateway.mode "separate") }}
+    # CONNECT to the agent gateway's pods.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: "{{ include "proxyauthk8s.gateway.name" . }}"
+      ports:
+        - port: {{ .Values.agentGateway.connectPort }}
+          protocol: TCP
+    {{- end }}
     {{- with .Values.networkPolicy.egress.extra }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+{{- if and .Values.agentGateway.enabled (eq .Values.agentGateway.mode "separate") }}
+---
+# Agent gateway: the agents through the exposure layer, CONNECT from the back
+# only (T18); egress as the back's (Redis, the apiserver, `jwks_url` issuers).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" . }}-netpol"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  podSelector:
+    matchLabels:
+      app: "{{ include "proxyauthk8s.gateway.name" . }}"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    {{- include "proxyauthk8s.gateway.netpolIngress" . | nindent 4 }}
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        {{- toYaml $dns.ports | nindent 8 }}
+    {{- if .Values.networkPolicy.egress.allowExternal }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            {{- with .Values.networkPolicy.egress.externalExcept }}
+            except:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+    {{- end }}
+    {{- with .Values.networkPolicy.egress.extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}
 ---
 # Frontend: static assets, reached by the exposure layer, needs only DNS.
 apiVersion: networking.k8s.io/v1

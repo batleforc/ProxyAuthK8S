@@ -1,0 +1,85 @@
+{{- if .Values.agentGateway.enabled }}
+{{- $separate := eq .Values.agentGateway.mode "separate" }}
+{{- $sa := ternary (include "proxyauthk8s.gateway.name" .) (printf "%s-proxyauthk8s-operator" .Release.Name) $separate }}
+{{- if $separate }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" . }}"
+  namespace: "{{ .Release.Namespace }}"
+---
+{{- end }}
+# The agent CA (T12): the gateway creates its Secret once and reads it. RBAC
+# cannot scope `create` to a name, hence the two rules.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" . }}-ca"
+  namespace: "{{ .Release.Namespace }}"
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [proxy-auth-k8s-agent-ca]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" . }}-ca"
+  namespace: "{{ .Release.Namespace }}"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: "{{ include "proxyauthk8s.gateway.name" . }}-ca"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ $sa }}"
+    namespace: "{{ .Release.Namespace }}"
+{{- if $separate }}
+{{- /* `jwks_from`: the ConfigMaps / Secrets a ProxyKubeApi names, as for the back. */}}
+{{- if not .Values.rbac.referencedNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" . }}-jwks"
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, secrets]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" . }}-jwks"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: "{{ include "proxyauthk8s.gateway.name" . }}-jwks"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ $sa }}"
+    namespace: "{{ .Release.Namespace }}"
+{{- else }}
+{{- range .Values.rbac.referencedNamespaces }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: "{{ include "proxyauthk8s.gateway.name" $ }}-jwks"
+  namespace: "{{ . }}"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: "{{ $.Release.Name }}-proxyauthk8s-referenced"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ $sa }}"
+    namespace: "{{ $.Release.Namespace }}"
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

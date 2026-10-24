@@ -1050,7 +1050,7 @@ les écarts sont notés ici.
 | 1c-v passerelle : enrôlement `ServiceAccountToken` | fait | `api::agent::enroll` sur le `router` de l'écoute : corps ≤ 16 Kio, limites par adresse (`TRUSTED_PROXY_COUNT`) et totale à la minute (Redis, fermé sans Redis), `ProxyKubeApi` de Redis, JWKS en ligne / `jwks_from` / `jwks_url` (`JwksCache::key_at`), clé par `kid` (`select_key`), `jwt_validator::verify_with_key` (algorithme de la clé, asymétrique seulement, `exp`, `nbf`, `aud`), `sub` ; certificat pour l'identité du CR, jamais celle de la requête ; `401` nu ; tests `agent_tunnel` 7/7 (enrôlement valide ; sujet, audience, expiration, autre clé, jeton illisible, cluster non `Agent` ou absent refusés) |
 | 1c-vi passerelle : présences et révocation | fait | `api::agent::presence` : `run` (toutes les `PRESENCE_REFRESH`), `refresh` (le CR relu par `listener::current_epoch` ; présent, même UID, `Agent` : présence publiée ; sinon retirée et tunnels fermés ; `epoch` relevé : tunnels des anciens certificats fermés, un par un ; Redis en panne : rien ne change), `withdraw` à l'arrêt ; le `Close { reason }` d'une fermeture atteint l'agent (le pilote yamux tourne encore 1 s) ; test `agent_tunnel` 8/8 |
 | 1c-vii passerelle : rôle | fait | `api::agent::run` (jeton exigé, CA chargée ou créée, `port` et `connect_port` liés, présences ; à l'arrêt `withdraw`) ; `apps/server` : `gateway` seul (ni contrôleur, ni API, ni découverte OIDC), `embedded` à côté du proxy (un échec de la passerelle arrête le pod, un arrêt sur signal est attendu 5 s), `proxy` inchangé ; sondes `/healthz` et `/readyz` (Redis) sur l'écoute des agents ; `api::server::shutdown_signal` extrait ; tests `agent_tunnel` 10/10, envtest `envtest_agent_ca` 2/2 |
-| 1c-viii chart de la passerelle | à faire | voir « Reprise », étape 6 |
+| 1c-viii chart de la passerelle | fait | `agentGateway` (valeurs et schéma ; `tlsMode` limité à `inner`) ; `dp.gateway.yaml` (mode `separate`, rôle `gateway`, son propre ServiceAccount, `subdomain` du Service headless, sondes `/healthz` et `/readyz`) ou le back en rôle `embedded` ; `svc.gateway.yaml` (headless `-gateway-pods` pour le `CONNECT`, ClusterIP `-gateway` pour l'ingress des agents) ; `secret.gateway.yaml` (jeton généré, gardé d'une mise à jour à l'autre par `lookup`) ; `ingress.gateway.yaml` (`/agent/v1/` seul) ; `rbac.gateway.yaml` (`create` sur les Secrets, `get` sur la seule CA, `get` des sources `jwks_from`) ; NetworkPolicy (le `connectPort` depuis les seuls pods du back, T18 ; le back vers la passerelle) ; rendu désactivé identique à avant, `helm lint` et `kubeconform -strict` verts dans les deux modes |
 | 1c' proxy en `CONNECT` (décision 25) | fait | `common::agent_gateway::GatewayClient` (présences en sorted set Redis à l'heure de Redis, nom de pod validé, `<pod>.<service>:<port>`, cache 5 s, 60 s si Redis tombe) ; `upstream.rs` : `Proxy::custom` + `Proxy::headers`, jamais `None` (une URL `.invalid` à la place, pour qu'aucun repli direct ne soit possible) ; `upgrade/connect.rs` : `CONNECT` envoyé par hyper ; tests de bout en bout `agent_tunnel` (requête et exec à travers passerelle et tunnel jusqu'à un apiserver TLS) et unitaires (T19) |
 | 1d `apps/agent`, image, chart | à faire | |
 | 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
@@ -1088,7 +1088,7 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 | `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
 
 **État du dépôt au moment de l'arrêt** : voir `git status` ; les étapes 1 et
-5 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, `91161b0`, `184eb11`, puis le rôle).
+6 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, `91161b0`, `184eb11`, `8b34416`, puis le chart).
 
 **Suite, dans l'ordre** (chaque étape : code, tests, §17 « État », commit) :
 
@@ -1105,13 +1105,8 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 5. ~~**Rôle dans `apps/server/src/main.rs`**.~~ Fait. Les sondes de la
    passerelle sont `/healthz` et `/readyz` sur `agentGateway.port` (l'écoute
    des agents) : le chart les vise là.
-6. **Chart** (`deploy/chart/`) : valeurs `agentGateway` (§4.1), Deployment de
-   la passerelle (mode `separate`) ou ports en plus (mode `embedded`), Service
-   headless (son nom donne `AGENT_GATEWAY_SERVICE`), Secret du jeton
-   (fourni ou généré), NetworkPolicy : `connectPort` depuis les seuls pods du
-   proxy (T18), RBAC : la passerelle `create` sur les Secrets et `get` sur
-   `proxy-auth-k8s-agent-ca` (`resourceNames`), le proxy plus rien sur la CA
-   (T12).
+6. ~~**Chart** (`deploy/chart/`).~~ Fait. Restent : HPA et PDB de la
+   passerelle, la page `helm-chart.mdx` (phase 3, documentation).
 7. **CRD et contrôleur** : `spec.service.Agent.limits.streams_per_tunnel`
    (borné par `max_streams_per_tunnel`, avertissement au-delà, décision 27) ;
    `status.agent` et la condition `AgentConnected` agrégés depuis les
@@ -1148,6 +1143,11 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 
 ### Écarts
 
+- **T12 et le RBAC du back** : sans `rbac.referencedNamespaces`, le
+  ClusterRole du back garde un `get` sur tous les Secrets, CA des agents
+  comprise ; RBAC n'a pas de refus. T12 ne tient pleinement, en mode
+  `separate`, qu'avec `rbac.referencedNamespaces` qui exclut le namespace du
+  chart. En mode `embedded`, le back est la passerelle et tient la CA.
 - **`Agent(AgentService)`, variante newtype** : la forme YAML est la même
   (`service: { Agent: { … } }`) ; une struct nommée porte les règles CEL
   (`x-kubernetes-validations`), ce qu'une variante struct ne permet pas.
