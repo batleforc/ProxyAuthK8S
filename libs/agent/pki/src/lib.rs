@@ -171,6 +171,36 @@ fn random_serial() -> Result<SerialNumber, PkiError> {
     Ok(SerialNumber::from_slice(&serial))
 }
 
+/// An agent's own key: ECDSA P-256, held in memory only
+/// (`ServiceAccountToken`, §6.5), and the CSRs it signs.
+pub struct AgentKey(KeyPair);
+
+impl AgentKey {
+    pub fn generate() -> Result<Self, PkiError> {
+        Ok(Self(KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?))
+    }
+
+    /// For the TLS client: never logged.
+    #[must_use]
+    pub fn key_pem(&self) -> String {
+        self.0.serialize_pem()
+    }
+
+    /// A CSR for this key. Its subject is ignored: the gateway names the
+    /// identity ([`AgentCa::issue_agent`]).
+    pub fn csr_pem(&self) -> Result<String, PkiError> {
+        Ok(CertificateParams::default()
+            .serialize_request(&self.0)?
+            .pem()?)
+    }
+}
+
+impl std::fmt::Debug for AgentKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentKey").finish_non_exhaustive()
+    }
+}
+
 /// The agent CA, loaded from or written to [`CA_SECRET`].
 pub struct AgentCa {
     cert_pem: String,
@@ -261,6 +291,21 @@ impl std::fmt::Debug for AgentCa {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_agent_key_s_csr_is_signed_for_the_gateway_s_identity() {
+        let ca = AgentCa::generate().unwrap();
+        let key = AgentKey::generate().unwrap();
+        let identity = AgentIdentity {
+            namespace: "team-a".into(),
+            name: "prod".into(),
+            uid: "aa".into(),
+            epoch: 1,
+        };
+        let cert = ca.issue_agent(&key.csr_pem().unwrap(), &identity).unwrap();
+        let der = rcgen_der(&cert);
+        assert_eq!(identity_of(&der).unwrap().identity, identity);
+    }
 
     fn identity() -> AgentIdentity {
         AgentIdentity {

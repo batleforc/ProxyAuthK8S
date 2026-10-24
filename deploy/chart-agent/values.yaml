@@ -1,0 +1,60 @@
+image:
+  repository: ghcr.io/batleforc/proxyauthk8s/agent
+  # Empty: the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+proxy:
+  # The proxy's agent gateway, as its agent Ingress exposes it.
+  url: wss://agent.proxy.example.com/agent/v1/connect
+  # namespace/name of the ProxyKubeApi this agent serves (required).
+  cluster: ""
+  # The CA of `url`, PEM (private PKI, Netbird); empty = the system roots.
+  caBundle: ""
+# Must be the proxy's (agentGateway.tlsMode). Phase 1: inner only.
+tlsMode: inner
+# The agent's one destination: this cluster's apiserver.
+upstream: https://kubernetes.default.svc:443
+bootstrap:
+  # Phase 1: ServiceAccountToken only. The ProxyKubeApi's `subject` is this
+  # release's ServiceAccount: system:serviceaccount:<namespace>:<release>-proxyauthk8s-agent
+  method: ServiceAccountToken
+  # The `aud` of the projected token: the ProxyKubeApi's `audience`.
+  audience: proxyauth
+  expirationSeconds: 3600
+
+replicaCount: 2
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 20m
+    memory: 32Mi
+env: []
+
+networkPolicy:
+  # Egress only: DNS, then `egressTo` (the proxy and this cluster's
+  # apiserver) on `egressPorts`. Empty `egressTo`: any destination on those
+  # ports. The apiserver's address is cluster-specific: set it.
+  enabled: false
+  egressTo: []
+  egressPorts: [443, 6443]
+
+securityContext:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    privileged: false
+    capabilities:
+      drop:
+        - ALL

@@ -33,9 +33,9 @@ tasks:
       - pnpm audit
 
   image:
-    desc: "Build the server and front images (IMAGE=server or front for one) and scan them for HIGH/CRITICAL CVEs with a fix (trivy image). Not in audit:default: the build is too slow for the commit hooks"
+    desc: "Build the server, front and agent images (IMAGE=server, front or agent for one) and scan them for HIGH/CRITICAL CVEs with a fix (trivy image). Not in audit:default: the build is too slow for the commit hooks"
     vars:
-      IMAGES: '{{.IMAGE | default "server front"}}'
+      IMAGES: '{{.IMAGE | default "server front agent"}}'
       OUT: .task-audit-image
     cmds:
       - |
@@ -46,7 +46,7 @@ tasks:
         mkdir -p {{.OUT}}; trap 'rm -rf {{.OUT}}' EXIT
         status=0
         for name in {{.IMAGES}}; do
-          case "$name" in server) dir=back ;; front) dir=front ;; *) echo "IMAGE must be server or front" >&2; exit 1 ;; esac
+          case "$name" in server) dir=back ;; front) dir=front ;; agent) dir=agent ;; *) echo "IMAGE must be server, front or agent" >&2; exit 1 ;; esac
           image=localhost/proxyauthk8s/$name:audit
           "$engine" build -f "deploy/build/$dir/Containerfile" -t "$image" .
           "$engine" save -o "{{.OUT}}/$name.tar" "$image"

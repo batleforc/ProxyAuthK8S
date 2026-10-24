@@ -29,6 +29,7 @@ RUN mkdir -p libs/server/api/src && \
   mkdir -p tests/integration/src && \
   mkdir -p libs/agent/proto/src && \
   mkdir -p libs/agent/pki/src && \
+  mkdir -p apps/agent/src && \
   mkdir -p libs/server/api/tests
 
 # Copy Cargo.toml files, and the lockfile so the cached dependencies are the
@@ -54,6 +55,7 @@ COPY apps/server/Cargo.toml apps/server/Cargo.toml
 COPY apps/crdgen/Cargo.toml apps/crdgen/Cargo.toml
 COPY apps/swaggergen/Cargo.toml apps/swaggergen/Cargo.toml
 COPY apps/kubectl_proxyauth/Cargo.toml apps/kubectl_proxyauth/Cargo.toml
+COPY apps/agent/Cargo.toml apps/agent/Cargo.toml
 COPY tests/integration/Cargo.toml tests/integration/Cargo.toml
 # `.cargo/` and not `.` — Docker copies a directory's *contents*, so the bare
 # form put config.toml at /app/config.toml where cargo never looks. That config
@@ -78,11 +80,13 @@ RUN : > libs/server/api/src/lib.rs && \
   : > tests/integration/src/lib.rs && \
   : > libs/agent/proto/src/lib.rs && \
   : > libs/agent/pki/src/lib.rs && \
+  : > apps/agent/src/lib.rs && \
   : > libs/server/api/tests/http_contract.rs && \
   echo "fn main() {}" > apps/server/src/main.rs && \
   echo "fn main() {}" > apps/crdgen/src/main.rs && \
   echo "fn main() {}" > apps/swaggergen/src/main.rs && \
-  echo "fn main() {}" > apps/kubectl_proxyauth/src/main.rs
+  echo "fn main() {}" > apps/kubectl_proxyauth/src/main.rs && \
+  echo "fn main() {}" > apps/agent/src/main.rs
 
 ## Build dependencies
 RUN cargo build --release --workspace --locked

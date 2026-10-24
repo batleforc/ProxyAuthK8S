@@ -1000,3 +1000,81 @@ async fn a_relayed_request_is_audited_as_upstream_via_agent() {
 
     delete_proxy(&pool, &ns, &cluster).await;
 }
+
+/// §6.P point 1 with the real agent: it enrols with its projected token,
+/// opens its tunnel, and a request relayed by the proxy reaches the
+/// apiserver through the gateway's `CONNECT`, the agent and its upstream.
+#[tokio::test]
+async fn the_real_agent_enrols_and_carries_a_relayed_request() {
+    use base64::Engine as _;
+    use common::agent_gateway::GatewayClient;
+    use std::sync::atomic::Ordering;
+
+    let pool = redis_or_skip!();
+    harness::install_crypto_provider();
+    let (apiserver, ca_pem) = fake_apiserver().await;
+    let (addr, gateway) = agent_gateway().await;
+    let issuer = Issuer::new();
+    let identity = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
+    let mut proxy: crd::ProxyKubeApi = gateway
+        .state
+        .get_object_from_redis(crd::REDIS_PREFIX, &identity.cluster())
+        .await
+        .unwrap()
+        .unwrap();
+    proxy.spec.cert = CertSource::Cert(base64::prelude::BASE64_STANDARD.encode(&ca_pem));
+    seed_proxy(&pool, &proxy).await;
+
+    let connect = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let connect_addr = connect.local_addr().unwrap();
+    tokio::spawn(api::agent::connect::serve(
+        connect,
+        api::agent::connect::ConnectService::new(
+            std::sync::Arc::clone(&gateway.registry),
+            Some("t0ken".to_string()),
+        ),
+    ));
+
+    let token_path = std::env::temp_dir().join(format!("agent-token-{}", identity.uid));
+    std::fs::write(&token_path, issuer.token(SUBJECT, DEFAULT_AUDIENCE, 600)).unwrap();
+    let vars = std::collections::HashMap::from([
+        ("AGENT_PROXY_URL", format!("ws://{addr}/agent/v1/connect")),
+        ("AGENT_CLUSTER", identity.cluster()),
+        ("AGENT_UPSTREAM", format!("https://{apiserver}")),
+        ("AGENT_TOKEN_PATH", token_path.display().to_string()),
+    ]);
+    let config = agent::Config::from_lookup(|name| vars.get(name).cloned()).unwrap();
+    let health = std::sync::Arc::new(agent::Health::default());
+    tokio::spawn(agent::run(config, std::sync::Arc::clone(&health)));
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !health.tunnel_up.load(Ordering::Relaxed) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the agent should open its tunnel");
+    assert!(health.cert_not_after.load(Ordering::Relaxed) > 0);
+    api::agent::presence::refresh(&gateway).await;
+
+    let mut state = test_state("https://idp.example.com".to_string());
+    let client = GatewayClient::with(Some("gw.test".to_string()), 0, Some("t0ken".to_string()));
+    *client.fixed_address.lock().unwrap() = Some(connect_addr.to_string());
+    state.agent_gateway = std::sync::Arc::new(client);
+    let app = test::init_service(harness::app(state)).await;
+    let request = test::TestRequest::get()
+        .uri(&format!(
+            "/clusters/{}/{}/api/v1/pods",
+            identity.namespace, identity.name
+        ))
+        .insert_header(("authorization", "Bearer user-token"))
+        .to_request();
+    let resp = test::call_service(&app, request).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        String::from_utf8_lossy(&test::read_body(resp).await),
+        "apiserver saw /api/v1/pods auth=Bearer user-token"
+    );
+
+    drop(std::fs::remove_file(&token_path));
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}

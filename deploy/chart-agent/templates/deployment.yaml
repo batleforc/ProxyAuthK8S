@@ -1,0 +1,102 @@
+{{- if ne .Values.tlsMode "inner" }}
+{{- fail "tlsMode: only inner exists in this version (passthrough comes with phase 2)" }}
+{{- end }}
+{{- if ne .Values.bootstrap.method "ServiceAccountToken" }}
+{{- fail "bootstrap.method: only ServiceAccountToken exists in this version" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ include "agent.name" . }}"
+  namespace: "{{ .Release.Namespace }}"
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: "{{ include "agent.name" . }}"
+  template:
+    metadata:
+      labels:
+        app: "{{ include "agent.name" . }}"
+    spec:
+      serviceAccountName: "{{ include "agent.name" . }}"
+      # Only the projected token below: no API access token in the pod.
+      automountServiceAccountToken: false
+      {{- with .Values.securityContext.pod }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: '{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}'
+          imagePullPolicy: '{{ .Values.image.pullPolicy }}'
+          {{- with .Values.securityContext.container }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: probes
+              containerPort: 9090
+          env:
+            - name: AGENT_PROXY_URL
+              value: {{ .Values.proxy.url | quote }}
+            - name: AGENT_CLUSTER
+              value: {{ required "proxy.cluster is required (namespace/name of the ProxyKubeApi)" .Values.proxy.cluster | quote }}
+            - name: AGENT_UPSTREAM
+              value: {{ .Values.upstream | quote }}
+            - name: AGENT_TOKEN_PATH
+              value: /var/run/secrets/proxyauth/token
+            - name: AGENT_KUBE_CA_PATH
+              value: /var/run/secrets/proxyauth/ca.crt
+            {{- if .Values.proxy.caBundle }}
+            - name: AGENT_PROXY_CA_BUNDLE
+              value: /etc/proxyauth/proxy-ca/ca.crt
+            {{- end }}
+            {{- range .Values.env }}
+            - name: {{ .name }}
+              value: {{ .value | quote }}
+            {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+            periodSeconds: 20
+          # Ready while its tunnel is open.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 9090
+            periodSeconds: 10
+          volumeMounts:
+            - name: proxyauth
+              mountPath: /var/run/secrets/proxyauth
+              readOnly: true
+            {{- if .Values.proxy.caBundle }}
+            - name: proxy-ca
+              mountPath: /etc/proxyauth/proxy-ca
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: proxyauth
+          projected:
+            sources:
+              # The enrolment proof, `aud` = the ProxyKubeApi's audience.
+              - serviceAccountToken:
+                  audience: {{ .Values.bootstrap.audience | quote }}
+                  expirationSeconds: {{ .Values.bootstrap.expirationSeconds }}
+                  path: token
+              # This cluster's CA, whose fingerprint `status.agent` shows.
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+        {{- if .Values.proxy.caBundle }}
+        - name: proxy-ca
+          configMap:
+            name: "{{ include "agent.name" . }}-proxy-ca"
+        {{- end }}

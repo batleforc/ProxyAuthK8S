@@ -81,13 +81,15 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        component: [server, front]
+        component: [server, front, agent]
         arch: [amd64, arm64]
         include:
           - component: server
             containerfile: deploy/build/back/Containerfile
           - component: front
             containerfile: deploy/build/front/Containerfile
+          - component: agent
+            containerfile: deploy/build/agent/Containerfile
           - arch: amd64
             runner: ubuntu-24.04
           - arch: arm64
@@ -137,7 +139,7 @@ jobs:
       - build-images
     strategy:
       matrix:
-        component: [server, front]
+        component: [server, front, agent]
     runs-on: ubuntu-latest
     steps:
       - name: ⬇️ Download the per-arch digests
@@ -201,7 +203,7 @@ jobs:
     needs: gather-facts
     strategy:
       matrix:
-        chart: [chart-crd, chart]
+        chart: [chart-crd, chart, chart-agent]
     runs-on: ubuntu-latest
     steps:
       - name: 🔍 Checkout release branch
@@ -216,12 +218,17 @@ jobs:
         id: push
         run: |
           VERSION="${{ needs.gather-facts.outputs.version }}"
-          helm lint "deploy/${{ matrix.chart }}"
+          LINT_ARGS=()
+          if [ "${{ matrix.chart }}" = "chart-agent" ]; then
+            # proxy.cluster is required: lint with a placeholder.
+            LINT_ARGS=(--set proxy.cluster=team-a/prod)
+          fi
+          helm lint "deploy/${{ matrix.chart }}" "${LINT_ARGS[@]}"
           # Version the package from the tag, not Chart.yaml: on a release cog
           # already bumped both to the same value, and on a pre-release tag
           # this keeps an rc from re-pushing (overwriting) the last chart.
           APP_VERSION_ARG=()
-          if [ "${{ matrix.chart }}" = "chart" ]; then
+          if [ "${{ matrix.chart }}" = "chart" ] || [ "${{ matrix.chart }}" = "chart-agent" ]; then
             APP_VERSION_ARG=(--app-version "$VERSION")
           fi
           helm package "deploy/${{ matrix.chart }}" --destination dist-charts \

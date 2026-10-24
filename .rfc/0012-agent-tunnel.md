@@ -1055,7 +1055,7 @@ les écarts sont notés ici.
 | 1e' CRD et contrôleur : limites, `status.agent`, joignabilité | fait | `AgentService.limits.streams_per_tunnel` (≥ 1 à l'admission ; `streams_per_tunnel(default, max)` le borne, la passerelle l'applique au mux et au registre) ; chaque pod de la passerelle publie à côté de sa présence un enregistrement (`presence_info_key` : tunnels, versions, empreintes de CA annoncées par `AgentInfo`) ; `State::agent_presences` ; `is_reachable` d'un cluster `Agent` = au moins une présence ; le contrôleur : `Ready` faux en `AgentNoTunnel`, `status.agent { tunnels, gateways, versions, caFingerprints }`, avis `AgentLimitCapped`, reconcile au plus toutes les 60 s ; CRD régénérée ; tests `controller` (évaluation), `agent_tunnel`, envtest `envtest_agent_crd` 8/8 |
 | 1e'' `validate_against: Kubernetes` par la passerelle | fait | `kube_redirect::self_subject_review_through_agent` : le `SelfSubjectReview` part sur le client reqwest du cluster sans identité front-proxy (`ca_only_client`), donc par le `CONNECT` ; `UserAuthError::AgentSelfSubjectReview` (401/403 de l'apiserver = faute de l'appelant pour fail2login, tunnel absent = non) ; `to_kubeconfig` reste refusé ; test `agent_tunnel` 11/11 |
 | 1e-iii audit, métriques, fuzz | fait | `Event::{AgentEnrolled, AgentRefused, AgentConnected, AgentDisconnected}` (raison, `agent_epoch`, `agent_version`, `client_ip`), `upstream_via` (`direct` / `agent`) sur chaque ligne d'une requête relayée ; `proxyauth_agent_tunnels`, `proxyauth_agent_streams_total{result}`, `proxyauth_agent_enrollments_total{method,result}`, `proxyauth_agent_bytes_total{direction}` (`to_agent`, `from_agent`) ; cibles `fuzz_agent_control` et `fuzz_agent_enroll` (30 s chacune sans plantage) ; tests T14 `agent_tunnel` 13/13 ; `security.mdx` |
-| 1d `apps/agent`, image, chart | à faire | |
+| 1d `apps/agent`, image, chart | fait | `apps/agent` (`Config::from_lookup` des `AGENT_*`, `run`, `Health`) : enrôlement par le jeton projeté, `wss://` (`ws://` sur une adresse de bouclage seulement), mTLS interne, yamux `Mode::Server`, flux de contrôle ouvert par `AgentInfo`, `Ping` toutes les 30 s, renouvellement aux 2/3 sans couper les pings, reconnexion 1 à 60 s, un `Close` de révocation fait réenrôler ; `/healthz`, `/readyz` (tunnel ouvert), `/metrics` (`proxyauth_agent_tunnel_up`, `_reconnects_total{reason}`, `_cert_expiry_seconds`) sur `:9090` ; `AgentKey` dans `agent_pki` ; `deploy/build/agent/Containerfile` (musl statique, distroless `nonroot` épinglé par digest, 12,6 Mo, trivy propre) ; `deploy/chart-agent/` (ServiceAccount sans RBAC, `automountServiceAccountToken: false`, volume projeté jeton + `kube-root-ca.crt`, PDB, NetworkPolicy de sortie) ; CI (`build.yaml`, `release-prepare.yml`), `cog.toml`, `lint:helm`, `audit:image` ; test de bout en bout `the_real_agent_enrols_and_carries_a_relayed_request` |
 | 1e tests de sécurité T1 à T15, T17, fuzz | à faire | |
 
 ### Reprise (à lire en premier après un redémarrage)
@@ -1087,11 +1087,13 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 | `libs/server/api/src/agent/enroll.rs` | enrôlement `ServiceAccountToken` |
 | `libs/server/api/src/agent/presence.rs` | présences et révocation : `run`, `refresh`, `withdraw` |
 | `libs/server/api/src/agent/mod.rs` | `run` : la passerelle entière jusqu'au signal (`GatewayError`) |
+| `apps/agent/src/{lib,main}.rs` | l'agent : `Config`, `Health`, `run` ; sondes et métriques |
+| `deploy/build/agent/Containerfile`, `deploy/chart-agent/` | image et chart de l'agent |
 | `libs/server/api/src/cluster/redirect/kube_redirect/{upstream.rs,upgrade/connect.rs}` | le proxy en `CONNECT` (`agent_proxy`, `connect_through_gateway`) |
 | `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
 
 **État du dépôt au moment de l'arrêt** : voir `git status` ; les étapes 1 et
-9 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, `91161b0`, `184eb11`, `8b34416`, `ca0edb9`, `6df11fe`, `3286539`, puis l'audit).
+10 sont commitées (`d5fe653`, `3ad574c`, `f092cf2`, `91161b0`, `184eb11`, `8b34416`, `ca0edb9`, `6df11fe`, `3286539`, `5a54b43`, puis l'agent).
 
 **Suite, dans l'ordre** (chaque étape : code, tests, §17 « État », commit) :
 
@@ -1119,12 +1121,9 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
    celles du code (`subject`, `token`, `jwks`, `unknown key`, `epoch`,
    `uid`, `identity`, `tls`, `rate limit`…) : `token` regroupe audience,
    signature et expiration, que `jwt_validator` ne distingue pas.
-10. **L'agent** : `apps/agent` (dial WebSocket, `WsIo`, TLS client vers
-    `agent-tunnel.proxyauth.internal` avec la CA reçue à l'enrôlement, mux
-    `Mode::Server`, ouvre le flux de contrôle, chaque flux entrant relié à
-    `upstream`, renouvellement aux 2/3, reconnexion 1 à 60 s, jeton projeté),
-    `deploy/build/agent/Containerfile`, `deploy/chart-agent/`, ajout au
-    Containerfile du back et à la CI.
+10. ~~**L'agent**.~~ Fait pour la phase 1 : sortie directe seulement
+    (`CONNECT` et SOCKS5 sont de la phase 2), `ServiceAccountToken` seul.
+    Le chart refuse `tlsMode` autre que `inner` et une autre méthode.
 11. Tests de sécurité restants (§14, T1 à T19) dans
     `libs/server/api/tests/agent_tunnel.rs`, puis la phase 2.
 

@@ -36,7 +36,7 @@ includes:
     taskfile: https://raw.githubusercontent.com/batleforc/weebo-operator-kit/v0.24.0/tasks/repo.yaml
     checksum: 162d15bf9c41f494efcb6d73e089ac685d23bc98269a41daf62db26534f52f72
     vars:
-      CONTAINERFILES: deploy/build/back/Containerfile deploy/build/front/Containerfile
+      CONTAINERFILES: deploy/build/back/Containerfile deploy/build/front/Containerfile deploy/build/agent/Containerfile
       # The JS part of repo:audit is skipped; audit:js (pnpm audit) covers it.
       NPM_DIR: ""
   # The kit's own tasks (kit:sync, kit:cog), rendered from its
