@@ -18,7 +18,7 @@ RFC passe au `/grill-me` avant d'être `In review`.
 | [0009](0009-integration-suite.md) | Banc et suite d'intégration sur un vrai cluster | à créer | Implemented | medium |
 | [0010](0010-token-exchange.md) | Échange de jeton : une connexion au proxy pour tous les clusters | à créer | Accepted | high |
 | [0011](0011-adopt-kit-runtime-crates.md) | Conditions, Events et codes de raison : adopter les crates du kit | à créer | Implemented | medium |
-| [0012](0012-agent-tunnel.md) | Mode agent : joindre un apiserver qui n'est pas exposé | à créer | Accepted | high |
+| [0012](0012-agent-tunnel.md) | Mode agent : joindre un apiserver qui n'est pas exposé | à créer | Implemented (phase 1) | high |
 | [REVIEW](REVIEW-roadmap-readme.md) | Revue de la roadmap et du README (2026-10-17) | — | — | — |
 
 Chaque document se termine par une section « Still open » (ou « Questions pour le

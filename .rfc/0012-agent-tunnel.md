@@ -2,14 +2,14 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Accepted (2026-10-24), pour la 0.4.0 avec la 0011, avant la 0010      |
+| Status      | Implemented, phase 1 (2026-10-24, PR) : `ServiceAccountToken`, `tlsMode: inner`, sortie directe ; phases 2 à 4 à faire (§16) ; écarts au §17 |
 | Short       | Mode agent (tunnel sortant)                                            |
 | Settles     | Atteindre un cluster dont l'apiserver n'accepte aucune connexion entrante |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
 | Co-author   | Claude Opus 5.5 (1M context)                                           |
 | Created     | 2026-10-23                                                             |
 | Supersedes  | —                                                                      |
-| Touches     | `apps/agent/` (nouveau), `libs/agent/proto/` (nouveau), `libs/server/crd/src/service/`, `libs/server/api/src/agent/` (nouveau : passerelle d'agents, décision 26 : écoute, enrôlement, CA, registre des tunnels, `CONNECT`), `libs/agent/pki/` (nouveau), `apps/server/` (rôle `gateway`), `libs/server/api/src/cluster/redirect/kube_redirect/{upstream.rs,upgrade/connect.rs}` (`CONNECT` vers la passerelle, décision 25), `libs/server/api/src/cluster/redirect/audit.rs`, `libs/server/api/src/metrics.rs`, `libs/server/controller/` (CA des agents, jeton d'enrôlement, condition `AgentConnected`), `deploy/chart/`, `deploy/chart-agent/` (nouveau), `deploy/build/agent/Containerfile` (nouveau), CRD générée, `swagger.json`, `.it/`, `tests/integration/`, `docs/content/docs/` |
+| Touches     | phase 1 : `apps/agent/` (nouveau), `libs/agent/{proto,pki}/` (nouveaux), `libs/server/api/src/agent/` (nouveau : passerelle, écoute, enrôlement, CA, registre, présences, `CONNECT`), `libs/server/api/src/cluster/redirect/{kube_redirect.rs,audit.rs}` et `kube_redirect/{upstream.rs,upgrade/connect.rs}`, `libs/server/api/src/{metrics.rs,server.rs,model/user.rs}`, `libs/server/common/src/{agent_gateway.rs,config.rs,state.rs,state/redis.rs}`, `libs/server/crd/src/{service/agent.rs,status/mod.rs}`, `libs/server/crd_runtime/`, `libs/server/controller/` (`status.agent`, codes `AgentNoTunnel` et `AgentLimitCapped`), `libs/server/jwt_validator/` (`key_at`, `verify_with_key`), `apps/server/` (rôles), `deploy/chart/` (passerelle), `deploy/chart-agent/` (nouveau), `deploy/build/{agent,back}/Containerfile`, CRD générée (`deploy/crds.yaml`, `deploy/chart-crd/`, `deploy/crd/`), `fuzz/`, `.github/workflows/{build.yaml,release-prepare.yml}`, `.github/dependabot.yaml`, `cog.toml`, `Taskfile.yaml`, `.tasks/{lint,audit,integration}.yaml`, `.it/`, `tests/integration/`, `docs/content/docs/` |
 | Risk        | high                                                                   |
 
 > Document de référence (environ 7 500 mots) : §1 à §4 suffisent pour en
@@ -1033,8 +1033,9 @@ mTLS, limites, `epoch` et audit, et la phase 2 n'ajoute pas `OneShotToken` sans
 ## 17. Implementation notes
 
 Suivi d'avancement, tenu pendant l'implémentation (branche
-`feat/rfc-0012-agent-tunnel`). Les sections 1 à 16 restent le texte accepté ;
-les écarts sont notés ici.
+`feat/rfc-0012-agent-tunnel`), et révision contre l'arbre à la livraison de
+la phase 1 (2026-10-24). Les sections 1 à 16 restent le texte accepté ; les
+écarts sont notés ici, et ce que la preuve a observé est dans « État ».
 
 ### État
 
@@ -1150,6 +1151,46 @@ git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
 - Une suite large peut rester bloquée sur le verrou du répertoire de build
   pendant que l'éditeur lance ses `cargo check` : lancer les tests en
   arrière-plan, et cibler.
+
+### Preuve par menace (§7, §14)
+
+| # | Test qui la prouve | Tient ? |
+| --- | --- | --- |
+| T1 | `agent_tunnel::a_cert_from_another_ca_is_refused` ; banc `rfc0012::p12_no_agent_certificate_no_tunnel_and_no_user_route` | oui |
+| T2 | `agent_tunnel::an_agent_cannot_serve_another_proxykubeapi` ; banc `rfc0012::p7_an_agent_cannot_serve_another_cluster` | oui |
+| T3 | `agent_tunnel::the_agent_only_sees_tls_records` | oui |
+| T4 | `agent_tunnel::spec_cert_is_required_and_system_roots_refused` ; envtest `envtest_agent_crd` | oui |
+| T5 | `agent_tunnel::a_stream_open_carries_no_destination` | oui |
+| T6 | phase 2 (`OneShotToken`) | — |
+| T7 | `agent_tunnel::a_token_for_another_subject_or_audience_is_refused` ; banc `rfc0012::p6_another_service_accounts_token_is_refused` | oui |
+| T8 | `agent_tunnel::an_epoch_bump_closes_tunnels_and_refuses_renewal`, `presences_follow_the_cr_and_revoke_its_tunnels` ; banc `rfc0012::p5_an_epoch_bump_revokes_and_the_agent_comes_back` | oui |
+| T9 | `agent_tunnel::enrollment_never_returns_the_private_key` | oui |
+| T10 | `agent_tunnel::the_enroll_route_is_rate_limited_before_any_write` | oui |
+| T11 | `agent_tunnel::stream_and_tunnel_limits_hold` | oui |
+| T12 | `agent_tunnel::the_ca_key_never_reaches_a_log` ; le RBAC du chart | en partie : voir « Écarts », sans `rbac.referencedNamespaces` le back lit tous les Secrets |
+| T13 | `agent_tunnel::jwks_url_refuses_http_and_redirects` | en partie : les redirections sont refusées par la politique du client, non prouvées par un test ; la borne de 64 Kio n'est pas appliquée |
+| T14 | `agent_tunnel::enrollment_and_tunnels_write_audit_events`, `a_relayed_request_is_audited_as_upstream_via_agent` ; banc `rfc0012::p1_…` | oui |
+| T15 | `agent_tunnel::user_routes_are_not_served_on_the_agent_port` ; banc `rfc0012::p12_…` | oui |
+| T16 | phase 2 (`identitySecret`) | — |
+| T17 | `agent_tunnel::a_jwks_from_change_is_picked_up_and_an_empty_one_refuses` (envtest) ; banc `rfc0012::p13_a_jwks_from_without_the_key_refuses_then_recovers` | oui |
+| T18 | `connect::tests::a_connect_without_the_proxy_token_is_refused` ; banc `rfc0012::p15_a_connect_without_the_proxy_token_is_refused` | oui |
+| T19 | `common::agent_gateway::tests::a_route_names_a_gateway_pod_never_an_address`, `agent_tunnel::a_presence_names_a_gateway_pod_never_an_address` | oui, resserrée (EndpointSlice) |
+
+### Chaîne d'approvisionnement livrée (§8)
+
+| Dépendance | Livrée | Note |
+| --- | --- | --- |
+| `yamux` | 0.14.1 | |
+| `tokio-tungstenite`, `tungstenite` | 0.29.0, une seule version | la feature `ws` d'axum, et `handshake` pour l'agent |
+| `prost` | 0.14.4 | sans `protoc` |
+| `rcgen` | 0.14.10, dépendance de `agent_pki` | |
+| `x509-parser`, `ring`, `jsonwebtoken`, `sha1` | 0.18.1, 0.17.14, 11.1.0, 0.10.7, déjà dans l'arbre | `sha1` vient de la feature `ws` |
+| `tokio-socks` | non livrée | phase 2 |
+| image de l'agent | `gcr.io/distroless/static-debian12:nonroot`, épinglée par digest (index multi-architecture) | 12,6 Mo ; `trivy image` : 0 HIGH/CRITICAL ; mise à jour par Dependabot (`docker`, `/deploy/build/agent`) : le dépôt n'a pas d'updatecli, contrairement à ce que disait §8 |
+| tinyproxy, microsocks | non livrées | banc de la phase 2 |
+
+`task audit` (2026-10-24, avec l'agent dans le graphe) : `cargo deny` advisories, bans, licenses et sources ok (workspace, `fuzz/`, `tests/perf/`), `trivy` sans vulnérabilité connue, `pnpm audit` propre.
+
 
 ### Écarts
 
