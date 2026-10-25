@@ -277,17 +277,7 @@ async fn p5_a_protocol_without_overlap_is_refused_then_recovers() {
     let bench = Bench::get();
     // A refused agent is never Ready (`/readyz` is the tunnel): a rolling
     // update would keep the branch agent serving. Drop it first.
-    let scaled = bench.admin(&["-n", &ns, "scale", AGENT_DEPLOYMENT, "--replicas=0"]);
-    assert!(scaled.status.success());
-    fixture::wait(
-        &ns,
-        &[
-            "--for=delete",
-            "pod",
-            "-l",
-            &format!("app={AGENT_RELEASE}-proxyauthk8s-agent"),
-        ],
-    );
+    drop_agents(&ns);
     let started = Instant::now();
     let sets = announcing(&[("AGENT_IT_ANNOUNCE_PROTOCOLS", "2-3")]);
     fixture::install_agent(&ns, &format!("{ns}/{CLUSTER}"), 1, &strs(&sets));
@@ -355,18 +345,36 @@ async fn p5_a_protocol_without_overlap_is_refused_then_recovers() {
         "{logs}"
     );
 
+    // Dropped first too: the refusal key lives 5 min after the last attempt,
+    // and a rolling update would let the refused agent go on trying.
+    drop_agents(&ns);
     fixture::install_agent(&ns, &format!("{ns}/{CLUSTER}"), 1, &[]);
-    eventually(
-        Duration::from_secs(330),
-        "Ready again, refused gone",
-        || {
-            let cr = cluster_cr(&ns);
-            (condition(&cr, "Ready").is_some_and(|c| c["status"] == "True")
-                && cr["status"]["agent"]["refused"].is_null())
-            .then_some(())
-        },
-    )
+    eventually(Duration::from_secs(120), "Ready again", || {
+        condition(&cluster_cr(&ns), "Ready").filter(|c| c["status"] == "True")
+    })
     .await;
+    // The key's 5 min, then one agent requeue of at most 60 s.
+    eventually(Duration::from_secs(420), "refused gone", || {
+        cluster_cr(&ns)["status"]["agent"]["refused"]
+            .is_null()
+            .then_some(())
+    })
+    .await;
+}
+
+/// Scales the test's agents to 0 and waits for their pods to be gone.
+fn drop_agents(ns: &str) {
+    let scaled = Bench::get().admin(&["-n", ns, "scale", AGENT_DEPLOYMENT, "--replicas=0"]);
+    assert!(scaled.status.success());
+    fixture::wait(
+        ns,
+        &[
+            "--for=delete",
+            "pod",
+            "-l",
+            &format!("app={AGENT_RELEASE}-proxyauthk8s-agent"),
+        ],
+    );
 }
 
 /// Point 6: a version with a newline and JSON after it is served as

@@ -426,7 +426,8 @@ dans `Cargo.toml`).
    - sur l'agent, `proxyauth_agent_reconnects_total{reason="protocol"} >= 1`
      et un journal `error` qui nomme `2-3` et `1-1`.
    Une fois l'agent remis en `agent:it`, `Ready` revient à `True` et
-   `refused` disparaît en moins de 5 min 30 s.
+   `refused` disparaît en moins de 7 min (les 5 min de la clé, puis un requeue
+   d'au plus 60 s).
 6. **Refus** : `agent:it-announce`, version `0.5.0\n{"forged":1}` — le tunnel
    sert ; `agents[].version == "invalid"` ; la ligne `agent_connected` reste
    une seule ligne JSON, sans la clé `forged`.
