@@ -67,6 +67,11 @@ pub struct Pong {
 pub struct Close {
     #[prost(string, tag = "1")]
     pub reason: String,
+    /// The sender's protocol range (RFC 0013): both `0` from a 0.4.0 peer.
+    #[prost(uint32, tag = "2")]
+    pub protocol_min: u32,
+    #[prost(uint32, tag = "3")]
+    pub protocol_max: u32,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
@@ -173,6 +178,8 @@ mod tests {
             Kind::Pong(Pong { nonce: 7 }),
             Kind::Close(Close {
                 reason: "protocol".into(),
+                protocol_min: 1,
+                protocol_max: 2,
             }),
         ];
         let mut wire = Vec::new();

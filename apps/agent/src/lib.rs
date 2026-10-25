@@ -883,6 +883,8 @@ async fn tunnel(
                 );
                 let close = Kind::Close(agent_proto::control::Close {
                     reason: "protocol".to_string(),
+                    protocol_min: low,
+                    protocol_max: high,
                 });
                 drop(control::write(&mut control, close).await);
                 return Err("protocol");
@@ -890,8 +892,10 @@ async fn tunnel(
             Ok(Ok(Kind::Close(close))) => {
                 let reason = close_reason(&close.reason);
                 if reason == "protocol" {
+                    // A 0.4.0 gateway sends no range: 0-0.
                     error!(
                         agent_protocols = %format!("{low}-{high}"),
+                        gateway_protocols = %format!("{}-{}", close.protocol_min, close.protocol_max),
                         "the gateway refused this agent's protocols: upgrade one of them"
                     );
                 }

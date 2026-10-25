@@ -14,7 +14,7 @@ use std::task::{Context, Poll};
 
 use agent_pki::AgentIdentity;
 use agent_proto::mux::{MuxError, MuxHandle};
-use common::agent_gateway::PresenceInfo;
+use common::agent_gateway::{PresenceInfo, count_agent};
 use futures_util::io::{AsyncRead, AsyncWrite};
 use tokio::sync::watch;
 
@@ -42,8 +42,9 @@ struct Tunnel {
     max_streams: usize,
     /// Set to `true` to ask the connection task to close the tunnel.
     close: watch::Sender<bool>,
-    /// What the agent announced (`AgentInfo`): version, CA fingerprint.
-    info: Option<(String, String)>,
+    /// What the agent announced (`AgentInfo`), validated: version, CA
+    /// fingerprint; and the protocol negotiated.
+    info: Option<(String, String, u32)>,
 }
 
 #[derive(Default)]
@@ -65,7 +66,7 @@ pub struct TunnelGuard {
 
 impl TunnelGuard {
     /// Record what the agent announced, for `status.agent`.
-    pub fn describe(&self, version: &str, ca_fingerprint: &str) {
+    pub fn describe(&self, version: &str, ca_fingerprint: &str, protocol: u32) {
         let mut tunnels = self
             .registry
             .tunnels
@@ -75,7 +76,7 @@ impl TunnelGuard {
             .get_mut(&self.uid)
             .and_then(|list| list.iter_mut().find(|tunnel| tunnel.id == self.id))
         {
-            tunnel.info = Some((version.to_string(), ca_fingerprint.to_string()));
+            tunnel.info = Some((version.to_string(), ca_fingerprint.to_string(), protocol));
         }
     }
 }
@@ -180,11 +181,14 @@ impl TunnelRegistry {
                     tunnels: list.len(),
                     ..PresenceInfo::default()
                 };
-                for (version, fingerprint) in list.iter().filter_map(|tunnel| tunnel.info.as_ref())
+                for (version, fingerprint, protocol) in
+                    list.iter().filter_map(|tunnel| tunnel.info.as_ref())
                 {
                     info.versions.push(version.clone());
                     info.ca_fingerprints.push(fingerprint.clone());
+                    count_agent(&mut info.agents, version, *protocol, 1);
                 }
+                info.agents.sort();
                 for values in [&mut info.versions, &mut info.ca_fingerprints] {
                     values.sort();
                     values.dedup();
@@ -262,6 +266,7 @@ impl AsyncWrite for CountedStream {
 pub(crate) mod tests {
     use super::*;
     use agent_proto::mux;
+    use common::agent_gateway::AgentCount;
     use futures_util::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_util::compat::TokioAsyncReadCompatExt;
 
@@ -363,15 +368,25 @@ pub(crate) mod tests {
         let second = registry
             .register(identity("aa"), echo_tunnel(), 4, 8)
             .unwrap();
-        first.describe("0.4.0", "ab");
-        second.describe("0.4.0", "cd");
+        let third = registry
+            .register(identity("aa"), echo_tunnel(), 4, 8)
+            .unwrap();
+        first.describe("0.4.0", "ab", 1);
+        second.describe("0.4.0", "cd", 1);
+        third.describe("0.4.1", "cd", 1);
         let identities = registry.identities();
         let [(_, info)] = identities.as_slice() else {
             panic!("one cluster: {identities:?}");
         };
-        assert_eq!(info.tunnels, 2);
-        assert_eq!(info.versions, vec!["0.4.0"]);
+        assert_eq!(info.tunnels, 3);
+        assert_eq!(info.versions, vec!["0.4.0", "0.4.1"]);
         assert_eq!(info.ca_fingerprints, vec!["ab", "cd"]);
+        let row = |version: &str, tunnels| AgentCount {
+            version: version.to_string(),
+            protocol: 1,
+            tunnels,
+        };
+        assert_eq!(info.agents, vec![row("0.4.0", 2), row("0.4.1", 1)]);
     }
 
     #[tokio::test]

@@ -262,10 +262,33 @@ kubectl -n team-a get proxykubeapi prod -o jsonpath='{.status.agent}'
   (`proxyauth_agent_tunnel_up`, `proxyauth_agent_reconnects_total{reason}`,
   `proxyauth_agent_cert_expiry_seconds`, `proxyauth_agent_build_info{version,protocol_min,protocol_max}`).
   La passerelle compte ses refus dans `proxyauth_agent_tunnel_refusals_total{reason}`.
-- Agent et passerelle s'accordent sur le protocole le plus haut qu'ils parlent tous deux
-  (RFC 0013). Sans protocole commun, la passerelle refuse le tunnel (`agent_refused` raison
-  `protocol`, avec la version de l'agent) et l'agent attend 60 s avant de réessayer
-  (`reconnects_total{reason="protocol"}`) : mettez à jour celui des deux qui est en retard.
+
+## Versions et compatibilité
+
+L'agent tourne dans le cluster distant et se met à jour à son rythme : le proxy dit lesquels
+il sert et ce qu'il en pense (RFC 0013).
+
+```text
+$ kubectl -n team-a get proxykubeapi prod -o wide
+NAME   READY   REASON       AGE   TUNNELS   AGENTS
+prod   True    Reconciled   3d    2         ["0.4.0"]
+$ kubectl -n team-a get proxykubeapi prod -o jsonpath='{.status.agent}'
+{"tunnels":2,…,"proxyVersion":"0.4.1","agents":[{"version":"0.4.0","protocol":1,"tunnels":2}]}
+```
+
+- **Protocole** : à l'ouverture du tunnel, agent et passerelle annoncent chacun les protocoles
+  qu'ils parlent et gardent le plus haut des deux. Sans protocole commun, la passerelle refuse
+  le tunnel (`agent_refused` raison `protocol`, avec la version de l'agent), `Ready` passe à
+  `False` raison `AgentProtocolUnsupported`, `status.agent.refused` donne la plage de l'agent,
+  et l'agent attend 60 s avant de réessayer (`reconnects_total{reason="protocol"}`) ; son
+  journal `error` nomme les deux plages (`agent_protocols`, `gateway_protocols`, `0-0` pour
+  une passerelle 0.4.0). Mettez à jour celui des deux qui est en retard ; le refus disparaît 5 min après la dernière tentative.
+- **Versions** : un agent est attendu au plus une mineure derrière le proxy, jamais devant ;
+  le patch ne compte pas. Au-delà, l'avis `AgentVersionSkew` (condition et Event `Normal`) le
+  nomme, mais le tunnel sert : seul le protocole bloque. Une version qui n'est pas un SemVer
+  est affichée `invalid`.
+- **Alerte** : le chart n'en livre pas ; par exemple
+  `increase(proxyauth_agent_tunnel_refusals_total{reason="protocol"}[15m]) > 0`.
 
 ## Révoquer
 

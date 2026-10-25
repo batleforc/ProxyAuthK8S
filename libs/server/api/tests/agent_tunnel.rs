@@ -626,7 +626,7 @@ async fn an_agent_with_a_valid_certificate_opens_a_tunnel() {
 
 /// RFC 0013 §6.3: an agent from before the protocol range (`0-0`) gets
 /// protocol 1; a range without protocol 1 is refused before `register`, with
-/// `Close "protocol"` and a refusal record under the certificate's UID only.
+/// `Close "protocol"` naming the gateway's range, and a refusal record under the certificate's UID only.
 #[tokio::test]
 async fn a_protocol_range_without_overlap_is_refused_before_register() {
     let pool = redis_or_skip!();
@@ -647,6 +647,11 @@ async fn a_protocol_range_without_overlap_is_refused_before_register() {
         .await
         .unwrap_err();
     assert!(refused.contains("protocol"), "{refused}");
+    // The gateway's own range, for the agent's log (RFC 0013 §17).
+    assert!(
+        refused.contains("protocol_min: 1, protocol_max: 1"),
+        "{refused}"
+    );
     assert!(gateway.registry.identities().is_empty());
     let record: common::agent_gateway::AgentRefusal = serde_json::from_str(
         &gateway
@@ -934,7 +939,9 @@ async fn presences_follow_the_cr_and_revoke_its_tunnels() {
     assert_eq!(
         closed,
         Kind::Close(control::Close {
-            reason: "revoked".to_string()
+            reason: "revoked".to_string(),
+            protocol_min: agent_proto::PROTOCOL_MIN,
+            protocol_max: agent_proto::PROTOCOL_VERSION,
         })
     );
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
@@ -1599,7 +1606,9 @@ async fn an_epoch_bump_closes_tunnels_and_refuses_renewal() {
     assert_eq!(
         answer,
         Kind::Close(Close {
-            reason: "epoch".to_string()
+            reason: "epoch".to_string(),
+            protocol_min: agent_proto::PROTOCOL_MIN,
+            protocol_max: agent_proto::PROTOCOL_VERSION,
         })
     );
     registered(&gateway, 0).await;

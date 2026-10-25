@@ -378,6 +378,8 @@ impl Gateway {
                 // Best effort: the agent learns why before the tunnel drops.
                 let close = Kind::Close(Close {
                     reason: reason.to_string(),
+                    protocol_min: agent_proto::PROTOCOL_MIN,
+                    protocol_max: agent_proto::PROTOCOL_VERSION,
                 });
                 drop(
                     tokio::time::timeout(
@@ -483,7 +485,7 @@ impl Gateway {
         control::write(control, hello)
             .await
             .map_err(|_| "control")?;
-        guard.describe(version, ca_fingerprint);
+        guard.describe(version, ca_fingerprint, protocol);
         info!(cluster = %identity.cluster(), %version, protocol, streams, "agent tunnel open");
         connected.store(true, Ordering::Release);
         AuditEvent::new(Event::AgentConnected, Outcome::Allowed)

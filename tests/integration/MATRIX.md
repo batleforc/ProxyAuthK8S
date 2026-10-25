@@ -145,10 +145,10 @@ Statuts :
 | 0012 | 13    | suite       | `rfc0012::p13_a_jwks_from_without_the_key_refuses_then_recovers` (raison unknown key : le kid absent du jeu) |
 | 0012 | 14    | suite       | `rfc0012_restart::p14_a_proxy_restart_keeps_the_tunnels` (sans le kubectl get pods -w : un watch coupé n'est pas rouvert par kubectl) |
 | 0012 | 15    | suite       | `rfc0012::p15_a_connect_without_the_proxy_token_is_refused` (407 ; les métriques de la passerelle répondent, mais leurs compteurs de flux, partagés avec les tests parallèles, ne sont pas comparés) |
-| 0013 | 1     | à écrire    | `rfc0013::p1_…` |
-| 0013 | 2     | à écrire    | `rfc0013::p2_…` |
-| 0013 | 3     | à écrire    | `rfc0013::p3_…` |
-| 0013 | 4     | à écrire    | `rfc0013::p4_…` |
-| 0013 | 5     | à écrire    | `rfc0013::p5_…` |
-| 0013 | 6     | à écrire    | `rfc0013::p6_…` |
-| 0013 | 7     | à écrire    | `rfc0013::p7_…` |
+| 0013 | 1     | suite       | `rfc0013::p1_branch_agents_are_counted_without_advisory` |
+| 0013 | 2     | suite       | `rfc0013::p2_the_published_0_4_0_agent_is_served_at_protocol_1` |
+| 0013 | 3     | suite       | `rfc0013::p3_an_old_agent_is_served_and_advised_behind` |
+| 0013 | 4     | suite       | `rfc0013::p4_a_newer_agent_is_served_and_advised_newer` |
+| 0013 | 5     | suite       | `rfc0013::p5_a_protocol_without_overlap_is_refused_then_recovers` |
+| 0013 | 6     | suite       | `rfc0013::p6_a_forged_version_is_recorded_invalid` |
+| 0013 | 7     | suite       | `rfc0013::p7_the_publishable_image_has_no_announce_override` |

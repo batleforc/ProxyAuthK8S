@@ -20,6 +20,14 @@ spec:
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
+    - jsonPath: .status.agent.tunnels
+      name: Tunnels
+      priority: 1
+      type: integer
+    - jsonPath: .status.agent.versions
+      name: Agents
+      priority: 1
+      type: string
     name: v1
     schema:
       openAPIV3Schema:
@@ -1914,6 +1922,28 @@ spec:
                   gateway pods' presences.
                 nullable: true
                 properties:
+                  agents:
+                    description: The open tunnels by announced version and negotiated protocol.
+                    items:
+                      description: Open tunnels of one announced version and negotiated protocol.
+                      properties:
+                        protocol:
+                          format: uint32
+                          minimum: 0.0
+                          type: integer
+                        tunnels:
+                          format: uint32
+                          minimum: 0.0
+                          type: integer
+                        version:
+                          description: As the agent announces it, `invalid` when it is not a SemVer.
+                          type: string
+                      required:
+                      - protocol
+                      - tunnels
+                      - version
+                      type: object
+                    type: array
                   caFingerprints:
                     description: SHA-256 of the remote `kube-root-ca.crt`, as the agents report it.
                     items:
@@ -1924,6 +1954,32 @@ spec:
                     items:
                       type: string
                     type: array
+                  proxyVersion:
+                    description: |-
+                      The controller's version, the one the agents' are compared to
+                      (RFC 0013, decision 4).
+                    nullable: true
+                    type: string
+                  refused:
+                    description: |-
+                      Why an agent's tunnel was refused, while the refusal is recent
+                      (RFC 0013 §4.1): only a protocol refusal is kept.
+                    nullable: true
+                    properties:
+                      protocols:
+                        description: The protocols the agent speaks, `min-max`.
+                        type: string
+                      reason:
+                        description: '`protocol`.'
+                        type: string
+                      version:
+                        description: The agent's version, `invalid` when it is not a SemVer.
+                        type: string
+                    required:
+                    - protocols
+                    - reason
+                    - version
+                    type: object
                   tunnels:
                     description: Open tunnels, every gateway pod together.
                     format: uint32

@@ -750,3 +750,79 @@ Une seule PR, avec trois commits qui laissent chacun l'arbre vert :
 | 1 | `agent_proto` (`negotiate`, `valid_*`, tags 3 et 4), la passerelle (validation, refus avant `register`, clé de refus, métrique) et l'agent (`Close` `protocol`, attente, `build_info`, feature `it-announce`). T1 est fermé ici, et le contrôle de sécurité arrive avec la surface qu'il protège. Utile seule : le refus est explicite des deux côtés. |
 | 2 | CRD (`proxyVersion`, `agents`, `refused`, colonnes), `PresenceInfo.agents`, contrôleur (`skew`, les deux codes), CRD et doc régénérées. |
 | 3 | Banc : image `it-announce`, agent 0.4.0 épinglé, `rfc0013.rs` points 1 à 7, lignes de `MATRIX.md`, 0013 retirée de `PENDING`. |
+
+---
+
+## 17. Implementation notes
+
+### État (2026-10-25)
+
+| Phase | État | Où |
+| --- | --- | --- |
+| 1 | **commitée** (`db58692`), `task lint` vert ; `agent_proto` 15/15, `agent` 13/13 avec et sans `it-announce`, `agent_tunnel` 36/36 sous nextest (dont `a_protocol_range_without_overlap_is_refused_before_register` et `an_invalid_announce_is_served_but_never_recorded_as_sent`) ; la suite complète du workspace et `cargo deny` **pas encore passés** | PR #304 |
+| 2 | **commitée** avec la 3, `task lint` vert ; `controller`, `api`, `crd`, `common`, `agent_proto`, `agent` : 642/642 sous nextest avec `REQUIRE_TEST_REDIS=1` ; CRD et doc régénérés | PR #304 |
+| 3 | **commitée, jamais lancée sur le banc** : `rfc0013.rs` points 1 à 7 (compilé par clippy), `agent:it-announce` dans `.it/up.sh`, `agent-v0.4.0` dans `.it/images.lock`, `MATRIX.md` en `suite`, 0013 hors de `PENDING` ; `Close` porte la plage de l'émetteur | PR #304 |
+
+La suite a été arrêtée deux fois par le disque, pas par le code : btrfs
+plein (93 %, 1 Mio non alloué), puis, après la suppression de
+`dist/target/debug/incremental`, une récupération de blocs en tâche de fond
+(environ 400 MiB/s d'écriture du noyau, pression I/O au-dessus de 60 %).
+Une compilation de `api` restait 47 min pour 30 s de CPU.
+
+### Reprise (à lire en premier après un redémarrage)
+
+1. Vérifier que le disque est calme : `cat /proc/pressure/io`, avec
+   `some avg10` sous environ 10. Sinon, attendre.
+2. Phase 2, dans l'arbre de travail : `task lint` (lance aussi `cargo fmt
+   --check` et clippy), puis
+   `TEST_REDIS_URL=redis://127.0.0.1:16379 cargo nextest run -p controller -p api -p crd -p common`.
+   Il faut **nextest** : sous `cargo test`, `the_enroll_route_is_rate_limited_before_any_write`
+   et `enrollment_and_tunnels_write_audit_events` échouent, parce que leurs
+   lignes d'audit sont partagées entre les tests d'un même processus.
+   Redis du poste : `proxyauth-test-redis` sur le port 16379.
+3. Régénérer le CRD (`task recu`, qui lance crdgen et swaggergen ; le hook
+   pre-commit le fait aussi) et la référence (`task docs:crds`), puis
+   `task docs:build`.
+4. Commiter la phase 2 (message à écrire dans
+   `.git/rfc0011/commit-0013-2.txt`, `cog verify --file`), puis lancer seule
+   la suite complète (`cargo nextest run --workspace --all-targets`) et
+   `cargo deny check advisories bans licenses`, ce qui couvre les phases 1 et 2.
+5. Phase 3 (fichiers écrits, voir l'état) : `cargo clippy -p integration
+   --tests`, puis le banc (`task it:up`, éteint le 2026-10-25 pour libérer le
+   disque) et `task it:test` ; `.it/up.sh` construit `agent:it-announce`
+   (`--build-arg CARGO_FEATURES=it-announce`) ; épingler
+   `ghcr.io/batleforc/proxyauthk8s/agent:v0.4.0@sha256:cbb881b2201b06f1d752d8f32f0112a0d0474cfbb100b85bfe8242e39708eca4`
+   dans `.it/images.lock` ; `tests/integration/tests/rfc0013.rs` points 1 à 7 ;
+   lignes de `MATRIX.md` en `suite`, et 0013 retirée de `PENDING`.
+
+Ce que contient la phase 2 non commitée :
+
+- `crd::status` : `AgentStatus.{proxy_version, agents, refused}`,
+  `AgentCount`, `AgentRefusal`, déplacé de `common` et réexporté par
+  `common::agent_gateway` ;
+- `PresenceInfo.agents` avec `#[serde(default)]`, et `count_agent` dans
+  `common::agent_gateway`, partagé par la passerelle et le contrôleur ;
+- `registry.rs` : `describe(version, fingerprint, protocol)`, et
+  `identities()` compte par (version, protocole) ;
+- colonnes `Tunnels` et `Agents` en `priority: 1` ;
+- `reason.rs` : `AgentVersionSkew` (avis) et `AgentProtocolUnsupported`
+  (bloquant), 16 codes ;
+- `reconcile.rs` : `agent_versions`, `skew`, et `agent_status` qui pose
+  `proxyVersion` et lit la clé de refus ; `semver` dans le contrôleur ;
+- `controller/tests/reconcile.rs` : refus vers `AgentProtocolUnsupported`,
+  record d'une passerelle 0.4.0 sans `agents`, comptage ;
+- doc : section « Versions et compatibilité » dans `agent.mdx`, les deux
+  codes dans `status-and-events.mdx`.
+
+### Écarts
+
+- `Close` gagne `protocol_min` et `protocol_max` (tags 2 et 3), la plage de
+  l'émetteur : sans eux, l'agent refusé ne pouvait pas nommer celle de la
+  passerelle dans son journal (§6.P point 5). Une passerelle 0.4.0 envoie
+  `0-0`.
+
+- `refused()` de la passerelle délègue à `refused_announcing()`, qui porte
+  la version annoncée : le refus `protocol` arrive après la lecture de
+  `AgentInfo`.
+- `AgentRefusal` vit dans `crd::status` et non dans `common` : c'est la
+  forme que le statut affiche, et `common` dépend déjà de `crd`.

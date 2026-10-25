@@ -8,3 +8,5 @@ busybox  docker.io/library/busybox:1.37@sha256:bdf57e528e45e4433820e045b29b45978
 # RFC 0012 §6.P points 9 and 10: the agents' egress proxies.
 tinyproxy  docker.io/kalaksi/tinyproxy:1.7@sha256:5a65354cbb5f9c0fdcc8de3d3af8dd1c5ea072b3a1f52e5961a9a5cce6eba227
 microsocks docker.io/heywoodlh/microsocks:2026_10_snapshot@sha256:a8cd0b0b10bd48e90cde836852951fa3a55700a94f5cf8755119db6d830376f7
+# RFC 0013 §6.P point 2: the published agent, a real client of the previous release.
+agent-v0.4.0 ghcr.io/batleforc/proxyauthk8s/agent:v0.4.0@sha256:cbb881b2201b06f1d752d8f32f0112a0d0474cfbb100b85bfe8242e39708eca4

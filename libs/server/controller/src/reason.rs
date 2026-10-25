@@ -37,6 +37,12 @@ weebo_kit_domain::reason_codes! {
         /// Advisory: no agent is connected and no usable `OneShotToken` waits
         /// for one, or it could not be written (RFC 0012 §4.3).
         AgentBootstrapNeeded,
+        /// Advisory: an agent's version is outside the window, more than one
+        /// minor behind the proxy or newer, or not a SemVer (RFC 0013).
+        AgentVersionSkew,
+        /// No tunnel, and the gateway refused the agent's protocols lately
+        /// (RFC 0013): the cause of `AgentNoTunnel`.
+        AgentProtocolUnsupported,
     }
 }
 
@@ -54,7 +60,8 @@ impl Reason for ReasonCode {
             | Self::DeprecatedInsecureCert
             | Self::Deleted
             | Self::AgentLimitCapped
-            | Self::AgentBootstrapNeeded => Severity::Advisory,
+            | Self::AgentBootstrapNeeded
+            | Self::AgentVersionSkew => Severity::Advisory,
             Self::InvalidSpec
             | Self::OidcConfigUnresolved
             | Self::TargetUnreachable
@@ -62,7 +69,8 @@ impl Reason for ReasonCode {
             | Self::CacheWriteFailed
             | Self::StatusWriteFailed
             | Self::FinalizerFailed
-            | Self::AgentNoTunnel => Severity::Blocking,
+            | Self::AgentNoTunnel
+            | Self::AgentProtocolUnsupported => Severity::Blocking,
         }
     }
 }
@@ -77,8 +85,8 @@ mod tests {
     }
 
     #[test]
-    fn the_catalog_has_the_eleven_codes_of_rfc_0011_and_three_of_rfc_0012() {
-        assert_eq!(ReasonCode::ALL.len(), 14);
+    fn the_catalog_has_the_codes_of_rfc_0011_0012_and_0013() {
+        assert_eq!(ReasonCode::ALL.len(), 16);
     }
 
     #[test]
@@ -96,6 +104,7 @@ mod tests {
                 &ReasonCode::Deleted,
                 &ReasonCode::AgentLimitCapped,
                 &ReasonCode::AgentBootstrapNeeded,
+                &ReasonCode::AgentVersionSkew,
             ]
         );
     }

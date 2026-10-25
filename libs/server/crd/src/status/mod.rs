@@ -49,6 +49,44 @@ pub struct AgentStatus {
         skip_serializing_if = "Vec::is_empty"
     )]
     pub ca_fingerprints: Vec<String>,
+    /// The controller's version, the one the agents' are compared to
+    /// (RFC 0013, decision 4).
+    #[serde(
+        default,
+        rename = "proxyVersion",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub proxy_version: Option<String>,
+    /// The open tunnels by announced version and negotiated protocol.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<AgentCount>,
+    /// Why an agent's tunnel was refused, while the refusal is recent
+    /// (RFC 0013 §4.1): only a protocol refusal is kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<AgentRefusal>,
+}
+
+/// Open tunnels of one announced version and negotiated protocol.
+#[derive(
+    Serialize, Deserialize, Clone, JsonSchema, Default, Debug, PartialEq, Eq, PartialOrd, Ord,
+)]
+pub struct AgentCount {
+    /// As the agent announces it, `invalid` when it is not a SemVer.
+    pub version: String,
+    pub protocol: u32,
+    pub tunnels: u32,
+}
+
+/// A gateway pod's refusal of an agent's tunnel, for 5 min after the last
+/// attempt.
+#[derive(Serialize, Deserialize, Clone, JsonSchema, Default, Debug, PartialEq, Eq)]
+pub struct AgentRefusal {
+    /// `protocol`.
+    pub reason: String,
+    /// The agent's version, `invalid` when it is not a SemVer.
+    pub version: String,
+    /// The protocols the agent speaks, `min-max`.
+    pub protocols: String,
 }
 
 impl ProxyKubeApiStatus {

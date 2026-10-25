@@ -103,10 +103,14 @@ if [[ -z "${IT_SKIP_BUILD:-}" ]]; then
   "$ENGINE" build -f deploy/build/back/Containerfile -t localhost/proxyauthk8s/server:it .
   "$ENGINE" build -f deploy/build/front/Containerfile -t localhost/proxyauthk8s/front:it .
   "$ENGINE" build -f deploy/build/agent/Containerfile -t localhost/proxyauthk8s/agent:it .
+  # RFC 0013 §6.P: the same agent, announcing what AGENT_IT_ANNOUNCE_* says.
+  "$ENGINE" build -f deploy/build/agent/Containerfile --build-arg CARGO_FEATURES=it-announce \
+    -t localhost/proxyauthk8s/agent:it-announce .
 fi
 # Through a tarball: under podman, k3d's own `docker save` in its tools
 # container fails.
-images=(localhost/proxyauthk8s/server:it localhost/proxyauthk8s/front:it localhost/proxyauthk8s/agent:it)
+images=(localhost/proxyauthk8s/server:it localhost/proxyauthk8s/front:it localhost/proxyauthk8s/agent:it
+  localhost/proxyauthk8s/agent:it-announce)
 if [[ "$ENGINE" == podman ]]; then
   podman save -m -o "$RUN/images.tar" "${images[@]}"
 else
