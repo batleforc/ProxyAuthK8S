@@ -20,5 +20,8 @@ kube-cel = "0.8"
 
 crd = { path = "../crd", version = "0.3.0" }
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }
+
 [lints]
 workspace = true

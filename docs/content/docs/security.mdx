@@ -915,6 +915,7 @@ peut les activer et obtenir un vrai quota ; sans cela, la situation reste celle 
 | `PROXY_DEBUG_BODY_MAX_BYTES`    | 10 MiB | Au-delà, les corps ne sont plus mis en tampon pour le log debug |
 | `PROXY_STREAM_CHANNEL_CAPACITY` | 32     | Chunks en vol entre le client et l'amont                     |
 | `PROXY_VIRTUAL_MAX_BODY_BYTES`  | 32 MiB | Plafond d'une réponse d'API virtuelle traduite               |
+| `PROXY_JWKS_MAX_DOCUMENT_BYTES` | 64 KiB | Plafond d'un document de découverte ou d'un JWKS d'émetteur (`jwks_url` des agents compris) ; à relever pour un IdP aux nombreuses clés `x5c` |
 
 ## Risques acceptés / différés
 

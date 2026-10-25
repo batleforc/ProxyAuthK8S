@@ -116,6 +116,22 @@ impl JwtValidator {
         Self::default()
     }
 
+    /// A validator refusing an issuer's discovery document or JWKS past
+    /// `max_document_bytes`.
+    #[must_use]
+    pub fn with_max_document_bytes(max_document_bytes: usize) -> Self {
+        Self {
+            jwks: JwksCache::with_max_document_bytes(max_document_bytes),
+            clients: RwLock::default(),
+        }
+    }
+
+    /// The bound on an issuer's discovery document or JWKS.
+    #[must_use]
+    pub const fn max_document_bytes(&self) -> usize {
+        self.jwks.max_document_bytes()
+    }
+
     /// The HTTP client used to reach `authenticator`'s issuer.
     ///
     /// Cached because building a `reqwest::Client` (which sets up a TLS config

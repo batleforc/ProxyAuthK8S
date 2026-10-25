@@ -787,6 +787,11 @@ async fn p15_a_connect_without_the_proxy_token_is_refused() {
         statuses.iter().all(|line| line.contains(" 407")),
         "{answers}"
     );
+    // The gateway's own metrics (`WEEBO_METRICS_ADDR`), through the apiserver's
+    // pod proxy. Their stream counters are shared with the tests running
+    // alongside: not compared here.
+    let metrics = observe::gateway_metrics(GATEWAY);
+    assert!(metrics.contains("proxyauth_agent_tunnels"), "{metrics}");
 }
 
 /// The gateway's `agent_refused` lines for a TLS failure (no cluster known).

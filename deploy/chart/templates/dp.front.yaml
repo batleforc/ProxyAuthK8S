@@ -5,9 +5,7 @@ metadata:
   name: "{{ .Release.Name }}-proxyauthk8s-front"
   namespace: "{{ .Release.Namespace }}"
 spec:
-  {{- if not .Values.front.autoscaling.enabled }}
-  replicas: {{ .Values.front.replicas }}
-  {{- end }}
+  {{- include "proxyauthk8s.replicas" (dict "root" . "name" (printf "%s-proxyauthk8s-front" .Release.Name) "replicas" .Values.front.replicas "autoscaling" .Values.front.autoscaling) | nindent 2 }}
   selector:
     matchLabels:
       app: "{{ .Release.Name }}-proxyauthk8s-front"

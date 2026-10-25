@@ -50,6 +50,9 @@ pub const DEFAULT_STREAM_CHANNEL_CAPACITY: usize = 32;
 /// Default `PROXY_VIRTUAL_MAX_BODY_BYTES`: upper bound on a buffered virtual
 /// API response.
 pub const DEFAULT_VIRTUAL_MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
+/// Default `PROXY_JWKS_MAX_DOCUMENT_BYTES`: upper bound on a fetched issuer
+/// discovery document or JWKS.
+pub const DEFAULT_JWKS_MAX_DOCUMENT_BYTES: usize = jwt_validator::MAX_DOCUMENT_BYTES;
 /// Default `PROXY_UPSTREAM_CLIENT_TTL`: how long a cluster's upstream HTTP
 /// client and TLS configuration are reused before the TLS material (CA, mTLS
 /// client certificate) is resolved again.
@@ -207,6 +210,9 @@ pub struct ProxySettings {
     pub stream_channel_capacity: usize,
     /// `PROXY_VIRTUAL_MAX_BODY_BYTES` (default 32 MiB, must be > 0).
     pub virtual_max_body_bytes: usize,
+    /// `PROXY_JWKS_MAX_DOCUMENT_BYTES` (default 64 KiB, must be > 0): bound on
+    /// an issuer's discovery document or JWKS, `jwks_url` of agents included.
+    pub jwks_max_document_bytes: usize,
     /// `PROXY_UPSTREAM_CLIENT_TTL` in seconds (default `300`, `0` disables):
     /// lifetime of a cached per-cluster upstream client / TLS configuration
     /// (see [`crate::upstream_cache`]). Bounds how long a rotated
@@ -455,6 +461,10 @@ impl Config {
             virtual_max_body_bytes: loader.positive_usize(
                 "PROXY_VIRTUAL_MAX_BODY_BYTES",
                 DEFAULT_VIRTUAL_MAX_BODY_BYTES,
+            ),
+            jwks_max_document_bytes: loader.positive_usize(
+                "PROXY_JWKS_MAX_DOCUMENT_BYTES",
+                DEFAULT_JWKS_MAX_DOCUMENT_BYTES,
             ),
             upstream_client_ttl: loader.parsed(
                 "PROXY_UPSTREAM_CLIENT_TTL",
@@ -789,6 +799,7 @@ mod tests {
                 debug_body_max_bytes: 10 * 1024 * 1024,
                 stream_channel_capacity: 32,
                 virtual_max_body_bytes: 32 * 1024 * 1024,
+                jwks_max_document_bytes: 64 * 1024,
                 upstream_client_ttl: Duration::from_secs(300),
                 throttle_fail_closed: false,
                 allow_cross_namespace_cert: false,
@@ -920,6 +931,7 @@ mod tests {
             ("PROXY_DEBUG_BODY_MAX_BYTES", "1024"),
             ("PROXY_STREAM_CHANNEL_CAPACITY", "8"),
             ("PROXY_VIRTUAL_MAX_BODY_BYTES", "2048"),
+            ("PROXY_JWKS_MAX_DOCUMENT_BYTES", "1048576"),
             ("PROXY_UPSTREAM_CLIENT_TTL", " 60 "),
             ("THROTTLE_FAIL_CLOSED", " Yes "),
             ("PROXYAUTH_ALLOW_CROSS_NS_CERT", "enabled"),
@@ -973,6 +985,7 @@ mod tests {
                 debug_body_max_bytes: 1024,
                 stream_channel_capacity: 8,
                 virtual_max_body_bytes: 2048,
+                jwks_max_document_bytes: 1024 * 1024,
                 upstream_client_ttl: Duration::from_secs(60),
                 throttle_fail_closed: true,
                 allow_cross_namespace_cert: true,
@@ -1061,6 +1074,7 @@ mod tests {
             ("PROXY_DEBUG_BODY_MAX_BYTES", "0"),
             ("PROXY_STREAM_CHANNEL_CAPACITY", " 8"),
             ("PROXY_VIRTUAL_MAX_BODY_BYTES", "big"),
+            ("PROXY_JWKS_MAX_DOCUMENT_BYTES", "0"),
             ("PROXY_UPSTREAM_CLIENT_TTL", "5m"),
             ("THROTTLE_FAIL_CLOSED", "sure"),
             ("PROXYAUTH_ALLOW_CROSS_NS_CERT", "nope"),
@@ -1090,6 +1104,10 @@ mod tests {
             DEFAULT_VIRTUAL_MAX_BODY_BYTES
         );
         assert_eq!(
+            config.proxy.jwks_max_document_bytes,
+            DEFAULT_JWKS_MAX_DOCUMENT_BYTES
+        );
+        assert_eq!(
             config.proxy.upstream_client_ttl,
             DEFAULT_UPSTREAM_CLIENT_TTL
         );
@@ -1116,6 +1134,7 @@ mod tests {
                 "PROXY_DEBUG_BODY_MAX_BYTES",
                 "PROXY_STREAM_CHANNEL_CAPACITY",
                 "PROXY_VIRTUAL_MAX_BODY_BYTES",
+                "PROXY_JWKS_MAX_DOCUMENT_BYTES",
                 "PROXY_UPSTREAM_CLIENT_TTL",
                 "THROTTLE_FAIL_CLOSED",
                 "PROXYAUTH_ALLOW_CROSS_NS_CERT",

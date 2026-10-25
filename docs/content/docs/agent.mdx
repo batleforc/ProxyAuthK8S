@@ -58,6 +58,9 @@ porte un jeton généré par le chart (`agentGateway.tokenSecretName` pour fourn
 | `agentGateway.limits.handshakeTimeoutSeconds` | `10` | Délai de la poignée de main TLS et du contrôle |
 | `agentGateway.limits.enrollPerMinute` | `10` | Enrôlements par adresse cliente (`TRUSTED_PROXY_COUNT` derrière un Ingress) |
 | `agentGateway.limits.enrollPerMinuteTotal` | `120` | Enrôlements de tous les agents |
+| `agentGateway.metricsPort` | `9464` | Mode `separate`, avec `metrics.prometheus.enabled` : le `/metrics` de la passerelle |
+| `agentGateway.podDisruptionBudget.*` | activé, `minAvailable: 1` | PDB des pods de la passerelle ; `maxUnavailable: 1` avec un seul pod au minimum, voir [Disponibilité](/docs/helm-chart#disponibilité--pdb-hpa-et-gitops) |
+| `agentGateway.autoscaling.*` | désactivé | HPA (`minReplicas`, `maxReplicas`, `targetCPUUtilizationPercentage`, `scaleDownStabilizationSeconds: 600`, `scaleDownPods: 1`, `scaleDownPeriodSeconds: 300`) ; chaque pod retiré ferme ses tunnels, d'où une réduction lente. Les `scaleDown*` s'appliquent aussi à `back.autoscaling` en mode `embedded`. Argo CD : voir [Disponibilité](/docs/helm-chart#disponibilité--pdb-hpa-et-gitops) |
 
 ### TLS de bout en bout jusqu'à la passerelle (`passthrough`)
 
@@ -114,6 +117,10 @@ spec:
 `jwks_from` lit le JWKS dans un ConfigMap ou un Secret à chaque enrôlement : une rotation de
 clé du cluster distant passe sans toucher au `ProxyKubeApi` (gardez l'ancienne et la nouvelle
 clé le temps de la rotation). Un JWKS vide ou illisible refuse l'enrôlement.
+
+`jwks_url` est lu sans suivre de redirection, en 5 s au plus, et refusé au-delà de
+`PROXY_JWKS_MAX_DOCUMENT_BYTES` (64 Kio par défaut, la même borne que pour les émetteurs des
+`JWTAuthenticator`, voir [Sécurité](/docs/security#limites-de-mémoire)).
 
 Pour que ce ConfigMap suive les rotations sans intervention, le chart de l'agent peut publier
 le JWKS lui-même : `--set jwksPublisher.enabled=true` installe un CronJob (toutes les 15 min,

@@ -1,5 +1,6 @@
-//! Indirect checks, read with the admin kubeconfig: the back's Prometheus
-//! metrics through the apiserver's service proxy, and its audit log lines.
+//! Indirect checks, read with the admin kubeconfig: the back's and the agent
+//! gateway's Prometheus metrics through the apiserver's proxy, and the back's
+//! audit log lines.
 
 use crate::{
     Bench,
@@ -15,6 +16,38 @@ pub fn metrics() -> String {
     assert!(
         out.status.success(),
         "scrape metrics: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// The agent gateway's `/metrics` (label `app={gateway}`), scraped as the
+/// admin through the pod proxy, on the port its pod names `metrics`.
+pub fn gateway_metrics(gateway: &str) -> String {
+    let out = Bench::get().admin(&[
+        "-n",
+        STACK_NS,
+        "get",
+        "pods",
+        "-l",
+        &format!("app={gateway}"),
+        "-o",
+        "jsonpath={.items[0].metadata.name} {.items[0].spec.containers[0].ports[?(@.name==\"metrics\")].containerPort}",
+    ]);
+    assert!(
+        out.status.success(),
+        "find the gateway pod: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let found = String::from_utf8_lossy(&out.stdout).into_owned();
+    let Some((pod, port)) = found.split_once(' ').filter(|(_, port)| !port.is_empty()) else {
+        panic!("no gateway pod with a metrics port: {found:?}");
+    };
+    let path = format!("/api/v1/namespaces/{STACK_NS}/pods/{pod}:{port}/proxy/metrics");
+    let out = Bench::get().admin(&["get", "--raw", &path]);
+    assert!(
+        out.status.success(),
+        "scrape gateway metrics: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     String::from_utf8_lossy(&out.stdout).into_owned()

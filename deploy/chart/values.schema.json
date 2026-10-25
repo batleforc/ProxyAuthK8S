@@ -747,6 +747,11 @@
           "minimum": 1,
           "maximum": 65535
         },
+        "metricsPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
         "tlsMode": {
           "type": "string",
           "enum": [
@@ -916,6 +921,78 @@
                 }
               },
               "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "podDisruptionBudget": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minAvailable": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "maxUnavailable": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "autoscaling": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxReplicas": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "targetCPUUtilizationPercentage": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "targetMemoryUtilizationPercentage": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "scaleDownStabilizationSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 3600
+            },
+            "scaleDownPods": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "scaleDownPeriodSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1800
             }
           },
           "additionalProperties": false

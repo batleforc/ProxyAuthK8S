@@ -82,8 +82,8 @@ toute personne pouvant lire les Deployments le voit. Préférez `secret`.
 | `back.logFormat`                   | `text`   | Format des logs : `text` ou `json` |
 | `back.env`                         | `[]`     | Variables supplémentaires (`name`/`value`), voir [Configuration](/docs/configuration) |
 | `back.resources`                   | limits `1000m` / `512Mi`, requests `100m` / `128Mi` | Ressources du serveur                    |
-| `back.podDisruptionBudget.enabled` | `true`   | PDB (`minAvailable: 1`)                                                     |
-| `back.autoscaling.*`               | désactivé | HPA (`minReplicas`, `maxReplicas`, `targetCPUUtilizationPercentage`)        |
+| `back.podDisruptionBudget.*`       | activé, `minAvailable: 1` | PDB, voir [Disponibilité](#disponibilité--pdb-hpa-et-gitops) |
+| `back.autoscaling.*`               | désactivé | HPA (`minReplicas`, `maxReplicas`, `targetCPUUtilizationPercentage`), voir [Disponibilité](#disponibilité--pdb-hpa-et-gitops) |
 
 Sondes : liveness sur `/management/health`, readiness sur `/management/ready` (vérifie Redis et la découverte OIDC du démarrage).
 
@@ -95,8 +95,54 @@ Sondes : liveness sur `/management/health`, readiness sur `/management/ready` (v
 | `front.port`                        | `4200`  |                                                |
 | `front.env`                         | `[]`    | Variables supplémentaires                      |
 | `front.resources`                   | limits `100m` / `512Mi` | Ressources du dashboard (nginx statique) |
-| `front.podDisruptionBudget.enabled` | `true`  |                                                |
-| `front.autoscaling.*`               | désactivé | HPA                                          |
+| `front.podDisruptionBudget.*`       | activé, `minAvailable: 1` | Comme `back.podDisruptionBudget` |
+| `front.autoscaling.*`               | désactivé | Comme `back.autoscaling`           |
+
+## Passerelle d'agents
+
+Les values `agentGateway.*` (passerelle des clusters joints par un agent, RFC 0012) sont
+décrites avec leur contexte dans [Agent](/docs/agent#1-activer-la-passerelle).
+
+## Disponibilité : PDB, HPA et GitOps
+
+Le back, le front et la passerelle d'agents (`agentGateway`, mode `separate`) suivent les
+mêmes règles :
+
+- **PDB** (`podDisruptionBudget.*`) : `minAvailable: 1` par défaut. Un `maxUnavailable`
+  défini le remplace (l'API refuse les deux), `0` compris ; une valeur vide est ignorée.
+  Avec un seul pod au minimum (`replicas`/`replicaCount`, ou `autoscaling.minReplicas`
+  avec l'HPA), le chart rend `maxUnavailable: 1` : un `minAvailable: 1` bloquerait tout
+  `kubectl drain`, et le PDB protège encore les pods quand l'HPA monte.
+- **HPA** (`autoscaling.enabled`) : le chart reprend le nombre de pods en place (`lookup`)
+  à chaque `helm upgrade`, sans écraser le choix de l'HPA ni retirer le champ (Helm
+  retomberait alors à 1 pod). Sans Deployment à lire (première installation,
+  `helm template`, `--dry-run`, Argo CD), il rend `autoscaling.minReplicas`.
+- **Réduction lente** des pods qui portent des tunnels d'agents : chaque pod retiré ferme
+  ses tunnels, et ses agents se reconnectent. L'HPA de la passerelle, et celui du back en
+  mode `embedded`, attendent `agentGateway.autoscaling.scaleDownStabilizationSeconds`
+  (600 s) puis retirent `scaleDownPods` pod(s) par `scaleDownPeriodSeconds` (300 s).
+
+<Callout type="warn" title="Argo CD et l'HPA">
+Argo CD rend le chart sans accès au cluster : `lookup` n'y renvoie rien, et chaque
+synchronisation remettrait `replicas` à `autoscaling.minReplicas`, contre l'HPA. Laissez ce
+champ à l'HPA :
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+spec:
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+  syncPolicy:
+    syncOptions:
+      - RespectIgnoreDifferences=true   # sinon la synchro applique quand même le champ
+```
+
+Flux (`helm-controller`) exécute un vrai `helm upgrade` : `lookup` y fonctionne, rien à faire.
+</Callout>
 
 ## RBAC
 
@@ -125,7 +171,7 @@ toutes les capabilities retirées, profil seccomp `RuntimeDefault`.
 
 | Value                                   | Défaut  | Description                                                        |
 | --------------------------------------- | ------- | ------------------------------------------------------------------ |
-| `networkPolicy.enabled`                 | `false` | Active les NetworkPolicies du front et du back                     |
+| `networkPolicy.enabled`                 | `false` | Active les NetworkPolicies du front, du back et de la passerelle d'agents |
 | `networkPolicy.ingressFrom`             | `[]`    | Sélecteurs autorisés à joindre les services (ex. le namespace de l'ingress controller) ; vide = tout le cluster |
 | `networkPolicy.egress.allowExternal`    | `true`  | Autorise la sortie vers l'extérieur du cluster (apiservers, IdP)   |
 | `networkPolicy.egress.externalExcept`   | plages privées, link-local, CGNAT | Exclues de la sortie externe : bloque notamment l'endpoint de métadonnées cloud |
@@ -144,7 +190,7 @@ En production, activez-la et décrivez ces destinations dans `egress.extra`.
 | `metrics.serviceMonitor.enabled`    | `false` | Crée un `ServiceMonitor` prometheus-operator ; sinon, avec les métriques activées, les pods portent les annotations `prometheus.io/*` |
 | `metrics.serviceMonitor.interval` / `scrapeTimeout` | `30s` / `10s` |                                                 |
 | `metrics.serviceMonitor.labels`     | `{}`    | Labels pour la sélection par votre Prometheus (ex. `release: kube-prometheus-stack`) |
-| `metrics.scrapeFrom`                | `[]`    | Avec la NetworkPolicy : sélecteurs autorisés à scraper le port du back   |
+| `metrics.scrapeFrom`                | `[]`    | Avec la NetworkPolicy : sélecteurs autorisés à scraper le back et la passerelle (vide : `networkPolicy.ingressFrom`, sinon tous) |
 
 Collecteur OpenTelemetry optionnel :
 
