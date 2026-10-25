@@ -145,3 +145,10 @@ Statuts :
 | 0012 | 13    | suite       | `rfc0012::p13_a_jwks_from_without_the_key_refuses_then_recovers` (raison unknown key : le kid absent du jeu) |
 | 0012 | 14    | suite       | `rfc0012_restart::p14_a_proxy_restart_keeps_the_tunnels` (sans le kubectl get pods -w : un watch coupé n'est pas rouvert par kubectl) |
 | 0012 | 15    | suite       | `rfc0012::p15_a_connect_without_the_proxy_token_is_refused` (407 ; les métriques de la passerelle répondent, mais leurs compteurs de flux, partagés avec les tests parallèles, ne sont pas comparés) |
+| 0013 | 1     | à écrire    | `rfc0013::p1_…` |
+| 0013 | 2     | à écrire    | `rfc0013::p2_…` |
+| 0013 | 3     | à écrire    | `rfc0013::p3_…` |
+| 0013 | 4     | à écrire    | `rfc0013::p4_…` |
+| 0013 | 5     | à écrire    | `rfc0013::p5_…` |
+| 0013 | 6     | à écrire    | `rfc0013::p6_…` |
+| 0013 | 7     | à écrire    | `rfc0013::p7_…` |
