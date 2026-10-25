@@ -26,6 +26,7 @@ use axum::response::{IntoResponse as _, Response};
 use axum::routing::get;
 use axum::{Router, http::StatusCode};
 use common::State;
+use common::agent_gateway::{AgentRefusal, REFUSAL_TTL, agent_refused_key};
 use common::config::{AgentGatewaySettings, AgentTlsMode};
 use crd::ProxyKubeApi;
 use crd::service::{AgentBootstrap, AgentService, Service};
@@ -67,14 +68,25 @@ trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
 
 fn refused(client: &str, identity: Option<&AgentIdentity>, reason: Reason) {
-    warn!(%client, cluster = identity.map(AgentIdentity::cluster), reason, "agent tunnel refused");
+    refused_announcing(client, identity, None, reason);
+}
+
+/// [`refused`], with the version the agent announced once it has (RFC 0013).
+fn refused_announcing(
+    client: &str,
+    identity: Option<&AgentIdentity>,
+    version: Option<&str>,
+    reason: Reason,
+) {
+    warn!(%client, cluster = identity.map(AgentIdentity::cluster), version, reason, "agent tunnel refused");
+    crate::metrics::record_agent_refusal(reason);
     let line = AuditEvent::new(Event::AgentRefused, Outcome::Denied)
         .client_ip(client)
         .reason(reason);
     match identity {
         Some(identity) => line
             .cluster(&identity.namespace, &identity.name)
-            .agent(identity.epoch, None),
+            .agent(identity.epoch, version),
         None => line,
     }
     .emit();
@@ -345,6 +357,7 @@ impl Gateway {
             // One more for the control stream, which yamux counts too.
             mux::new(io, Mode::Client, streams.saturating_add(1));
         let connected = AtomicBool::new(false);
+        let announced = std::sync::OnceLock::new();
         let session = async {
             let mut control = tokio::time::timeout(self.settings.handshake_timeout, inbound.recv())
                 .await
@@ -357,7 +370,7 @@ impl Gateway {
                     &mut control,
                     (handle, streams),
                     &mut inbound,
-                    (&client, &connected),
+                    (&client, &connected, &announced),
                     expires,
                 )
                 .await;
@@ -387,7 +400,12 @@ impl Gateway {
         }
         let reason = ended.err().unwrap_or("agent");
         if !connected.load(Ordering::Acquire) {
-            return refused(Some(&identity), reason);
+            return refused_announcing(
+                &client,
+                Some(&identity),
+                announced.get().map(String::as_str),
+                reason,
+            );
         }
         info!(cluster = %identity.cluster(), reason, "agent tunnel closed");
         AuditEvent::new(Event::AgentDisconnected, Outcome::Allowed)
@@ -404,7 +422,7 @@ impl Gateway {
         control: &mut mux::Stream,
         (handle, streams): (agent_proto::mux::MuxHandle, usize),
         inbound: &mut tokio::sync::mpsc::Receiver<mux::Stream>,
-        (client, connected): (&str, &AtomicBool),
+        (client, connected, announced): (&str, &AtomicBool, &std::sync::OnceLock<String>),
         expires: Option<i64>,
     ) -> Result<(), Reason> {
         // yamux announces a stream with its first frame: the agent speaks first.
@@ -419,7 +437,34 @@ impl Gateway {
         let AgentInfo {
             version,
             ca_fingerprint,
+            protocol_min,
+            protocol_max,
         } = &info;
+        // What the agent announces reaches Redis and the CR's status: only
+        // in a bounded, known shape (RFC 0013, T1).
+        let version = agent_proto::valid_version(version).unwrap_or_else(|| {
+            warn!(cluster = %identity.cluster(), "the agent announced an invalid version");
+            "invalid"
+        });
+        let ca_fingerprint = if ca_fingerprint.is_empty()
+            || agent_proto::valid_fingerprint(ca_fingerprint)
+        {
+            ca_fingerprint.as_str()
+        } else {
+            warn!(cluster = %identity.cluster(), "the agent announced an invalid CA fingerprint");
+            ""
+        };
+        announced.get_or_init(|| version.to_string());
+        let protocols = (*protocol_min, *protocol_max);
+        // Before `register`: a refused tunnel is never routed (RFC 0013 §5.1).
+        let Some(protocol) = agent_proto::negotiate(
+            protocols,
+            (agent_proto::PROTOCOL_MIN, agent_proto::PROTOCOL_VERSION),
+        ) else {
+            self.record_protocol_refusal(identity, version, protocols)
+                .await;
+            return Err("protocol");
+        };
         let guard = self
             .registry
             .register(
@@ -433,13 +478,13 @@ impl Gateway {
         let hello = Kind::Hello(Hello {
             replica_id: self.pod.clone(),
             replicas_expected: 1,
-            protocol: agent_proto::PROTOCOL_VERSION,
+            protocol,
         });
         control::write(control, hello)
             .await
             .map_err(|_| "control")?;
         guard.describe(version, ca_fingerprint);
-        info!(cluster = %identity.cluster(), %version, streams, "agent tunnel open");
+        info!(cluster = %identity.cluster(), %version, protocol, streams, "agent tunnel open");
         connected.store(true, Ordering::Release);
         AuditEvent::new(Event::AgentConnected, Outcome::Allowed)
             .client_ip(client)
@@ -463,6 +508,33 @@ impl Gateway {
             () = expiry => Err("expired"),
             // An agent opens no data stream: each is reset on arrival.
             () = async { while inbound.recv().await.is_some() {} } => Err("tunnel closed"),
+        }
+    }
+
+    /// The refusal the controller turns into `AgentProtocolUnsupported`,
+    /// keyed by the certificate's UID, never by what the agent announced
+    /// (RFC 0013, T5). A Redis failure loses the cause, not the refusal.
+    async fn record_protocol_refusal(
+        &self,
+        identity: &AgentIdentity,
+        version: &str,
+        (min, max): (u32, u32),
+    ) {
+        let record = AgentRefusal {
+            reason: "protocol".to_string(),
+            version: version.to_string(),
+            protocols: format!("{min}-{max}"),
+        };
+        let written = self
+            .state
+            .redis_set(
+                &agent_refused_key(&identity.uid),
+                &serde_json::to_string(&record).unwrap_or_default(),
+                Some(REFUSAL_TTL.as_secs()),
+            )
+            .await;
+        if let Err(err) = written {
+            warn!(cluster = %identity.cluster(), error = %err, "agent protocol refusal not recorded");
         }
     }
 

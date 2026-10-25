@@ -62,6 +62,26 @@ pub fn bootstrap_key(uid: &str, token: &str) -> String {
     format!("{}:agent-bootstrap:{uid}:{hash}", crd::REDIS_PREFIX)
 }
 
+/// How long the refusal of an agent's protocols stays readable: rewritten at
+/// each attempt, an agent retrying every 60 s keeps it (RFC 0013, decision 15).
+pub const REFUSAL_TTL: Duration = Duration::from_secs(5 * 60);
+
+/// Where a gateway pod records why it refused the protocols of cluster
+/// `uid`'s agent, for [`REFUSAL_TTL`].
+#[must_use]
+pub fn agent_refused_key(uid: &str) -> String {
+    format!("{}:agent-refused:{uid}", crd::REDIS_PREFIX)
+}
+
+/// The record behind [`agent_refused_key`]: `reason` is `protocol`, `version`
+/// the agent's (already validated, else `invalid`), `protocols` its `min-max`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AgentRefusal {
+    pub reason: String,
+    pub version: String,
+    pub protocols: String,
+}
+
 /// What a gateway pod reports about its tunnels of one cluster, for
 /// `status.agent` (RFC 0012 §6.4).
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

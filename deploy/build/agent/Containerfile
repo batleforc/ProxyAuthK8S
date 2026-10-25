@@ -13,7 +13,10 @@ RUN apk add --no-cache clang lld musl-dev perl
 # The whole workspace: cargo needs every member's manifest, and the agent
 # builds alone (`-p agent`), so no placeholder dance is worth its lines here.
 COPY . .
-RUN cargo build --release --locked -p agent && \
+# Empty for a published image; the bench's second one sets `it-announce`
+# (RFC 0013, decision 5).
+ARG CARGO_FEATURES=""
+RUN cargo build --release --locked -p agent ${CARGO_FEATURES:+--features "$CARGO_FEATURES"} && \
   strip dist/target/release/proxyauthk8s-agent
 
 # Index digest of gcr.io/distroless/static-debian12:nonroot, every platform.

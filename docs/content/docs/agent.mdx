@@ -260,7 +260,12 @@ kubectl -n team-a get proxykubeapi prod -o jsonpath='{.status.agent}'
   `agent_disconnected` ([Sécurité](/docs/security)).
 - L'agent sert `/healthz`, `/readyz` (un tunnel ouvert) et `/metrics` sur `:9090`
   (`proxyauth_agent_tunnel_up`, `proxyauth_agent_reconnects_total{reason}`,
-  `proxyauth_agent_cert_expiry_seconds`).
+  `proxyauth_agent_cert_expiry_seconds`, `proxyauth_agent_build_info{version,protocol_min,protocol_max}`).
+  La passerelle compte ses refus dans `proxyauth_agent_tunnel_refusals_total{reason}`.
+- Agent et passerelle s'accordent sur le protocole le plus haut qu'ils parlent tous deux
+  (RFC 0013). Sans protocole commun, la passerelle refuse le tunnel (`agent_refused` raison
+  `protocol`, avec la version de l'agent) et l'agent attend 60 s avant de réessayer
+  (`reconnects_total{reason="protocol"}`) : mettez à jour celui des deux qui est en retard.
 
 ## Révoquer
 

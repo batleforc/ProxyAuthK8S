@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review (grill du 2026-10-25, décisions 7 à 16) : livraison en 0.4.1 |
+| Status      | Accepted (2026-10-25, grill : décisions 7 à 16) : livraison en 0.4.1, PR #304 |
 | Short       | Versions et protocole des agents                                       |
 | Settles     | Savoir quelle version d'agent sert chaque cluster, et ce qui se passe quand elle ne parle plus le protocole du proxy |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |

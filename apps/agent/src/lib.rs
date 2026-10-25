@@ -35,7 +35,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 use tower_service::Service as _;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// The bound `jwks_from` applies to a JWKS (RFC 0012 §4.3).
 const MAX_JWKS_BYTES: usize = 64 * 1024;
@@ -54,7 +54,7 @@ const RENEW_RETRY: Duration = Duration::from_secs(5 * 60);
 /// Why a tunnel ended, for the logs and `proxyauth_agent_reconnects_total`.
 pub type Reason = &'static str;
 /// The reasons the metric counts, in a fixed order.
-pub const REASONS: [Reason; 5] = ["enroll", "connect", "tls", "closed", "revoked"];
+pub const REASONS: [Reason; 6] = ["enroll", "connect", "tls", "closed", "revoked", "protocol"];
 
 /// What the agent is told by its chart (§4.1).
 #[derive(Clone, Debug)]
@@ -82,6 +82,59 @@ pub struct Config {
     pub egress: Egress,
     /// `AGENT_TLS_MODE`: the gateway's `tlsMode` (§5.3).
     pub tls_mode: TlsMode,
+    /// What `AgentInfo` announces (RFC 0013).
+    pub announce: Announce,
+}
+
+/// The version and protocol range the agent announces: its own, except in the
+/// bench's `it-announce` build (RFC 0013, decision 5).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Announce {
+    pub version: String,
+    pub protocols: (u32, u32),
+}
+
+impl Default for Announce {
+    fn default() -> Self {
+        Self {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            protocols: (agent_proto::PROTOCOL_MIN, agent_proto::PROTOCOL_VERSION),
+        }
+    }
+}
+
+impl Announce {
+    /// `AGENT_IT_ANNOUNCE_VERSION` and `AGENT_IT_ANNOUNCE_PROTOCOLS`
+    /// (`min-max`), read only by an `it-announce` build: a published image
+    /// never lies about itself (RFC 0013, T8).
+    #[cfg(feature = "it-announce")]
+    fn from_lookup(var: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let mut announce = Self::default();
+        if let Some(version) = var("AGENT_IT_ANNOUNCE_VERSION") {
+            announce.version = version;
+        }
+        if let Some(range) = var("AGENT_IT_ANNOUNCE_PROTOCOLS") {
+            let parsed = range
+                .split_once('-')
+                .and_then(|(min, max)| Some((min.parse().ok()?, max.parse().ok()?)));
+            announce.protocols =
+                parsed.ok_or(format!("AGENT_IT_ANNOUNCE_PROTOCOLS `{range}`: min-max"))?;
+        }
+        Ok(announce)
+    }
+
+    #[cfg(not(feature = "it-announce"))]
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "the same signature as the it-announce build's, which can fail"
+    )]
+    fn from_lookup(_: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        Ok(Self::default())
+    }
+
+    fn accepts(&self, protocol: u32) -> bool {
+        (self.protocols.0..=self.protocols.1).contains(&protocol)
+    }
 }
 
 /// `ExternalCA` (decision 28): the certificate (URI SAN
@@ -369,6 +422,7 @@ impl Config {
             }
         }
         let egress = Egress::from_lookup(var, proxy_url.host_str().unwrap_or_default())?;
+        let announce = Announce::from_lookup(var)?;
         Ok(Self {
             proxy_url,
             cluster,
@@ -382,6 +436,7 @@ impl Config {
             kube_ca_path: var("AGENT_KUBE_CA_PATH").map(PathBuf::from),
             egress,
             tls_mode,
+            announce,
         })
     }
 
@@ -431,8 +486,13 @@ impl Health {
         let mut text = format!(
             "# TYPE proxyauth_agent_tunnel_up gauge\nproxyauth_agent_tunnel_up {}\n\
              # TYPE proxyauth_agent_cert_expiry_seconds gauge\nproxyauth_agent_cert_expiry_seconds {expiry}\n\
+             # TYPE proxyauth_agent_build_info gauge\n\
+             proxyauth_agent_build_info{{version=\"{}\",protocol_min=\"{}\",protocol_max=\"{}\"}} 1\n\
              # TYPE proxyauth_agent_reconnects_total counter\n",
             u8::from(self.tunnel_up.load(Ordering::Relaxed)),
+            env!("CARGO_PKG_VERSION"),
+            agent_proto::PROTOCOL_MIN,
+            agent_proto::PROTOCOL_VERSION,
         );
         for (reason, counter) in REASONS.iter().zip(&self.reconnects) {
             text.push_str(&format!(
@@ -628,6 +688,10 @@ pub async fn run(config: Config, health: Arc<Health>) {
         if was_up {
             backoff = BACKOFF_MIN;
         }
+        // Retrying sooner does not change the gateway's protocols (decision 9).
+        if reason == "protocol" {
+            backoff = BACKOFF_MAX;
+        }
         warn!(reason, retry_in = ?backoff, "agent tunnel down");
         tokio::time::sleep(backoff).await;
         backoff = backoff.saturating_mul(2).min(BACKOFF_MAX);
@@ -796,18 +860,43 @@ async fn tunnel(
     let session = async {
         let mut control = handle.open().await.map_err(|_| "closed")?;
         // yamux announces the stream with its first frame: this one.
+        let announce = &config.announce;
         let info = Kind::AgentInfo(AgentInfo {
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: announce.version.clone(),
             ca_fingerprint: ca_fingerprint(config).await,
+            protocol_min: announce.protocols.0,
+            protocol_max: announce.protocols.1,
         });
         control::write(&mut control, info)
             .await
             .map_err(|_| "closed")?;
+        let (low, high) = announce.protocols;
         match tokio::time::timeout(STEP_TIMEOUT, control::read(&mut control)).await {
-            Ok(Ok(Kind::Hello(hello))) if hello.protocol == agent_proto::PROTOCOL_VERSION => {
-                info!(gateway = %hello.replica_id, "agent tunnel open");
+            Ok(Ok(Kind::Hello(hello))) if announce.accepts(hello.protocol) => {
+                info!(gateway = %hello.replica_id, protocol = hello.protocol, "agent tunnel open");
             }
-            Ok(Ok(Kind::Close(close))) => return Ok(close_reason(&close.reason)),
+            Ok(Ok(Kind::Hello(hello))) => {
+                error!(
+                    gateway_protocol = hello.protocol,
+                    agent_protocols = %format!("{low}-{high}"),
+                    "the gateway speaks no protocol of this agent: upgrade one of them"
+                );
+                let close = Kind::Close(agent_proto::control::Close {
+                    reason: "protocol".to_string(),
+                });
+                drop(control::write(&mut control, close).await);
+                return Err("protocol");
+            }
+            Ok(Ok(Kind::Close(close))) => {
+                let reason = close_reason(&close.reason);
+                if reason == "protocol" {
+                    error!(
+                        agent_protocols = %format!("{low}-{high}"),
+                        "the gateway refused this agent's protocols: upgrade one of them"
+                    );
+                }
+                return Ok(reason);
+            }
             _ => return Err("closed"),
         }
         health.tunnel_up.store(true, Ordering::Relaxed);
@@ -947,6 +1036,7 @@ async fn share_renewal(store: &store::IdentityStore, data: serde_json::Value, no
 fn close_reason(reason: &str) -> Reason {
     match reason {
         "revoked" | "epoch" | "uid" | "unknown cluster" | "not an agent cluster" => "revoked",
+        "protocol" => "protocol",
         _ => "closed",
     }
 }
@@ -1054,6 +1144,71 @@ mod tests {
     fn a_revoking_close_drops_the_identity() {
         assert_eq!(close_reason("epoch"), "revoked");
         assert_eq!(close_reason("idle"), "closed");
+    }
+
+    #[test]
+    fn a_protocol_close_is_counted_apart() {
+        assert_eq!(close_reason("protocol"), "protocol");
+        let health = Health::default();
+        health.reconnected("protocol");
+        let text = health.render();
+        assert!(
+            text.contains("proxyauth_agent_reconnects_total{reason=\"protocol\"} 1"),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!(
+                "proxyauth_agent_build_info{{version=\"{}\",protocol_min=\"1\",protocol_max=\"1\"}} 1",
+                env!("CARGO_PKG_VERSION")
+            )),
+            "{text}"
+        );
+    }
+
+    /// RFC 0013, T8: a published build announces itself, whatever its env.
+    #[cfg(not(feature = "it-announce"))]
+    #[test]
+    fn only_an_it_announce_build_reads_the_announce_overrides() {
+        let config = config(&[
+            ("AGENT_CLUSTER", "team-a/prod"),
+            (
+                "AGENT_PROXY_URL",
+                "wss://proxy.example.com/agent/v1/connect",
+            ),
+            ("AGENT_IT_ANNOUNCE_VERSION", "0.1.0"),
+            ("AGENT_IT_ANNOUNCE_PROTOCOLS", "2-3"),
+        ])
+        .unwrap();
+        assert_eq!(config.announce, Announce::default());
+    }
+
+    #[cfg(feature = "it-announce")]
+    #[test]
+    fn an_it_announce_build_announces_what_it_is_told() {
+        let base = [
+            ("AGENT_CLUSTER", "team-a/prod"),
+            (
+                "AGENT_PROXY_URL",
+                "wss://proxy.example.com/agent/v1/connect",
+            ),
+        ];
+        let config = config(&[
+            base[0],
+            base[1],
+            ("AGENT_IT_ANNOUNCE_VERSION", "0.1.0"),
+            ("AGENT_IT_ANNOUNCE_PROTOCOLS", "2-3"),
+        ])
+        .unwrap();
+        assert_eq!(config.announce.version, "0.1.0");
+        assert_eq!(config.announce.protocols, (2, 3));
+        let err = super::Config::from_lookup(|name| match name {
+            "AGENT_CLUSTER" => Some("team-a/prod".to_string()),
+            "AGENT_PROXY_URL" => Some("wss://proxy.example.com/agent/v1/connect".to_string()),
+            "AGENT_IT_ANNOUNCE_PROTOCOLS" => Some("2".to_string()),
+            _ => None,
+        })
+        .unwrap_err();
+        assert!(err.contains("min-max"), "{err}");
     }
 
     fn egress(vars: &[(&str, &str)], host: &str) -> Result<Egress, String> {

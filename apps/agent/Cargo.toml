@@ -40,5 +40,11 @@ tower-service = "0.3"
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
+[features]
+# The bench's second image only (RFC 0013, decision 5): AGENT_IT_ANNOUNCE_*
+# make the agent announce another version or protocol range. Never in a
+# published image.
+it-announce = []
+
 [lints]
 workspace = true
