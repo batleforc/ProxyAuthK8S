@@ -3,5 +3,5 @@ name: chart-agent
 description: The ProxyAuthK8S agent (RFC 0012), installed on a cluster the proxy cannot reach
 icon: https://raw.githubusercontent.com/batleforc/ProxyAuthK8S/refs/heads/main/art.png
 type: application
-version: 0.3.0
-appVersion: "v0.3.0"
+version: 0.4.0
+appVersion: "v0.4.0"
