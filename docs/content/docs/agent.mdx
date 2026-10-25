@@ -59,6 +59,32 @@ porte un jeton généré par le chart (`agentGateway.tokenSecretName` pour fourn
 | `agentGateway.limits.enrollPerMinute` | `10` | Enrôlements par adresse cliente (`TRUSTED_PROXY_COUNT` derrière un Ingress) |
 | `agentGateway.limits.enrollPerMinuteTotal` | `120` | Enrôlements de tous les agents |
 
+### TLS de bout en bout jusqu'à la passerelle (`passthrough`)
+
+Par défaut (`tlsMode: inner`), l'Ingress termine le TLS et l'agent ouvre un second TLS, mutuel,
+dans le WebSocket. Si votre Ingress ou votre load balancer sait router sur le SNI sans
+déchiffrer, `passthrough` retire cette couche : la passerelle termine elle-même le TLS avec
+votre certificat, et y lit le certificat client de l'agent.
+
+```yaml
+agentGateway:
+  tlsMode: passthrough
+  tls:
+    secretName: agent-proxy-tls     # tls.crt / tls.key pour agent.proxy.example.com
+  ingress:
+    enabled: true
+    host: agent.proxy.example.com
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-passthrough: "true"   # ingress-nginx, --enable-ssl-passthrough
+```
+
+Le Secret est relu chaque jour : un renouvellement par cert-manager est pris sans redémarrage.
+L'Ingress rendu n'a alors pas de section `tls`. Avec Traefik, déclarez un `IngressRouteTCP`
+(`tls.passthrough: true`) vers le Service `<release>-proxyauthk8s-gateway` à la place.
+L'agent doit être installé avec le même mode (`--set tlsMode=passthrough`), et `proxy.caBundle`
+si ce certificat vient d'une PKI privée. L'enrôlement passe sans certificat client ;
+`/agent/v1/connect` en exige un, émis par la CA des agents (`401` sinon).
+
 ## 2. Déclarer le cluster
 
 Le JWKS du cluster distant se lit avec `kubectl get --raw /openid/v1/jwks` sur ce cluster ; il
@@ -89,6 +115,38 @@ spec:
 clé du cluster distant passe sans toucher au `ProxyKubeApi` (gardez l'ancienne et la nouvelle
 clé le temps de la rotation). Un JWKS vide ou illisible refuse l'enrôlement.
 
+Pour que ce ConfigMap suive les rotations sans intervention, le chart de l'agent peut publier
+le JWKS lui-même : `--set jwksPublisher.enabled=true` installe un CronJob (toutes les 15 min,
+`jwksPublisher.schedule`) qui copie `/openid/v1/jwks` du cluster distant dans le ConfigMap
+`proxyauth-agent-jwks` (clé `jwks.json`). Il tourne sous son propre ServiceAccount, avec `get`
+et `update` sur ce seul ConfigMap ; l'agent, lui, reste sans RBAC. Un `PushSecret` d'External
+Secrets le porte vers Vault, un `ExternalSecret` le recrée côté proxy sous le nom que lit
+`jwks_from`. Un JWKS sans clé n'est jamais publié.
+
+### Sans JWKS : un jeton à usage unique (`OneShotToken`)
+
+Quand les clés du cluster distant ne sont pas lisibles, le contrôleur du proxy émet un jeton à
+usage unique, valable une heure, dans le Secret `<name>-agent-bootstrap` (clé `token`) à côté du
+`ProxyKubeApi`. Activez d'abord `agentGateway.oneShotToken.enabled` dans le chart du proxy : le
+contrôleur reçoit `create` et `patch` sur les Secrets (par namespace avec
+`rbac.referencedNamespaces`).
+
+```yaml
+    Agent:
+      bootstrap:
+        OneShotToken:
+          auto_rotate: true   # un nouveau jeton dès que le précédent est consommé ou expiré
+```
+
+Portez ce Secret sur le cluster distant, à la main ou par un `PushSecret` d'External Secrets
+vers Vault et un `ExternalSecret` en face. Le premier replica de l'agent consomme le jeton et
+écrit sa clé et son certificat dans le Secret `identitySecret` de son namespace ; les autres,
+et tout pod redémarré, les relisent sans consommer de jeton. Sans `auto_rotate`, un jeton
+consommé reste dans le Secret : le `ProxyKubeApi` porte l'avis `AgentBootstrapNeeded` tant
+qu'aucun agent n'est connecté, et une nouvelle valeur de l'annotation
+`proxyauth.weebo.si.rs/regenerate-bootstrap` en fait émettre un autre. Le jeton n'est jamais
+gardé en clair côté proxy : seule son empreinte est dans Redis, prise une seule fois.
+
 ## 3. Installer l'agent
 
 Sur le cluster distant, avec `deploy/chart-agent` (publié en
@@ -105,6 +163,39 @@ helm install agent oci://ghcr.io/batleforc/proxyauthk8s/chart-agent \
 Le nom du release fixe celui du ServiceAccount (`<release>-proxyauthk8s-agent`), c'est-à-dire
 le `subject` du `ProxyKubeApi`. L'agent n'a **aucun RBAC** et aucun jeton d'API monté : seul son
 jeton projeté (audience `bootstrap.audience`) sert, à l'enrôlement.
+
+En `OneShotToken` :
+
+```bash
+helm install agent … \
+  --set bootstrap.method=OneShotToken \
+  --set bootstrap.tokenSecret=prod-agent-bootstrap   # Secret local, clé `token`
+```
+
+Le chart crée vide le Secret `identitySecret` (`proxyauth-agent-identity`) ; le seul droit de
+l'agent est `get` et `update` sur ce Secret, par son nom. Pour révoquer, montez `epoch` : l'agent
+vide ce Secret, et il faudra un nouveau jeton.
+
+### Sortir par un proxy d'entreprise
+
+Si le cluster distant ne sort sur Internet que par un proxy, l'agent passe par lui, pour
+l'enrôlement comme pour le tunnel ; le proxy sortant ne voit qu'un flux TLS vers la passerelle.
+
+```bash
+kubectl -n proxyauth-agent create secret generic egress-proxy \
+  --from-literal=username=agent --from-literal=password='…'
+helm upgrade agent … \
+  --set egress.proxy.url=http://squid.corp:3128 \
+  --set egress.proxy.credentialsSecret=egress-proxy
+# SOCKS5, noms résolus par le proxy : --set egress.proxy.url=socks5h://socks.corp:1080
+```
+
+`http://` envoie un `CONNECT` (`Proxy-Authorization: Basic`), `socks5h://` un SOCKS5 avec
+authentification nom / mot de passe (`socks5://` résout le nom localement). Sans
+`egress.proxy.url`, l'agent lit `HTTPS_PROXY`, `ALL_PROXY` et `NO_PROXY` (valeurs `env`) ; sans
+elles, il sort en direct. Avec `networkPolicy.enabled`, ajoutez le proxy sortant à `egressTo` et
+son port à `egressPorts`. Un overlay WireGuard ou Netbird n'a besoin d'aucun de ces réglages :
+seulement de `proxy.caBundle` si l'URL du proxy a une PKI privée.
 
 ## Vérifier
 
@@ -135,9 +226,3 @@ La clé de la CA des agents est dans le Secret `proxy-auth-k8s-agent-ca`, lisibl
 passerelle. Sans `rbac.referencedNamespaces`, le back garde un `get` sur tous les Secrets du
 cluster, celui-ci compris : listez vos namespaces pour que la clé reste à la passerelle.
 </Callout>
-
-## Pas encore disponible
-
-`OneShotToken` (jeton à usage unique), `tlsMode: passthrough`, une sortie de l'agent par un
-proxy HTTP (`CONNECT`) ou SOCKS5, et le CronJob `jwksPublisher` arrivent avec la phase 2 de la
-RFC 0012. L'agent sort aujourd'hui en direct.

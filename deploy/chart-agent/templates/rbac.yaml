@@ -1,0 +1,42 @@
+{{- if eq .Values.bootstrap.method "OneShotToken" }}
+# The identity the replicas share (§6.5, decision 21), created empty here
+# with no `data`: what the agent writes survives an upgrade.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.identitySecret | quote }}
+  namespace: "{{ .Release.Namespace }}"
+type: Opaque
+---
+# T16: that Secret only, by name, and no `create` (a verb resourceNames
+# cannot restrict).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: "{{ include "agent.name" . }}-identity"
+  namespace: "{{ .Release.Namespace }}"
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - {{ .Values.identitySecret | quote }}
+    verbs:
+      - get
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: "{{ include "agent.name" . }}-identity"
+  namespace: "{{ .Release.Namespace }}"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: "{{ include "agent.name" . }}-identity"
+subjects:
+  - kind: ServiceAccount
+    name: "{{ include "agent.name" . }}"
+    namespace: "{{ .Release.Namespace }}"
+{{- end }}

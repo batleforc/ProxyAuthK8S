@@ -1,7 +1,10 @@
 {{- if and .Values.agentGateway.enabled .Values.agentGateway.ingress.enabled }}
 {{- with .Values.agentGateway.ingress }}
-# The agents' way in (§5.3, `tlsMode: inner`): the ingress ends the outer TLS,
-# the mutual TLS with each agent runs inside the WebSocket. Only /agent/v1/.
+# The agents' way in (§5.3). inner: the ingress ends the outer TLS, the mutual
+# TLS with each agent runs inside the WebSocket; only /agent/v1/.
+# passthrough: no `tls` here, the gateway ends it; the annotations must make
+# the controller route on SNI without decrypting (ingress-nginx:
+# nginx.ingress.kubernetes.io/ssl-passthrough: "true").
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -15,7 +18,7 @@ spec:
   {{- if .className }}
   ingressClassName: {{ .className }}
   {{- end }}
-  {{- if .tls.enabled }}
+  {{- if and .tls.enabled (eq $.Values.agentGateway.tlsMode "inner") }}
   tls:
     - hosts:
         - {{ required "agentGateway.ingress.host is required" .host }}

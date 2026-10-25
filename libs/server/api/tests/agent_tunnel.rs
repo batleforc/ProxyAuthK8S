@@ -31,6 +31,16 @@ macro_rules! redis_or_skip {
     };
 }
 
+/// The `ServiceAccountToken` of `bootstrap`, the one `agent_service` sets.
+fn service_account_token(
+    bootstrap: &mut AgentBootstrap,
+) -> Option<&mut ServiceAccountTokenBootstrap> {
+    match bootstrap {
+        AgentBootstrap::ServiceAccountToken(sa) => Some(sa),
+        AgentBootstrap::OneShotToken(_) => None,
+    }
+}
+
 fn agent_service() -> Service {
     Service::Agent(AgentService {
         server_name: DEFAULT_SERVER_NAME.to_string(),
@@ -410,11 +420,10 @@ async fn agent_gateway_with(
         api::agent::listener::Gateway::new(state, registry, ca, settings, "gw-0".to_string());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let router = api::agent::listener::router(std::sync::Arc::clone(&gateway))
-        .into_make_service_with_connect_info::<std::net::SocketAddr>();
-    tokio::spawn(async move {
-        drop(axum::serve(listener, router).await);
-    });
+    tokio::spawn(api::agent::listener::serve_agents(
+        listener,
+        std::sync::Arc::clone(&gateway),
+    ));
     (addr, gateway)
 }
 
@@ -516,7 +525,7 @@ async fn seeded_cluster_with_jwks(
     if let Service::Agent(agent) = &mut proxy.spec.service {
         agent.epoch = epoch;
         if jwks.is_some() {
-            let AgentBootstrap::ServiceAccountToken(bootstrap) = &mut agent.bootstrap;
+            let bootstrap = service_account_token(&mut agent.bootstrap).unwrap();
             bootstrap.jwks = jwks;
             bootstrap.jwks_url = None;
         }
@@ -1107,6 +1116,103 @@ async fn the_real_agent_enrols_and_carries_a_relayed_request() {
     delete_proxy(&pool, &identity.namespace, &identity.name).await;
 }
 
+/// A TLS client of `addr` trusting `ca_pem`, presenting `client` if given.
+async fn tls_to(
+    addr: std::net::SocketAddr,
+    ca_pem: &str,
+    client: Option<(&str, &rcgen::KeyPair)>,
+) -> tokio_rustls::client::TlsStream<tokio::net::TcpStream> {
+    use rustls::pki_types::pem::PemObject as _;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
+
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(CertificateDer::from_pem_slice(ca_pem.as_bytes()).unwrap())
+        .unwrap();
+    let builder = rustls::ClientConfig::builder().with_root_certificates(roots);
+    let config = match client {
+        Some((cert, key)) => builder
+            .with_client_auth_cert(
+                vec![CertificateDer::from_pem_slice(cert.as_bytes()).unwrap()],
+                PrivateKeyDer::from_pem_slice(key.serialize_pem().as_bytes()).unwrap(),
+            )
+            .unwrap(),
+        None => builder.with_no_client_auth(),
+    };
+    let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+    tokio_rustls::TlsConnector::from(std::sync::Arc::new(config))
+        .connect(ServerName::try_from("localhost").unwrap(), tcp)
+        .await
+        .unwrap()
+}
+
+/// §6.P point 11, `tlsMode: passthrough`: the gateway ends the TLS itself;
+/// the real agent enrols without a certificate and opens its tunnel with
+/// one; a WebSocket without one, or with one from another CA, opens nothing.
+#[tokio::test]
+async fn the_real_agent_opens_a_passthrough_tunnel() {
+    use std::sync::atomic::Ordering;
+
+    let pool = redis_or_skip!();
+    harness::install_crypto_provider();
+    let dir = std::env::temp_dir().join(format!("agent-passthrough-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let server = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+    let (cert_path, key_path) = (dir.join("tls.crt"), dir.join("tls.key"));
+    std::fs::write(&cert_path, server.cert.pem()).unwrap();
+    std::fs::write(&key_path, server.signing_key.serialize_pem()).unwrap();
+    let (addr, gateway) = agent_gateway_with(|settings| {
+        settings.tls_mode = common::config::AgentTlsMode::Passthrough {
+            cert_path: cert_path.display().to_string(),
+            key_path: key_path.display().to_string(),
+        };
+    })
+    .await;
+    let issuer = Issuer::new();
+    let identity = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
+    let url = format!("wss://localhost:{}/agent/v1/connect", addr.port());
+
+    let refused =
+        tokio_tungstenite::client_async(&url, tls_to(addr, &server.cert.pem(), None).await)
+            .await
+            .map(|_| ())
+            .unwrap_err();
+    assert!(
+        matches!(&refused, tokio_tungstenite::tungstenite::Error::Http(response) if response.status() == 401),
+        "{refused:?}"
+    );
+    let foreign = agent_pki::AgentCa::generate().unwrap();
+    let (cert, key) = agent_cert(&foreign, &identity);
+    let tls = tls_to(addr, &server.cert.pem(), Some((&cert, &key))).await;
+    assert!(tokio_tungstenite::client_async(&url, tls).await.is_err());
+
+    let token_path = dir.join("token");
+    std::fs::write(&token_path, issuer.token(SUBJECT, DEFAULT_AUDIENCE, 600)).unwrap();
+    let vars = std::collections::HashMap::from([
+        ("AGENT_PROXY_URL", url.clone()),
+        ("AGENT_PROXY_CA_BUNDLE", cert_path.display().to_string()),
+        ("AGENT_TLS_MODE", "passthrough".to_string()),
+        ("AGENT_CLUSTER", identity.cluster()),
+        ("AGENT_TOKEN_PATH", token_path.display().to_string()),
+    ]);
+    let config = agent::Config::from_lookup(|name| vars.get(name).cloned()).unwrap();
+    let health = std::sync::Arc::new(agent::Health::default());
+    tokio::spawn(agent::run(config, std::sync::Arc::clone(&health)));
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !health.tunnel_up.load(Ordering::Relaxed) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the agent should open its passthrough tunnel");
+    let tunnels = gateway.registry.identities();
+    assert_eq!(tunnels.len(), 1);
+    assert_eq!(tunnels[0].0, identity);
+
+    drop(std::fs::remove_dir_all(&dir));
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
 // ---- §14, one test per threat (T6 and T16 come with phase 2; T14 above;
 // T18 is `connect::tests::a_connect_without_the_proxy_token_is_refused`).
 
@@ -1171,7 +1277,7 @@ async fn an_agent_cannot_serve_another_proxykubeapi() {
         .unwrap()
         .unwrap();
     if let Service::Agent(agent) = &mut proxy_b.spec.service {
-        let AgentBootstrap::ServiceAccountToken(bootstrap) = &mut agent.bootstrap;
+        let bootstrap = service_account_token(&mut agent.bootstrap).unwrap();
         bootstrap.subject = "system:serviceaccount:tenant-b:agent".to_string();
     }
     seed_proxy(&pool, &proxy_b).await;
@@ -1411,6 +1517,199 @@ async fn enrollment_never_returns_the_private_key() {
     delete_proxy(&pool, &identity.namespace, &identity.name).await;
 }
 
+/// T6: a `OneShotToken` enrols once, whatever the race; a wrong token, the
+/// other proof, or a refused CSR burns nothing.
+#[tokio::test]
+async fn a_one_shot_token_is_accepted_once() {
+    let pool = redis_or_skip!();
+    let (addr, gateway) = agent_gateway().await;
+    let identity = seeded_agent_cluster(&pool, 0).await;
+    let mut proxy: crd::ProxyKubeApi = gateway
+        .state
+        .get_object_from_redis(crd::REDIS_PREFIX, &identity.cluster())
+        .await
+        .unwrap()
+        .unwrap();
+    if let Service::Agent(agent) = &mut proxy.spec.service {
+        agent.bootstrap =
+            AgentBootstrap::OneShotToken(crd::service::OneShotTokenBootstrap::default());
+    }
+    seed_proxy(&pool, &proxy).await;
+    let token = "one-shot-token-of-the-test";
+    gateway
+        .state
+        .set_flag(
+            &common::agent_gateway::bootstrap_key(&identity.uid, token),
+            common::agent_gateway::BOOTSTRAP_TTL.as_secs(),
+        )
+        .await
+        .unwrap();
+    let one_shot = |csr: String, token: &str| {
+        let body = serde_json::json!({
+            "cluster": identity.cluster(),
+            "csr": csr,
+            "proof": { "one_shot_token": token },
+        });
+        async move {
+            reqwest::Client::new()
+                .post(format!("http://{addr}/agent/v1/enroll"))
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
+        }
+    };
+
+    assert_eq!(one_shot(new_csr(), "not-the-token").await, 401);
+    assert_eq!(one_shot("not a CSR".to_string(), token).await, 401);
+    assert_eq!(
+        enroll(addr, &identity.cluster(), &new_csr(), token).await.0,
+        401
+    );
+    let race = futures_util::future::join_all((0..8).map(|_| one_shot(new_csr(), token))).await;
+    assert_eq!(
+        race.iter().filter(|status| **status == 200).count(),
+        1,
+        "{race:?}"
+    );
+    assert!(
+        race.iter().all(|status| [200, 401].contains(status)),
+        "{race:?}"
+    );
+    assert_eq!(one_shot(new_csr(), token).await, 401);
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
+/// An apiserver holding the agent's identity Secret, refusing a write whose
+/// `resourceVersion` is not the current one (decision 21).
+async fn identity_secret_apiserver() -> String {
+    use axum::extract::State;
+    use axum::http::StatusCode;
+    use std::sync::{Arc, Mutex};
+
+    let stored = Arc::new(Mutex::new(serde_json::json!({
+        "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+        "metadata": { "name": "identity", "namespace": "agent", "resourceVersion": "1" },
+    })));
+    let app = axum::Router::new()
+        .route(
+            "/api/v1/namespaces/agent/secrets/identity",
+            axum::routing::get(
+                |State(stored): State<Arc<Mutex<serde_json::Value>>>| async move {
+                    axum::Json(stored.lock().unwrap().clone())
+                },
+            )
+            .put(
+                |State(stored): State<Arc<Mutex<serde_json::Value>>>,
+                 axum::Json(mut body): axum::Json<serde_json::Value>| async move {
+                    const VERSION: &str = "/metadata/resourceVersion";
+                    let mut current = stored.lock().unwrap();
+                    let version = current.pointer(VERSION).cloned().unwrap();
+                    if body.pointer(VERSION) != Some(&version) {
+                        return StatusCode::CONFLICT;
+                    }
+                    let next = version
+                        .as_str()
+                        .unwrap()
+                        .parse::<u64>()
+                        .unwrap()
+                        .saturating_add(1);
+                    *body.pointer_mut(VERSION).unwrap() = serde_json::json!(next.to_string());
+                    *current = body;
+                    StatusCode::OK
+                },
+            ),
+        )
+        .with_state(stored);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    url
+}
+
+/// Decision 21, §6.P point 8: two agent replicas start on one `OneShotToken`
+/// and one identity Secret; the token is spent once, both hold a tunnel.
+#[tokio::test]
+async fn one_shot_replicas_spend_one_token_and_share_the_identity() {
+    use std::sync::atomic::Ordering;
+
+    let pool = redis_or_skip!();
+    harness::install_crypto_provider();
+    let (addr, gateway) = agent_gateway().await;
+    let identity = seeded_agent_cluster(&pool, 0).await;
+    let mut proxy: crd::ProxyKubeApi = gateway
+        .state
+        .get_object_from_redis(crd::REDIS_PREFIX, &identity.cluster())
+        .await
+        .unwrap()
+        .unwrap();
+    if let Service::Agent(agent) = &mut proxy.spec.service {
+        agent.bootstrap =
+            AgentBootstrap::OneShotToken(crd::service::OneShotTokenBootstrap::default());
+    }
+    seed_proxy(&pool, &proxy).await;
+    let token = "the-one-shot-token-of-the-replicas";
+    gateway
+        .state
+        .set_flag(
+            &common::agent_gateway::bootstrap_key(&identity.uid, token),
+            3600,
+        )
+        .await
+        .unwrap();
+    let dir = std::env::temp_dir().join(format!("agent-one-shot-{}", identity.uid));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("token"), token).unwrap();
+    std::fs::write(dir.join("api-token"), "api-token").unwrap();
+    let api = identity_secret_apiserver().await;
+    let vars = std::collections::HashMap::from([
+        ("AGENT_PROXY_URL", format!("ws://{addr}/agent/v1/connect")),
+        ("AGENT_CLUSTER", identity.cluster()),
+        ("AGENT_TOKEN_PATH", dir.join("token").display().to_string()),
+        ("AGENT_BOOTSTRAP_METHOD", "OneShotToken".to_string()),
+        ("AGENT_IDENTITY_SECRET", "identity".to_string()),
+        ("AGENT_NAMESPACE", "agent".to_string()),
+        ("AGENT_API_URL", api),
+        (
+            "AGENT_API_TOKEN_PATH",
+            dir.join("api-token").display().to_string(),
+        ),
+    ]);
+    let config = agent::Config::from_lookup(|name| vars.get(name).cloned()).unwrap();
+    let replicas: Vec<_> = (0..2)
+        .map(|_| {
+            let health = std::sync::Arc::new(agent::Health::default());
+            tokio::spawn(agent::run(config.clone(), std::sync::Arc::clone(&health)));
+            health
+        })
+        .collect();
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        while !replicas
+            .iter()
+            .all(|health| health.tunnel_up.load(Ordering::Relaxed))
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("both replicas should open a tunnel");
+    let tunnels = gateway.registry.identities();
+    assert_eq!(tunnels.len(), 1);
+    assert_eq!(tunnels[0].1.tunnels, 2, "one identity, two tunnels");
+    assert!(
+        !gateway
+            .state
+            .key_exists(&common::agent_gateway::bootstrap_key(&identity.uid, token))
+            .await
+            .unwrap()
+    );
+
+    drop(std::fs::remove_dir_all(&dir));
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
 /// T10: past the per-address limit, an enrolment is refused before its body
 /// is read: no certificate is issued.
 #[tokio::test]
@@ -1557,7 +1856,7 @@ async fn jwks_url_refuses_http_and_redirects() {
         .unwrap()
         .unwrap();
     if let Service::Agent(agent) = &mut proxy.spec.service {
-        let AgentBootstrap::ServiceAccountToken(bootstrap) = &mut agent.bootstrap;
+        let bootstrap = service_account_token(&mut agent.bootstrap).unwrap();
         bootstrap.jwks_url = Some(format!("{}/keys", server.uri()));
     }
     seed_proxy(&pool, &proxy).await;
@@ -1671,7 +1970,7 @@ async fn a_jwks_from_change_is_picked_up_and_an_empty_one_refuses() {
         .unwrap()
         .unwrap();
     if let Service::Agent(agent) = &mut proxy.spec.service {
-        let AgentBootstrap::ServiceAccountToken(bootstrap) = &mut agent.bootstrap;
+        let bootstrap = service_account_token(&mut agent.bootstrap).unwrap();
         bootstrap.jwks_url = None;
         bootstrap.jwks_from = Some(crd::service::JwksSource::ConfigMap {
             name: name.clone(),

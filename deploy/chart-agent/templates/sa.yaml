@@ -1,4 +1,5 @@
-# No RBAC: the agent only reads its projected token (§6.5).
+# ServiceAccountToken: no RBAC, the agent only reads its projected token.
+# OneShotToken: get and update on its identity Secret alone (rbac.yaml).
 apiVersion: v1
 kind: ServiceAccount
 metadata:

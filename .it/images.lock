@@ -5,3 +5,6 @@ k3s      docker.io/rancher/k3s:v1.35.9-k3s1@sha256:ec9868c6a38d4e8c1869832fb5fd1
 dex      ghcr.io/dexidp/dex:v2.46.0@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777
 redis    docker.io/library/redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
 busybox  docker.io/library/busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+# RFC 0012 §6.P points 9 and 10: the agents' egress proxies.
+tinyproxy  docker.io/kalaksi/tinyproxy:1.7@sha256:5a65354cbb5f9c0fdcc8de3d3af8dd1c5ea072b3a1f52e5961a9a5cce6eba227
+microsocks docker.io/heywoodlh/microsocks:2026_10_snapshot@sha256:a8cd0b0b10bd48e90cde836852951fa3a55700a94f5cf8755119db6d830376f7

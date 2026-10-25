@@ -18,6 +18,9 @@ thiserror = { workspace = true }
 weebo-kit-api = { workspace = true }
 weebo-kit-domain = { workspace = true }
 weebo-kit-runtime = { workspace = true }
+# Already in the tree (rustls, agent_pki): the OneShotToken's randomness.
+ring = "0.17"
+base64 = "0.23"
 
 
 crd = { path = "../crd", version = "0.3.0" }

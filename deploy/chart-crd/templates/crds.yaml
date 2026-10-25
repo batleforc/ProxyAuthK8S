@@ -1566,7 +1566,24 @@ spec:
                         oneOf:
                         - required:
                           - ServiceAccountToken
+                        - required:
+                          - OneShotToken
                         properties:
+                          OneShotToken:
+                            description: |-
+                              A single-use token the controller writes to the Secret
+                              `<name>-agent-bootstrap` next to this resource, valid one hour; carry
+                              it to the remote cluster (External Secrets, Vault)
+                            properties:
+                              auto_rotate:
+                                default: false
+                                description: |-
+                                  Write a new token as soon as the previous one is used or expired;
+                                  otherwise, annotate this resource with
+                                  proxyauth.weebo.si.rs/regenerate-bootstrap (any new value) for one
+                                  Default: false
+                                type: boolean
+                            type: object
                           ServiceAccountToken:
                             description: |-
                               A projected ServiceAccount token of the remote cluster, checked against

@@ -108,10 +108,32 @@ The gateway settings, for the gateway and for the back that CONNECTs to it.
   value: "{{ .limits.enrollPerMinute }}"
 - name: AGENT_GATEWAY_ENROLL_PER_MINUTE_TOTAL
   value: "{{ .limits.enrollPerMinuteTotal }}"
+- name: AGENT_GATEWAY_TLS_MODE
+  value: "{{ .tlsMode }}"
 - name: POD_NAMESPACE
   valueFrom:
     fieldRef:
       fieldPath: metadata.namespace
+{{- end }}
+{{- end -}}
+
+{{/*
+The passthrough certificate of the pods holding the gateway, at the paths
+AGENT_GATEWAY_TLS_CERT_PATH / _KEY_PATH default to.
+*/}}
+{{- define "proxyauthk8s.gateway.tlsVolumeMount" -}}
+{{- if eq .Values.agentGateway.tlsMode "passthrough" }}
+- name: agent-tls
+  mountPath: /agent-tls
+  readOnly: true
+{{- end }}
+{{- end -}}
+
+{{- define "proxyauthk8s.gateway.tlsVolume" -}}
+{{- if eq .Values.agentGateway.tlsMode "passthrough" }}
+- name: agent-tls
+  secret:
+    secretName: {{ required "agentGateway.tls.secretName is required with tlsMode: passthrough" .Values.agentGateway.tls.secretName | quote }}
 {{- end }}
 {{- end -}}
 

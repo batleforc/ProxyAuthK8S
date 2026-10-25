@@ -1,8 +1,12 @@
-{{- if ne .Values.tlsMode "inner" }}
-{{- fail "tlsMode: only inner exists in this version (passthrough comes with phase 2)" }}
+{{- if not (has .Values.tlsMode (list "inner" "passthrough")) }}
+{{- fail "tlsMode: inner or passthrough (the proxy's agentGateway.tlsMode)" }}
 {{- end }}
-{{- if ne .Values.bootstrap.method "ServiceAccountToken" }}
-{{- fail "bootstrap.method: only ServiceAccountToken exists in this version" }}
+{{- $oneShot := eq .Values.bootstrap.method "OneShotToken" }}
+{{- if not (has .Values.bootstrap.method (list "ServiceAccountToken" "OneShotToken")) }}
+{{- fail "bootstrap.method: ServiceAccountToken or OneShotToken" }}
+{{- end }}
+{{- if and $oneShot (not .Values.bootstrap.tokenSecret) }}
+{{- fail "bootstrap.tokenSecret is required with OneShotToken" }}
 {{- end }}
 apiVersion: apps/v1
 kind: Deployment
@@ -20,7 +24,7 @@ spec:
         app: "{{ include "agent.name" . }}"
     spec:
       serviceAccountName: "{{ include "agent.name" . }}"
-      # Only the projected token below: no API access token in the pod.
+      # Only the projected tokens below: no default API token in the pod.
       automountServiceAccountToken: false
       {{- with .Values.securityContext.pod }}
       securityContext:
@@ -44,13 +48,46 @@ spec:
               value: {{ required "proxy.cluster is required (namespace/name of the ProxyKubeApi)" .Values.proxy.cluster | quote }}
             - name: AGENT_UPSTREAM
               value: {{ .Values.upstream | quote }}
+            - name: AGENT_TLS_MODE
+              value: {{ .Values.tlsMode | quote }}
+            {{- if $oneShot }}
+            - name: AGENT_BOOTSTRAP_METHOD
+              value: OneShotToken
+            - name: AGENT_TOKEN_PATH
+              value: /var/run/secrets/proxyauth-bootstrap/token
+            - name: AGENT_IDENTITY_SECRET
+              value: {{ .Values.identitySecret | quote }}
+            - name: AGENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: AGENT_API_TOKEN_PATH
+              value: /var/run/secrets/proxyauth/api-token
+            {{- else }}
             - name: AGENT_TOKEN_PATH
               value: /var/run/secrets/proxyauth/token
+            {{- end }}
             - name: AGENT_KUBE_CA_PATH
               value: /var/run/secrets/proxyauth/ca.crt
             {{- if .Values.proxy.caBundle }}
             - name: AGENT_PROXY_CA_BUNDLE
               value: /etc/proxyauth/proxy-ca/ca.crt
+            {{- end }}
+            {{- with .Values.egress.proxy.url }}
+            - name: AGENT_EGRESS_PROXY_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.egress.proxy.credentialsSecret }}
+            - name: AGENT_EGRESS_PROXY_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: username
+            - name: AGENT_EGRESS_PROXY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: password
             {{- end }}
             {{- range .Values.env }}
             - name: {{ .name }}
@@ -80,15 +117,27 @@ spec:
               mountPath: /etc/proxyauth/proxy-ca
               readOnly: true
             {{- end }}
+            {{- if $oneShot }}
+            - name: bootstrap
+              mountPath: /var/run/secrets/proxyauth-bootstrap
+              readOnly: true
+            {{- end }}
       volumes:
         - name: proxyauth
           projected:
             sources:
+              {{- if $oneShot }}
+              # The API token for the identity Secret, the one RBAC grant.
+              - serviceAccountToken:
+                  expirationSeconds: {{ .Values.bootstrap.expirationSeconds }}
+                  path: api-token
+              {{- else }}
               # The enrolment proof, `aud` = the ProxyKubeApi's audience.
               - serviceAccountToken:
                   audience: {{ .Values.bootstrap.audience | quote }}
                   expirationSeconds: {{ .Values.bootstrap.expirationSeconds }}
                   path: token
+              {{- end }}
               # This cluster's CA, whose fingerprint `status.agent` shows.
               - configMap:
                   name: kube-root-ca.crt
@@ -99,4 +148,12 @@ spec:
         - name: proxy-ca
           configMap:
             name: "{{ include "agent.name" . }}-proxy-ca"
+        {{- end }}
+        {{- if $oneShot }}
+        - name: bootstrap
+          secret:
+            secretName: {{ .Values.bootstrap.tokenSecret | quote }}
+            items:
+              - key: token
+                path: token
         {{- end }}

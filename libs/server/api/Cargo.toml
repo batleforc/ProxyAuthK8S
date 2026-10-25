@@ -28,7 +28,7 @@ bytes = "1"
 http = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "server", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
+hyper-util = { version = "0.1", features = ["tokio", "server-auto", "service"] }
 tracing = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

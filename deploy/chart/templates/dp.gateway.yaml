@@ -63,18 +63,22 @@ spec:
             httpGet:
               path: /healthz
               port: {{ .Values.agentGateway.port }}
+              scheme: {{ ternary "HTTPS" "HTTP" (eq .Values.agentGateway.tlsMode "passthrough") }}
             initialDelaySeconds: 10
             periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /readyz
               port: {{ .Values.agentGateway.port }}
+              scheme: {{ ternary "HTTPS" "HTTP" (eq .Values.agentGateway.tlsMode "passthrough") }}
             initialDelaySeconds: 5
             periodSeconds: 10
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "proxyauthk8s.gateway.tlsVolumeMount" . | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "proxyauthk8s.gateway.tlsVolume" . | nindent 8 }}
 {{- end }}

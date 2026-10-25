@@ -2,8 +2,9 @@
 //! installs its agents (`deploy/chart-agent`) in its own namespace, in front
 //! of the bench's own apiserver; the agent gateway runs in the stack's
 //! namespace with 2 pods, its agents' Ingress on `agent.k8s.localhost`.
-//! Points 8 to 11 are phase 2 (`OneShotToken`, CONNECT and SOCKS5 egress,
-//! `passthrough`); point 14 restarts the back and lives in `rfc0012_restart`.
+//! Point 11 switches the shared gateway to `passthrough` and lives in
+//! `rfc0012_passthrough`; point 14 restarts the back and lives in
+//! `rfc0012_restart`.
 
 #![expect(
     clippy::expect_used,
@@ -91,6 +92,257 @@ fn ready_reason(cr: &Value) -> Option<String> {
         .iter()
         .find(|c| c["type"] == "Ready")
         .and_then(|c| c["reason"].as_str().map(ToString::to_string))
+}
+
+/// `kubectl apply` of `items` in `ns`, then their Deployments available.
+fn deploy(ns: &str, items: &[Value]) {
+    Bench::get().apply(&json!({ "apiVersion": "v1", "kind": "List", "items": items }).to_string());
+    for item in items.iter().filter(|item| item["kind"] == "Deployment") {
+        let name = format!(
+            "deployment/{}",
+            item["metadata"]["name"].as_str().expect("name")
+        );
+        fixture::wait(ns, &[&name, "--for=condition=Available"]);
+    }
+}
+
+/// A Deployment `name` of one pod running `container`, and its Service on
+/// `port`.
+fn proxy_server(ns: &str, name: &str, port: u16, container: Value) -> Vec<Value> {
+    let labels = json!({ "app": name });
+    vec![
+        json!({
+            "apiVersion": "apps/v1", "kind": "Deployment",
+            "metadata": { "name": name, "namespace": ns },
+            "spec": {
+                "replicas": 1,
+                "selector": { "matchLabels": labels },
+                "template": { "metadata": { "labels": labels }, "spec": { "containers": [container] } },
+            },
+        }),
+        json!({
+            "apiVersion": "v1", "kind": "Service",
+            "metadata": { "name": name, "namespace": ns },
+            "spec": { "selector": labels, "ports": [{ "port": port, "targetPort": port }] },
+        }),
+    ]
+}
+
+/// The egress proxy's credentials, as the agent chart's `credentialsSecret`.
+fn egress_credentials(ns: &str, password: &str) -> Value {
+    json!({
+        "apiVersion": "v1", "kind": "Secret",
+        "metadata": { "name": "egress", "namespace": ns },
+        "stringData": { "username": "agent", "password": password },
+    })
+}
+
+/// Point 8: two agent replicas start on one `OneShotToken`: one enrolment,
+/// two tunnels (decision 21), and a new token under `auto_rotate`. T16: the
+/// agent may read and update its identity Secret, nothing else.
+#[tokio::test]
+async fn p8_one_one_shot_token_serves_two_replicas_and_rotates() {
+    let started = Instant::now();
+    let test = "rfc0012-p8";
+    let ns = integration::bench::namespace_name(test);
+    let service = json!({ "Agent": { "bootstrap": { "OneShotToken": { "auto_rotate": true } } } });
+    let first = std::cell::RefCell::new(String::new());
+    let p = fixture::agent_proxied_with(test, service, rules(&ns, &[]), 2, |ns| {
+        // The controller writes the token next to the CR; carry it over, as
+        // External Secrets would to a remote cluster.
+        let bench = Bench::get();
+        let secret = format!("{CLUSTER}-agent-bootstrap");
+        let deadline = Instant::now()
+            .checked_add(Duration::from_secs(60))
+            .expect("deadline");
+        let token = loop {
+            let out = bench.admin(&[
+                "-n",
+                ns,
+                "get",
+                "secret",
+                &secret,
+                "-o",
+                "jsonpath={.data.token}",
+            ]);
+            if out.status.success() && !out.stdout.is_empty() {
+                break String::from_utf8_lossy(&out.stdout).to_string();
+            }
+            assert!(Instant::now() < deadline, "no {secret}");
+            std::thread::sleep(Duration::from_secs(1));
+        };
+        bench.apply(
+            &json!({
+                "apiVersion": "v1", "kind": "Secret",
+                "metadata": { "name": "boot", "namespace": ns },
+                "data": { "token": token },
+            })
+            .to_string(),
+        );
+        *first.borrow_mut() = token;
+        vec![
+            "bootstrap.method=OneShotToken".to_string(),
+            "bootstrap.tokenSecret=boot".to_string(),
+        ]
+    })
+    .await;
+    let ns = p.ns.name.as_str();
+    let pods = p.reader.kubectl(&["get", "pods", "-n", ns]).await;
+    assert!(pods.success() && pods.stdout.contains("web"), "{pods:?}");
+    eventually(Duration::from_secs(120), "status.agent.tunnels = 2", || {
+        (cluster_cr(ns, CLUSTER)["status"]["agent"]["tunnels"] == 2).then_some(())
+    })
+    .await;
+    assert_eq!(
+        gateway_events(ns, CLUSTER, "agent_enrolled", started).len(),
+        1
+    );
+    let first = first.into_inner();
+    eventually(
+        Duration::from_secs(120),
+        "a new token (auto_rotate)",
+        || {
+            let out = Bench::get().admin(&[
+                "-n",
+                ns,
+                "get",
+                "secret",
+                &format!("{CLUSTER}-agent-bootstrap"),
+                "-o",
+                "jsonpath={.data.token}",
+            ]);
+            let token = String::from_utf8_lossy(&out.stdout);
+            (!token.is_empty() && token != first).then_some(())
+        },
+    )
+    .await;
+
+    let agent = format!("--as=system:serviceaccount:{ns}:agent-proxyauthk8s-agent");
+    let can = |args: &[&str]| {
+        let mut full = vec!["auth", "can-i", "-n", ns, agent.as_str()];
+        full.extend_from_slice(args);
+        String::from_utf8_lossy(&Bench::get().admin(&full).stdout).trim() == "yes"
+    };
+    assert!(can(&["get", "secret/proxyauth-agent-identity"]));
+    assert!(can(&["update", "secret/proxyauth-agent-identity"]));
+    assert!(!can(&["get", "secret/boot"]));
+    assert!(!can(&["create", "secrets"]));
+    assert!(!can(&["list", "secrets"]));
+}
+
+/// Point 9: the agent dials out through tinyproxy (`CONNECT`, Basic
+/// credentials); without tinyproxy, no tunnel.
+#[tokio::test]
+async fn p9_the_agent_dials_out_through_a_connect_proxy() {
+    let test = "rfc0012-p9";
+    let ns = integration::bench::namespace_name(test);
+    let p = fixture::agent_proxied_with(
+        test,
+        fixture::agent_service(&ns),
+        rules(&ns, &[]),
+        1,
+        |ns| {
+            let conf = "Port 8888\nListen 0.0.0.0\nTimeout 600\nMaxClients 50\nLogLevel Info\n\
+                    ConnectPort 8443\nBasicAuth agent s3cret\n";
+            let mut items = vec![
+                egress_credentials(ns, "s3cret"),
+                json!({
+                    "apiVersion": "v1", "kind": "ConfigMap",
+                    "metadata": { "name": "tinyproxy", "namespace": ns },
+                    "data": { "tinyproxy.conf": conf },
+                }),
+            ];
+            items.extend(proxy_server(
+                ns,
+                "tinyproxy",
+                8888,
+                json!({
+                    "name": "tinyproxy",
+                    "image": fixture::image("tinyproxy"),
+                    "volumeMounts": [{ "name": "conf", "mountPath": "/etc/tinyproxy/tinyproxy.conf",
+                                       "subPath": "tinyproxy.conf" }],
+                }),
+            ));
+            items[2]["spec"]["template"]["spec"]["volumes"] =
+                json!([{ "name": "conf", "configMap": { "name": "tinyproxy" } }]);
+            deploy(ns, &items);
+            vec![
+                format!("egress.proxy.url=http://tinyproxy.{ns}.svc:8888"),
+                "egress.proxy.credentialsSecret=egress".to_string(),
+            ]
+        },
+    )
+    .await;
+    let ns = p.ns.name.as_str();
+    let pods = p.reader.kubectl(&["get", "pods", "-n", ns]).await;
+    assert!(pods.success() && pods.stdout.contains("web"), "{pods:?}");
+    let logs = Bench::get().admin(&["-n", ns, "logs", "deployment/tinyproxy"]);
+    let logs =
+        String::from_utf8_lossy(&logs.stdout).to_string() + &String::from_utf8_lossy(&logs.stderr);
+    assert!(
+        logs.contains("CONNECT") && logs.contains(&format!("{AGENT_HOST}:8443")),
+        "{logs}"
+    );
+
+    let scaled = Bench::get().admin(&["-n", ns, "scale", "deployment/tinyproxy", "--replicas=0"]);
+    assert!(scaled.status.success());
+    eventually(Duration::from_secs(180), "Ready: AgentNoTunnel", || {
+        (ready_reason(&cluster_cr(ns, CLUSTER)).as_deref() == Some("AgentNoTunnel")).then_some(())
+    })
+    .await;
+}
+
+/// Point 10: the agent dials out through microsocks (`socks5h`, RFC 1929
+/// credentials); with a wrong password, no tunnel.
+#[tokio::test]
+async fn p10_the_agent_dials_out_through_a_socks5_proxy() {
+    let test = "rfc0012-p10";
+    let ns = integration::bench::namespace_name(test);
+    let p = fixture::agent_proxied_with(
+        test,
+        fixture::agent_service(&ns),
+        rules(&ns, &[]),
+        1,
+        |ns| {
+            let mut items = vec![egress_credentials(ns, "s3cret")];
+            items.extend(proxy_server(
+                ns,
+                "microsocks",
+                1080,
+                json!({
+                    "name": "microsocks",
+                    "image": fixture::image("microsocks"),
+                    "args": ["-p", "1080", "-u", "agent", "-P", "s3cret"],
+                }),
+            ));
+            deploy(ns, &items);
+            vec![
+                format!("egress.proxy.url=socks5h://microsocks.{ns}.svc:1080"),
+                "egress.proxy.credentialsSecret=egress".to_string(),
+            ]
+        },
+    )
+    .await;
+    let ns = p.ns.name.as_str();
+    let pods = p.reader.kubectl(&["get", "pods", "-n", ns]).await;
+    assert!(pods.success() && pods.stdout.contains("web"), "{pods:?}");
+
+    let bench = Bench::get();
+    bench.apply(&egress_credentials(ns, "wrong").to_string());
+    let restarted = bench.admin(&[
+        "-n",
+        ns,
+        "delete",
+        "pods",
+        "-l",
+        "app=agent-proxyauthk8s-agent",
+    ]);
+    assert!(restarted.status.success());
+    eventually(Duration::from_secs(180), "Ready: AgentNoTunnel", || {
+        (ready_reason(&cluster_cr(ns, CLUSTER)).as_deref() == Some("AgentNoTunnel")).then_some(())
+    })
+    .await;
+    assert_eq!(cluster_cr(ns, CLUSTER)["status"]["agent"]["tunnels"], 0);
 }
 
 /// A client of the agents' Ingress, trusting the run's CA only.

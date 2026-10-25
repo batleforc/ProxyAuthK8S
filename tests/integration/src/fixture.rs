@@ -105,8 +105,23 @@ pub fn install_agent(ns: &str, cluster: &str, replicas: u32, extra: &[&str]) {
 /// it is exposed once one of them holds a tunnel.
 pub async fn agent_proxied(test: &str, security: Value, replicas: u32) -> Proxied {
     let ns = crate::bench::namespace_name(test);
-    proxied_through(test, agent_service(&ns), security, |ns| {
-        install_agent(ns, &format!("{ns}/{CLUSTER}"), replicas, &[]);
+    agent_proxied_with(test, agent_service(&ns), security, replicas, |_| Vec::new()).await
+}
+
+/// [`agent_proxied`] with `service`, and `prepare`, run in the test's
+/// namespace before the agents are installed, returning their extra `--set`s
+/// (an egress proxy, a bootstrap Secret).
+pub async fn agent_proxied_with(
+    test: &str,
+    service: Value,
+    security: Value,
+    replicas: u32,
+    prepare: impl FnOnce(&str) -> Vec<String>,
+) -> Proxied {
+    proxied_through(test, service, security, |ns| {
+        let extra = prepare(ns);
+        let extra: Vec<&str> = extra.iter().map(String::as_str).collect();
+        install_agent(ns, &format!("{ns}/{CLUSTER}"), replicas, &extra);
         wait(
             ns,
             &[
@@ -253,7 +268,9 @@ pub fn image(name: &str) -> String {
         .unwrap_or_else(|| panic!("no image {name:?} in .it/images.lock"))
 }
 
-fn wait(ns: &str, args: &[&str]) {
+/// `kubectl -n <ns> wait <args> --timeout=120s` as the admin; panics on a
+/// timeout.
+pub fn wait(ns: &str, args: &[&str]) {
     let mut full = vec!["-n", ns, "wait"];
     full.extend_from_slice(args);
     full.push("--timeout=120s");

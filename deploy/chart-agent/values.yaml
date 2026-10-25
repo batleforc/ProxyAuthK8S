@@ -11,17 +11,42 @@ proxy:
   cluster: ""
   # The CA of `url`, PEM (private PKI, Netbird); empty = the system roots.
   caBundle: ""
-# Must be the proxy's (agentGateway.tlsMode). Phase 1: inner only.
+# Must be the proxy's (agentGateway.tlsMode): inner or passthrough.
 tlsMode: inner
 # The agent's one destination: this cluster's apiserver.
 upstream: https://kubernetes.default.svc:443
+egress:
+  proxy:
+    # http://… (CONNECT) or socks5h://… (socks5:// resolves names locally).
+    # Empty: HTTPS_PROXY / ALL_PROXY / NO_PROXY from `env`, else direct.
+    # With networkPolicy, add the proxy to egressTo and its port to egressPorts.
+    url: ""
+    # A Secret of this namespace with the keys `username` and `password`.
+    credentialsSecret: ""
 bootstrap:
-  # Phase 1: ServiceAccountToken only. The ProxyKubeApi's `subject` is this
-  # release's ServiceAccount: system:serviceaccount:<namespace>:<release>-proxyauthk8s-agent
+  # ServiceAccountToken: the ProxyKubeApi's `subject` is this release's
+  # ServiceAccount, system:serviceaccount:<namespace>:<release>-proxyauthk8s-agent;
+  # no RBAC. OneShotToken: the token the proxy's controller wrote, carried
+  # here in `tokenSecret`; the identity goes to `identitySecret`.
   method: ServiceAccountToken
-  # The `aud` of the projected token: the ProxyKubeApi's `audience`.
+  # ServiceAccountToken: the `aud` of the projected token, the ProxyKubeApi's
+  # `audience`.
   audience: proxyauth
   expirationSeconds: 3600
+  # OneShotToken: a Secret of this namespace with the key `token` (an
+  # ExternalSecret fed by the proxy's <name>-agent-bootstrap, say).
+  tokenSecret: ""
+# OneShotToken: the key and certificate the replicas share, created empty by
+# the chart; the agent may `get` and `update` this Secret only (§6.5, T16).
+identitySecret: proxyauth-agent-identity
+
+# A CronJob, under a ServiceAccount of its own, copying this cluster's
+# /openid/v1/jwks into `configMap` (key jwks.json): carry it to the proxy's
+# `jwks_from` with External Secrets (decision 24). The agent keeps no RBAC.
+jwksPublisher:
+  enabled: false
+  schedule: "*/15 * * * *"
+  configMap: proxyauth-agent-jwks
 
 replicaCount: 2
 podDisruptionBudget:
