@@ -817,6 +817,12 @@ Ce que contient la phase 2 non commitée :
 
 ### Écarts
 
+- `ProxyKubeApiStatus::fields` envoie à `null` les clés de `status.agent`
+  qu'`AgentStatus` omet : sous le merge patch du kit, une clé omise restait,
+  et `refused` ne disparaissait jamais (vu par §6.P point 5). Les listes de
+  la RFC 0012 (`gateways`, `versions`, `caFingerprints`) avaient le même
+  défaut une fois vidées.
+
 - `Close` gagne `protocol_min` et `protocol_max` (tags 2 et 3), la plage de
   l'émetteur : sans eux, l'agent refusé ne pouvait pas nommer celle de la
   passerelle dans son journal (§6.P point 5). Une passerelle 0.4.0 envoie
