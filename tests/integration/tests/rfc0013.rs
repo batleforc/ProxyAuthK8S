@@ -275,6 +275,19 @@ async fn p5_a_protocol_without_overlap_is_refused_then_recovers() {
     let p = agent_fixture("rfc0013-p5", 1, &[]).await;
     let ns = p.ns.name.clone();
     let bench = Bench::get();
+    // A refused agent is never Ready (`/readyz` is the tunnel): a rolling
+    // update would keep the branch agent serving. Drop it first.
+    let scaled = bench.admin(&["-n", &ns, "scale", AGENT_DEPLOYMENT, "--replicas=0"]);
+    assert!(scaled.status.success());
+    fixture::wait(
+        &ns,
+        &[
+            "--for=delete",
+            "pod",
+            "-l",
+            &format!("app={AGENT_RELEASE}-proxyauthk8s-agent"),
+        ],
+    );
     let started = Instant::now();
     let sets = announcing(&[("AGENT_IT_ANNOUNCE_PROTOCOLS", "2-3")]);
     fixture::install_agent(&ns, &format!("{ns}/{CLUSTER}"), 1, &strs(&sets));
@@ -322,10 +335,8 @@ async fn p5_a_protocol_without_overlap_is_refused_then_recovers() {
             .any(|line| line["reason"] == "protocol" && line["agent_version"] == P),
         "{lines:?}"
     );
-    // The branch agent's tunnel was dropped before the switch: none after it.
-    let rolled = Instant::now();
-    tokio::time::sleep(Duration::from_secs(20)).await;
-    assert!(gateway_events(&ns, "agent_connected", rolled).is_empty());
+    // The branch agent was gone before `started`: no tunnel at all since.
+    assert!(gateway_events(&ns, "agent_connected", started).is_empty());
 
     let metrics = agent_metrics(&ns);
     assert!(
