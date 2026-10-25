@@ -180,6 +180,56 @@ async fn exactly_one_jwks_source_is_admitted() {
     }
 }
 
+/// Decisions 28 and 29: one CA source, a bounded lifetime, its default.
+#[tokio::test]
+async fn an_external_ca_needs_exactly_one_ca() {
+    let env_test = envtest_or_skip!();
+    let client = env_test.client().expect("client should build");
+    install_crd(client.clone()).await;
+    let api = proxies(client);
+    let external = |body: Value| json!({ "bootstrap": { "ExternalCA": body } });
+    let ca_ref = json!({ "ConfigMap": { "name": "vault-ca", "key": "ca.crt" } });
+
+    let created = create(
+        &api,
+        resource(
+            "agent-external",
+            external(json!({ "ca_ref": ca_ref })),
+            private_ca(),
+        ),
+    )
+    .await
+    .expect("an external CA agent should be admitted");
+    assert_eq!(
+        created.data["spec"]["service"]["Agent"]["bootstrap"]["ExternalCA"]["max_cert_lifetime_hours"],
+        168
+    );
+    let _cleanup = api.delete("agent-external", &DeleteParams::default()).await;
+    for (name, body) in [
+        ("agent-external-none", json!({})),
+        (
+            "agent-external-both",
+            json!({ "ca": "-----BEGIN CERTIFICATE-----", "ca_ref": ca_ref }),
+        ),
+    ] {
+        let err = rejected(&api, resource(name, external(body), private_ca())).await;
+        assert!(
+            err.contains("exactly one of ca and ca_ref"),
+            "{name}: {err}"
+        );
+    }
+    let err = rejected(
+        &api,
+        resource(
+            "agent-external-lifetime",
+            external(json!({ "ca_ref": ca_ref, "max_cert_lifetime_hours": 0 })),
+            private_ca(),
+        ),
+    )
+    .await;
+    assert!(err.contains("max_cert_lifetime_hours"), "{err}");
+}
+
 #[tokio::test]
 async fn a_plain_http_jwks_url_is_refused() {
     let env_test = envtest_or_skip!();

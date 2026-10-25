@@ -65,7 +65,7 @@ subjects:
     name: "{{ .Release.Name }}-proxyauthk8s-operator"
     namespace: "{{ .Release.Namespace }}"
 {{- if $separate }}
-{{- /* `jwks_from`: the ConfigMaps / Secrets a ProxyKubeApi names, as for the back. */}}
+{{- /* `jwks_from` and `ca_ref`: the ConfigMaps / Secrets a ProxyKubeApi names, as for the back. */}}
 {{- if not .Values.rbac.referencedNamespaces }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1

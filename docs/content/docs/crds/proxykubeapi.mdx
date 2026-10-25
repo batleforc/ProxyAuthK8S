@@ -550,10 +550,48 @@ Exactly one of `KubernetesService`, `ExternalService`, `Agent`.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
+| [`ExternalCA`](#spec.service.Agent.bootstrap.ExternalCA) | `object` | one of |  | No enrolment: the agent's certificate comes from an issuer of yours (cert-manager, Vault PKI), with the URI SAN proxyauth://\<namespace\>/\<name\> of this resource, and chains to the CA named here |
 | [`OneShotToken`](#spec.service.Agent.bootstrap.OneShotToken) | `object` | one of |  | A single-use token the controller writes to the Secret `<name>-agent-bootstrap` next to this resource, valid one hour; carry it to the remote cluster (External Secrets, Vault) |
 | [`ServiceAccountToken`](#spec.service.Agent.bootstrap.ServiceAccountToken) | `object` | one of |  | A projected ServiceAccount token of the remote cluster, checked against that cluster's public keys: nothing secret goes into git |
 
-Exactly one of `ServiceAccountToken`, `OneShotToken`.
+Exactly one of `ServiceAccountToken`, `OneShotToken`, `ExternalCA`.
+
+### `spec.service.Agent.bootstrap.ExternalCA` [#spec.service.Agent.bootstrap.ExternalCA]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `ca` | `string` | no |  | The issuing CA, PEM, inline (public)<br /><br />Constraints: `maxLength: 65536` |
+| [`ca_ref`](#spec.service.Agent.bootstrap.ExternalCA.ca_ref) | `object` | no |  | A ConfigMap or Secret holding the issuing CA, PEM, re-read at each connection (same namespace policy as `cert`) |
+| `max_cert_lifetime_hours` | `integer` | no | `168` | A longer certificate is refused, and a tunnel closes when its certificate expires: raising `epoch` only closes the open tunnels, revoke at the issuer and keep certificates short Default: 168 (7 days)<br /><br />Constraints: `minimum: 1`, `maximum: 8760` |
+
+**Rules**
+
+- set exactly one of ca and ca_ref — `has(self.ca) != has(self.ca_ref)`
+
+### `spec.service.Agent.bootstrap.ExternalCA.ca_ref` [#spec.service.Agent.bootstrap.ExternalCA.ca_ref]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`ConfigMap`](#spec.service.Agent.bootstrap.ExternalCA.ca_ref.ConfigMap) | `object` | one of |  |  |
+| [`Secret`](#spec.service.Agent.bootstrap.ExternalCA.ca_ref.Secret) | `object` | one of |  |  |
+
+Exactly one of `ConfigMap`, `Secret`.
+
+### `spec.service.Agent.bootstrap.ExternalCA.ca_ref.ConfigMap` [#spec.service.Agent.bootstrap.ExternalCA.ca_ref.ConfigMap]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  | If not set, the resource namespace (same policy as `cert`) |
+
+### `spec.service.Agent.bootstrap.ExternalCA.ca_ref.Secret` [#spec.service.Agent.bootstrap.ExternalCA.ca_ref.Secret]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `name` | `string` | yes |  |  |
+| `namespace` | `string` | no |  | If not set, the resource namespace (same policy as `cert`) |
 
 ### `spec.service.Agent.bootstrap.OneShotToken` [#spec.service.Agent.bootstrap.OneShotToken]
 

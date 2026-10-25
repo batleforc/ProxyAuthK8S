@@ -36,6 +36,18 @@ bootstrap:
   # OneShotToken: a Secret of this namespace with the key `token` (an
   # ExternalSecret fed by the proxy's <name>-agent-bootstrap, say).
   tokenSecret: ""
+  # ExternalCA: no enrolment. The certificate comes from your issuer
+  # (cert-manager, Vault PKI) with the URI SAN proxyauth://<proxy.cluster>
+  # and the `client auth` usage, in the TLS Secret `secretName`. With an
+  # `issuerRef`, the chart writes that cert-manager Certificate itself.
+  certificate:
+    secretName: proxyauth-agent-cert
+    issuerRef: {}  # { name: vault-issuer, kind: ClusterIssuer, group: cert-manager.io }
+    duration: 72h
+    renewBefore: 24h
+# ExternalCA with tlsMode inner: the proxy's agent CA, PEM (ca.crt of its
+# Secret proxy-auth-k8s-agent-ca, public), which anchors the tunnel TLS.
+tunnelCa: ""
 # OneShotToken: the key and certificate the replicas share, created empty by
 # the chart; the agent may `get` and `update` this Secret only (§6.5, T16).
 identitySecret: proxyauth-agent-identity

@@ -2,8 +2,12 @@
 {{- fail "tlsMode: inner or passthrough (the proxy's agentGateway.tlsMode)" }}
 {{- end }}
 {{- $oneShot := eq .Values.bootstrap.method "OneShotToken" }}
-{{- if not (has .Values.bootstrap.method (list "ServiceAccountToken" "OneShotToken")) }}
-{{- fail "bootstrap.method: ServiceAccountToken or OneShotToken" }}
+{{- $external := eq .Values.bootstrap.method "ExternalCA" }}
+{{- if not (has .Values.bootstrap.method (list "ServiceAccountToken" "OneShotToken" "ExternalCA")) }}
+{{- fail "bootstrap.method: ServiceAccountToken, OneShotToken or ExternalCA" }}
+{{- end }}
+{{- if and $external (eq .Values.tlsMode "inner") (not .Values.tunnelCa) }}
+{{- fail "tunnelCa is required with ExternalCA and tlsMode inner: the proxy's agent CA (ca.crt of its Secret proxy-auth-k8s-agent-ca)" }}
 {{- end }}
 {{- if and $oneShot (not .Values.bootstrap.tokenSecret) }}
 {{- fail "bootstrap.tokenSecret is required with OneShotToken" }}
@@ -63,6 +67,17 @@ spec:
                   fieldPath: metadata.namespace
             - name: AGENT_API_TOKEN_PATH
               value: /var/run/secrets/proxyauth/api-token
+            {{- else if $external }}
+            - name: AGENT_BOOTSTRAP_METHOD
+              value: ExternalCA
+            - name: AGENT_TLS_CERT_PATH
+              value: /var/run/secrets/proxyauth-cert/tls.crt
+            - name: AGENT_TLS_KEY_PATH
+              value: /var/run/secrets/proxyauth-cert/tls.key
+            {{- if .Values.tunnelCa }}
+            - name: AGENT_TUNNEL_CA_PATH
+              value: /etc/proxyauth/tunnel-ca/ca.crt
+            {{- end }}
             {{- else }}
             - name: AGENT_TOKEN_PATH
               value: /var/run/secrets/proxyauth/token
@@ -122,6 +137,17 @@ spec:
               mountPath: /var/run/secrets/proxyauth-bootstrap
               readOnly: true
             {{- end }}
+            {{- if $external }}
+            # Not a subPath: the issuer's renewals reach the files.
+            - name: certificate
+              mountPath: /var/run/secrets/proxyauth-cert
+              readOnly: true
+            {{- if .Values.tunnelCa }}
+            - name: tunnel-ca
+              mountPath: /etc/proxyauth/tunnel-ca
+              readOnly: true
+            {{- end }}
+            {{- end }}
       volumes:
         - name: proxyauth
           projected:
@@ -131,7 +157,7 @@ spec:
               - serviceAccountToken:
                   expirationSeconds: {{ .Values.bootstrap.expirationSeconds }}
                   path: api-token
-              {{- else }}
+              {{- else if not $external }}
               # The enrolment proof, `aud` = the ProxyKubeApi's audience.
               - serviceAccountToken:
                   audience: {{ .Values.bootstrap.audience | quote }}
@@ -156,4 +182,14 @@ spec:
             items:
               - key: token
                 path: token
+        {{- end }}
+        {{- if $external }}
+        - name: certificate
+          secret:
+            secretName: {{ .Values.bootstrap.certificate.secretName | quote }}
+        {{- if .Values.tunnelCa }}
+        - name: tunnel-ca
+          configMap:
+            name: "{{ include "agent.name" . }}-tunnel-ca"
+        {{- end }}
         {{- end }}

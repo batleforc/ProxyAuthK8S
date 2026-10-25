@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use agent_pki::{AgentCa, AgentIdentity, identity_of};
+use agent_pki::{AgentCa, AgentIdentity, external_identity_of, identity_of};
 use agent_proto::control::{self, AgentInfo, Close, Hello, Kind, Pong, RenewResponse};
 use agent_proto::mux::{self, Mode};
 use agent_proto::ws_io::{MAX_FRAME, Message, WsIo};
@@ -28,14 +28,16 @@ use axum::{Router, http::StatusCode};
 use common::State;
 use common::config::{AgentGatewaySettings, AgentTlsMode};
 use crd::ProxyKubeApi;
-use crd::service::{AgentService, Service};
+use crd::service::{AgentBootstrap, AgentService, Service};
 use futures_util::{AsyncRead, AsyncWrite, SinkExt, StreamExt, future};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::service::TowerToHyperService;
-use rustls::RootCertStore;
+use rustls::client::danger::HandshakeSignatureValid;
 use rustls::pki_types::pem::PemObject as _;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, UnixTime};
+use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::server::{ServerConfig, WebPkiClientVerifier};
+use rustls::{DigitallySignedStruct, DistinguishedName, RootCertStore, SignatureScheme};
 use tokio_rustls::TlsAcceptor;
 use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 use tracing::{debug, info, warn};
@@ -56,10 +58,10 @@ const SERVER_CERT_REISSUE: Duration = Duration::from_secs(24 * 60 * 60);
 /// Why a tunnel was refused or closed, for the logs and the audit (T14).
 pub type Reason = &'static str;
 
-/// The client certificate of a `passthrough` connection, set by
+/// The client certificate chain of a `passthrough` connection, set by
 /// [`serve_agents`] on each of its requests; never present with `inner`.
 #[derive(Clone)]
-pub struct ClientCertificate(pub Option<CertificateDer<'static>>);
+pub struct ClientCertificate(pub Option<Vec<CertificateDer<'static>>>);
 
 trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
@@ -78,12 +80,71 @@ fn refused(client: &str, identity: Option<&AgentIdentity>, reason: Reason) {
     .emit();
 }
 
-/// The agent identity a client certificate carries, if the agent CA issued it.
-fn identity_of_peer(cert: Option<&CertificateDer<'_>>) -> Result<AgentIdentity, Reason> {
-    match cert.map(|cert| identity_of(cert)) {
-        Some(Ok(peer)) => Ok(peer.identity),
-        _ => Err("identity"),
+/// Accepts a client certificate the agent CA issued, as before; and,
+/// provisionally, one naming a cluster by `proxyauth://<ns>/<name>`
+/// (`ExternalCA`, decision 28), whose chain [`Gateway::identify`] checks
+/// after the handshake against that cluster's CA. The handshake proves the
+/// key either way.
+#[derive(Debug)]
+struct AgentClientVerifier(Arc<dyn ClientCertVerifier>);
+
+impl ClientCertVerifier for AgentClientVerifier {
+    fn offer_client_auth(&self) -> bool {
+        self.0.offer_client_auth()
     }
+
+    fn client_auth_mandatory(&self) -> bool {
+        self.0.client_auth_mandatory()
+    }
+
+    fn root_hint_subjects(&self) -> &[DistinguishedName] {
+        // The agent CA alone would steer an external agent away.
+        &[]
+    }
+
+    fn verify_client_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        now: UnixTime,
+    ) -> Result<ClientCertVerified, rustls::Error> {
+        self.0
+            .verify_client_cert(end_entity, intermediates, now)
+            .or_else(|err| match external_identity_of(end_entity) {
+                Ok(_) => Ok(ClientCertVerified::assertion()),
+                Err(_) => Err(err),
+            })
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.0.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.0.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.0.supported_verify_schemes()
+    }
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| {
+            i64::try_from(since.as_secs()).unwrap_or(i64::MAX)
+        })
 }
 
 pub struct Gateway {
@@ -144,11 +205,81 @@ impl Gateway {
         Ok(config)
     }
 
+    /// Who a verified client chain speaks for: a certificate of the agent
+    /// CA names its identity; an external one (decision 28) names a cluster
+    /// whose bootstrap must be `ExternalCA`, chains to that cluster's CA, and
+    /// lives no longer than its `max_cert_lifetime_hours` (decision 29). With
+    /// it, when an external certificate expires: its tunnel closes then.
+    async fn identify(
+        &self,
+        chain: &[CertificateDer<'static>],
+    ) -> Result<(AgentIdentity, Option<i64>), Reason> {
+        let end_entity = chain.first().ok_or("identity")?;
+        if let Ok(peer) = identity_of(end_entity) {
+            // Only the agent CA lets a four-segment identity through the handshake.
+            return Ok((peer.identity, None));
+        }
+        let peer = external_identity_of(end_entity).map_err(|_| "identity")?;
+        let proxy: ProxyKubeApi = self
+            .state
+            .get_object_from_redis(crd::REDIS_PREFIX, &peer.cluster())
+            .await
+            .map_err(|_| "redis")?
+            .ok_or("unknown cluster")?;
+        let Service::Agent(agent) = &proxy.spec.service else {
+            return Err("not an agent cluster");
+        };
+        let AgentBootstrap::ExternalCA(external) = &agent.bootstrap else {
+            return Err("method");
+        };
+        let pem = match (&external.ca, &external.ca_ref) {
+            (Some(inline), _) => inline.clone(),
+            (None, Some(source)) => source
+                .as_cert_source()
+                .get_cert(self.state.client.clone(), &peer.namespace)
+                .await
+                .map_err(|_| "ca")?
+                .ok_or("ca")?,
+            (None, None) => return Err("ca"),
+        };
+        let mut roots = RootCertStore::empty();
+        for cert in CertificateDer::pem_slice_iter(pem.as_bytes()) {
+            roots.add(cert.map_err(|_| "ca")?).map_err(|_| "ca")?;
+        }
+        WebPkiClientVerifier::builder(Arc::new(roots))
+            .build()
+            .map_err(|_| "ca")?
+            .verify_client_cert(
+                end_entity,
+                chain.get(1..).unwrap_or_default(),
+                UnixTime::now(),
+            )
+            .map_err(|_| "chain")?;
+        let (not_before, not_after) = (
+            peer.not_before.unix_timestamp(),
+            peer.not_after.unix_timestamp(),
+        );
+        if not_after.saturating_sub(not_before)
+            > i64::from(external.max_cert_lifetime_hours).saturating_mul(3600)
+        {
+            return Err("lifetime");
+        }
+        Ok((
+            AgentIdentity {
+                namespace: peer.namespace,
+                name: peer.name,
+                uid: proxy.metadata.uid.clone().ok_or("uid")?,
+                epoch: agent.epoch,
+            },
+            Some(not_after),
+        ))
+    }
+
     async fn serve(
         self: Arc<Self>,
         socket: WebSocket,
         client: String,
-        client_cert: Option<CertificateDer<'static>>,
+        client_chain: Option<Vec<CertificateDer<'static>>>,
     ) {
         let refused = |identity: Option<&AgentIdentity>, reason: Reason| {
             refused(&client, identity, reason);
@@ -158,12 +289,11 @@ impl Gateway {
                 .map(|message| message.map(to_tungstenite))
                 .with(|message| future::ready(Ok::<_, axum::Error>(from_tungstenite(message)))),
         );
-        let (io, identity): (Box<dyn Io>, _) = match &self.settings.tls_mode {
+        let (io, chain): (Box<dyn Io>, _) = match &self.settings.tls_mode {
             // `connect` let no request without a certificate through.
-            AgentTlsMode::Passthrough { .. } => match identity_of_peer(client_cert.as_ref()) {
-                Ok(identity) => (Box::new(socket), identity),
-                Err(reason) => return refused(None, reason),
-            },
+            AgentTlsMode::Passthrough { .. } => {
+                (Box::new(socket), client_chain.unwrap_or_default())
+            }
             AgentTlsMode::Inner => {
                 let tls = match self.tls_config() {
                     Ok(tls) => tls,
@@ -181,11 +311,18 @@ impl Gateway {
                         }
                         Err(_) => return refused(None, "tls timeout"),
                     };
-                match identity_of_peer(tls.get_ref().1.peer_certificates().and_then(<[_]>::first)) {
-                    Ok(identity) => (Box::new(TokioAsyncReadCompatExt::compat(tls)), identity),
-                    Err(reason) => return refused(None, reason),
-                }
+                let chain = tls
+                    .get_ref()
+                    .1
+                    .peer_certificates()
+                    .map(|chain| chain.iter().map(|cert| cert.clone().into_owned()).collect())
+                    .unwrap_or_default();
+                (Box::new(TokioAsyncReadCompatExt::compat(tls)), chain)
             }
+        };
+        let (identity, expires) = match self.identify(&chain).await {
+            Ok(identified) => identified,
+            Err(reason) => return refused(None, reason),
         };
         let agent = match still_valid(&self.state, &identity).await {
             Ok(agent) => agent,
@@ -217,6 +354,7 @@ impl Gateway {
                     (handle, streams),
                     &mut inbound,
                     (&client, &connected),
+                    expires,
                 )
                 .await;
             if let Err(reason) = ended {
@@ -263,6 +401,7 @@ impl Gateway {
         (handle, streams): (agent_proto::mux::MuxHandle, usize),
         inbound: &mut tokio::sync::mpsc::Receiver<mux::Stream>,
         (client, connected): (&str, &AtomicBool),
+        expires: Option<i64>,
     ) -> Result<(), Reason> {
         // yamux announces a stream with its first frame: the agent speaks first.
         let info =
@@ -304,9 +443,20 @@ impl Gateway {
             .agent(identity.epoch, Some(version))
             .emit();
         let mut closed = guard.closed.clone();
+        let expiry = async {
+            match expires {
+                Some(not_after) => {
+                    let left = u64::try_from(not_after.saturating_sub(unix_now())).unwrap_or(0);
+                    tokio::time::sleep(Duration::from_secs(left)).await;
+                }
+                None => std::future::pending().await,
+            }
+        };
         tokio::select! {
             ended = self.control_loop(identity, control) => ended,
             _ = closed.wait_for(|closed| *closed) => Err("revoked"),
+            // An external certificate cannot be renewed here (decision 29).
+            () = expiry => Err("expired"),
             // An agent opens no data stream: each is reset on arrival.
             () = async { while inbound.recv().await.is_some() {} } => Err("tunnel closed"),
         }
@@ -326,7 +476,11 @@ impl Gateway {
             let reply = match message {
                 Kind::Ping(ping) => Kind::Pong(Pong { nonce: ping.nonce }),
                 Kind::RenewRequest(renew) => {
-                    still_valid(&self.state, identity).await?;
+                    let agent = still_valid(&self.state, identity).await?;
+                    // Its issuer renews an external certificate, never this CA.
+                    if matches!(agent.bootstrap, AgentBootstrap::ExternalCA(_)) {
+                        return Err("method");
+                    }
                     let csr = String::from_utf8(renew.csr).map_err(|_| "csr")?;
                     let cert = self.ca.issue_agent(&csr, identity).map_err(|_| "csr")?;
                     Kind::RenewResponse(RenewResponse {
@@ -399,10 +553,12 @@ fn passthrough_config(
         .and_then(Iterator::collect::<Result<Vec<_>, _>>)
         .map_err(|err| format!("{cert_path}: {err}"))?;
     let key = PrivateKeyDer::from_pem_file(key_path).map_err(|err| format!("{key_path}: {err}"))?;
-    let verifier = WebPkiClientVerifier::builder(agent_roots(ca)?)
-        .allow_unauthenticated()
-        .build()
-        .map_err(|err| err.to_string())?;
+    let verifier = Arc::new(AgentClientVerifier(
+        WebPkiClientVerifier::builder(agent_roots(ca)?)
+            .allow_unauthenticated()
+            .build()
+            .map_err(|err| err.to_string())?,
+    ));
     let mut config = ServerConfig::builder()
         .with_client_cert_verifier(verifier)
         .with_single_cert(certs, key)
@@ -416,9 +572,11 @@ fn passthrough_config(
 /// client certificate required from that CA alone.
 fn server_config(ca: &AgentCa) -> Result<ServerConfig, String> {
     let (cert_pem, key_pem) = ca.issue_server().map_err(|err| err.to_string())?;
-    let verifier = WebPkiClientVerifier::builder(agent_roots(ca)?)
-        .build()
-        .map_err(|err| err.to_string())?;
+    let verifier = Arc::new(AgentClientVerifier(
+        WebPkiClientVerifier::builder(agent_roots(ca)?)
+            .build()
+            .map_err(|err| err.to_string())?,
+    ));
     ServerConfig::builder()
         .with_client_cert_verifier(verifier)
         .with_single_cert(
@@ -456,22 +614,23 @@ async fn connect(
     upgrade: WebSocketUpgrade,
 ) -> Response {
     let client = throttle_client_ip(forwarded_for(&parts.headers), peer_ip(&parts));
-    let client_cert = parts
+    let client_chain = parts
         .extensions
         .get::<ClientCertificate>()
         .and_then(|cert| cert.0.clone());
-    if matches!(gateway.settings.tls_mode, AgentTlsMode::Passthrough { .. }) {
-        // Before the upgrade: no WebSocket for a client without one.
-        if let Err(reason) = identity_of_peer(client_cert.as_ref()) {
-            refused(&client, None, reason);
-            return StatusCode::UNAUTHORIZED.into_response();
-        }
+    // Before the upgrade: no WebSocket for a client without a certificate;
+    // whom it names is `identify`'s to say.
+    if matches!(gateway.settings.tls_mode, AgentTlsMode::Passthrough { .. })
+        && client_chain.as_ref().is_none_or(Vec::is_empty)
+    {
+        refused(&client, None, "identity");
+        return StatusCode::UNAUTHORIZED.into_response();
     }
     // `WsIo` writes frames of `MAX_FRAME` at most: the agent sends no larger.
     upgrade
         .max_message_size(MAX_FRAME)
         .max_frame_size(MAX_FRAME)
-        .on_upgrade(move |socket| gateway.serve(socket, client, client_cert))
+        .on_upgrade(move |socket| gateway.serve(socket, client, client_chain))
 }
 
 /// Ready while Redis answers: no tunnel can be checked, nor enrolment counted,
@@ -532,8 +691,7 @@ pub async fn serve_agents(
                 tls.get_ref()
                     .1
                     .peer_certificates()
-                    .and_then(<[_]>::first)
-                    .map(|cert| cert.clone().into_owned()),
+                    .map(|chain| chain.iter().map(|cert| cert.clone().into_owned()).collect()),
             );
             let app = app
                 .layer(Extension(cert))

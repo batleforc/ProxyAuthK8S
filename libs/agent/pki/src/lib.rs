@@ -128,6 +128,56 @@ pub struct PeerCertificate {
 pub fn identity_of(cert_der: &[u8]) -> Result<PeerCertificate, PkiError> {
     let (_, cert) =
         X509Certificate::from_der(cert_der).map_err(|err| PkiError::Parse(err.to_string()))?;
+    Ok(PeerCertificate {
+        identity: AgentIdentity::from_uri(proxyauth_uri(&cert)?)?,
+        not_after: cert.validity().not_after.to_datetime(),
+    })
+}
+
+/// What a certificate from an external CA claims (`ExternalCA`, decision
+/// 28): one `ProxyKubeApi` by namespace and name, `proxyauth://<ns>/<name>`.
+/// The UID and `epoch` are the CR's when the tunnel opens; the chain is
+/// checked against that CR's CA, not here.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExternalPeer {
+    pub namespace: String,
+    pub name: String,
+    pub not_before: OffsetDateTime,
+    pub not_after: OffsetDateTime,
+}
+
+impl ExternalPeer {
+    /// `<namespace>/<name>`, the cluster as the proxy routes it.
+    #[must_use]
+    pub fn cluster(&self) -> String {
+        format!("{}/{}", self.namespace, self.name)
+    }
+}
+
+/// Read the claim of an external CA's certificate.
+pub fn external_identity_of(cert_der: &[u8]) -> Result<ExternalPeer, PkiError> {
+    let (_, cert) =
+        X509Certificate::from_der(cert_der).map_err(|err| PkiError::Parse(err.to_string()))?;
+    let uri = proxyauth_uri(&cert)?;
+    let invalid = || PkiError::InvalidIdentity(uri.to_string());
+    let rest = uri.strip_prefix(URI_SCHEME).ok_or_else(invalid)?;
+    let Some((namespace, name)) = rest.split_once('/') else {
+        return Err(invalid());
+    };
+    if !is_name(namespace) || !is_name(name) || name.contains('/') {
+        return Err(invalid());
+    }
+    let validity = cert.validity();
+    Ok(ExternalPeer {
+        namespace: namespace.to_string(),
+        name: name.to_string(),
+        not_before: validity.not_before.to_datetime(),
+        not_after: validity.not_after.to_datetime(),
+    })
+}
+
+/// The certificate's one `proxyauth://` URI SAN.
+fn proxyauth_uri<'a>(cert: &'a X509Certificate<'a>) -> Result<&'a str, PkiError> {
     let mut uris = Vec::new();
     if let Ok(Some(san)) = cert.subject_alternative_name() {
         for name in &san.value.general_names {
@@ -138,15 +188,11 @@ pub fn identity_of(cert_der: &[u8]) -> Result<PeerCertificate, PkiError> {
             }
         }
     }
-    let uri = match uris.as_slice() {
-        [] => return Err(PkiError::NoIdentity),
-        [uri] => *uri,
-        _ => return Err(PkiError::SeveralIdentities),
-    };
-    Ok(PeerCertificate {
-        identity: AgentIdentity::from_uri(uri)?,
-        not_after: cert.validity().not_after.to_datetime(),
-    })
+    match uris.as_slice() {
+        [] => Err(PkiError::NoIdentity),
+        [uri] => Ok(uri),
+        _ => Err(PkiError::SeveralIdentities),
+    }
 }
 
 fn validity(params: &mut CertificateParams, lifetime: Duration) -> Result<(), PkiError> {
@@ -311,6 +357,35 @@ mod tests {
         let cert = ca.issue_agent(&key.csr_pem().unwrap(), &identity).unwrap();
         let der = rcgen_der(&cert);
         assert_eq!(identity_of(&der).unwrap().identity, identity);
+    }
+
+    fn external(uris: &[&str]) -> Vec<u8> {
+        let mut params = CertificateParams::default();
+        params.subject_alt_names = uris
+            .iter()
+            .map(|uri| SanType::URI((*uri).try_into().unwrap()))
+            .collect();
+        let key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).unwrap();
+        params.self_signed(&key).unwrap().der().to_vec()
+    }
+
+    #[test]
+    fn an_external_certificate_names_one_cluster_by_namespace_and_name() {
+        let peer = external_identity_of(&external(&["proxyauth://team-a/prod"])).unwrap();
+        assert_eq!(peer.cluster(), "team-a/prod");
+        assert!(peer.not_before < peer.not_after);
+        for refused in [
+            &["proxyauth://team-a/prod/6c1f3a52-0b8e-4b7f-9d2a-3e4f5a6b7c8d/0"][..],
+            &["proxyauth://team-a"],
+            &["proxyauth://Team-A/prod"],
+            &["https://team-a/prod"],
+            &["proxyauth://team-a/prod", "proxyauth://team-b/prod"],
+        ] {
+            assert!(
+                external_identity_of(&external(refused)).is_err(),
+                "{refused:?}"
+            );
+        }
     }
 
     #[test]

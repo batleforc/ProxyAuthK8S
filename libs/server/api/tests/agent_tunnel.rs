@@ -37,7 +37,7 @@ fn service_account_token(
 ) -> Option<&mut ServiceAccountTokenBootstrap> {
     match bootstrap {
         AgentBootstrap::ServiceAccountToken(sa) => Some(sa),
-        AgentBootstrap::OneShotToken(_) => None,
+        AgentBootstrap::OneShotToken(_) | AgentBootstrap::ExternalCA(_) => None,
     }
 }
 
@@ -1708,6 +1708,238 @@ async fn one_shot_replicas_spend_one_token_and_share_the_identity() {
 
     drop(std::fs::remove_dir_all(&dir));
     delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
+/// An issuer of the operator's (cert-manager, Vault PKI) for `ExternalCA`.
+struct ExternalIssuer {
+    issuer: rcgen::Issuer<'static, rcgen::KeyPair>,
+    pem: String,
+}
+
+impl ExternalIssuer {
+    fn new() -> Self {
+        let key = rcgen::KeyPair::generate().unwrap();
+        let mut params = rcgen::CertificateParams::default();
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        params.key_usages = vec![
+            rcgen::KeyUsagePurpose::KeyCertSign,
+            rcgen::KeyUsagePurpose::DigitalSignature,
+        ];
+        let pem = params.self_signed(&key).unwrap().pem();
+        Self {
+            issuer: rcgen::Issuer::new(params, key),
+            pem,
+        }
+    }
+
+    /// A client certificate with the URI SAN `uri`, valid from a minute ago
+    /// for `lifetime`.
+    fn leaf(&self, uri: &str, lifetime: std::time::Duration) -> (String, rcgen::KeyPair) {
+        let key = rcgen::KeyPair::generate().unwrap();
+        let mut params = rcgen::CertificateParams::default();
+        params.subject_alt_names = vec![rcgen::SanType::URI(uri.try_into().unwrap())];
+        params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ClientAuth];
+        let now = time::OffsetDateTime::now_utc();
+        params.not_before = now.checked_sub(time::Duration::minutes(1)).unwrap();
+        params.not_after = now.checked_add(lifetime.try_into().unwrap()).unwrap();
+        (params.signed_by(&key, &self.issuer).unwrap().pem(), key)
+    }
+}
+
+/// An `Agent` cluster whose bootstrap is `ExternalCA` with `ca` inline.
+async fn seeded_external_cluster(
+    pool: &deadpool_redis::Pool,
+    gateway: &api::agent::listener::Gateway,
+    epoch: u64,
+    ca: &str,
+) -> agent_pki::AgentIdentity {
+    let identity = seeded_agent_cluster(pool, epoch).await;
+    let mut proxy: crd::ProxyKubeApi = gateway
+        .state
+        .get_object_from_redis(crd::REDIS_PREFIX, &identity.cluster())
+        .await
+        .unwrap()
+        .unwrap();
+    if let Service::Agent(agent) = &mut proxy.spec.service {
+        agent.bootstrap = AgentBootstrap::ExternalCA(crd::service::ExternalCaBootstrap {
+            ca: Some(ca.to_string()),
+            ca_ref: None,
+            max_cert_lifetime_hours: crd::service::DEFAULT_MAX_CERT_LIFETIME_HOURS,
+        });
+    }
+    seed_proxy(pool, &proxy).await;
+    identity
+}
+
+/// Decisions 28 and 29: a certificate of the CR's own issuer, naming the CR
+/// by `proxyauth://<ns>/<name>`, opens a tunnel for that CR alone, at its
+/// UID and `epoch`; another issuer, a longer lifetime, another bootstrap,
+/// an enrolment or a renewal are refused.
+#[tokio::test]
+async fn an_external_ca_certificate_serves_its_cluster_only() {
+    let pool = redis_or_skip!();
+    harness::install_crypto_provider();
+    let (addr, gateway) = agent_gateway().await;
+    let issuer = ExternalIssuer::new();
+    let day = std::time::Duration::from_secs(24 * 3600);
+    let a = seeded_external_cluster(&pool, &gateway, 0, &issuer.pem).await;
+    // Tenant B shares the issuer (one Vault PKI for both).
+    let b = seeded_external_cluster(&pool, &gateway, 1, &issuer.pem).await;
+    let uri_of =
+        |id: &agent_pki::AgentIdentity| format!("proxyauth://{}/{}", id.namespace, id.name);
+    let trusted = gateway.ca.cert_pem().to_string();
+
+    let (cert, key) = issuer.leaf(&uri_of(&a), day);
+    let (mut control, _inbound, _) = dial_agent(addr, &trusted, &cert, &key).await.unwrap();
+    registered(&gateway, 1).await;
+    assert_eq!(
+        gateway.registry.identities()[0].0,
+        a,
+        "A's UID and epoch, never B's"
+    );
+
+    // Its issuer renews it, never the agent CA.
+    agent_proto::control::write(
+        &mut control,
+        agent_proto::control::Kind::RenewRequest(agent_proto::control::RenewRequest {
+            csr: new_csr().into_bytes(),
+        }),
+    )
+    .await
+    .unwrap();
+    let answer = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        agent_proto::control::read(&mut control),
+    )
+    .await
+    .unwrap();
+    assert!(
+        matches!(&answer, Ok(agent_proto::control::Kind::Close(close)) if close.reason == "method"),
+        "{answer:?}"
+    );
+    registered(&gateway, 0).await;
+
+    let foreign = ExternalIssuer::new();
+    let (cert, key) = foreign.leaf(&uri_of(&a), day);
+    assert!(
+        dial_agent(addr, &trusted, &cert, &key).await.is_err(),
+        "another issuer"
+    );
+    let (cert, key) = issuer.leaf(&uri_of(&a), 8 * day);
+    assert!(
+        dial_agent(addr, &trusted, &cert, &key).await.is_err(),
+        "past 7 days"
+    );
+    let sa = seeded_agent_cluster(&pool, 2).await;
+    let (cert, key) = issuer.leaf(&uri_of(&sa), day);
+    assert!(
+        dial_agent(addr, &trusted, &cert, &key).await.is_err(),
+        "not ExternalCA"
+    );
+    assert_eq!(enroll(addr, &a.cluster(), &new_csr(), "any").await.0, 401);
+    assert!(gateway.registry.identities().is_empty());
+
+    for id in [a, b, sa] {
+        delete_proxy(&pool, &id.namespace, &id.name).await;
+    }
+}
+
+/// Decision 29: an external certificate's tunnel closes when it expires.
+#[tokio::test]
+async fn an_external_tunnel_closes_when_its_certificate_expires() {
+    let pool = redis_or_skip!();
+    harness::install_crypto_provider();
+    let (addr, gateway) = agent_gateway().await;
+    let issuer = ExternalIssuer::new();
+    let id = seeded_external_cluster(&pool, &gateway, 3, &issuer.pem).await;
+    let (cert, key) = issuer.leaf(
+        &format!("proxyauth://{}/{}", id.namespace, id.name),
+        std::time::Duration::from_secs(3),
+    );
+    let (_control, _inbound, _) = dial_agent(addr, gateway.ca.cert_pem(), &cert, &key)
+        .await
+        .unwrap();
+    registered(&gateway, 1).await;
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !gateway.registry.identities().is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the tunnel should close at the certificate's expiry");
+    delete_proxy(&pool, &id.namespace, &id.name).await;
+}
+
+/// Decisions 28 and 29, the real agent: no enrolment, its certificate read
+/// from files; at expiry the gateway closes the tunnel, and the agent comes
+/// back with the certificate its issuer renewed in those files.
+#[tokio::test]
+async fn the_real_agent_uses_an_external_certificate_and_its_renewal() {
+    use std::sync::atomic::Ordering;
+
+    let pool = redis_or_skip!();
+    harness::install_crypto_provider();
+    let (addr, gateway) = agent_gateway().await;
+    let issuer = ExternalIssuer::new();
+    let id = seeded_external_cluster(&pool, &gateway, 4, &issuer.pem).await;
+    let uri = format!("proxyauth://{}/{}", id.namespace, id.name);
+    let dir = std::env::temp_dir().join(format!("agent-external-{}", id.uid));
+    std::fs::create_dir_all(&dir).unwrap();
+    let write = |lifetime: std::time::Duration| {
+        let (cert, key) = issuer.leaf(&uri, lifetime);
+        std::fs::write(dir.join("tls.crt"), cert).unwrap();
+        std::fs::write(dir.join("tls.key"), key.serialize_pem()).unwrap();
+    };
+    write(std::time::Duration::from_secs(4));
+    std::fs::write(dir.join("tunnel-ca.crt"), gateway.ca.cert_pem()).unwrap();
+    let vars = std::collections::HashMap::from([
+        ("AGENT_PROXY_URL", format!("ws://{addr}/agent/v1/connect")),
+        ("AGENT_CLUSTER", id.cluster()),
+        ("AGENT_BOOTSTRAP_METHOD", "ExternalCA".to_string()),
+        (
+            "AGENT_TLS_CERT_PATH",
+            dir.join("tls.crt").display().to_string(),
+        ),
+        (
+            "AGENT_TLS_KEY_PATH",
+            dir.join("tls.key").display().to_string(),
+        ),
+        (
+            "AGENT_TUNNEL_CA_PATH",
+            dir.join("tunnel-ca.crt").display().to_string(),
+        ),
+    ]);
+    let config = agent::Config::from_lookup(|name| vars.get(name).cloned()).unwrap();
+    let health = std::sync::Arc::new(agent::Health::default());
+    tokio::spawn(agent::run(config, std::sync::Arc::clone(&health)));
+    let up = |health: &agent::Health| health.tunnel_up.load(Ordering::Relaxed);
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !up(&health) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the agent should open its tunnel with the external certificate");
+    assert_eq!(gateway.registry.identities()[0].0, id);
+
+    // The issuer renews: the next tunnel carries the later certificate.
+    write(std::time::Duration::from_secs(24 * 3600));
+    tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        while !(health
+            .reconnects
+            .iter()
+            .any(|count| count.load(Ordering::Relaxed) > 0)
+            && up(&health))
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the agent should come back after its certificate expired");
+    registered(&gateway, 1).await;
+
+    drop(std::fs::remove_dir_all(&dir));
+    delete_proxy(&pool, &id.namespace, &id.name).await;
 }
 
 /// T10: past the per-address limit, an enrolment is refused before its body

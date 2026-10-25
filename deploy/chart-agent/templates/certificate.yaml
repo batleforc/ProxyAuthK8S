@@ -1,0 +1,28 @@
+{{- if and (eq .Values.bootstrap.method "ExternalCA") .Values.bootstrap.certificate.issuerRef.name }}
+{{- with .Values.bootstrap.certificate }}
+# ExternalCA (decision 28): cert-manager issues the agent's certificate with
+# the URI SAN the gateway reads, short-lived (decision 29: the ProxyKubeApi's
+# max_cert_lifetime_hours, 168 by default, bounds it).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: "{{ include "agent.name" $ }}"
+  namespace: "{{ $.Release.Namespace }}"
+spec:
+  secretName: {{ .secretName | quote }}
+  commonName: "{{ include "agent.name" $ }}"
+  uris:
+    - "proxyauth://{{ required "proxy.cluster is required (namespace/name of the ProxyKubeApi)" $.Values.proxy.cluster }}"
+  usages:
+    - client auth
+    - digital signature
+  duration: {{ .duration | quote }}
+  renewBefore: {{ .renewBefore | quote }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  issuerRef:
+    {{- toYaml .issuerRef | nindent 4 }}
+{{- end }}
+{{- end }}

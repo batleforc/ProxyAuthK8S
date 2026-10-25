@@ -87,6 +87,8 @@ tower = { version = "0.5", features = ["util"] }
 serde_urlencoded = "0.7"
 # Already in the tree (kube's dev graph); the http_contract suite's TLS cert.
 rcgen = "0.14"
+# Already in the tree (rcgen): the validity of external agent certificates.
+time = "0.3"
 deadpool-redis = { workspace = true }
 serde_yaml_ng = { workspace = true }
 secrecy = "0.10.3"
