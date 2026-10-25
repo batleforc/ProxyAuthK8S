@@ -1,0 +1,75 @@
+---
+title: Vers la 0.4.0
+description: Mettre à jour depuis la 0.2.x ou la 0.3.x, le runtime du kit (RFC 0011) et le mode agent (RFC 0012)
+icon: CircleArrowUp
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+La 0.4.0 apporte le [mode agent](/docs/agent) (RFC 0012), qui ne demande rien à une
+installation existante, et le runtime de weebo-operator-kit pour le contrôleur
+(RFC 0011), qui est le changement cassant de cette version.
+
+## Mettre à jour
+
+Avec le chart, rien d'autre à faire que la mise à jour, dans cet ordre :
+
+```bash
+helm upgrade proxyauthk8s-crd oci://ghcr.io/batleforc/proxyauthk8s/chart-crd:0.4.0 \
+  --namespace ${NAMESPACE}
+helm upgrade proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart:0.4.0 \
+  --namespace ${NAMESPACE} \
+  --values proxyauthk8s-values.yaml
+```
+
+Si vous gérez le RBAC vous-même (`rbac` désactivé, ou un ServiceAccount fourni),
+ajoutez ces droits au compte du serveur **avant** la mise à jour :
+
+| Ressource | Verbes | Pourquoi |
+| --------- | ------ | -------- |
+| `leases` (`coordination.k8s.io`), namespace du serveur | `get`, `create`, `update`, `patch` | l'élection du kit écrit par `update` ; `patch` reste une version pour un retour arrière |
+| `events` (`events.k8s.io`) | `create`, `patch` | les [Events](/docs/status-and-events) publiés sur chaque `ProxyKubeApi` |
+
+Pendant le rolling upgrade, anciens et nouveaux pods partagent le même lease. Un double
+leader n'est possible que si les horloges divergent de plus de 10 s, et il dure 5 s au
+plus ; le reconcile est idempotent.
+
+## Ce qui change à l'exécution
+
+- **Conditions et colonnes** : chaque `ProxyKubeApi` gagne sa condition `Ready` et ses
+  Events au premier reconcile du nouveau leader ([Statut et Events](/docs/status-and-events)).
+  Les champs existants gardent leurs valeurs.
+- **Rythme** : chaque `ProxyKubeApi` est réconciliée toutes les 5 minutes au lieu d'une
+  fois par heure. Les clés `requeue_retry:*` de l'ancienne version expirent seules en 24 h.
+- **Suppression** : supprimer une `ProxyKubeApi` attend que Redis réponde. Pendant une
+  panne Redis, la ressource reste `Terminating` (Event `CacheWriteFailed`, action
+  `Cleanup`) au lieu de rester routable sans propriétaire ; elle disparaît au retour de
+  Redis.
+- **Documents OIDC** : la découverte et le JWKS de chaque issuer sont bornés à 64 Kio
+  (`PROXY_JWKS_MAX_DOCUMENT_BYTES`, voir [Configuration](/docs/configuration)).
+- **Disponibilité** : avec un seul pod au minimum, le PDB du back ou du front passe à
+  `maxUnavailable: 1` et ne bloque plus un drain ; avec un HPA, un `helm upgrade` garde
+  le nombre de réplicas choisi par l'HPA. Sous Argo CD, voir
+  [Disponibilité : PDB, HPA et GitOps](/docs/helm-chart#disponibilité--pdb-hpa-et-gitops).
+
+## Revenir en arrière
+
+<Callout type="warn">
+Le leader 0.4.0 libère son lease à l'arrêt, d'une façon que l'élection d'une version
+antérieure ne sait pas reprendre. Supprimez le lease **avant** de redéployer l'ancienne
+version :
+
+```bash
+kubectl -n ${NAMESPACE} delete lease proxy-auth-k8s-leader-election
+```
+</Callout>
+
+Les conditions déjà écrites restent sur les `ProxyKubeApi`, figées, jusqu'à la prochaine
+écriture de statut ; l'ancienne CRD ignore les champs qu'elle ne connaît pas.
+
+## Adopter le mode agent
+
+Facultatif : vos clusters `ExternalService` continuent de fonctionner tels quels. Pour
+joindre un cluster dont l'apiserver n'est pas exposé, activez la passerelle
+(`agentGateway`) et installez le chart `chart-agent` sur ce cluster : voir
+[Cluster derrière un agent](/docs/agent).

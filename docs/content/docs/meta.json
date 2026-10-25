@@ -5,6 +5,7 @@
     "quick-started.mdx",
     "configuration.mdx",
     "helm-chart.mdx",
+    "migration",
     "roadmap.mdx",
     "architecture.mdx",
     "expose-cluster.mdx",

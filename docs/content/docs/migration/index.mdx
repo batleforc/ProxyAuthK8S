@@ -1,0 +1,18 @@
+---
+title: Guides de migration
+description: Ce qu'il faut faire, version par version, pour mettre à jour une installation existante
+icon: CircleArrowUp
+---
+
+Chaque page couvre le passage à une version qui demande plus qu'un `helm upgrade` : un
+changement cassant (`BREAKING CHANGE` dans le [CHANGELOG](https://github.com/batleforc/ProxyAuthK8S/blob/main/CHANGELOG.md)),
+une étape manuelle ou une précaution pour revenir en arrière. Une version absente
+d'ici se met à jour sans rien de plus.
+
+Mettez toujours à jour le chart des CRD (`chart-crd`) **avant** le chart de
+l'application : un serveur plus récent écrit des champs de `status` que l'ancienne CRD
+ne connaît pas.
+
+| Vers | Depuis | Changement cassant |
+| ---- | ------ | ------------------ |
+| [0.4.0](/docs/migration/v0-4-0) | 0.2.x, 0.3.x | RBAC des `leases` et des `events`, retour arrière |
