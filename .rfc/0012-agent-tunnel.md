@@ -2,14 +2,14 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Implemented, phases 1, 2 et 4 (phase 1 PR #294, phase 2 PR #295, phase 4 branche `feat/rfc-0012-phase-4`) : `ServiceAccountToken`, `OneShotToken` et `ExternalCA`, `tlsMode` `inner` et `passthrough`, sortie directe, `CONNECT` ou SOCKS5, `jwksPublisher` ; écarts au §17 |
+| Status      | Implemented (2026-10-24 → 2026-10-25, PR #294, #295, #296, #297) : phases 1 à 4 ; `ServiceAccountToken`, `OneShotToken` et `ExternalCA`, `tlsMode` `inner` et `passthrough`, sortie directe, `CONNECT` ou SOCKS5, `jwksPublisher` ; écarts au §17 |
 | Short       | Mode agent (tunnel sortant)                                            |
 | Settles     | Atteindre un cluster dont l'apiserver n'accepte aucune connexion entrante |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
 | Co-author   | Claude Opus 5.5 (1M context)                                           |
 | Created     | 2026-10-23                                                             |
 | Supersedes  | —                                                                      |
-| Touches     | phase 1 : `apps/agent/` (nouveau), `libs/agent/{proto,pki}/` (nouveaux), `libs/server/api/src/agent/` (nouveau : passerelle, écoute, enrôlement, CA, registre, présences, `CONNECT`), `libs/server/api/src/cluster/redirect/{kube_redirect.rs,audit.rs}` et `kube_redirect/{upstream.rs,upgrade/connect.rs}`, `libs/server/api/src/{metrics.rs,server.rs,model/user.rs}`, `libs/server/common/src/{agent_gateway.rs,config.rs,state.rs,state/redis.rs}`, `libs/server/crd/src/{service/agent.rs,status/mod.rs}`, `libs/server/crd_runtime/`, `libs/server/controller/` (`status.agent`, codes `AgentNoTunnel` et `AgentLimitCapped`), `libs/server/jwt_validator/` (`key_at`, `verify_with_key`), `apps/server/` (rôles), `deploy/chart/` (passerelle), `deploy/chart-agent/` (nouveau), `deploy/build/{agent,back}/Containerfile`, CRD générée (`deploy/crds.yaml`, `deploy/chart-crd/`, `deploy/crd/`), `fuzz/`, `.github/workflows/{build.yaml,release-prepare.yml}`, `.github/dependabot.yaml`, `cog.toml`, `Taskfile.yaml`, `.tasks/{lint,audit,integration}.yaml`, `.it/`, `tests/integration/`, `docs/content/docs/` |
+| Touches     | phase 1 : `apps/agent/` (nouveau), `libs/agent/{proto,pki}/` (nouveaux), `libs/server/api/src/agent/` (nouveau : passerelle, écoute, enrôlement, CA, registre, présences, `CONNECT`), `libs/server/api/src/cluster/redirect/{kube_redirect.rs,audit.rs}` et `kube_redirect/{upstream.rs,upgrade/connect.rs}`, `libs/server/api/src/{metrics.rs,server.rs,model/user.rs}`, `libs/server/common/src/{agent_gateway.rs,config.rs,state.rs,state/redis.rs}`, `libs/server/crd/src/{service/agent.rs,status/mod.rs}`, `libs/server/crd_runtime/`, `libs/server/controller/` (`status.agent`, codes `AgentNoTunnel` et `AgentLimitCapped`), `libs/server/jwt_validator/` (`key_at`, `verify_with_key`), `apps/server/` (rôles), `deploy/chart/` (passerelle), `deploy/chart-agent/` (nouveau), `deploy/build/{agent,back}/Containerfile`, CRD générée (`deploy/crds.yaml`, `deploy/chart-crd/`, `deploy/crd/`), `fuzz/`, `.github/workflows/{build.yaml,release-prepare.yml}`, `.github/dependabot.yaml`, `cog.toml`, `Taskfile.yaml`, `.tasks/{lint,audit,integration}.yaml`, `.it/`, `tests/integration/`, `docs/content/docs/` ; phases 2 à 4 et écarts : `apps/agent/src/{egress,store,jwks}.rs`, `deploy/chart-agent/` (`OneShotToken`, `ExternalCA`, `jwksPublisher`, sortie par proxy), `libs/agent/pki/` (`external_identity_of`), `libs/server/controller/` (Secret d'amorçage), `libs/server/jwt_validator/` (borne `PROXY_JWKS_MAX_DOCUMENT_BYTES`), `deploy/chart/` (PDB, HPA, métriques et NetworkPolicy de la passerelle) |
 | Risk        | high                                                                   |
 
 > Document de référence (environ 7 500 mots) : §1 à §4 suffisent pour en
@@ -1034,9 +1034,10 @@ mTLS, limites, `epoch` et audit, et la phase 2 n'ajoute pas `OneShotToken` sans
 
 ## 17. Implementation notes
 
-Suivi d'avancement, tenu pendant l'implémentation (branche
-`feat/rfc-0012-agent-tunnel`, puis `feat/rfc-0012-phase-2`), et révision
-contre l'arbre à la livraison des phases 1 et 2 (2026-10-24). Les sections 1 à 16 restent le texte accepté ; les
+Suivi d'avancement, tenu pendant l'implémentation (branches
+`feat/rfc-0012-agent-tunnel`, `feat/rfc-0012-phase-2`, `feat/rfc-0012-phase-4`
+et `feat/rfc-0012-gaps`), et révision contre l'arbre à la livraison : phase 1
+le 2026-10-24 (#294), phases 2, 4 et écarts le 2026-10-25 (#295, #296, #297). Les sections 1 à 16 restent le texte accepté ; les
 écarts sont notés ici, et ce que la preuve a observé est dans « État ».
 
 ### État
@@ -1064,126 +1065,27 @@ contre l'arbre à la livraison des phases 1 et 2 (2026-10-24). Les sections 1 à
 
 ### Reprise (à lire en premier après un redémarrage)
 
-Tenu à jour à chaque étape ; c'est d'ici que l'on repart, pas de
-l'historique de la conversation.
+**La RFC est livrée** (2026-10-25) : #294 (phase 1, `64b008d`), #295
+(phase 2, `664cf59`), #296 (phase 4, `2e7523a`) et #297 (écarts,
+`a6c0c63`) sont dans `main`, chacune mergée sur une CI verte, banc compris.
+L'historique des étapes est dans « État » et dans les PR.
 
-**Phase 4** : branche `feat/rfc-0012-phase-4`, partie de
-`feat/rfc-0012-phase-2`, un commit, pas poussée : `ExternalCA` (décisions 28
-et 29). Reste : la pousser et ouvrir une PR empilée sur #295, avec l'accord
-du mainteneur.
+Ce qui reste, hors de ce dépôt ou volontairement :
 
-**Phase 2** : **PR #295**, empilée sur #294 (base
-`feat/rfc-0012-agent-tunnel`, à rebasculer sur `main` après le merge de
-#294) : 2a (`0cd92ea`), 2b (`21d249d`), 2c-i (`7419aac`), 2c-ii
-(`5a926d9`), 2d (`d8c8d37`), 2e (`372410e`). Le banc local tourne avec les
-images de la phase 2 (rechargées à la main : build `server` et `agent`,
-`k3d image import` avec `DOCKER_HOST` et `DOCKER_SOCK`, CRD, `helm
-upgrade`).
+1. **`AgentConnected`** : appliquer
+   `.git/rfc0011/kit-typed-conditions.patch` dans weebo-operator-kit (le
+   mainteneur, jamais d'ici), publier une version, `task kit-sync`, puis
+   brancher la condition dans le contrôleur (`Degraded` et `Refused` avec
+   elle).
+2. **T12 complet** sans `rbac.referencedNamespaces`, **`expected` et
+   `lastSeen`** de `status.agent` : volontairement laissés, raisons dans
+   « Écarts ».
+3. **Tag 0.4.0** : `PLAN.md`, étape 16.
 
-**Phase 1** : branche `feat/rfc-0012-agent-tunnel`, partie de `main` après la PR #293
-(`d8f7341`), poussée ; **PR #294** ouverte
-(`feat: agent mode, reach an apiserver that is not exposed (RFC 0012, phase 1)`). Commits signés (`git commit -s -S
--F <fichier>`), le mainteneur a autorisé les commits sur cette branche ; les
-messages sont préparés dans `.git/rfc0011/commit-0012-*.txt` (hors suivi
-git), validés par `cog verify --file`. Le hook pre-commit lance `task lint`.
-
-**Modules livrés** (où regarder) :
-
-| Chemin | Rôle |
-| --- | --- |
-| `libs/server/crd/src/service/agent.rs` | `AgentService`, `AgentBootstrap::ServiceAccountToken`, `JwksSource`, CEL, `validate()` |
-| `libs/server/crd_runtime/src/lib.rs` | `is_reachable` à `false`, `to_kubeconfig` refusé (`ReachedThroughAgent`) pour `Agent` |
-| `libs/agent/proto/src/{ws_io,control,mux}.rs` | WebSocket en flux d'octets, messages de contrôle bornés, pilote yamux (`mux::new`, `MuxHandle`, `Mode`, `Stream` réexportés) |
-| `libs/agent/pki/src/lib.rs` | `AgentIdentity` (`proxyauth://ns/nom/uid/epoch`), `AgentCa` (`generate`, `from_pem`, `issue_agent`, `issue_server`), `identity_of` |
-| `libs/server/common/src/config.rs` | `Role`, `AgentGatewaySettings` (`PROXYAUTH_ROLE`, `AGENT_GATEWAY_*`, `POD_NAMESPACE`) |
-| `libs/server/common/src/state/redis.rs` | `presence_refresh`, `presence_remove`, `presence_members` (sorted set, heure de Redis) |
-| `libs/server/common/src/agent_gateway.rs` | `GatewayClient` (sur `State.agent_gateway`), `presence_key`, `is_pod_name`, `PRESENCE_TTL`, `PRESENCE_REFRESH`, `AGENT_HEADER` |
-| `libs/server/api/src/agent/registry.rs` | `TunnelRegistry` (`register` → `TunnelGuard`, `open_stream`, `identities`, `close_where`) |
-| `libs/server/api/src/agent/connect.rs` | écoute `CONNECT` de la passerelle (`ConnectService`, `serve`) |
-| `libs/server/api/src/agent/ca.rs` | `load_or_create` du Secret de la CA (`create`, relecture sur `409`) |
-| `libs/server/api/src/agent/listener.rs` | écoute des agents : `Gateway::new`, `router` (`/agent/v1/connect`, `/agent/v1/enroll`), `still_valid`, `current_epoch` |
-| `libs/server/api/src/agent/enroll.rs` | enrôlement `ServiceAccountToken` |
-| `libs/server/api/src/agent/presence.rs` | présences et révocation : `run`, `refresh`, `withdraw` |
-| `libs/server/api/src/agent/mod.rs` | `run` : la passerelle entière jusqu'au signal (`GatewayError`) |
-| `apps/agent/src/{lib,main}.rs` | l'agent : `Config`, `Health`, `run` ; sondes et métriques |
-| `deploy/build/agent/Containerfile`, `deploy/chart-agent/` | image et chart de l'agent |
-| `libs/server/api/src/cluster/redirect/kube_redirect/{upstream.rs,upgrade/connect.rs}` | le proxy en `CONNECT` (`agent_proxy`, `connect_through_gateway`) |
-| `libs/server/api/tests/{agent_tunnel,envtest_agent_crd,envtest_agent_ca}.rs` | bout en bout en processus, CEL et CA sur un vrai apiserver |
-
-**État du dépôt au moment de l'arrêt** (2026-10-24, soir) : la phase 1 est
-commitée et poussée jusqu'à `1ed52fc` ; la CI de #294 est verte, banc compris
-(relancé après un dépassement du `timeout-minutes` de « Mount the bench »). La CI du commit `0f6ce9b` était verte,
-banc compris (`integration` : 74/74 puis 3/3, `rfc0012` 10/10 et le point 14),
-sauf CodeQL : une alerte (#1483, « cleartext logging ») sur un `{ended:?}` de
-`agent_tunnel.rs`, faux positif retiré par `843efdd`. La CI de `843efdd`
-tournait encore à l'arrêt. La mise à jour de cette « Reprise » est un commit
-local, à pousser une fois la CI de `843efdd` finie : un push qui ne touche que
-`.rfc/` annule le banc en cours (`concurrency` d'`integration.yaml`). Le banc
-k3d local (`proxyauth-it`, port 8443) tournait encore : `task it:down`, ou
-`systemctl --user start podman.socket` pour le réutiliser après un redémarrage.
-
-Pour repartir : `gh pr checks 294` (tout vert attendu ; l'alerte CodeQL #1483
-doit être fermée après `Analyze (rust)`), `git status`, puis
-`git push` du commit de « Reprise » s'il n'est pas sur `origin`.
-
-**Suite, dans l'ordre** (chaque étape : code, tests, §17 « État », commit) :
-
-1. ~~Commiter le proxy en `CONNECT` puis la CA.~~ Fait.
-2. ~~**Écoute des agents** (`api/src/agent/listener.rs`).~~ Fait ; reste à la
-   brancher dans `main.rs` (étape 5). La route `enroll` s'ajoute au même
-   `router`.
-3. ~~**Enrôlement** (`api/src/agent/enroll.rs`).~~ Fait. Pas de cache de
-   30 s pour `jwks_from` (`shortcut:` dans le code : borné par
-   `enroll_per_minute_total`) ; pas de test de la limite de débit (la clé
-   Redis est partagée entre les tests).
-4. ~~**Présences et révocation** (`api/src/agent/presence.rs`).~~ Fait ;
-   `run` et `withdraw` sont à brancher dans `main.rs` (étape 5).
-5. ~~**Rôle dans `apps/server/src/main.rs`**.~~ Fait. Les sondes de la
-   passerelle sont `/healthz` et `/readyz` sur `agentGateway.port` (l'écoute
-   des agents) : le chart les vise là.
-6. ~~**Chart** (`deploy/chart/`).~~ Fait. Restent : HPA et PDB de la
-   passerelle, la page `helm-chart.mdx` (phase 3, documentation).
-7. ~~**CRD et contrôleur**.~~ Fait, avec deux écarts (plus bas) :
-   pas de condition `AgentConnected`, pas de `expected` ni de `lastSeen`.
-8. ~~**`to_kube_client` par le `CONNECT`**.~~ Fait autrement : pas de
-   client kube (kube ne sait pas poser les en-têtes du `CONNECT`), le seul
-   appel qu'en fait `auth_against_kubernetes` passe par reqwest.
-9. ~~**Audit et métriques**.~~ Fait. Les raisons d'`agent_refused` sont
-   celles du code (`subject`, `token`, `jwks`, `unknown key`, `epoch`,
-   `uid`, `identity`, `tls`, `rate limit`…) : `token` regroupe audience,
-   signature et expiration, que `jwt_validator` ne distingue pas.
-10. ~~**L'agent**.~~ Fait pour la phase 1 : sortie directe seulement
-    (`CONNECT` et SOCKS5 sont de la phase 2), `ServiceAccountToken` seul.
-    Le chart refuse `tlsMode` autre que `inner` et une autre méthode.
-11. ~~Tests de sécurité restants.~~ Faits. **La phase 1 est complète**, prouvée
-    sur le banc (phase 3 faite pour les points de la phase 1).
-12. ~~Ouvrir la PR~~ : #294. Reste : CI verte sur le dernier commit, relecture
-    et merge par le mainteneur.
-13. **À décider (mainteneur)** : les phases 2 à 4 avant le tag 0.4.0, ou
-    après (`PLAN.md`, étapes 16 et 17).
-14. **Phase 2**, une PR, qui livre les points 8 à 11 de §6.P (lignes 8 à 11
-    de `MATRIX.md` à passer de `hors suite` à `suite`) :
-    - `OneShotToken` : `AgentBootstrap::OneShotToken { auto_rotate }`, SHA-256
-      du jeton dans Redis, consommation par `GETDEL` (T6) ; côté agent, clé et
-      certificat dans le Secret `identitySecret`, `get`/`update`/`patch` sur ce
-      seul Secret (T16, rendu du chart vérifié) ; décision 21.
-    - `tlsMode: passthrough` : l'écoute termine elle-même le TLS
-      (`agentGateway.tls.secretName`), certificat client exigé ; le chart de
-      l'agent accepte alors `tlsMode: passthrough` (son `fail` actuel saute).
-    - Sortie de l'agent par `CONNECT` (`hyper`, `Proxy-Authorization: Basic`
-      depuis `credentialsSecret`) et SOCKS5 (`tokio-socks` 0.5.3, RFC 1929),
-      `HTTPS_PROXY` / `ALL_PROXY` / `NO_PROXY` ; tinyproxy et microsocks
-      épinglés dans `.it/images.lock` pour le banc.
-    - CronJob `jwksPublisher` du chart de l'agent (décision 24).
-15. **Écarts restés ouverts**, à reprendre quand ils gênent : la borne de
-    64 Kio d'un JWKS par `jwks_url` (T13, `JwksCache` partagé avec l'OIDC) ;
-    la condition `AgentConnected` (un correctif à proposer au kit
-    weebo-operator-kit, jamais édité d'ici) ; T12 complet sans
-    `rbac.referencedNamespaces` ; les métriques de la passerelle non exposées
-    sur le banc (`WEEBO_METRICS_ADDR`) ; HPA et PDB de la passerelle ;
-    `expected` et `lastSeen` de `status.agent`.
-16. ~~Phase 4~~ : faite sur `feat/rfc-0012-phase-4` (décisions 28 et 29), voir
-    « État ».
+Pour une PR empilée : les branches ne sont pas supprimées au merge, la
+suivante se rebascule à la main sur `main`, puis se ferme et se rouvre (un
+changement de base ne relance pas les workflows `pull_request`, dont le
+`integration` exigé par le ruleset `main-integration`).
 
 **Lancer les tests** :
 
@@ -1217,7 +1119,7 @@ doit être fermée après `Analyze (rust)`), `git status`, puis
 | Étape (phase 4) | État | Notes |
 | --- | --- | --- |
 | 4 `ExternalCA` (décisions 28, 29) | fait | CRD : `AgentBootstrap::ExternalCA(ExternalCaBootstrap { ca, ca_ref, max_cert_lifetime_hours })`, CEL « exactement un de `ca`, `ca_ref` », 1 à 8760 h (défaut 168) ; `agent_pki::external_identity_of` (URI SAN `proxyauth://<ns>/<nom>`, un seul) ; passerelle : `AgentClientVerifier` (nos certificats vérifiés comme avant ; un certificat `proxyauth://<ns>/<nom>` accepté à la poignée de main, la possession de la clé y étant prouvée, puis `Gateway::identify` : CR en `ExternalCA`, chaîne vérifiée par `WebPkiClientVerifier` sur la CA du CR, durée de vie bornée), tunnel fermé à l'expiration (`expired`), `RenewRequest` refusé (`method`), enrôlement refusé (`method`), les deux modes TLS (la chaîne entière passe par `ClientCertificate` en `passthrough`) ; agent : `AGENT_BOOTSTRAP_METHOD=ExternalCA`, `AGENT_TLS_CERT_PATH` / `_KEY_PATH` relus à chaque connexion (clé dans tout encodage PEM, chaîne présentée entière), `AGENT_TUNNEL_CA_PATH` exigé en `inner`, reconnexion quand les fichiers portent un certificat plus récent ; chart de l'agent : `bootstrap.method: ExternalCA`, `bootstrap.certificate.{secretName,issuerRef,duration,renewBefore}` (une `Certificate` cert-manager écrite si `issuerRef`), `tunnelCa` ; `agent.mdx`. Tests : `agent_tunnel` 34/34 (`an_external_ca_certificate_serves_its_cluster_only`, `an_external_tunnel_closes_when_its_certificate_expires`, `the_real_agent_uses_an_external_certificate_and_its_renewal`), envtest `envtest_agent_crd` 9/9, unitaires `agent_pki`, `crd`, `agent`. Hors suite comme le dit §6.P : cert-manager et Vault ne sont pas sur le banc |
-| 15 écarts restés ouverts | en partie | **T13, 64 Kio** : `jwt_validator::jwks::bounded_json` refuse un document de découverte ou un JWKS de plus de `MAX_DOCUMENT_BYTES` (64 Kio) avant de l'avoir lu en entier (`Content-Length`, puis lecture par morceaux), pour `jwks_url` comme pour les émetteurs OIDC (un JWKS réel pèse quelques Kio) ; test `a_jwks_past_64_kib_is_refused_before_it_is_all_read`. **HPA et PDB de la passerelle** : `agentGateway.podDisruptionBudget` (activé, `minAvailable: 1`) et `agentGateway.autoscaling` (désactivé), en mode `separate`. **Métriques de la passerelle** : avec `metrics.prometheus.enabled`, `WEEBO_METRICS_ADDR` sur `agentGateway.metricsPort` (9464), annotations Prometheus ou `PodMonitor` avec `serviceMonitor`, NetworkPolicy depuis `scrapeFrom` ; le point 15 du banc lit `proxyauth_agent_tunnels` par le proxy de pod de l'apiserver (ses compteurs de flux, partagés avec les tests parallèles, ne sont pas comparés). **`AgentConnected`** : correctif du kit préparé, non appliqué ici (`.git/rfc0011/kit-typed-conditions.patch`, contre weebo-operator-kit v0.24.0 : `conditions::TypedCondition`, `conditions_with`, `status::publish_with`, sans casser `publish`) ; à brancher dans le contrôleur quand une version du kit le publie. Restent, volontairement : T12 complet sans `rbac.referencedNamespaces` (RBAC n'a pas de refus) ; `expected` et `lastSeen` de `status.agent` (le premier demande un champ de protocole, le second ferait changer le statut à chaque reconcile) |
+| 15 écarts restés ouverts | fait, sauf trois volontaires | **T13** : `jwt_validator::jwks::bounded_json` refuse un document de découverte ou un JWKS au-delà de la borne avant de l'avoir lu en entier (`Content-Length`, puis lecture par morceaux), pour `jwks_url` comme pour les émetteurs OIDC ; la borne est `PROXY_JWKS_MAX_DOCUMENT_BYTES` (64 Kio par défaut, `ProxySettings::jwks_max_document_bytes`), transmise à la passerelle par le `JwtValidator` de l'état ; tests `a_jwks_past_64_kib_is_refused_before_it_is_all_read` (défaut et borne réglée). **PDB et HPA** (back, front, passerelle) : un `maxUnavailable` défini remplace le `minAvailable: 1` par défaut ; avec un seul pod au minimum (`replicas`, ou `autoscaling.minReplicas`), `maxUnavailable: 1` (un `minAvailable: 1` bloquerait tout `kubectl drain`) ; avec l'HPA, `replicas` vaut le nombre en place (`lookup`), sinon `minReplicas` (Argo CD : `ignoreDifferences` documenté dans `helm-chart.mdx`) ; les HPA des pods qui portent des tunnels (passerelle, back en `embedded`) réduisent lentement (`agentGateway.autoscaling.scaleDown*` : 600 s, un pod par 300 s). **Métriques de la passerelle** : avec `metrics.prometheus.enabled`, `WEEBO_METRICS_ADDR` sur `agentGateway.metricsPort` (9464), annotations Prometheus ou `PodMonitor`, NetworkPolicy depuis `scrapeFrom`, sinon `networkPolicy.ingressFrom`, sinon tous (comme le back) ; le point 15 du banc lit `proxyauth_agent_tunnels` par `observe::gateway_metrics` (port nommé `metrics` du pod). Revue en trois passes, banc `rfc0012` 13/13 et les deux binaires seuls verts. **`AgentConnected`** : correctif du kit préparé, non appliqué ici (`.git/rfc0011/kit-typed-conditions.patch`, contre weebo-operator-kit v0.24.0 : `conditions::TypedCondition`, `conditions_with`, `status::publish_with`, sans casser `publish`) ; à brancher dans le contrôleur quand une version du kit le publie. Restent, volontairement : T12 complet sans `rbac.referencedNamespaces` (RBAC n'a pas de refus) ; `expected` et `lastSeen` de `status.agent` (le premier demande un champ de protocole, le second ferait changer le statut à chaque reconcile) |
 
 ### Preuve par menace (§7, §14)
 
@@ -1235,7 +1137,7 @@ doit être fermée après `Analyze (rust)`), `git status`, puis
 | T10 | `agent_tunnel::the_enroll_route_is_rate_limited_before_any_write` | oui |
 | T11 | `agent_tunnel::stream_and_tunnel_limits_hold` | oui |
 | T12 | `agent_tunnel::the_ca_key_never_reaches_a_log` ; le RBAC du chart | en partie : voir « Écarts », sans `rbac.referencedNamespaces` le back lit tous les Secrets |
-| T13 | `agent_tunnel::jwks_url_refuses_http_and_redirects` | en partie : les redirections sont refusées par la politique du client, non prouvées par un test ; la borne de 64 Kio n'est pas appliquée |
+| T13 | `agent_tunnel::jwks_url_refuses_http_and_redirects`, `jwt_validator::jwks::tests::a_jwks_past_64_kib_is_refused_before_it_is_all_read` | oui pour la borne (64 Kio par défaut, `PROXY_JWKS_MAX_DOCUMENT_BYTES`, refus avant lecture complète) ; les redirections sont refusées par la politique du client, non prouvées par un test |
 | T14 | `agent_tunnel::enrollment_and_tunnels_write_audit_events`, `a_relayed_request_is_audited_as_upstream_via_agent` ; banc `rfc0012::p1_…` | oui |
 | T15 | `agent_tunnel::user_routes_are_not_served_on_the_agent_port` ; banc `rfc0012::p12_…` | oui |
 | T16 | banc `rfc0012::p8_…` (`kubectl auth can-i` du ServiceAccount de l'agent : `get` et `update` du seul `identitySecret`, ni un autre Secret, ni `create`, ni `list`) | oui ; prouvé sur l'apiserver plutôt que par `helm template` (§14) |
@@ -1291,8 +1193,10 @@ doit être fermée après `Analyze (rust)`), `git status`, puis
 - **T13, redirections** : le client des `jwks_url` ne suit aucune
   redirection (`Policy::none()`, 5 s) ; le test ne prouve que le refus d'un
   `http://` (un serveur HTTPS de test demanderait une CA que ce client ne
-  connaît pas). La borne de 64 Kio d'un JWKS récupéré n'est pas appliquée
-  (`JwksCache` est partagé avec les émetteurs OIDC).
+  connaît pas). La borne d'un JWKS récupéré (#297) vaut pour toutes les
+  sources de `JwksCache`, `jwks_url` comme les émetteurs OIDC qu'il partage :
+  64 Kio par défaut, réglable par `PROXY_JWKS_MAX_DOCUMENT_BYTES` pour un
+  IdP aux nombreuses clés `x5c`.
 - **T12 et le RBAC du back** : sans `rbac.referencedNamespaces`, le
   ClusterRole du back garde un `get` sur tous les Secrets, CA des agents
   comprise ; RBAC n'a pas de refus. T12 ne tient pleinement, en mode
