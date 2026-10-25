@@ -11,6 +11,10 @@ spec:
     name: "{{ include "proxyauthk8s.back.name" . }}"
   minReplicas: {{ .Values.back.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.back.autoscaling.maxReplicas }}
+  {{- if and .Values.agentGateway.enabled (eq .Values.agentGateway.mode "embedded") }}
+  # Embedded gateway: the back's pods hold the tunnels.
+  {{- include "proxyauthk8s.tunnelScaleDown" .Values.agentGateway.autoscaling | nindent 2 }}
+  {{- end }}
   metrics:
     {{- with .Values.back.autoscaling.targetCPUUtilizationPercentage }}
     - type: Resource
@@ -77,6 +81,7 @@ spec:
     name: "{{ include "proxyauthk8s.gateway.name" . }}"
   minReplicas: {{ .Values.agentGateway.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.agentGateway.autoscaling.maxReplicas }}
+  {{- include "proxyauthk8s.tunnelScaleDown" .Values.agentGateway.autoscaling | nindent 2 }}
   metrics:
     {{- with .Values.agentGateway.autoscaling.targetCPUUtilizationPercentage }}
     - type: Resource

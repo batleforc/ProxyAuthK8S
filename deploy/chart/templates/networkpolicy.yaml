@@ -82,10 +82,13 @@ spec:
     - Egress
   ingress:
     {{- include "proxyauthk8s.gateway.netpolIngress" . | nindent 4 }}
-    {{- if and .Values.metrics.prometheus.enabled .Values.metrics.scrapeFrom }}
-    # Prometheus scraping the gateway's /metrics.
-    - from:
-        {{- toYaml .Values.metrics.scrapeFrom | nindent 8 }}
+    {{- if .Values.metrics.prometheus.enabled }}
+    # Prometheus scraping the gateway's /metrics: from scrapeFrom, else from
+    # ingressFrom, else anywhere (who reaches the back's metrics on back.port).
+    - {{- with (.Values.metrics.scrapeFrom | default .Values.networkPolicy.ingressFrom) }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       ports:
         - port: {{ .Values.agentGateway.metricsPort }}
           protocol: TCP

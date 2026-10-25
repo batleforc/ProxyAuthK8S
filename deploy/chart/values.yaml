@@ -121,7 +121,7 @@ back:
   podDisruptionBudget:
     enabled: true
     minAvailable: 1
-    # maxUnavailable: 1   # mutually exclusive with minAvailable
+    # maxUnavailable: 1   # when set, replaces minAvailable
   autoscaling:
     enabled: false
     minReplicas: 2
@@ -212,7 +212,9 @@ agentGateway:
     # agents' host, re-read daily (cert-manager renewals are picked up).
     secretName: ""
   # Separate mode: the gateway pods holding the tunnels. A disruption moves
-  # the agents to the remaining pods; keep one up.
+  # the agents to the remaining pods; keep one up. With a single pod at the
+  # fewest (replicaCount, or autoscaling.minReplicas), maxUnavailable: 1
+  # instead: minAvailable would block every drain.
   podDisruptionBudget:
     enabled: true
     minAvailable: 1
@@ -221,6 +223,12 @@ agentGateway:
     minReplicas: 2
     maxReplicas: 6
     targetCPUUtilizationPercentage: 80
+    # A scale-down closes the tunnels of the removed pods: wait this long on a
+    # lower load, then remove scaleDownPods pods per scaleDownPeriodSeconds.
+    # Embedded mode: applied to back.autoscaling, the back holding the tunnels.
+    scaleDownStabilizationSeconds: 600
+    scaleDownPods: 1
+    scaleDownPeriodSeconds: 300
   oneShotToken:
     # Let the controller write the Secret <name>-agent-bootstrap of each
     # `bootstrap: OneShotToken` ProxyKubeApi: `create` and `patch` on Secrets,

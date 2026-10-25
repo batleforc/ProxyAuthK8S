@@ -1,34 +1,24 @@
-{{- if .Values.back.podDisruptionBudget.enabled }}
+{{- if and .Values.back.podDisruptionBudget.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: "{{ include "proxyauthk8s.back.name" . }}-pdb"
   namespace: "{{ .Release.Namespace }}"
 spec:
-  {{- with .Values.back.podDisruptionBudget.minAvailable }}
-  minAvailable: {{ . }}
-  {{- end }}
-  {{- with .Values.back.podDisruptionBudget.maxUnavailable }}
-  maxUnavailable: {{ . }}
-  {{- end }}
+  {{- include "proxyauthk8s.pdbBudget" (dict "pdb" .Values.back.podDisruptionBudget "min" (include "proxyauthk8s.minReplicas" (dict "replicas" .Values.back.replicas "autoscaling" .Values.back.autoscaling))) | nindent 2 }}
   selector:
     matchLabels:
       app: "{{ include "proxyauthk8s.back.name" . }}"
 {{- end }}
 ---
-{{- if .Values.front.podDisruptionBudget.enabled }}
+{{- if and .Values.front.podDisruptionBudget.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: "{{ include "proxyauthk8s.front.name" . }}-pdb"
   namespace: "{{ .Release.Namespace }}"
 spec:
-  {{- with .Values.front.podDisruptionBudget.minAvailable }}
-  minAvailable: {{ . }}
-  {{- end }}
-  {{- with .Values.front.podDisruptionBudget.maxUnavailable }}
-  maxUnavailable: {{ . }}
-  {{- end }}
+  {{- include "proxyauthk8s.pdbBudget" (dict "pdb" .Values.front.podDisruptionBudget "min" (include "proxyauthk8s.minReplicas" (dict "replicas" .Values.front.replicas "autoscaling" .Values.front.autoscaling))) | nindent 2 }}
   selector:
     matchLabels:
       app: "{{ include "proxyauthk8s.front.name" . }}"
@@ -41,12 +31,7 @@ metadata:
   name: "{{ include "proxyauthk8s.gateway.name" . }}-pdb"
   namespace: "{{ .Release.Namespace }}"
 spec:
-  {{- with .Values.agentGateway.podDisruptionBudget.minAvailable }}
-  minAvailable: {{ . }}
-  {{- end }}
-  {{- with .Values.agentGateway.podDisruptionBudget.maxUnavailable }}
-  maxUnavailable: {{ . }}
-  {{- end }}
+  {{- include "proxyauthk8s.pdbBudget" (dict "pdb" .Values.agentGateway.podDisruptionBudget "min" (include "proxyauthk8s.minReplicas" (dict "replicas" .Values.agentGateway.replicaCount "autoscaling" .Values.agentGateway.autoscaling))) | nindent 2 }}
   selector:
     matchLabels:
       app: "{{ include "proxyauthk8s.gateway.name" . }}"

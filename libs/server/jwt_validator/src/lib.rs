@@ -11,5 +11,5 @@ pub mod validator;
 
 pub use cel_rules::MappedUser;
 pub use error::JwtValidationError;
-pub use jwks::JwksCache;
+pub use jwks::{JwksCache, MAX_DOCUMENT_BYTES};
 pub use validator::{JwtValidator, SharedJwtValidator, verify_with_key};

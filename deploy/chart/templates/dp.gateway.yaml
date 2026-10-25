@@ -8,7 +8,7 @@ metadata:
   name: "{{ include "proxyauthk8s.gateway.name" . }}"
   namespace: "{{ .Release.Namespace }}"
 spec:
-  replicas: {{ .Values.agentGateway.replicaCount }}
+  {{- include "proxyauthk8s.replicas" (dict "root" . "name" (include "proxyauthk8s.gateway.name" .) "replicas" .Values.agentGateway.replicaCount "autoscaling" .Values.agentGateway.autoscaling) | nindent 2 }}
   selector:
     matchLabels:
       app: "{{ include "proxyauthk8s.gateway.name" . }}"

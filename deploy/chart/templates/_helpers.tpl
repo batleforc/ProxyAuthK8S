@@ -157,3 +157,61 @@ exposure layer, the CONNECT port from the back's pods only (T18).
     - port: {{ .Values.agentGateway.connectPort }}
       protocol: TCP
 {{- end -}}
+
+{{/*
+A PodDisruptionBudget's budget: maxUnavailable, when set, wins over the
+minAvailable default (the API refuses both); an explicit 0 is kept, an
+empty value is unset. With a single pod at the fewest (`min`,
+proxyauthk8s.minReplicas), maxUnavailable: 1. Args: pdb, min.
+*/}}
+{{- define "proxyauthk8s.pdbBudget" -}}
+{{- if not (has (toString .pdb.maxUnavailable) (list "" "<nil>")) -}}
+maxUnavailable: {{ .pdb.maxUnavailable }}
+{{- else if le (int .min) 1 -}}
+{{- /* A single pod: minAvailable would block every drain. */ -}}
+maxUnavailable: 1
+{{- else if not (has (toString .pdb.minAvailable) (list "" "<nil>")) -}}
+minAvailable: {{ .pdb.minAvailable }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The fewest pods a Deployment runs: autoscaling.minReplicas with its HPA,
+else its replica count. Args: replicas, autoscaling.
+*/}}
+{{- define "proxyauthk8s.minReplicas" -}}
+{{- ternary .autoscaling.minReplicas .replicas .autoscaling.enabled | int -}}
+{{- end -}}
+
+{{/*
+A Deployment's `replicas`: the chart's count, or with an HPA the live one,
+so an upgrade neither resets the HPA's choice nor drops the field (Helm's
+merge would then fall back to 1 pod); minReplicas when there is none to read
+(first install, `helm template`, Argo CD). Args: root, name, replicas,
+autoscaling.
+*/}}
+{{- define "proxyauthk8s.replicas" -}}
+{{- if not .autoscaling.enabled -}}
+replicas: {{ .replicas }}
+{{- else -}}
+{{- with (lookup "apps/v1" "Deployment" .root.Release.Namespace .name) -}}
+replicas: {{ .spec.replicas }}
+{{- else -}}
+replicas: {{ .autoscaling.minReplicas }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The scale-down of an HPA whose pods hold agents' tunnels (the gateway, or
+the back in embedded mode): each removal closes tunnels, so slowly.
+*/}}
+{{- define "proxyauthk8s.tunnelScaleDown" -}}
+behavior:
+  scaleDown:
+    stabilizationWindowSeconds: {{ .scaleDownStabilizationSeconds }}
+    policies:
+      - type: Pods
+        value: {{ .scaleDownPods }}
+        periodSeconds: {{ .scaleDownPeriodSeconds }}
+{{- end -}}

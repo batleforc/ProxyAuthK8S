@@ -169,6 +169,10 @@ impl Gateway {
         settings: AgentGatewaySettings,
         pod: String,
     ) -> Arc<Self> {
+        // The bound `PROXY_JWKS_MAX_DOCUMENT_BYTES` set on the state's validator.
+        let jwks = jwt_validator::JwksCache::with_max_document_bytes(
+            state.jwt_validator.max_document_bytes(),
+        );
         Arc::new(Self {
             state,
             registry,
@@ -176,7 +180,7 @@ impl Gateway {
             settings,
             pod,
             tls: Mutex::new(None),
-            jwks: jwt_validator::JwksCache::new(),
+            jwks,
             // T13: no redirect followed, 5 s per fetch; a client that cannot
             // be built (no TLS backend) refuses every `jwks_url`.
             http: reqwest::Client::builder()

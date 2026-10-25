@@ -26,8 +26,8 @@ const JWKS_TTL: Duration = Duration::from_secs(15 * 60);
 /// How long a fetched discovery document is served without refetching. Longer
 /// than the JWKS TTL: `jwks_uri` changes far less often than the keys behind it.
 const DISCOVERY_TTL: Duration = Duration::from_secs(60 * 60);
-/// Bound on a fetched discovery document or JWKS (RFC 0012 §4.3, T13): an
-/// issuer URL a tenant names cannot make the proxy buffer more.
+/// Default bound on a fetched discovery document or JWKS (RFC 0012 §4.3, T13):
+/// an issuer URL a tenant names cannot make the proxy buffer more.
 pub const MAX_DOCUMENT_BYTES: usize = 64 * 1024;
 /// Floor between two unknown-`kid` refetches for the same issuer.
 const MIN_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
@@ -55,11 +55,17 @@ impl<T> Cached<T> {
 ///
 /// Built once at start-up and held in the server state, so the cache is process
 /// wide rather than per request.
-#[derive(Default)]
 pub struct JwksCache {
     discovery: RwLock<HashMap<String, Cached<String>>>,
     jwks: RwLock<HashMap<String, Cached<Arc<JwkSet>>>>,
     last_forced_refresh: RwLock<HashMap<String, Instant>>,
+    max_document_bytes: usize,
+}
+
+impl Default for JwksCache {
+    fn default() -> Self {
+        Self::with_max_document_bytes(MAX_DOCUMENT_BYTES)
+    }
 }
 
 impl std::fmt::Debug for JwksCache {
@@ -72,6 +78,23 @@ impl JwksCache {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A cache refusing a discovery document or JWKS past `max_document_bytes`.
+    #[must_use]
+    pub fn with_max_document_bytes(max_document_bytes: usize) -> Self {
+        Self {
+            discovery: RwLock::default(),
+            jwks: RwLock::default(),
+            last_forced_refresh: RwLock::default(),
+            max_document_bytes,
+        }
+    }
+
+    /// The bound on a fetched discovery document or JWKS.
+    #[must_use]
+    pub const fn max_document_bytes(&self) -> usize {
+        self.max_document_bytes
     }
 
     /// Resolve `discovery_endpoint` to the issuer's `jwks_uri`.
@@ -133,7 +156,7 @@ impl JwksCache {
         client: &reqwest::Client,
         discovery_endpoint: &str,
     ) -> Result<serde_json::Value, JwtValidationError> {
-        client
+        let response = client
             .get(discovery_endpoint)
             .send()
             .await
@@ -145,9 +168,8 @@ impl JwksCache {
             .map_err(|source| JwtValidationError::JwksFetch {
                 url: discovery_endpoint.to_string(),
                 source: Box::new(source),
-            })
-            .map(|response| bounded_json(response, discovery_endpoint))?
-            .await
+            })?;
+        bounded_json(response, discovery_endpoint, self.max_document_bytes).await
     }
 
     async fn fetch_jwks(
@@ -155,7 +177,7 @@ impl JwksCache {
         client: &reqwest::Client,
         jwks_uri: &str,
     ) -> Result<Arc<JwkSet>, JwtValidationError> {
-        let set: JwkSet = client
+        let response = client
             .get(jwks_uri)
             .send()
             .await
@@ -167,9 +189,8 @@ impl JwksCache {
             .map_err(|source| JwtValidationError::JwksFetch {
                 url: jwks_uri.to_string(),
                 source: Box::new(source),
-            })
-            .map(|response| bounded_json(response, jwks_uri))?
-            .await?;
+            })?;
+        let set: JwkSet = bounded_json(response, jwks_uri, self.max_document_bytes).await?;
 
         if set.keys.is_empty() {
             return Err(JwtValidationError::JwksInvalid {
@@ -285,19 +306,20 @@ impl JwksCache {
     }
 }
 
-/// The body of `response` as JSON, refused past [`MAX_DOCUMENT_BYTES`]
-/// before it is all read.
+/// The body of `response` as JSON, refused past `max` bytes before it is all
+/// read.
 async fn bounded_json<T: serde::de::DeserializeOwned>(
     mut response: reqwest::Response,
     url: &str,
+    max: usize,
 ) -> Result<T, JwtValidationError> {
     let too_large = || JwtValidationError::JwksInvalid {
         url: url.to_string(),
-        reason: format!("larger than {MAX_DOCUMENT_BYTES} bytes"),
+        reason: format!("larger than {max} bytes"),
     };
     if response
         .content_length()
-        .is_some_and(|length| length > MAX_DOCUMENT_BYTES as u64)
+        .is_some_and(|length| length > max as u64)
     {
         return Err(too_large());
     }
@@ -311,7 +333,7 @@ async fn bounded_json<T: serde::de::DeserializeOwned>(
                 source: Box::new(source),
             })?
     {
-        if body.len().saturating_add(chunk.len()) > MAX_DOCUMENT_BYTES {
+        if body.len().saturating_add(chunk.len()) > max {
             return Err(too_large());
         }
         body.extend_from_slice(&chunk);
@@ -386,13 +408,21 @@ mod tests {
         assert!(err.to_string().contains("larger than"), "{err}");
 
         let set = serde_json::to_vec(&jwks(&["a"])).expect("json");
-        let url = serve_once(set).await;
+        let url = serve_once(set.clone()).await;
         assert!(
             JwksCache::new()
                 .key_at(&reqwest::Client::new(), &url, None)
                 .await
                 .is_ok()
         );
+
+        // A lower configured bound refuses the same set.
+        let url = serve_once(set).await;
+        let err = JwksCache::with_max_document_bytes(16)
+            .key_at(&reqwest::Client::new(), &url, None)
+            .await
+            .expect_err("past the configured bound");
+        assert!(err.to_string().contains("larger than 16 bytes"), "{err}");
     }
 
     #[test]

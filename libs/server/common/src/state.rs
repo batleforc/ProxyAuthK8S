@@ -97,7 +97,9 @@ impl State {
             is_leader: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             lease_namespace: config.leader_election.lease_namespace.clone(),
             lease_name: config.leader_election.lease_name.clone(),
-            jwt_validator: Arc::new(JwtValidator::new()),
+            jwt_validator: Arc::new(JwtValidator::with_max_document_bytes(
+                config.proxy.jwks_max_document_bytes,
+            )),
             oidc_config_cache: Arc::new(OidcConfigCache::new()),
             oidc_ready: Arc::new(AtomicBool::new(false)),
             event_recorder: Arc::default(),
