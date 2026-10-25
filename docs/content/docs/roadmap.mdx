@@ -224,7 +224,7 @@ de la refonte UI). Voir la RFC 0001.
 
 <Callout>
   La 0.3.0 (CRD IDE, scan trivy des images) est partie sans la RFC 0011. Le
-  mode agent (RFC 0012, phase 1 implémentée) est avancé de la v2.0.0 et sort avec elle ;
+  mode agent (RFC 0012, implémentée) est avancé de la v2.0.0 et sort avec elle ;
   l'échange de jeton (RFC 0010) passe en 0.5.0. L'ordre est dans le
   [plan de livraison des RFC](https://github.com/batleforc/ProxyAuthK8S/blob/main/.rfc/PLAN.md).
 </Callout>
@@ -247,8 +247,10 @@ de la refonte UI). Voir la RFC 0001.
 - ✅ TLS de bout en bout entre le proxy et l'apiserver : l'agent ne voit que des octets chiffrés et n'a aucun RBAC
 - ✅ Une passerelle d'agents à part (ou dans le pod du proxy) : un redémarrage du proxy ne coupe pas les tunnels
 - ✅ Enrôlement par jeton de ServiceAccount projeté (JWKS en ligne, par URL ou depuis un ConfigMap / Secret) ; révocation par `epoch`
-- ⏳ Jeton à usage unique via External Secrets + Vault, puis CA externe
-- ⏳ Sortie de l'agent par un proxy `CONNECT` ou SOCKS5 ; `tlsMode: passthrough`
+- ✅ Jeton à usage unique (External Secrets + Vault), certificats de votre propre PKI (`ExternalCA` : cert-manager, Vault PKI), CronJob `jwksPublisher`
+- ✅ Sortie de l'agent par un proxy `CONNECT` ou SOCKS5 ; `tlsMode: passthrough`
+- ✅ Passerelle prête pour la production : PDB, HPA à réduction lente, métriques Prometheus
+- ⏳ Condition `AgentConnected` (attend un correctif du kit)
 
 </Step>
 
