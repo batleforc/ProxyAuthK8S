@@ -2,6 +2,68 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.4.0](https://github.com/batleforc/proxyauthK8s/compare/01c762c3f4af03e96d330217697539771b468538..v0.4.0) - 2026-10-25
+#### Features
+- (**agent**) jwksPublisher CronJob, the remote JWKS kept current (RFC 0012) - ([d8c8d37](https://github.com/batleforc/proxyauthK8s/commit/d8c8d37e482d5fe97026cd2502317a3d0e855cd3)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**agent**) OneShotToken bootstrap with a shared identity Secret (RFC 0012) - ([5a926d9](https://github.com/batleforc/proxyauthK8s/commit/5a926d996db02365e5e8d5f875b3a71458b87d49)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**agent**) egress through a CONNECT or SOCKS5 proxy (RFC 0012) - ([0cd92ea](https://github.com/batleforc/proxyauthK8s/commit/0cd92eaa8d1bb3fdab65f18668627aaf8d1aaac3)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**agent**) add the agent binary, its image and its chart (RFC 0012) - ([1feb4cf](https://github.com/batleforc/proxyauthK8s/commit/1feb4cfe9f20a53fcdd9c3c34b118709befb0f24)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**agent**) add the agent CA crate (RFC 0012, phase 1c) - ([20172e2](https://github.com/batleforc/proxyauthK8s/commit/20172e20c6dafa44beca8eb2b74e6d6238c3c1af)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**agent**) add the tunnel wire protocol crate (RFC 0012, phase 1b) - ([cac4528](https://github.com/batleforc/proxyauthK8s/commit/cac45283cb42921a66b1d487361211941948d750)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) ExternalCA bootstrap, agents certified by your own PKI (RFC 0012) - ([6c5bdcd](https://github.com/batleforc/proxyauthK8s/commit/6c5bdcd200fd30b68fda467f782e4f48d3d96bd9)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) agent gateway in tlsMode passthrough (RFC 0012) - ([21d249d](https://github.com/batleforc/proxyauthK8s/commit/21d249d490a7331742f0053b5166375214bd3b12)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) audit and measure the agent gateway (RFC 0012) - ([5a54b43](https://github.com/batleforc/proxyauthK8s/commit/5a54b43209e2f08dba3525e93174a3149dc64572)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) validate tokens against an Agent cluster's apiserver (RFC 0012) - ([3286539](https://github.com/batleforc/proxyauthK8s/commit/3286539db84896ce2ef27c946ed0cf14d3c45103)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) publish gateway presences and revoke stale tunnels (RFC 0012) - ([184eb11](https://github.com/batleforc/proxyauthK8s/commit/184eb11e6ed89d8febf38a25a81dd8a12c3984d0)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) enrol agents with a ServiceAccount token (RFC 0012) - ([91161b0](https://github.com/batleforc/proxyauthK8s/commit/91161b005b516394e7811d73a02463ffd66e18fe)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) accept agent tunnels on the gateway's listener (RFC 0012) - ([f092cf2](https://github.com/batleforc/proxyauthK8s/commit/f092cf2573da0df224e3d6f08b388c3f99c35b42)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) create the agent CA Secret from the gateway (RFC 0012) - ([3ad574c](https://github.com/batleforc/proxyauthK8s/commit/3ad574c9b9759162d6c3044de4826408822c0991)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) send Agent clusters through the agent gateway (RFC 0012) - ([d5fe653](https://github.com/batleforc/proxyauthK8s/commit/d5fe6537ce3b712ba2607b089479b5daa8b87733)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) add the agent gateway's tunnel registry and CONNECT (RFC 0012) - ([cfaf6a0](https://github.com/batleforc/proxyauthK8s/commit/cfaf6a053f6d35d9da8500e4fa1bcc42528a1211)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**chart**) deploy the agent gateway (RFC 0012) - ([ca0edb9](https://github.com/batleforc/proxyauthK8s/commit/ca0edb93430d5decfd57f5551797ba525ad00a54)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**controller**) OneShotToken bootstrap, written and consumed once (RFC 0012) - ([7419aac](https://github.com/batleforc/proxyauthK8s/commit/7419aacdb34e22f0c59983b2686bddc4046c259e)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**controller**) report agent tunnels on the ProxyKubeApi (RFC 0012) - ([6df11fe](https://github.com/batleforc/proxyauthK8s/commit/6df11fef097a8098cae87ede2ae3a4a12e71bae8)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- ![BREAKING](https://img.shields.io/badge/BREAKING-red) (**controller**) adopt weebo-operator-kit's runtime, election, perf and lints (RFC 0011) - ([0c0e9ec](https://github.com/batleforc/proxyauthK8s/commit/0c0e9ecb97cc1350e57a9f468cea08a7773cec12)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**crd**) add the Agent service variant, closed until a tunnel serves it - ([711c02c](https://github.com/batleforc/proxyauthK8s/commit/711c02c66077584f4420eaa7aceb27900b73d7a2)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**server**) run the agent gateway by PROXYAUTH_ROLE (RFC 0012) - ([8b34416](https://github.com/batleforc/proxyauthK8s/commit/8b344160ce839eace7aa3ef8373137be88ead888)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Bug Fixes
+- (**api**) close RFC 0012 gaps, JWKS size bound and gateway operability - ([90bc465](https://github.com/batleforc/proxyauthK8s/commit/90bc465f0ca9ff24e826555658edd24c1aab15aa)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) reach gateway pods by EndpointSlice, and 503 an untunnelled review (RFC 0012) - ([c79f579](https://github.com/batleforc/proxyauthK8s/commit/c79f5791a7829c135cb27be5fd7b15e1b05fd994)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**chart**) PDB, HPA and metrics netpol, configurable JWKS bound - ([bed65b7](https://github.com/batleforc/proxyauthK8s/commit/bed65b77fe9424fd393b398514f9ba4a649de155)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**deps**) accept RUSTSEC-2026-0387, bump fast-uri to 3.1.9 - ([7b0ccd9](https://github.com/batleforc/proxyauthK8s/commit/7b0ccd956525a337605746e91ee13b18a77d3ece)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**docs**) show the reconcile alert as text, Shiki has no promql - ([2beac8a](https://github.com/batleforc/proxyauthK8s/commit/2beac8aa6d074214a63deaa3e5589381273fb056)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Documentation
+- (**rfc**) RFC 0012 implemented, phases 1 to 4 and gaps merged - ([c623e4b](https://github.com/batleforc/proxyauthK8s/commit/c623e4b0fc3fc6f515074d62603affe3fc74c3de)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) RFC 0012 resume notes after PR #294 - ([1ed52fc](https://github.com/batleforc/proxyauthK8s/commit/1ed52fceb6769ef8ec440904c2f205309906a22d)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) name PR #294 in RFC 0012 status - ([0f6ce9b](https://github.com/batleforc/proxyauthK8s/commit/0f6ce9b0775dd81b35da4dd8a62d31b3a636aeb5)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) land RFC 0012 phase 1 - ([13d6f13](https://github.com/batleforc/proxyauthK8s/commit/13d6f135b0c46fc1581882a5f95fd9b783e04125)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) 0012 decisions 25 to 27, an agent gateway reached by CONNECT - ([72dde82](https://github.com/batleforc/proxyauthK8s/commit/72dde8244e622616caf21973372315a47fa290e7)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) 0012 decision 24, JWKS from a ConfigMap or Secret - ([4571631](https://github.com/batleforc/proxyauthK8s/commit/4571631d7c38027588e448e22da9817af6f1d6cf)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) accept RFC 0012, ship it with 0011 in 0.4.0, 0010 in 0.5.0 - ([114bf23](https://github.com/batleforc/proxyauthK8s/commit/114bf237e41a02089ac40cd25fc820c3da408ad3)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) land RFC 0011, Implemented - ([6304316](https://github.com/batleforc/proxyauthK8s/commit/6304316283824bfb7ab03544f29ce0da25320850)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) add RFC 0012, agent mode over an outbound tunnel, for 0.5.0 - ([14996c4](https://github.com/batleforc/proxyauthK8s/commit/14996c4db46ddb6700493fab33ea034dae57fea5)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- explain clusters reached through an agent (RFC 0012) - ([79181e5](https://github.com/batleforc/proxyauthK8s/commit/79181e59f271fa6a5a5351f2098a176656463e32)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Tests
+- (**api**) drop a debug print CodeQL reads as key logging (RFC 0012) - ([843efdd](https://github.com/batleforc/proxyauthK8s/commit/843efdded9c02c13189f54bb4c0f49676053459d)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) prove the agent tunnel's threat model (RFC 0012) - ([36eadb0](https://github.com/batleforc/proxyauthK8s/commit/36eadb07bb705fb8bc21bd66d427c13d125ecd41)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**controller**) prove an OIDC config error never shows the client secret - ([808ca76](https://github.com/batleforc/proxyauthK8s/commit/808ca76d5492a130229972725e4ac9a6c7177a01)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) RFC 0012 phase 2 on the bench, points 8 to 11 - ([372410e](https://github.com/batleforc/proxyauthK8s/commit/372410e82798257d248a9f4bd0c4cdac55d91f9f)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) prove RFC 0012 on the bench - ([c745420](https://github.com/batleforc/proxyauthK8s/commit/c745420356941a89a7d01438c3ce8b880f678090)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Continuous Integration
+- (**integration**) raise the job timeout to 45 minutes - ([01c762c](https://github.com/batleforc/proxyauthK8s/commit/01c762c3f4af03e96d330217697539771b468538)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Miscellaneous Chores
+- merge docs/rfc-0012-implemented (#300) - ([6f89ed3](https://github.com/batleforc/proxyauthK8s/commit/6f89ed341a370e8e307cd082d935b98d611f12d7)) - Maxime
+- merge feat/rfc-0012-gaps (#297) - ([a6c0c63](https://github.com/batleforc/proxyauthK8s/commit/a6c0c63fea492f15921bbf760673d717baa7daf8)) - Maxime, Claude Opus 5.5 (1M context)
+- merge feat/rfc-0012-phase-4 (#296) - ([2e7523a](https://github.com/batleforc/proxyauthK8s/commit/2e7523aa2c2d38456cd580d6447f61ad0f70e036)) - Maxime, Claude Opus 5.5 (1M context)
+- merge feat/rfc-0012-phase-2 (#295) - ([664cf59](https://github.com/batleforc/proxyauthK8s/commit/664cf595870fc4022bc3fe42122fd693b3903acb)) - Maxime, Claude Opus 5.5 (1M context)
+- merge feat/rfc-0012-agent-tunnel (#294) - ([64b008d](https://github.com/batleforc/proxyauthK8s/commit/64b008d25643fcec88adef91c9f3d04fce1a8cae)) - Maxime, Claude Opus 5.5 (1M context)
+- merge docs/plan-0012-before-0010 (#293) - ([d8f7341](https://github.com/batleforc/proxyauthK8s/commit/d8f7341006eaebfebe2e62cb3f21270e4f536dbe)) - Maxime
+- merge feat/rfc-0011-kit-runtime (#292) - ([5875558](https://github.com/batleforc/proxyauthK8s/commit/5875558ee64278c3e5ed909ff82168e0b8be7203)) - Maxime
+- merge release/v0.3.0 (#290) - ([3a6f8f9](https://github.com/batleforc/proxyauthK8s/commit/3a6f8f9265806f58860710b4f807447737c7d217)) - Maxime
+- merge ci/integration-timeout-45 (#291) - ([16cbc22](https://github.com/batleforc/proxyauthK8s/commit/16cbc2252ce581d371ccd3636d7868b302982b57)) - Maxime
+
+- - -
+
 ## [v0.3.0](https://github.com/batleforc/proxyauthK8s/compare/cf10d5b4930095c38a16c7a1046a80d10e4b2b20..v0.3.0) - 2026-10-22
 #### Features
 - (**audit**) scan the built server and front images with trivy - ([ea08247](https://github.com/batleforc/proxyauthK8s/commit/ea08247b45c552370f6f10d35b0c05cbaab15685)) - Max Batleforc, Claude Opus 5.5 (1M context)
