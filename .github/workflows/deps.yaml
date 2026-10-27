@@ -33,15 +33,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
-        with:
-          toolchain: stable
       - name: Install mise
         uses: ./.github/actions/setup-mise
       - name: Install Task
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      # mise installs a cargo: tool only with its own rust installed first.
       - name: Install the tools
-        run: mise install cargo-binstall cargo:cargo-machete node pnpm
+        run: mise install rust cargo-binstall cargo:cargo-machete node pnpm
       # knip loads the tool configs, so it needs node_modules.
       - name: pnpm install
         run: mise exec -- pnpm install --frozen-lockfile
