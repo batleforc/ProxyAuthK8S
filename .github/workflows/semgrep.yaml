@@ -29,7 +29,8 @@ jobs:
       - name: Install mise
         uses: ./.github/actions/setup-mise
       - name: Install Semgrep
-        run: mise install semgrep
+        # pypi:semgrep installs through uv, which mise must have first.
+        run: mise install uv semgrep
       # The report: writes the SARIF even when there are findings.
       - name: Semgrep scan (SARIF)
         # shellcheck disable=SC2086 # SEMGREP_ARGS is a list of flags
