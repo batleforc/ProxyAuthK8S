@@ -13,6 +13,7 @@ includes:
   tool: .tasks/tool.yaml
   lint: .tasks/lint.yaml
   audit: .tasks/audit.yaml
+  deps: .tasks/deps.yaml
   sbom: .tasks/sbom.yaml
   test: .tasks/test.yaml
   envtest: .tasks/envtest.yaml

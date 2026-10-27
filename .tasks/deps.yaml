@@ -1,0 +1,122 @@
+version: "3"
+
+# Dependency hygiene (weebo-deps): what is outdated, what is unused, and which
+# advisories a bump closed or opened. The CVE gate itself is `task audit`.
+# Three Cargo workspaces (root, fuzz/, tests/perf) and one pnpm workspace.
+
+vars:
+  # .task/ is gitignored (Task's cache); the snapshots are local scratch.
+  SNAP: .task/deps
+  MANIFESTS: Cargo.toml fuzz/Cargo.toml tests/perf/Cargo.toml
+  LOCKS: Cargo.lock fuzz/Cargo.lock tests/perf/Cargo.lock pnpm-lock.yaml
+
+tasks:
+  default:
+    desc: "Dependency health, writes nothing: what is outdated, what is unused, the current advisories"
+    cmds:
+      - task: outdated
+      - task: unused
+      - task: cve:snapshot
+        vars: { LABEL: now }
+      - cat {{.SNAP}}/cve-now.txt
+
+  outdated:
+    desc: "Report what can be bumped: Rust (in range, and what a requirement holds back), JS, mise tools. Never fails"
+    cmds:
+      # --verbose lists the crates held back by a requirement ("Unchanged …
+      # (available: …)"): the majors that need a Cargo.toml edit.
+      - for: { var: MANIFESTS }
+        cmd: mise exec -- cargo update --dry-run --verbose --manifest-path {{.ITEM}}
+      - cmd: pnpm -r outdated # exits 1 when anything is outdated
+        ignore_error: true
+      - mise outdated --bump
+
+  unused:
+    desc: "Gate: fail on a declared dependency nothing uses (cargo machete on every workspace, unused [workspace.dependencies], knip)"
+    cmds:
+      # A false positive goes in [package.metadata.cargo-machete] ignored = [...]
+      # with the reason in a comment (check with `cargo machete --with-metadata`).
+      - mise exec -- cargo machete
+      - python3 .github/scripts/check-workspace-deps.py
+      # knip.json holds the reviewed false positives (tslib: importHelpers).
+      - pnpm exec knip --dependencies --no-progress
+
+  update:
+    desc: "Bump everything within its range, re-test, then show which advisories the bump closed or opened"
+    cmds:
+      - task: cve:snapshot
+        vars: { LABEL: before }
+      - for: { var: MANIFESTS }
+        cmd: mise exec -- cargo update --manifest-path {{.ITEM}}
+      - pnpm -r update
+      - task: :mise:lock:update
+      - task: :lint
+      # The Redis-free tiers: `test:all` needs the test Redis.
+      - task: :test:unit
+      - task: :js:ci
+      - task: cve:snapshot
+        vars: { LABEL: after }
+      - task: cve:diff
+
+  cve:snapshot:
+    desc: "Write the current advisories of every lockfile, one `<source> <id> <package>` per line (usage: task deps:cve:snapshot LABEL=before)"
+    requires:
+      vars: [LABEL]
+    cmds:
+      - mkdir -p {{.SNAP}}
+      # Both tools exit non-zero when they find something, so the exit code is
+      # ignored and the JSON is checked instead: a run that failed (no network,
+      # no lockfile) must not pass for "zero advisories". The advisories
+      # accepted in .cargo/audit.toml are left out, as in `task audit`.
+      - for: [Cargo.lock, fuzz/Cargo.lock, tests/perf/Cargo.lock]
+        cmd: |
+          out={{.SNAP}}/rust-{{replace "/" "_" .ITEM}}.json
+          mise exec -- cargo-audit audit --json --file {{.ITEM}} > "$out" || true
+          jq -e '.vulnerabilities' "$out" > /dev/null
+      - pnpm audit --json > {{.SNAP}}/js.json || true
+      - jq -e '.advisories' {{.SNAP}}/js.json > /dev/null
+      # No version in the line: 1.0 -> 1.1 with the same advisory is not a fix.
+      - |
+        {
+          for f in {{.SNAP}}/rust-*.json; do
+            jq -r '.vulnerabilities.list[] | "rust \(.advisory.id) \(.package.name)"' "$f"
+            jq -r '.warnings | to_entries[] | .key as $k | .value[] | "rust-\($k) \(.advisory.id // "-") \(.package.name)"' "$f"
+          done
+          jq -r '.advisories[] | "js-\(.severity) \(.github_advisory_id) \(.module_name)"' {{.SNAP}}/js.json
+        } | sort -u > {{.SNAP}}/cve-{{.LABEL}}.txt
+
+  cve:branch:
+    desc: "Advisories this branch closed or opened against BASE; what the PR job runs (usage: task deps:cve:branch [BASE=origin/main])"
+    vars:
+      BASE: '{{.BASE | default "origin/main"}}'
+    preconditions:
+      # The base lockfiles are checked out over the working copy: uncommitted
+      # edits to them would be lost.
+      - sh: git diff --quiet HEAD -- {{.LOCKS}}
+        msg: "commit or stash your changes to {{.LOCKS}} first"
+    cmds:
+      - defer: git checkout HEAD -- {{.LOCKS}}
+      - git checkout {{.BASE}} -- {{.LOCKS}}
+      - task: cve:snapshot
+        vars: { LABEL: base }
+      - git checkout HEAD -- {{.LOCKS}}
+      - task: cve:snapshot
+        vars: { LABEL: branch }
+      - task: cve:diff
+        vars: { FROM: base, TO: branch }
+
+  cve:diff:
+    desc: "Compare two snapshots; fail if the update opened an advisory (usage: task deps:cve:diff [FROM=before] [TO=after])"
+    vars:
+      FROM: '{{.FROM | default "before"}}'
+      TO: '{{.TO | default "after"}}'
+    preconditions:
+      - sh: test -f {{.SNAP}}/cve-{{.FROM}}.txt && test -f {{.SNAP}}/cve-{{.TO}}.txt
+        msg: "missing snapshot: run task deps:cve:snapshot LABEL={{.FROM}} (and LABEL={{.TO}}) first"
+    cmds:
+      - |
+        cd {{.SNAP}}
+        comm -23 cve-{{.FROM}}.txt cve-{{.TO}}.txt | sed 's/^/FIXED      /'
+        comm -13 cve-{{.FROM}}.txt cve-{{.TO}}.txt | sed 's/^/INTRODUCED /'
+        comm -12 cve-{{.FROM}}.txt cve-{{.TO}}.txt | sed 's/^/REMAINING  /'
+        if comm -13 cve-{{.FROM}}.txt cve-{{.TO}}.txt | grep -q .; then exit 1; fi
