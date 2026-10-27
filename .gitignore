@@ -53,6 +53,8 @@ vitest.config.*.timestamp*
 /docker-security-report
 /quality-report
 /sbom-reports
+# Left behind by an interrupted `task sbom:rust`.
+*.cdx.json
 /security-report
 /swagger-report
 /pr_body.md

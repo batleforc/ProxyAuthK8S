@@ -2,14 +2,22 @@ version: "3"
 
 tasks:
   default:
-    desc: "Run every CVE and policy audit: Rust deps (cargo deny + trivy, kit), the fuzz and perf workspaces, JS deps (pnpm audit), Containerfiles (trivy config, kit)"
+    desc: "Run every CVE and policy audit: Rust deps (cargo deny + trivy, kit; cargo audit), the fuzz and perf workspaces, JS deps (pnpm audit), Containerfiles (trivy config, kit)"
     silent: true
     cmds:
       - task: :rust:audit
+      - task: cargo
       - task: fuzz
       - task: perf
       - task: js
       - task: :repo:audit
+
+  cargo:
+    desc: "Check the RUSTSEC advisories of the main, fuzz/ and tests/perf lockfiles with cargo audit (accepted advisories in .cargo/audit.toml, mirroring deny.toml)"
+    silent: true
+    cmds:
+      - for: [Cargo.lock, fuzz/Cargo.lock, tests/perf/Cargo.lock]
+        cmd: mise exec -- cargo-audit audit --file {{.ITEM}}
 
   fuzz:
     desc: "Audit the separate fuzz/ workspace with the root deny.toml (rust:audit only sees the main workspace)"
@@ -24,13 +32,13 @@ tasks:
       - mise exec -- cargo deny --manifest-path tests/perf/Cargo.toml check
 
   js:
-    desc: "Audit JS/TS dependencies of every workspace package for known CVEs (pnpm audit)"
+    desc: "Audit JS/TS dependencies of every workspace package for high/critical CVEs (pnpm audit), the same gate as dep-audit-frontend.yaml"
     silent: true
     cmds:
       - echo "Auditing JS dependencies with pnpm audit"
       # One lockfile covers front, front-api and docs. Accepted advisories
       # live in pnpm-workspace.yaml (auditConfig.ignoreGhsas).
-      - pnpm audit
+      - pnpm audit --audit-level high
 
   image:
     desc: "Build the server, front and agent images (IMAGE=server, front or agent for one) and scan them for HIGH/CRITICAL CVEs with a fix (trivy image). Not in audit:default: the build is too slow for the commit hooks"

@@ -13,16 +13,19 @@ yanked = "deny"
 # reported only (as `cargo audit` did): unsafe-libyaml via serde_yaml_ng,
 # zvariant/zbus_names via the CLI's keyring store, none with a successor.
 unmaintained = "workspace"
+# Every entry: scope (one advisory), reason, since and expiry dates.
 ignore = [
     # rsa (Marvin Attack), through openidconnect, no fixed release. Only RSA
     # private-key operations are affected; the proxy only verifies IdP-signed
     # ID tokens (public key). See security.mdx, "Risques acceptés / différés".
+    # Since 2026-10-17, expires 2027-01-27 (re-assess then, renew or drop).
     # RETIRE when openidconnect moves off rsa 0.9.
     { id = "RUSTSEC-2023-0071", reason = "public-key verification only, no fixed release" },
     # crypto-bigint 0.5.5 (constant-time leaks), through openidconnect 4.0.1
     # -> p256/p384 -> elliptic-curve 0.13; the fix (0.7.6) is out of reach of
     # elliptic-curve 0.13. Only ECDSA verification of IdP-signed ID tokens
-    # runs on it, all inputs public. See security.mdx. Since 2026-10-24.
+    # runs on it, all inputs public. See security.mdx. Since 2026-10-24,
+    # expires 2027-01-27 (re-assess then, renew or drop).
     # RETIRE when openidconnect moves to elliptic-curve 0.14.
     { id = "RUSTSEC-2026-0387", reason = "public-key verification only, fix unreachable through openidconnect" },
 ]

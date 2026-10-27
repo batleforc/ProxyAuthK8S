@@ -38,6 +38,13 @@ cosign verify ghcr.io/batleforc/proxyauthk8s/server:<version> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Les attestations de provenance et de SBOM se vérifient par digest :
+
+```bash
+gh attestation verify oci://ghcr.io/batleforc/proxyauthk8s/server@<digest> \
+  --repo batleforc/ProxyAuthK8S
+```
+
 ## Exposition
 
 | Value                     | Défaut               | Description                                              |

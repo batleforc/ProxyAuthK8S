@@ -22,7 +22,9 @@ pub fn metrics() -> String {
 }
 
 /// The agent gateway's `/metrics` (label `app={gateway}`), scraped as the
-/// admin through the pod proxy, on the port its pod names `metrics`.
+/// admin through the pod proxy, on the port its pod names `metrics`. Every
+/// pod, concatenated: a tunnel lands on one of them, and a pod exports a
+/// series only once it has recorded it.
 pub fn gateway_metrics(gateway: &str) -> String {
     let out = Bench::get().admin(&[
         "-n",
@@ -32,25 +34,35 @@ pub fn gateway_metrics(gateway: &str) -> String {
         "-l",
         &format!("app={gateway}"),
         "-o",
-        "jsonpath={.items[0].metadata.name} {.items[0].spec.containers[0].ports[?(@.name==\"metrics\")].containerPort}",
+        "jsonpath={range .items[*]}{.metadata.name} {.spec.containers[0].ports[?(@.name==\"metrics\")].containerPort}{\"\\n\"}{end}",
     ]);
     assert!(
         out.status.success(),
-        "find the gateway pod: {}",
+        "find the gateway pods: {}",
         String::from_utf8_lossy(&out.stderr)
     );
     let found = String::from_utf8_lossy(&out.stdout).into_owned();
-    let Some((pod, port)) = found.split_once(' ').filter(|(_, port)| !port.is_empty()) else {
-        panic!("no gateway pod with a metrics port: {found:?}");
-    };
-    let path = format!("/api/v1/namespaces/{STACK_NS}/pods/{pod}:{port}/proxy/metrics");
-    let out = Bench::get().admin(&["get", "--raw", &path]);
+    let pods: Vec<(&str, &str)> = found
+        .lines()
+        .filter_map(|line| line.split_once(' '))
+        .filter(|(_, port)| !port.is_empty())
+        .collect();
     assert!(
-        out.status.success(),
-        "scrape gateway metrics: {}",
-        String::from_utf8_lossy(&out.stderr)
+        !pods.is_empty(),
+        "no gateway pod with a metrics port: {found:?}"
     );
-    String::from_utf8_lossy(&out.stdout).into_owned()
+    let mut metrics = String::new();
+    for (pod, port) in pods {
+        let path = format!("/api/v1/namespaces/{STACK_NS}/pods/{pod}:{port}/proxy/metrics");
+        let out = Bench::get().admin(&["get", "--raw", &path]);
+        assert!(
+            out.status.success(),
+            "scrape gateway metrics of {pod}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        metrics.push_str(&String::from_utf8_lossy(&out.stdout));
+    }
+    metrics
 }
 
 /// Sum of the samples of `name` whose labels include every `labels` pair.

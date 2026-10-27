@@ -92,6 +92,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     strategy:
+      # One image's CVE must not cancel the others' reports.
+      fail-fast: false
       matrix:
         include:
           - name: "Backend Container"
@@ -119,15 +121,30 @@ jobs:
           image-ref: ${{ env.REGISTRY }}/${{ matrix.image_name }}:${{ github.sha }}
           format: sarif
           output: trivy-report.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
       - name: Upload SARIF as artifact
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.artifact_name }}
           path: trivy-report.sarif
+      # The gate, after the report: fail on any fixable HIGH/CRITICAL CVE.
+      # Same flags as `task audit:image`.
+      - name: Trivy scan (gate)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ matrix.image_name }}:${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
 
   upload-sarif:
     name: Upload SARIF to GitHub Security
     needs: scan
+    # The report still lands when the gate in `scan` fails.
+    if: always()
     runs-on: ubuntu-latest
     strategy:
       matrix:

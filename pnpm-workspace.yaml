@@ -34,8 +34,9 @@ auditConfig:
     # braces <=3.0.3: stack exhaustion on deeply nested brace patterns.
     # 3.0.3 is the latest release, so there is no fixed version yet. Reached
     # only through micromatch in build/lint tooling, which expands patterns we
-    # write, never user input. Accepted 2026-10-10; RETIRE when braces ships a
-    # fix (re-check on every `pnpm up -r`).
+    # write, never user input. Accepted 2026-10-10, expires 2027-01-27
+    # (re-assess then, renew or drop); RETIRE when braces ships a fix
+    # (re-check on every `pnpm up -r`).
     - GHSA-vfj7-8cjw-p6xm
 
 # eslint-config-next's plugins (react, jsx-a11y, import) are at their latest

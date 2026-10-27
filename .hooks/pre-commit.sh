@@ -52,7 +52,7 @@ task lint
 restage # in case linting fixed anything
 .hooks/end-of-line.sh
 .hooks/whitespace-fixer.sh
-gitleaks git --pre-commit --redact --staged --verbose
+GITLEAKS_CONFIG="$PWD/gitleaks.toml" gitleaks git --pre-commit --redact --staged --verbose
 # Fail on AI/C2PA provenance marks in staged files (scripts from the
 # watermarks-remover submodule, see .hooks/hook-gen).
 # Only regular files: the script rejects directories, so the submodule gitlink
