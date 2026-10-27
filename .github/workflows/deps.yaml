@@ -31,6 +31,9 @@ jobs:
   unused:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    env:
+      # `mise exec` runs with the tools installed below, never all of mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install mise
@@ -44,8 +47,6 @@ jobs:
       - name: pnpm install
         run: mise exec -- pnpm install --frozen-lockfile
       - name: Unused dependencies
-        env:
-          MISE_EXEC_AUTO_INSTALL: "false"
         run: mise exec -- task deps:unused
 
   cve-diff:
@@ -89,6 +90,7 @@ jobs:
       - name: Outdated report
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # mise's GitHub lookups
+          MISE_EXEC_AUTO_INSTALL: "false"
         run: |
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           mise exec -- task deps:outdated 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
