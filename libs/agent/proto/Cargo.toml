@@ -14,7 +14,7 @@ prost = "0.14"
 semver = "1"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
-tokio-tungstenite = { version = "0.29", default-features = false }
+tokio-tungstenite = { workspace = true }
 yamux = "0.14.1"
 
 [dev-dependencies]

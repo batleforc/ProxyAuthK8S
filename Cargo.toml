@@ -46,6 +46,10 @@ kube = { version = '4', features = ['derive', 'runtime', 'client'] }
 reqwest = { version = '0.13.2', features = ['json', 'rustls', 'stream'] }
 schemars = { version = '1' }
 futures-util = '0.3'
+# Held at 0.29 (0.30 is out): axum 0.8.9, the latest, still requires 0.29 and
+# runs the gateway's server handshake (axum::extract::ws), the only side 0.30
+# changes. Moving alone would build two tungstenite. Move with axum.
+tokio-tungstenite = { version = '0.29', default-features = false }
 deadpool-redis = { version = '0.23', features = ['serde', 'cluster'] }
 opentelemetry = { version = '0.33', features = ['trace', 'metrics', 'logs'] }
 opentelemetry_sdk = { version = '0.33', features = [

@@ -101,7 +101,7 @@ weebo-kit-api = { workspace = true }
 weebo-kit-runtime = { workspace = true }
 k8s-openapi = { workspace = true }
 # Already in the tree (agent_proto): the client handshake of a stand-in agent.
-tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+tokio-tungstenite = { workspace = true, features = ["handshake"] }
 # The real agent, end to end against the gateway (RFC 0012 §6.P, in process).
 agent = { path = "../../../apps/agent", version = "0.4.0" }
 
