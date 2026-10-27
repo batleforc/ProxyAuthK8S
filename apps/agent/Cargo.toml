@@ -34,7 +34,7 @@ sha2 = "0.11"
 tokio = { workspace = true, features = ["net", "time", "io-util", "signal"] }
 tokio-rustls = { workspace = true }
 # Already in the tree (agent_proto, api's tests): the client handshake.
-tokio-tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
+tokio-tungstenite = { workspace = true, features = ["handshake"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 tower-service = "0.3"
 tracing = { workspace = true }

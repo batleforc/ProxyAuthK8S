@@ -1,0 +1,97 @@
+name: 🧹 Dependency hygiene
+# The same tasks a developer runs (`task deps:*`). The whole-tree CVE gate
+# stays in the audit workflows; this one answers "is everything used?" and
+# "did this PR make the advisories better or worse?".
+on:
+  push:
+    branches: ["main"]
+    paths: &paths
+      - "**/*.rs"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/package.json"
+      - "pnpm-lock.yaml"
+      - "knip.json"
+      - "apps/front/src/**"
+      - "docs/src/**"
+      - ".github/scripts/check-workspace-deps.py"
+      - ".tasks/deps.yaml"
+      - ".github/workflows/deps.yaml"
+  pull_request:
+    branches: ["main"]
+    paths: *paths
+  # Weekly: the outdated report lands in the run summary.
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  unused:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    env:
+      # `mise exec` runs with the tools installed below, never all of mise.toml.
+      MISE_EXEC_AUTO_INSTALL: "false"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install mise
+        uses: ./.github/actions/setup-mise
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      # mise installs a cargo: tool only with its own rust installed first.
+      - name: Install the tools
+        run: mise install rust cargo-binstall cargo:cargo-machete node pnpm
+      # knip loads the tool configs, so it needs node_modules.
+      - name: pnpm install
+        run: mise exec -- pnpm install --frozen-lockfile
+      - name: Unused dependencies
+        run: mise exec -- task deps:unused
+
+  cve-diff:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the base commit's lockfiles
+      - name: Install mise
+        uses: ./.github/actions/setup-mise
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      - name: Install the tools
+        run: mise install jq aqua:rustsec/rustsec/cargo-audit node pnpm
+      - name: Advisories closed / opened by this PR
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          rc=0
+          mise exec -- task deps:cve:branch BASE="$BASE" > cve.txt 2>&1 || rc=$?
+          cat cve.txt
+          { echo '```'; cat cve.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+  outdated:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+        with:
+          toolchain: stable
+      - name: Install mise
+        uses: ./.github/actions/setup-mise
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      - name: Install the tools
+        run: mise install node pnpm
+      - name: Outdated report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # mise's GitHub lookups
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: |
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          mise exec -- task deps:outdated 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
