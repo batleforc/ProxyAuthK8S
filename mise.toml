@@ -35,7 +35,7 @@ semgrep = "latest"
 "pipx:desloppify[full]" = "latest"
 "pipx:graphifyy" = "latest"
 cargo-binstall = "latest"
-"github:batleforc/weebo-skillsagent" = "0.10.0"
+"github:batleforc/weebo-skillsagent" = "0.17.0"
 go = "latest"
 "cargo:cargo-machete" = "latest"
 # CycloneDX SBOM of the Rust binaries (task sbom:rust).
