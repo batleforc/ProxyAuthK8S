@@ -109,11 +109,14 @@ jobs:
       - name: 🏗️ Build and push by digest
         run: |
           IMAGE="${{ env.REGISTRY }}/${{ github.repository_owner }}/proxyauthk8s/${{ matrix.component }}"
+          # Provenance and SBOM come from attest-build-provenance and
+          # attest-sbom in publish-images (signed, on the index digest).
+          # `--provenance=false` because buildx otherwise adds an unsigned
+          # provenance by default; it adds no SBOM unless asked.
           docker buildx build \
             --platform linux/${{ matrix.arch }} \
             --file ${{ matrix.containerfile }} \
-            --attest type=provenance,mode=max \
-            --attest type=sbom \
+            --provenance=false \
             --metadata-file build-metadata.json \
             --output "type=image,name=$IMAGE,push-by-digest=true,name-canonical=true,push=true" \
             .
@@ -133,10 +136,12 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write # keyless cosign signing
+      id-token: write # keyless cosign signing, SBOM and provenance attestations
+      attestations: write
     needs:
       - gather-facts
       - build-images
+      - rust-sbom
     strategy:
       matrix:
         component: [server, front, agent]
@@ -173,6 +178,8 @@ jobs:
           DIGEST=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)
           echo "image=$IMAGE:$VERSION" >> "$GITHUB_OUTPUT"
           echo "digest=$IMAGE@$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "name=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "sha=$DIGEST" >> "$GITHUB_OUTPUT"
       - name: 🔏 Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: 🔏 Sign the index and every platform image (keyless, GitHub OIDC)
@@ -193,13 +200,50 @@ jobs:
         with:
           name: sbom-${{ matrix.component }}
           path: ${{ matrix.component }}-sbom.json
+      # Signed (keyless) and bound to the index digest: `push-to-registry`
+      # stores each attestation as an OCI referrer, so it travels with the
+      # image. Verify with:
+      # gh attestation verify oci://<image>@<digest> --repo <owner>/ProxyAuthK8S --predicate-type https://cyclonedx.org/bom
+      - name: 🔏 Attest the image SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ steps.index.outputs.name }}
+          subject-digest: ${{ steps.index.outputs.sha }}
+          sbom-path: ${{ matrix.component }}-sbom.json
+          push-to-registry: true
+      # SLSA provenance (this workflow run, its commit and inputs), signed and
+      # bound to the same digest. Verify with:
+      # gh attestation verify oci://<image>@<digest> --repo <owner>/ProxyAuthK8S
+      - name: 🔏 Attest the build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.index.outputs.name }}
+          subject-digest: ${{ steps.index.outputs.sha }}
+          push-to-registry: true
+      # The crates compiled into the image's binary (rust-sbom); the front
+      # image ships no Rust.
+      - name: ⬇️ Download the Rust SBOMs
+        if: matrix.component != 'front'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sbom-rust
+          path: sbom-rust
+      - name: 🔏 Attest the Rust SBOM
+        if: matrix.component != 'front'
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ steps.index.outputs.name }}
+          subject-digest: ${{ steps.index.outputs.sha }}
+          sbom-path: sbom-rust/${{ matrix.component }}-rust.cdx.json
+          push-to-registry: true
 
   publish-charts:
     name: ⎈ Publish the ${{ matrix.chart }} Helm chart
     permissions:
       contents: read
       packages: write
-      id-token: write # keyless cosign signing
+      id-token: write # keyless cosign signing and provenance attestation
+      attestations: write
     needs: gather-facts
     strategy:
       matrix:
@@ -243,6 +287,8 @@ jobs:
             exit 1
           fi
           echo "ref=${REF%:*}@$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "name=${REF%:*}" >> "$GITHUB_OUTPUT"
+          echo "sha=$DIGEST" >> "$GITHUB_OUTPUT"
       # cosign reads the Docker config, not the one helm registry login writes.
       - name: 🔐 Login to Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -254,6 +300,17 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: 🔏 Sign the chart (keyless, GitHub OIDC)
         run: cosign sign --yes "${{ steps.push.outputs.ref }}"
+      # Signed SLSA provenance on the chart digest, pushed as an OCI referrer
+      # (through the Docker login above). Verify with:
+      # gh attestation verify oci://<chart>@<digest> --repo <owner>/ProxyAuthK8S
+      # No SBOM attestation: the charts hold only templates (no subcharts), so
+      # syft finds no package and the SBOM would be empty.
+      - name: 🔏 Attest the chart build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.sha }}
+          push-to-registry: true
 
   build-cli:
     name: 🔌 Build the kubectl plugin
@@ -371,15 +428,51 @@ jobs:
           name: krew-manifest
           path: .krew/proxyauth.yaml
 
+  rust-sbom:
+    name: 📋 Rust SBOMs of the shipped binaries
+    permissions:
+      contents: read
+    needs:
+      - gather-facts
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: 🦀 Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+        with:
+          toolchain: stable
+      - name: 🛠️ Install mise
+        uses: ./.github/actions/setup-mise
+      - name: 🛠️ Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      - name: 🛠️ Install cargo-cyclonedx
+        run: mise install cargo-binstall cargo:cargo-cyclonedx
+      # The image SBOMs (syft, publish-images) list what is in each image; these
+      # list the crates compiled into each binary, the kubectl plugin included.
+      - name: 📋 Generate the SBOMs
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: task sbom:rust
+      - name: ⬆️ Upload the SBOMs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-rust
+          path: dist/sbom/*.cdx.json
+          if-no-files-found: error
+
   create-draft-release:
     permissions:
       contents: write # for softprops/action-gh-release to create GitHub release
+      id-token: write # keyless SBOM and provenance attestations of the plugin archives
+      attestations: write
     needs:
       - gather-facts
       - publish-images
       - publish-charts
       - build-cli
       - krew-manifest
+      - rust-sbom
     runs-on: ubuntu-latest
     steps:
       - name: Create draft release
@@ -394,6 +487,19 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      # One signed attestation per archive digest, kept by GitHub's
+      # attestations API. Verify with:
+      # gh attestation verify kubectl-proxyauth_<v>_<os>_<arch>.tar.gz --repo <owner>/ProxyAuthK8S --predicate-type https://cyclonedx.org/bom
+      - name: 🔏 Attest the plugin SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: artifacts/kubectl-proxyauth_*.tar.gz
+          sbom-path: artifacts/kubectl-proxyauth-rust.cdx.json
+      # Verify with: gh attestation verify <archive> --repo <owner>/ProxyAuthK8S
+      - name: 🔏 Attest the plugin build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: artifacts/kubectl-proxyauth_*.tar.gz
 
       - name: Prepare release body
         run: |
@@ -430,6 +536,8 @@ jobs:
             artifacts/proxyauth.yaml
             artifacts/server-sbom.json
             artifacts/front-sbom.json
+            artifacts/agent-sbom.json
+            artifacts/*-rust.cdx.json
           draft: true
           prerelease: ${{ needs.gather-facts.outputs.prerelease == 'true' }}
           generate_release_notes: true

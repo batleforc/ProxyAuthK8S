@@ -99,7 +99,7 @@ the binary as above.
 ## 📞 Support & Feedback
 
 - Report bugs: [GitHub Issues](https://github.com/batleforc/ProxyAuthK8S/issues)
-- Security concerns: [Security Vulnerability Report](https://github.com/batleforc/ProxyAuthK8S/issues/new?template=security_vulnerability_report.md)
+- Security concerns: [report privately](https://github.com/batleforc/ProxyAuthK8S/security/advisories/new), never in a public issue
 - Discussions: [GitHub Discussions](https://github.com/batleforc/ProxyAuthK8S/discussions)
 
 ---

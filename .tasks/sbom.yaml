@@ -1,0 +1,18 @@
+version: "3"
+
+tasks:
+  rust:
+    desc: "Generate a CycloneDX SBOM of each shipped Rust binary's crate closure (server, agent, kubectl plugin) into dist/sbom/ (cargo cyclonedx); feed one to `trivy sbom` to match later CVEs. Attached to the release by release-prepare.yml"
+    silent: true
+    vars:
+      OUT: dist/sbom
+    cmds:
+      # cargo-cyclonedx writes one <crate>.cdx.json per workspace member next
+      # to its manifest; keep the shipped ones, drop the rest.
+      - mise exec -- cargo cyclonedx --format json -q
+      - mkdir -p {{.OUT}}
+      - mv apps/server/server.cdx.json {{.OUT}}/server-rust.cdx.json
+      - mv apps/agent/agent.cdx.json {{.OUT}}/agent-rust.cdx.json
+      - mv apps/kubectl_proxyauth/kubectl_proxyauth.cdx.json {{.OUT}}/kubectl-proxyauth-rust.cdx.json
+      - find apps libs tests -name '*.cdx.json' -not -path '*/node_modules/*' -delete
+      - echo "SBOMs in {{.OUT}}/"

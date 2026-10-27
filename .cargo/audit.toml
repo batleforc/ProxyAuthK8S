@@ -1,0 +1,10 @@
+# cargo-audit configuration (`task audit:cargo`, back-dep-audit.yaml).
+# The same accepted advisories as deny.toml's [advisories].ignore, nothing
+# else: the reasons live there. Keep the two lists identical.
+[advisories]
+ignore = [
+    # rsa (Marvin Attack), through openidconnect. Since 2026-10-17, expires 2027-01-27.
+    "RUSTSEC-2023-0071",
+    # crypto-bigint 0.5.5, through openidconnect. Since 2026-10-24, expires 2027-01-27.
+    "RUSTSEC-2026-0387",
+]

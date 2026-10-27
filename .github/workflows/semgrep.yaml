@@ -1,0 +1,47 @@
+name: 🔎 Semgrep
+# SAST on the Rust and TypeScript sources plus a secrets pass on every file,
+# hence no `paths:` filter. Local run, identical to CI:
+#   semgrep scan --metrics=off --config p/rust --config p/typescript --config p/secrets --severity ERROR --error
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  # Weekly: the rulesets move, the code may not.
+  schedule:
+    - cron: "50 23 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to the Security tab
+    env:
+      MISE_EXEC_AUTO_INSTALL: "false"
+      SEMGREP_ARGS: --metrics=off --config p/rust --config p/typescript --config p/secrets --severity ERROR
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install mise
+        uses: ./.github/actions/setup-mise
+      - name: Install Semgrep
+        run: mise install semgrep
+      # The report: writes the SARIF even when there are findings.
+      - name: Semgrep scan (SARIF)
+        # shellcheck disable=SC2086 # SEMGREP_ARGS is a list of flags
+        run: mise exec -- semgrep scan $SEMGREP_ARGS --sarif --output semgrep.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+      # The gate: non-zero exit on any ERROR-severity finding
+      # (.semgrepignore lists semgrep.sarif, or this rescans the report).
+      - name: Semgrep scan (gate)
+        # shellcheck disable=SC2086
+        run: mise exec -- semgrep scan $SEMGREP_ARGS --error

@@ -1,0 +1,16 @@
+# Semgrep ignore list (.github/workflows/semgrep.yaml). One entry per fixture
+# file, never a directory a real secret could land in.
+
+# The gate step runs after the SARIF step in the same checkout, so without
+# this it scans its own report and rediscovers every finding it just wrote.
+semgrep.sarif
+
+# bcrypt hashes of throwaway users whose passwords are public on purpose
+# (`detected-bcrypt-hash`): the local Dex of compose.yaml and the integration
+# bench's personas. A `# nosemgrep` is ignored by the generic secrets rules.
+.compose/dex/config.yaml
+.it/personas.yaml
+
+# A throwaway keypair (`openssl genrsa`) that only signs the API tests' ID
+# tokens (`detected-private-key`). A `.pem` has nowhere to put a nosemgrep.
+libs/server/api/tests/harness/test_rsa_key.pem

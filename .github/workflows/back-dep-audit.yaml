@@ -5,6 +5,7 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - "deny.toml"
+      - ".cargo/audit.toml"
       - ".github/workflows/back-dep-audit.yaml"
   schedule:
     - cron: "50 23 * * *"
@@ -21,11 +22,12 @@ jobs:
       - name: Install Task
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
       - name: Install the audit tools
-        run: mise install cargo-deny trivy
+        run: mise install cargo-deny trivy aqua:rustsec/rustsec/cargo-audit
       # deny.toml is the policy: advisories (with the dated exceptions),
       # licences and sources, for the workspace and the separate fuzz/ one;
-      # trivy fs on Cargo.lock as a second opinion (kit's rust:audit).
+      # trivy fs on Cargo.lock as a second opinion (kit's rust:audit);
+      # cargo audit on every lockfile as a third.
       - name: cargo deny and trivy
         env:
           MISE_EXEC_AUTO_INSTALL: "false"
-        run: task rust:audit audit:fuzz
+        run: task rust:audit audit:cargo audit:fuzz

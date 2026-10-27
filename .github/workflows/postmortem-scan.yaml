@@ -32,7 +32,7 @@ on:
       - "docs/package.json"
       - ".github/workflows/postmortem-scan.yaml"
   schedule:
-    - cron: "15 5 * * 1" # weekly — catch newly-published advisories on pinned deps
+    - cron: "50 23 * * *" # daily, same slot as the other dependency audits
   workflow_dispatch:
 
 permissions:
@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: postmortem supply-chain gate
-        uses: mlab-sh/postmortem@v2.9.0
+        uses: mlab-sh/postmortem@f135230fd1ea51b200bcd04d24b2e0f034f72983 # v2.9.0
         with:
           # The action's `version` input picks the binary it downloads and
           # defaults to an older release; keep it on the same tag as the action.

@@ -1,0 +1,39 @@
+name: 🛡️ CodeQL
+# Deliberately unfiltered by `paths:`: a paths-filtered workflow does not run,
+# so made required it leaves a PR that touches no matching file pending
+# forever. CodeQL's alert diffing keeps the "nothing changed" run cheap.
+# Reports to the Security tab, never fails the job.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "50 23 * * 0"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze ${{ matrix.language }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # No build for either: Rust is extracted from the sources and
+        # `cargo metadata` (the runner's stable toolchain), JS/TS needs none.
+        language: [rust, javascript-typescript]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          category: /language:${{ matrix.language }}

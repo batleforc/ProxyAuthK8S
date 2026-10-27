@@ -1,0 +1,43 @@
+name: 📦 JS dependency audit
+# One lockfile covers front, front-api and docs. Accepted advisories live in
+# pnpm-workspace.yaml (auditConfig.ignoreGhsas), read by `pnpm audit`.
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "**/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/dep-audit-frontend.yaml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "**/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - ".github/workflows/dep-audit-frontend.yaml"
+  # Daily so a CVE disclosed against an already-pinned dependency trips CI even
+  # when nothing in the repo changed.
+  schedule:
+    - cron: "50 23 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install mise
+        uses: ./.github/actions/setup-mise
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      - name: Install node and pnpm
+        run: mise install node pnpm
+      # Resolves straight from the committed lockfile: no install, no
+      # lifecycle scripts.
+      - name: pnpm audit
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: mise exec -- task audit:js
