@@ -180,6 +180,16 @@ impl OidcConf {
         if let Some(endpoint) = self.discover_introspection_endpoint().await {
             match self.introspect_audiences(&endpoint, token).await {
                 Ok(Some(auds)) => return self.decide_audience(&auds, mode, "introspection"),
+                // A public client (PKCE, no secret) cannot authenticate to the
+                // endpoint, and providers such as authentik answer such callers
+                // `active: false`: `/userinfo` already proved the token active,
+                // so fall back to its audience instead of rejecting it.
+                Ok(None) if self.introspection_secret().is_none() => {
+                    tracing::warn!(
+                        "introspection reported the token inactive to a public client; \
+                         falling back to JWT audience check"
+                    );
+                }
                 Ok(None) => {
                     return Self::reject_or_warn(mode, "introspection reported the token inactive");
                 }
@@ -271,6 +281,14 @@ impl OidcConf {
         endpoint
     }
 
+    /// The secret to authenticate introspection with; `None` for a public
+    /// client, including an `OIDC_CLIENT_SECRET` set to the empty string.
+    fn introspection_secret(&self) -> Option<&str> {
+        self.client_secret
+            .as_deref()
+            .filter(|secret| !secret.is_empty())
+    }
+
     /// RFC 7662 token introspection.
     ///
     /// Returns `Ok(Some(audiences))` when the token is active, `Ok(None)` when
@@ -285,7 +303,7 @@ impl OidcConf {
         // RFC 7662 requires the caller to authenticate: HTTP Basic with the
         // client secret when we have one, otherwise send the client_id in the
         // body for a public client.
-        if let Some(secret) = &self.client_secret {
+        if let Some(secret) = self.introspection_secret() {
             request = request.basic_auth(&self.client_id, Some(secret));
         }
         // Built in its own scope: the serializer is not `Send`, and must not
@@ -294,7 +312,7 @@ impl OidcConf {
             let mut body = openidconnect::url::form_urlencoded::Serializer::new(String::new());
             body.append_pair("token", token);
             body.append_pair("token_type_hint", "access_token");
-            if self.client_secret.is_none() {
+            if self.introspection_secret().is_none() {
                 body.append_pair("client_id", &self.client_id);
             }
             body.finish()

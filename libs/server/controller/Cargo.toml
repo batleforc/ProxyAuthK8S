@@ -10,6 +10,8 @@ publish = false
 tracing = { workspace = true }
 kube = { workspace = true }
 serde_json = { workspace = true }
+# Already in the tree (kube-cel): the agent version window (RFC 0013).
+semver = "1"
 k8s-openapi = { workspace = true }
 tokio = { workspace = true }
 opentelemetry = { workspace = true }

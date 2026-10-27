@@ -46,7 +46,10 @@ pub const REDIS_PREFIX: &str = "proxyk8sauth";
 #[kube(
     printcolumn = r#"{"name":"Ready","type":"string","jsonPath":".status.conditions[?(@.type==\"Ready\")].status"}"#,
     printcolumn = r#"{"name":"Reason","type":"string","jsonPath":".status.conditions[?(@.type==\"Ready\")].reason"}"#,
-    printcolumn = r#"{"name":"Age","type":"date","jsonPath":".metadata.creationTimestamp"}"#
+    printcolumn = r#"{"name":"Age","type":"date","jsonPath":".metadata.creationTimestamp"}"#,
+    // `-o wide` only: empty for a cluster that is not an `Agent` (RFC 0013).
+    printcolumn = r#"{"name":"Tunnels","type":"integer","priority":1,"jsonPath":".status.agent.tunnels"}"#,
+    printcolumn = r#"{"name":"Agents","type":"string","priority":1,"jsonPath":".status.agent.versions"}"#
 )]
 #[schemars(extend("x-kubernetes-validations" = [
     serde_json::json!({

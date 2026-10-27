@@ -62,8 +62,9 @@ jobs:
     if: needs.changes.outputs.run == 'true'
     runs-on: ubuntu-latest
     # A cold build cache (a release bump touches every Cargo.toml) takes the
-    # bench past 17 min to mount: 30 cut the suite off twice.
-    timeout-minutes: 45
+    # bench past 17 min to mount: 30 cut the suite off twice. 45 did once,
+    # once RFC 0013 p5 (~9 min, it waits out the refusal key) joined.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install mise

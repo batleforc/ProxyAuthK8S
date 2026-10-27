@@ -63,6 +63,9 @@ pub const AGENT_TUNNELS: &str = "proxyauth.agent.tunnels";
 pub const AGENT_STREAMS: &str = "proxyauth.agent.streams";
 pub const AGENT_ENROLLMENTS: &str = "proxyauth.agent.enrollments";
 pub const AGENT_BYTES: &str = "proxyauth.agent.bytes";
+/// `proxyauth_agent_tunnel_refusals_total{reason}`: `reason` is one of the
+/// gateway's static reasons, a closed set (RFC 0013 §10.1).
+pub const AGENT_REFUSALS: &str = "proxyauth.agent.tunnel_refusals";
 
 static AGENT_TUNNELS_GAUGE: LazyLock<opentelemetry::metrics::UpDownCounter<i64>> =
     LazyLock::new(|| {
@@ -92,6 +95,18 @@ static AGENT_BYTES_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
         .with_description("Bytes relayed through agent tunnels, by direction.")
         .build()
 });
+
+static AGENT_REFUSALS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(AGENT_REFUSALS)
+        .with_description("Agent tunnels refused by this gateway pod, by reason.")
+        .build()
+});
+
+/// One refused tunnel.
+pub fn record_agent_refusal(reason: &'static str) {
+    AGENT_REFUSALS_COUNTER.add(1, &[KeyValue::new("reason", reason)]);
+}
 
 /// A tunnel opened (`1`) or closed (`-1`).
 pub fn record_agent_tunnel(delta: i64) {

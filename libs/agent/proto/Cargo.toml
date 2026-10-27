@@ -10,6 +10,8 @@ description = "Wire protocol of the RFC 0012 agent tunnel: WebSocket adapter, ya
 bytes = "1"
 futures-util = { workspace = true, features = ["io", "sink"] }
 prost = "0.14"
+# Already in the tree (kube-cel): the versions agents announce (RFC 0013).
+semver = "1"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
 tokio-tungstenite = { version = "0.29", default-features = false }

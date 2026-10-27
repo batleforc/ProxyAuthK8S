@@ -332,7 +332,9 @@ async fn cleanup_fails_closed_when_redis_is_unreachable() {
 /// advisory.
 #[tokio::test]
 async fn an_agent_cluster_is_ready_through_the_gateway_presences() {
-    use common::agent_gateway::{PresenceInfo, presence_info_key, presence_key};
+    use common::agent_gateway::{
+        AgentCount, AgentRefusal, PresenceInfo, agent_refused_key, presence_info_key, presence_key,
+    };
     use crd::service::{AgentBootstrap, AgentLimits, AgentService, Service};
 
     let _pool = redis_or_skip!();
@@ -366,6 +368,7 @@ async fn an_agent_cluster_is_ready_through_the_gateway_presences() {
         drop(state.presence_remove(&key, pod).await);
     }
 
+    drop(state.delete_key(&agent_refused_key(&uid)).await);
     let evaluation = evaluate(&proxy, Arc::new(state.clone())).await;
     let failure = evaluation.ready.as_ref().expect_err("no tunnel yet");
     assert_eq!(failure.reason, ReasonCode::AgentNoTunnel);
@@ -381,18 +384,47 @@ async fn an_agent_cluster_is_ready_through_the_gateway_presences() {
         "{evaluation:?}"
     );
 
-    for (pod, version) in [("gw-1", "0.4.1"), ("gw-0", "0.4.0")] {
-        let info = PresenceInfo {
+    // RFC 0013: a recent protocol refusal is the cause of the missing tunnel.
+    let refusal = AgentRefusal {
+        reason: "protocol".to_string(),
+        version: "0.7.0".to_string(),
+        protocols: "2-3".to_string(),
+    };
+    state
+        .redis_set(
+            &agent_refused_key(&uid),
+            &serde_json::to_string(&refusal).expect("json"),
+            Some(60),
+        )
+        .await
+        .expect("refusal");
+    let evaluation = evaluate(&proxy, Arc::new(state.clone())).await;
+    let failure = evaluation.ready.as_ref().expect_err("no tunnel yet");
+    assert_eq!(failure.reason, ReasonCode::AgentProtocolUnsupported);
+    let agent = evaluation.status.agent.as_ref().expect("status.agent");
+    assert_eq!(agent.refused.as_ref(), Some(&refusal));
+    assert_eq!(
+        agent.proxy_version.as_deref(),
+        Some(env!("CARGO_PKG_VERSION"))
+    );
+    drop(state.delete_key(&agent_refused_key(&uid)).await);
+
+    // gw-1 is a 0.4.0 gateway: its record has no `agents`.
+    let old = r#"{"tunnels":1,"versions":["0.4.1"],"ca_fingerprints":["ab"]}"#.to_string();
+    let new = serde_json::to_string(&PresenceInfo {
+        tunnels: 1,
+        versions: vec!["0.4.0".to_string()],
+        ca_fingerprints: vec!["ab".to_string()],
+        agents: vec![AgentCount {
+            version: "0.4.0".to_string(),
+            protocol: 1,
             tunnels: 1,
-            versions: vec![version.to_string()],
-            ca_fingerprints: vec!["ab".to_string()],
-        };
+        }],
+    })
+    .expect("json");
+    for (pod, record) in [("gw-1", old), ("gw-0", new)] {
         state
-            .redis_set(
-                &presence_info_key(&uid, pod),
-                &serde_json::to_string(&info).expect("json"),
-                Some(30),
-            )
+            .redis_set(&presence_info_key(&uid, pod), &record, Some(30))
             .await
             .expect("record");
         state
@@ -407,6 +439,14 @@ async fn an_agent_cluster_is_ready_through_the_gateway_presences() {
     assert_eq!(agent.gateways, vec!["gw-0", "gw-1"]);
     assert_eq!(agent.versions, vec!["0.4.0", "0.4.1"]);
     assert_eq!(agent.ca_fingerprints, vec!["ab"]);
+    assert_eq!(
+        agent.agents,
+        vec![AgentCount {
+            version: "0.4.0".to_string(),
+            protocol: 1,
+            tunnels: 1,
+        }]
+    );
 
     for pod in ["gw-0", "gw-1"] {
         drop(state.presence_remove(&key, pod).await);

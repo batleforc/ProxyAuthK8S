@@ -442,6 +442,30 @@ async fn dial_agent(
     ),
     String,
 > {
+    let info = agent_proto::control::AgentInfo {
+        version: "0.4.0".to_string(),
+        ca_fingerprint: String::new(),
+        protocol_min: agent_proto::PROTOCOL_MIN,
+        protocol_max: agent_proto::PROTOCOL_VERSION,
+    };
+    dial_agent_announcing(addr, trusted_ca_pem, cert_pem, key, info).await
+}
+
+/// [`dial_agent`], announcing `info`.
+async fn dial_agent_announcing(
+    addr: std::net::SocketAddr,
+    trusted_ca_pem: &str,
+    cert_pem: &str,
+    key: &rcgen::KeyPair,
+    info: agent_proto::control::AgentInfo,
+) -> Result<
+    (
+        agent_proto::mux::Stream,
+        tokio::sync::mpsc::Receiver<agent_proto::mux::Stream>,
+        agent_proto::control::Hello,
+    ),
+    String,
+> {
     use rustls::pki_types::pem::PemObject as _;
     use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
     use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
@@ -472,15 +496,9 @@ async fn dial_agent(
         agent_proto::mux::new(tls.compat(), agent_proto::mux::Mode::Server, 8);
     tokio::spawn(driver);
     let mut control = handle.open().await.map_err(|err| err.to_string())?;
-    agent_proto::control::write(
-        &mut control,
-        agent_proto::control::Kind::AgentInfo(agent_proto::control::AgentInfo {
-            version: "test".to_string(),
-            ca_fingerprint: String::new(),
-        }),
-    )
-    .await
-    .map_err(|err| err.to_string())?;
+    agent_proto::control::write(&mut control, agent_proto::control::Kind::AgentInfo(info))
+        .await
+        .map_err(|err| err.to_string())?;
     let read = agent_proto::control::read(&mut control);
     let hello = match tokio::time::timeout(std::time::Duration::from_secs(5), read).await {
         Ok(Ok(agent_proto::control::Kind::Hello(hello))) => hello,
@@ -602,6 +620,98 @@ async fn an_agent_with_a_valid_certificate_opens_a_tunnel() {
     };
     let renewed = rustls::pki_types::CertificateDer::from_pem_slice(&renewed.cert).unwrap();
     assert_eq!(agent_pki::identity_of(&renewed).unwrap().identity, identity);
+
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
+/// RFC 0013 §6.3: an agent from before the protocol range (`0-0`) gets
+/// protocol 1; a range without protocol 1 is refused before `register`, with
+/// `Close "protocol"` naming the gateway's range, and a refusal record under the certificate's UID only.
+#[tokio::test]
+async fn a_protocol_range_without_overlap_is_refused_before_register() {
+    let pool = redis_or_skip!();
+    let (addr, gateway) = agent_gateway().await;
+    // Epochs no other test seeds: the UID follows the epoch, and the refusal
+    // key lives in the shared Redis.
+    let identity = seeded_agent_cluster(&pool, 13).await;
+    let other = seeded_agent_cluster(&pool, 14).await;
+    let (cert, key) = agent_cert(&gateway.ca, &identity);
+    let announcing = |protocol_min, protocol_max| agent_proto::control::AgentInfo {
+        version: "0.7.0".to_string(),
+        ca_fingerprint: String::new(),
+        protocol_min,
+        protocol_max,
+    };
+
+    let refused = dial_agent_announcing(addr, gateway.ca.cert_pem(), &cert, &key, announcing(2, 3))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("protocol"), "{refused}");
+    // The gateway's own range, for the agent's log (RFC 0013 §17).
+    assert!(
+        refused.contains("protocol_min: 1, protocol_max: 1"),
+        "{refused}"
+    );
+    assert!(gateway.registry.identities().is_empty());
+    let record: common::agent_gateway::AgentRefusal = serde_json::from_str(
+        &gateway
+            .state
+            .redis_get(&common::agent_gateway::agent_refused_key(&identity.uid))
+            .await
+            .unwrap()
+            .expect("the refusal should be recorded"),
+    )
+    .unwrap();
+    assert_eq!(
+        record,
+        common::agent_gateway::AgentRefusal {
+            reason: "protocol".to_string(),
+            version: "0.7.0".to_string(),
+            protocols: "2-3".to_string(),
+        }
+    );
+    assert_eq!(
+        gateway
+            .state
+            .redis_get(&common::agent_gateway::agent_refused_key(&other.uid))
+            .await
+            .unwrap(),
+        None
+    );
+
+    let (_control, _inbound, hello) =
+        dial_agent_announcing(addr, gateway.ca.cert_pem(), &cert, &key, announcing(0, 0))
+            .await
+            .unwrap();
+    assert_eq!(hello.protocol, 1);
+    registered(&gateway, 1).await;
+
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+    delete_proxy(&pool, &other.namespace, &other.name).await;
+}
+
+/// RFC 0013, T1: what an agent announces reaches the presence record in a
+/// bounded shape only; the tunnel is served all the same.
+#[tokio::test]
+async fn an_invalid_announce_is_served_but_never_recorded_as_sent() {
+    let pool = redis_or_skip!();
+    let (addr, gateway) = agent_gateway().await;
+    let identity = seeded_agent_cluster(&pool, 0).await;
+    let (cert, key) = agent_cert(&gateway.ca, &identity);
+    let info = agent_proto::control::AgentInfo {
+        version: "0.5.0\n{\"forged\":1}".to_string(),
+        ca_fingerprint: "x".repeat(4096),
+        protocol_min: 1,
+        protocol_max: 1,
+    };
+    let (_control, _inbound, _hello) =
+        dial_agent_announcing(addr, gateway.ca.cert_pem(), &cert, &key, info)
+            .await
+            .unwrap();
+    registered(&gateway, 1).await;
+    let [(_, info)] = gateway.registry.identities().try_into().unwrap();
+    assert_eq!(info.versions, vec!["invalid"]);
+    assert_eq!(info.ca_fingerprints, vec![String::new()]);
 
     delete_proxy(&pool, &identity.namespace, &identity.name).await;
 }
@@ -804,7 +914,7 @@ async fn presences_follow_the_cr_and_revoke_its_tunnels() {
     };
     assert_eq!(pod, "gw-0");
     assert_eq!(info.tunnels, 1);
-    assert_eq!(info.versions, vec!["test"]);
+    assert_eq!(info.versions, vec!["0.4.0"]);
 
     // `epoch` 4 -> 5: the agent hears why, the tunnel leaves the registry.
     let mut proxy = proxy_fixture(
@@ -829,7 +939,9 @@ async fn presences_follow_the_cr_and_revoke_its_tunnels() {
     assert_eq!(
         closed,
         Kind::Close(control::Close {
-            reason: "revoked".to_string()
+            reason: "revoked".to_string(),
+            protocol_min: agent_proto::PROTOCOL_MIN,
+            protocol_max: agent_proto::PROTOCOL_VERSION,
         })
     );
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
@@ -1005,7 +1117,7 @@ async fn enrollment_and_tunnels_write_audit_events() {
     assert_eq!(refused[0]["outcome"], "denied");
     let connected = of("agent_connected");
     assert_eq!(connected.len(), 1, "{lines:?}");
-    assert_eq!(connected[0]["agent_version"], "test");
+    assert_eq!(connected[0]["agent_version"], "0.4.0");
     assert_eq!(of("agent_disconnected")[0]["reason"], "revoked");
     // No line carries the proof.
     assert!(lines.iter().all(|line| !line.to_string().contains(&token)));
@@ -1494,7 +1606,9 @@ async fn an_epoch_bump_closes_tunnels_and_refuses_renewal() {
     assert_eq!(
         answer,
         Kind::Close(Close {
-            reason: "epoch".to_string()
+            reason: "epoch".to_string(),
+            protocol_min: agent_proto::PROTOCOL_MIN,
+            protocol_max: agent_proto::PROTOCOL_VERSION,
         })
     );
     registered(&gateway, 0).await;

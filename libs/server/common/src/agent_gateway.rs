@@ -62,6 +62,35 @@ pub fn bootstrap_key(uid: &str, token: &str) -> String {
     format!("{}:agent-bootstrap:{uid}:{hash}", crd::REDIS_PREFIX)
 }
 
+/// How long the refusal of an agent's protocols stays readable: rewritten at
+/// each attempt, an agent retrying every 60 s keeps it (RFC 0013, decision 15).
+pub const REFUSAL_TTL: Duration = Duration::from_secs(5 * 60);
+
+/// Where a gateway pod records why it refused the protocols of cluster
+/// `uid`'s agent, for [`REFUSAL_TTL`].
+#[must_use]
+pub fn agent_refused_key(uid: &str) -> String {
+    format!("{}:agent-refused:{uid}", crd::REDIS_PREFIX)
+}
+
+/// The record behind [`agent_refused_key`], as `status.agent.refused` shows it.
+pub use crd::status::{AgentCount, AgentRefusal};
+
+/// Adds `tunnels` to the row of (`version`, `protocol`) in `agents`.
+pub fn count_agent(agents: &mut Vec<AgentCount>, version: &str, protocol: u32, tunnels: u32) {
+    match agents
+        .iter_mut()
+        .find(|row| row.version == version && row.protocol == protocol)
+    {
+        Some(row) => row.tunnels = row.tunnels.saturating_add(tunnels),
+        None => agents.push(AgentCount {
+            version: version.to_string(),
+            protocol,
+            tunnels,
+        }),
+    }
+}
+
 /// What a gateway pod reports about its tunnels of one cluster, for
 /// `status.agent` (RFC 0012 §6.4).
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -69,6 +98,10 @@ pub struct PresenceInfo {
     pub tunnels: usize,
     pub versions: Vec<String>,
     pub ca_fingerprints: Vec<String>,
+    /// Absent from a 0.4.0 gateway's record: without `default`, a newer
+    /// controller would read it as no record at all, 0 tunnel (RFC 0013 §6.4).
+    #[serde(default)]
+    pub agents: Vec<AgentCount>,
 }
 
 impl State {

@@ -29,6 +29,12 @@ pub struct AgentInfo {
     /// (T4: the apiserver CA comes from `spec.cert`).
     #[prost(string, tag = "2")]
     pub ca_fingerprint: String,
+    /// The range of protocols the agent speaks (RFC 0013); both `0` from an
+    /// agent older than these fields.
+    #[prost(uint32, tag = "3")]
+    pub protocol_min: u32,
+    #[prost(uint32, tag = "4")]
+    pub protocol_max: u32,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
@@ -61,6 +67,11 @@ pub struct Pong {
 pub struct Close {
     #[prost(string, tag = "1")]
     pub reason: String,
+    /// The sender's protocol range (RFC 0013): both `0` from a 0.4.0 peer.
+    #[prost(uint32, tag = "2")]
+    pub protocol_min: u32,
+    #[prost(uint32, tag = "3")]
+    pub protocol_max: u32,
 }
 
 #[derive(Clone, PartialEq, prost::Message)]
@@ -154,6 +165,8 @@ mod tests {
             Kind::AgentInfo(AgentInfo {
                 version: "0.4.0".into(),
                 ca_fingerprint: "ab".repeat(32),
+                protocol_min: crate::PROTOCOL_MIN,
+                protocol_max: crate::PROTOCOL_VERSION,
             }),
             Kind::RenewRequest(RenewRequest {
                 csr: b"-----BEGIN CERTIFICATE REQUEST-----".to_vec(),
@@ -165,6 +178,8 @@ mod tests {
             Kind::Pong(Pong { nonce: 7 }),
             Kind::Close(Close {
                 reason: "protocol".into(),
+                protocol_min: 1,
+                protocol_max: 2,
             }),
         ];
         let mut wire = Vec::new();
@@ -191,6 +206,29 @@ mod tests {
         let csr = vec![0u8; MAX_CONTROL_BYTES];
         let err = encode(Kind::RenewRequest(RenewRequest { csr })).unwrap_err();
         assert!(matches!(err, ControlError::TooLarge(_)), "{err}");
+    }
+
+    /// An agent 0.4.0 sends tags 1 and 2 only: they read as `0`, protocol 1.
+    #[test]
+    fn an_agent_info_without_its_protocol_range_reads_as_zero() {
+        #[derive(Clone, PartialEq, prost::Message)]
+        struct AgentInfoV1 {
+            #[prost(string, tag = "1")]
+            version: String,
+            #[prost(string, tag = "2")]
+            ca_fingerprint: String,
+        }
+        let old = AgentInfoV1 {
+            version: "0.4.0".into(),
+            ca_fingerprint: String::new(),
+        }
+        .encode_to_vec();
+        let info = AgentInfo::decode(old.as_slice()).unwrap();
+        assert_eq!((info.protocol_min, info.protocol_max), (0, 0));
+        assert_eq!(
+            crate::negotiate((info.protocol_min, info.protocol_max), (1, 1)),
+            Some(1)
+        );
     }
 
     #[test]

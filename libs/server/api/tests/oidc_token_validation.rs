@@ -320,6 +320,30 @@ async fn rejects_a_token_that_introspection_reports_inactive() {
     assert_audience_rejected(&result);
 }
 
+#[tokio::test]
+async fn a_public_client_told_inactive_falls_back_to_the_jwt_audience() {
+    // authentik answers `active: false` to a caller that cannot authenticate,
+    // which a PKCE client without a secret never can: the JWT `aud` decides.
+    let server = Provider::start().await;
+    mount_discovery(&server, None, true).await;
+    mount_introspection(&server, json!({ "active": false })).await;
+    let mut conf = oidc_conf(&server.uri());
+    conf.client_secret = Some(String::new());
+
+    let good = jwt(json!({ "aud": CLIENT_ID, "sub": "alice-sub" }));
+    mount_userinfo_ok(&server, &good).await;
+    assert_accepted(User::get_user_info_from_oidc_token(good, conf.clone()).await);
+
+    let foreign = jwt(json!({ "aud": "billing-api", "sub": "alice-sub" }));
+    mount_userinfo_ok(&server, &foreign).await;
+    assert_audience_rejected(&User::get_user_info_from_oidc_token(foreign, conf.clone()).await);
+
+    conf.client_secret = None;
+    let opaque = opaque_token();
+    mount_userinfo_ok(&server, &opaque).await;
+    assert_audience_rejected(&User::get_user_info_from_oidc_token(opaque, conf).await);
+}
+
 // ---------------------------------------------------------------------------
 // Wrong audience
 // ---------------------------------------------------------------------------

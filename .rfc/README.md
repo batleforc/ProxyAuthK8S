@@ -19,6 +19,8 @@ RFC passe au `/grill-me` avant d'être `In review`.
 | [0010](0010-token-exchange.md) | Échange de jeton : une connexion au proxy pour tous les clusters | à créer | Accepted | high |
 | [0011](0011-adopt-kit-runtime-crates.md) | Conditions, Events et codes de raison : adopter les crates du kit | à créer | Implemented | medium |
 | [0012](0012-agent-tunnel.md) | Mode agent : joindre un apiserver qui n'est pas exposé | à créer | Implemented | high |
+| [0013](0013-agent-version-skew.md) | Versions des agents : les voir, les comparer, refuser un protocole inconnu | #304 | Implemented | medium |
+| [0014](0014-trusted-authenticator.md) | Le proxy comme authentificateur de confiance (front-proxy, émetteur) | à créer | Draft | high |
 | [REVIEW](REVIEW-roadmap-readme.md) | Revue de la roadmap et du README (2026-10-17) | — | — | — |
 
 Chaque document se termine par une section « Still open » (ou « Questions pour le
@@ -37,5 +39,10 @@ Le plan détaillé, avec les points de synchronisation entre RFC, est dans
 - **0.4.0** : la 0011 (conditions, Events, rythme du kit) et la 0012 (mode
   agent, avancée de la v2.0.0) ; la 0012 dépend de la 0011, pas de la 0010, et
   passe avant elle (2026-10-24).
-- **0.5.0** : la 0010 (échange de jeton), relue face au mode agent.
+- **0.4.1** : la 0013 (versions et protocole des agents), avant la 0010
+  (grill du 2026-10-25).
+- **0.5.0** : la 0010 (échange de jeton), relue face au mode agent. La 0014
+  en est indépendante : sa phase 1 (la garde de version) passe avant toute
+  bascule de mode ; la 0010 range sa config sous `upstream_auth`
+  (grill et revues du 2026-10-27).
 - **v1.0.0** : les bascules de défauts.

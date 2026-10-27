@@ -258,6 +258,28 @@ de la refonte UI). Voir la RFC 0001.
 
 ---
 
+## v0.4.1 — Versions des agents {"\uD83D\uDEA7"}
+
+<Callout>
+  RFC 0013 (`.rfc/0013-agent-version-skew.md`, Accepted) : sort avant
+  l'échange de jeton, et corrige des annonces d'agent non validées en 0.4.0.
+</Callout>
+
+<Steps>
+
+<Step>
+### Versions des agents (RFC 0013)
+
+- ⏳ Protocole négocié entre l'agent et la passerelle, refus explicite d'un protocole inconnu (`AgentProtocolUnsupported`)
+- ⏳ Versions des agents par cluster dans `status.agent`, avis `AgentVersionSkew` au-delà d'une mineure de retard
+- ⏳ Annonces de l'agent validées avant d'atteindre le statut
+
+</Step>
+
+</Steps>
+
+---
+
 ## v0.5.0 — Échange de jeton {"\uD83D\uDEA7"}
 
 <Callout>
