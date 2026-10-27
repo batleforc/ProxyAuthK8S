@@ -152,3 +152,17 @@ Statuts :
 | 0013 | 5     | suite       | `rfc0013::p5_a_protocol_without_overlap_is_refused_then_recovers` |
 | 0013 | 6     | suite       | `rfc0013::p6_a_forged_version_is_recorded_invalid` |
 | 0013 | 7     | suite       | `rfc0013::p7_the_publishable_image_has_no_announce_override` |
+| 0014 | 1     | à écrire    | `rfc0014::p1_…` |
+| 0014 | 2     | à écrire    | `rfc0014::p2_…` |
+| 0014 | 3     | à écrire    | `rfc0014::p3_…` |
+| 0014 | 4     | à écrire    | `rfc0014::p4_…` |
+| 0014 | 5     | à écrire    | `rfc0014::p5_…` |
+| 0014 | 6     | à écrire    | `rfc0014::p6_…` |
+| 0014 | 7     | à écrire    | `rfc0014::p7_…` |
+| 0014 | 8     | à écrire    | `rfc0014::p8_…` |
+| 0014 | 9     | à écrire    | `rfc0014::p9_…` |
+| 0014 | 10    | à écrire    | `rfc0014::p10_…` |
+| 0014 | 11    | à écrire    | `rfc0014::p11_…` |
+| 0014 | 12    | à écrire    | `rfc0014::p12_…` |
+| 0014 | 13    | à écrire    | `rfc0014::p13_…` |
+| 0014 | 14    | à écrire    | `rfc0014::p14_…` |

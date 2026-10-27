@@ -8,7 +8,7 @@
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
 | Co-author   | Claude Opus 5.5 (1M context)                                           |
 | Created     | 2026-10-18                                                             |
-| Supersedes  | —                                                                      |
+| Supersedes  | — (amendée par [0014](0014-trusted-authenticator.md) : config sous `upstream_auth`, deux non-goals de §3 levés) |
 | Touches     | `libs/server/crd/src/authentication_configuration/`, `libs/server/common/src/{oidc_cache.rs,token_exchange.rs}`, `libs/server/api/src/cluster/redirect/{kube_redirect.rs,forwarded.rs,audit.rs}`, `…/kube_redirect/{standard.rs,upgrade/connect.rs,virtual_redirect/,list_fallback/}`, `libs/server/api/src/visible_clusters/`, `libs/server/api/src/server_auth/` (nouveau), `libs/server/api/src/metrics.rs`, `libs/cli/cli/src/login/`, `apps/front/src/`, CRD générée, `swagger.json` et clients générés, `.it/`, `tests/integration/`, `.docs/content/docs/` |
 | Risk        | high                                                                   |
 

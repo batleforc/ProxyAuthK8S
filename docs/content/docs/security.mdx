@@ -167,6 +167,10 @@ attendue :
 1. par **introspection RFC 7662** si le provider expose un endpoint ;
 2. sinon en lisant le claim `aud` du JWT (sûr ici, puisque `userinfo` a déjà validé la signature).
 
+Un client **public** (PKCE, sans `client_secret`) ne peut pas s'authentifier auprès de
+l'introspection, et certains IdP (authentik) lui répondent `active: false`. Dans ce cas seulement,
+le proxy ne prend pas cette réponse pour une révocation et retombe sur le claim `aud` du JWT.
+
 Seul le claim **`aud`** est comparé. `azp`/`client_id` désignent le *client* auquel le jeton a été
 délivré, pas la *ressource* visée ; les accepter rouvrirait le trou de confusion d'audience (un
 jeton `aud=["autre-api"], azp=<ce service>` passerait).
