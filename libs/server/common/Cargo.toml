@@ -1,6 +1,6 @@
 [package]
 name = "common"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 license = "MIT"
 # Never published: its git dependency (the kit) is not a wildcard for cargo-deny.
@@ -29,8 +29,8 @@ oauth2-reqwest = { workspace = true }
 
 # Already in the tree (reqwest, kube): the CONNECT headers of the agent gateway.
 http = "1"
-crd = { path = "../crd", version = "0.4.0" }
-jwt_validator = { path = "../jwt_validator", version = "0.4.0" }
+crd = { path = "../crd", version = "0.4.1" }
+jwt_validator = { path = "../jwt_validator", version = "0.4.1" }
 tokio = { workspace = true, features = ["time"] }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

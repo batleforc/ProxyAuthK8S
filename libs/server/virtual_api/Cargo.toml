@@ -1,6 +1,6 @@
 [package]
 name = "virtual_api"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 license = "MIT"
 
@@ -9,7 +9,7 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 k8s-openapi = { workspace = true }
 
-crd = { path = "../crd", version = "0.4.0" }
+crd = { path = "../crd", version = "0.4.1" }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

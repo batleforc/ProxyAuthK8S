@@ -2,6 +2,48 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.4.1](https://github.com/batleforc/proxyauthK8s/compare/9b2f3eb836dbfcee3837b11d1a2533d91e315192..v0.4.1) - 2026-10-27
+#### Features
+- (**agent**) negotiate the tunnel protocol, validate what agents announce (RFC 0013 phase 1) - ([a72bfc4](https://github.com/batleforc/proxyauthK8s/commit/a72bfc4dbe20075d760facdc9982eb01c304c861)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**controller**) show agent versions in the status, warn on skew, prove it on the bench (RFC 0013 phases 2 and 3) - ([01f878f](https://github.com/batleforc/proxyauthK8s/commit/01f878fafe0b3a0faeb0ed05e0589256c548605b)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- apply agent security and prepare new RFC 14 - ([7243f1f](https://github.com/batleforc/proxyauthK8s/commit/7243f1f084d395f6c70597f2156588d34230a5ab)) - Max Batleforc
+#### Bug Fixes
+- (**ci**) keep mise exec to the installed tools in deps.yaml - ([5d5e3b9](https://github.com/batleforc/proxyauthK8s/commit/5d5e3b932237b1be17520170f07afc27a90085f5)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**ci**) install rust through mise before cargo-machete - ([f540b49](https://github.com/batleforc/proxyauthK8s/commit/f540b496e1a3c0bc45115d170e7f081e92bf148a)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**ci**) install uv before semgrep, rely on CodeQL default setup - ([14902fc](https://github.com/batleforc/proxyauthK8s/commit/14902fc8cb37b00051210237516b1cb6c05e1314)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**crd**) send what status.agent no longer reports as null - ([074b169](https://github.com/batleforc/proxyauthK8s/commit/074b169255c1879a73d709112f4db60b4a7b1e24)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**test**) scrape every agent gateway pod in RFC 0012 p15 - ([6ea9c58](https://github.com/batleforc/proxyauthK8s/commit/6ea9c5890544c7cb084e44f3901ebfa3218e80df)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Documentation
+- (**rfc**) add RFC 0013, agent versions and protocol negotiation, in review - ([c4a4783](https://github.com/batleforc/proxyauthK8s/commit/c4a4783436dfc43e4948295d04a7941f9a806586)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- migration guides, the 0.4.0 one first - ([c7f3906](https://github.com/batleforc/proxyauthK8s/commit/c7f3906b43db1c2a5d6cc08800cd1066d39ff0d7)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Tests
+- (**integration**) RFC 0013 p5 waits out the refusal key and a requeue - ([c79feb8](https://github.com/batleforc/proxyauthK8s/commit/c79feb872c525fc7b886f79064baa16a53db1719)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) give RFC 0013 p5 10 min, it waits out the refusal key - ([7cf6674](https://github.com/batleforc/proxyauthK8s/commit/7cf6674cfd2946eb4d97074d18a502f10e0c3abc)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) drop the branch agent before the refused one (RFC 0013 p5) - ([42a3f48](https://github.com/batleforc/proxyauthK8s/commit/42a3f4881f747553fefb06dbc5e049c0efec36cd)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Build system
+- (**deps**) bump taiki-e/install-action from 2.87.13 to 2.87.29 - ([98cc1c2](https://github.com/batleforc/proxyauthK8s/commit/98cc1c2ddafc23ff61d6e813a07593ff014066af)) - dependabot[bot]
+- (**deps**) bump actions/upload-artifact from 4.6.2 to 7.0.2 - ([19a48fe](https://github.com/batleforc/proxyauthK8s/commit/19a48fe121e98214d4454fd80991c9bd88e631db)) - dependabot[bot]
+#### Continuous Integration
+- (**security**) add the weebo-security gates, SBOMs and attestations - ([1afe006](https://github.com/batleforc/proxyauthK8s/commit/1afe006ae0004efe774bcd52e11a0764b62202db)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Miscellaneous Chores
+- (**ci**) drop the retired workflows, let cog skip merge commits - ([b43f88e](https://github.com/batleforc/proxyauthK8s/commit/b43f88eff60ac3fd1babb02d57844194de6da4c9)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**deps**) hold tokio-tungstenite at 0.29, from the workspace - ([5c40925](https://github.com/batleforc/proxyauthK8s/commit/5c40925fbc2698588db66241a505794838d2b6aa)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**deps**) bump everything within its range - ([df611ce](https://github.com/batleforc/proxyauthK8s/commit/df611cea03294ee705bc0fb553f3f2d54543ea1f)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**deps**) drop @lucide/vue and axios from the front - ([e3de1c5](https://github.com/batleforc/proxyauthK8s/commit/e3de1c538059d9a0c6a67004c9f3f1c2122cfc43)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**deps**) add the task deps checks and knip - ([e7513dd](https://github.com/batleforc/proxyauthK8s/commit/e7513dd510a5f161e21e2cbc4373ae244a1fb7f6)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**tooling**) stop tracking the wska skill links - ([77ecd9d](https://github.com/batleforc/proxyauthK8s/commit/77ecd9d588472adcdbefdaa36284f58e56b5a591)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**tooling**) move to weebo-skillsagent 0.17.0 and graphify 0.9.96 - ([9e43e64](https://github.com/batleforc/proxyauthK8s/commit/9e43e64fc059598bbc0af22edad3adeacceb9cc8)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- merge dependabot/github_actions/taiki-e/install-action-2.87.30 (#299) - ([3712b7e](https://github.com/batleforc/proxyauthK8s/commit/3712b7e2f8c98fa005eedd3af923940d7d4a525a)) - Maxime
+- merge chore/drop-retired-workflows (#308) - ([407d34c](https://github.com/batleforc/proxyauthK8s/commit/407d34c3060e4035cce8d166dab9c8a906f8d415)) - Maxime
+- merge chore/deps-hygiene (#307) - ([9036cc8](https://github.com/batleforc/proxyauthK8s/commit/9036cc8def71b265546baeedc091b1be30300b92)) - Maxime
+- merge docs/rfc-0013-agent-versions (#304) - ([c565025](https://github.com/batleforc/proxyauthK8s/commit/c5650254ffed834cb2dfd8ed64320df17f70bda5)) - Maxime
+- merge chore/local-tooling (#306) - ([963b5a9](https://github.com/batleforc/proxyauthK8s/commit/963b5a98cf086f0f8fb999fb54dd884b47929783)) - Maxime
+- merge ci/security-gates (#305) - ([99ce856](https://github.com/batleforc/proxyauthK8s/commit/99ce856c7004cdff1f5bfbb77aa7d88a99b7b6b0)) - Maxime
+- merge docs/migration-guides (#302) - ([d7f10c9](https://github.com/batleforc/proxyauthK8s/commit/d7f10c92dd0be43e19dba8052a3f7a4f9cf6b66f)) - Maxime
+- merge release/v0.4.0 (#301) - ([9b2f3eb](https://github.com/batleforc/proxyauthK8s/commit/9b2f3eb836dbfcee3837b11d1a2533d91e315192)) - Maxime
+
+- - -
+
 ## [v0.4.0](https://github.com/batleforc/proxyauthK8s/compare/01c762c3f4af03e96d330217697539771b468538..v0.4.0) - 2026-10-25
 #### Features
 - (**agent**) jwksPublisher CronJob, the remote JWKS kept current (RFC 0012) - ([d8c8d37](https://github.com/batleforc/proxyauthK8s/commit/d8c8d37e482d5fe97026cd2502317a3d0e855cd3)) - Max Batleforc, Claude Opus 5.5 (1M context)
