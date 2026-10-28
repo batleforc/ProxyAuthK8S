@@ -438,16 +438,13 @@ jobs:
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: 🦀 Install Rust Toolchain
-        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
-        with:
-          toolchain: stable
       - name: 🛠️ Install mise
         uses: ./.github/actions/setup-mise
       - name: 🛠️ Install Task
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      # mise installs a cargo: tool only with its own rust installed first.
       - name: 🛠️ Install cargo-cyclonedx
-        run: mise install cargo-binstall cargo:cargo-cyclonedx
+        run: mise install rust cargo-binstall cargo:cargo-cyclonedx
       # The image SBOMs (syft, publish-images) list what is in each image; these
       # list the crates compiled into each binary, the kubectl plugin included.
       - name: 📋 Generate the SBOMs
