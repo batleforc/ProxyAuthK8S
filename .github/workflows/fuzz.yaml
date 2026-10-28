@@ -46,7 +46,7 @@ jobs:
       # The expensive half, nightly and manual only: a per-PR fuzz run is a
       # flaky gate. `--target <host>` and `detect_leaks=0` are explained in
       # .tasks/fuzz.yaml.
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@a4d3f3f761dcd95cce1b72cb61cb6d1963438177 # v2.87.30
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         with:
           tool: cargo-fuzz
