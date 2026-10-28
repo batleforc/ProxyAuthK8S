@@ -2,8 +2,8 @@ name: 🧪 Integration suite
 
 # The k3d bench and the black-box suite of RFC 0009: k3s, Dex, Redis, the
 # chart and the images built from this commit, driven by the real kubectl,
-# kubectl-proxyauth and Chromium. A failure here blocks the merge, and the
-# 0.2.0 tag needs a green run on its commit (release-prepare.yml checks it).
+# kubectl-proxyauth and Chromium. A failure here blocks the merge, and
+# release-prepare.yml calls it on the tagged commit before releasing it.
 on:
   push:
     branches: ["main"]
@@ -26,6 +26,7 @@ on:
   schedule:
     - cron: "15 2 * * *" # nightly on main
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
