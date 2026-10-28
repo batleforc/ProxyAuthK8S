@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.4.2](https://github.com/batleforc/proxyauthK8s/compare/6a904f78ae90d6334e3ab8f42e400c55b31c5bfc..v0.4.2) - 2026-10-28
+#### Bug Fixes
+- (**ci**) install mise's rust before cargo-cyclonedx in the release SBOM job - ([04628cc](https://github.com/batleforc/proxyauthK8s/commit/04628cce032508a210349f88fc148b5c448f4f5d)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Miscellaneous Chores
+- merge fix/release-sbom-rust (#317) - ([9c40211](https://github.com/batleforc/proxyauthK8s/commit/9c40211bb72f6e785ce39a7626ee46ed90a78376)) - Maxime
+- merge release/v0.4.1 (#309) - ([6a904f7](https://github.com/batleforc/proxyauthK8s/commit/6a904f78ae90d6334e3ab8f42e400c55b31c5bfc)) - Maxime
+
+- - -
+
 ## [v0.4.1](https://github.com/batleforc/proxyauthK8s/compare/9b2f3eb836dbfcee3837b11d1a2533d91e315192..v0.4.1) - 2026-10-27
 #### Features
 - (**agent**) negotiate the tunnel protocol, validate what agents announce (RFC 0013 phase 1) - ([a72bfc4](https://github.com/batleforc/proxyauthK8s/commit/a72bfc4dbe20075d760facdc9982eb01c304c861)) - Max Batleforc, Claude Opus 5.5 (1M context)

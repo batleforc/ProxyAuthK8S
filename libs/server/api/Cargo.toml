@@ -1,6 +1,6 @@
 [package]
 name = "api"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 license = "MIT"
 
@@ -58,19 +58,19 @@ socket2 = { version = "0.6", optional = true }
 # Already in the tree (kube); the request id of every response.
 uuid = { version = "1", features = ["v4"], optional = true }
 
-agent_proto = { path = "../../agent/proto", version = "0.4.1" }
-agent_pki = { path = "../../agent/pki", version = "0.4.1" }
+agent_proto = { path = "../../agent/proto", version = "0.4.2" }
+agent_pki = { path = "../../agent/pki", version = "0.4.2" }
 # Already in the tree (tokio-tungstenite, kube): futures-io <-> tokio-io for
 # yamux streams.
 tokio-util = { version = "0.7", features = ["compat"] }
-common = { path = "../common", version = "0.4.1" }
-crd = { path = "../crd", version = "0.4.1" }
-jwt_validator = { path = "../jwt_validator", version = "0.4.1" }
+common = { path = "../common", version = "0.4.2" }
+crd = { path = "../crd", version = "0.4.2" }
+jwt_validator = { path = "../jwt_validator", version = "0.4.2" }
 # Already in the tree (jwt_validator): the header and JWKS of an enrolment proof.
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
-crd_runtime = { path = "../crd_runtime", version = "0.4.1" }
-virtual_api = { path = "../virtual_api", version = "0.4.1" }
-trace = { path = "../trace", version = "0.4.1", optional = true }
+crd_runtime = { path = "../crd_runtime", version = "0.4.2" }
+virtual_api = { path = "../virtual_api", version = "0.4.2" }
+trace = { path = "../trace", version = "0.4.2", optional = true }
 
 [dev-dependencies]
 opentelemetry_sdk = { workspace = true }
@@ -78,7 +78,7 @@ tracing-subscriber = { workspace = true }
 opentelemetry-prometheus = "0.33"
 # `test-util` unlocks `State::from_parts`; dev-dependencies are not part of a
 # normal build so the feature stays off outside `cargo test`.
-common = { path = "../common", version = "0.4.1", features = ["test-util"] }
+common = { path = "../common", version = "0.4.2", features = ["test-util"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 wiremock = "0.6"
 # Already in the tree (axum): `oneshot` on the router in tests.
@@ -96,14 +96,14 @@ secrecy = "0.10.3"
 # same ephemeral apiserver the rest of the envtest suite already spins up, rather
 # than duplicating that ~460-line harness into the controller crate. No
 # production dependency of `api` on `controller` is implied.
-controller = { path = "../controller", version = "0.4.1" }
+controller = { path = "../controller", version = "0.4.2" }
 weebo-kit-api = { workspace = true }
 weebo-kit-runtime = { workspace = true }
 k8s-openapi = { workspace = true }
 # Already in the tree (agent_proto): the client handshake of a stand-in agent.
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
 # The real agent, end to end against the gateway (RFC 0012 §6.P, in process).
-agent = { path = "../../../apps/agent", version = "0.4.1" }
+agent = { path = "../../../apps/agent", version = "0.4.2" }
 
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

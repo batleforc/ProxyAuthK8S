@@ -1,6 +1,6 @@
 [package]
 name = "cli"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 license = "MIT"
 
@@ -19,8 +19,8 @@ base64 = "0.23"
 tokio = { version = "1", features = ["rt", "net", "time", "io-util", "macros"] }
 keyring-core = "1"
 
-cli_trace = { path = "../cli_trace", version = "0.4.1" }
-client_api = { path = "../client_api", version = "0.4.1" }
+cli_trace = { path = "../cli_trace", version = "0.4.2" }
+client_api = { path = "../client_api", version = "0.4.2" }
 comfy-table = "8"
 # Trust on first use (`login/tofu.rs`): fetch and check the server certificate.
 rustls = { workspace = true }
