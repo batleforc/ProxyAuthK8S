@@ -1749,3 +1749,41 @@ page de migration, runbook) ; la mise à jour du statut de la RFC.
 ### 17.3 Phase 3 (`Issuer`)
 
 Non commencée.
+
+### 17.4 Pour reprendre (état au 2026-10-29, `613297b`)
+
+- **Branche** : `probe/rfc0014-front-proxy`, poussée, sans PR. Tout le
+  travail RFC 0014 y est ; rien n'est fusionné dans `main`.
+- **CI** : Rust tests et envtest verts jusqu'à `f47ae51` ; clippy vert sur
+  la CI jusqu'à `de5b1d4`, propre en local ensuite (le filtre `*` de
+  `back-clippy.yaml` ne voit pas une branche à `/` : le lancer à la main,
+  `gh workflow run back-clippy.yaml --ref probe/rfc0014-front-proxy`). La
+  suite d'intégration ne part que lancée à la main
+  (`gh workflow run integration.yaml --ref …`) ; l'exécution
+  `40865265876` (sur `d88899d`, sans la sonde ni le point 9) était en
+  cours : la relancer sur la tête de branche, puis lire
+  `gh run view <id> --log-failed`.
+- **Prochaines étapes, dans l'ordre** :
+  1. suite d'intégration verte sur la tête (`rfc0014.rs` : points 1, 2, 3,
+     4, 6, 9, 11, 15, T29), corriger ce qu'elle trouve, compléter §17.2
+     *Preuves* avec ce qu'elle observe ;
+  2. clippy lancé à la main sur la tête ;
+  3. documentation utilisateur de §11 (guide front-proxy avec la recette
+     cert-manager, page de migration, runbook 401/403/502/503) ;
+  4. ouvrir la PR ; passer le statut de la RFC (décision de l'auteur).
+- **Contraintes de travail** : la machine ne tient pas les charges
+  lourdes — en local seulement `cargo check`, `cargo clippy` et
+  `cargo test -p <crate> --lib` (ou un binaire de test ciblé) ; la suite
+  complète, envtest, le fuzz et l'intégration sur la CI. Les commits sont
+  autorisés sur cette branche, signés, `Signed-off-by` de l'auteur ; faits
+  avec `--no-verify` parce que le crochet pre-commit lance `task recu` et
+  `task lint` (lourds), en lançant à la place `cog verify`, `gitleaks` sur
+  l'index et `git diff --cached --check`. Penser à `Cargo.lock` (et
+  `fuzz/Cargo.lock`) quand une dépendance bouge : le banc construit en
+  `--locked`. Après une modification de la CRD : `task gen:crds-file`.
+- **Hors périmètre de la branche, ne pas committer** : `.claude/settings.json`,
+  `.claude/skills/graphify/.graphify_version`, la suppression de
+  `.rfc/REVIEW-roadmap-readme.md` (antérieures à ce travail).
+- **Décisions de l'auteur prises en route** : garder le repli fermé sur une
+  valeur inconnue d'`UPSTREAM_AUTH_ALLOWED_MODES` (§17.1, écart 1) ;
+  phase 3 seulement à la demande.
