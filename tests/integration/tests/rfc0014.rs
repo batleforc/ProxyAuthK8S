@@ -3,6 +3,7 @@
 //! and the bench's Dex.
 
 #![expect(
+    clippy::expect_used,
     clippy::indexing_slicing,
     reason = "test harness: a panic is a failed test, with its message"
 )]
@@ -114,28 +115,29 @@ async fn p1_claim_mappings_name_the_user_in_passthrough() {
     );
 }
 
-/// Point 2 (refusal): a cluster asking for `FrontProxy` on an installation
-/// whose `allowedModes` is the default — kubectl gets the proxy's `503`
+/// Point 2 (refusal): a cluster asking for `Issuer` on an installation
+/// whose `allowedModes` does not hold it — kubectl gets the proxy's `503`
 /// with its message, and the Condition says why. The message is the
 /// proxy's own: nothing was relayed, the apiserver has no such text.
 #[tokio::test]
 async fn p2_a_mode_outside_allowed_modes_answers_503_and_is_never_relayed() {
     let p = fixture::proxied("rfc0014-p2", json!(null)).await;
     let ns = p.ns.name.clone();
+    let bench = Bench::get();
     patch_cluster(
         &ns,
         fixture::CLUSTER,
         &json!({
             "auth_config": oidc_mapped(&json!({ "username": { "claim": "sub", "prefix": "" } })),
             "upstream_auth": {
-                "mode": "FrontProxy",
+                "mode": "Issuer",
                 "user_prefix": "proxyauth:",
                 "group_prefix": "proxyauth:",
+                "issuer_key": { "issuer_url": format!("{}/issuer/{ns}/{}", bench.base_url(), fixture::CLUSTER) },
             },
         }),
         "UpstreamModeNotAllowed",
     );
-    let bench = Bench::get();
     let reason = bench.admin(&[
         "-n",
         &ns,
@@ -156,7 +158,7 @@ async fn p2_a_mode_outside_allowed_modes_answers_503_and_is_never_relayed() {
         "-o",
         "jsonpath={.status.upstreamAuth.mode}",
     ]);
-    assert_eq!(String::from_utf8_lossy(&mode.stdout), "FrontProxy");
+    assert_eq!(String::from_utf8_lossy(&mode.stdout), "Issuer");
 
     let token = p.reader.cluster_token(&ns, fixture::CLUSTER).await;
     let response = bench
@@ -174,7 +176,7 @@ async fn p2_a_mode_outside_allowed_modes_answers_503_and_is_never_relayed() {
     let body: Value = response.json().await.expect("a Kubernetes Status");
     let message = body["message"].as_str().unwrap_or_default();
     assert!(
-        message.contains("upstream mode FrontProxy is not enabled")
+        message.contains("upstream mode Issuer is not enabled")
             && message.contains("upstreamAuth.allowedModes"),
         "{body}"
     );
@@ -184,8 +186,8 @@ async fn p2_a_mode_outside_allowed_modes_answers_503_and_is_never_relayed() {
             .iter()
             .any(|line| line["event"] == "request"
                 && line["status"] == 503
-                && line["upstream_mode"] == "FrontProxy"),
-        "no audited 503 for the FrontProxy cluster"
+                && line["upstream_mode"] == "Issuer"),
+        "no audited 503 for the Issuer cluster"
     );
     let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
     assert!(!out.success(), "kubectl must fail: {out:?}");
@@ -272,5 +274,180 @@ async fn p15_a_mapping_from_one_cluster_never_serves_another() {
         users.iter().any(|user| user == "reader@it.local")
             && !users.iter().any(|user| user == "admin"),
         "the email-mapped cluster never sees the other's user: {users:?}"
+    );
+}
+
+// Phase 2: FrontProxy, against the bench's apiserver.
+
+/// What the apiserver says the caller is, through the proxy: `kubectl auth
+/// whoami -o json`, its username and groups.
+async fn whoami(p: &fixture::Proxied) -> (String, Vec<String>) {
+    let out = p.reader.kubectl(&["auth", "whoami", "-o", "json"]).await;
+    assert!(out.success(), "kubectl auth whoami: {out:?}");
+    let review: Value = serde_json::from_str(&out.stdout).expect("SelfSubjectReview JSON");
+    let user = &review["status"]["userInfo"];
+    let groups = user["groups"]
+        .as_array()
+        .map(|groups| {
+            groups
+                .iter()
+                .filter_map(|g| g.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    (
+        user["username"].as_str().unwrap_or_default().to_string(),
+        groups,
+    )
+}
+
+/// Point 3: in `FrontProxy`, the apiserver sees the prefixed identity the
+/// proxy asserted — a name only the `X-Remote-*` headers can carry, the
+/// Dex token relayed would give the bare email — and the RBAC on the
+/// prefixed group lets kubectl through. The audit names both identities.
+#[tokio::test]
+async fn p3_the_apiserver_sees_the_prefixed_identity() {
+    let p = fixture::front_proxied("rfc0014-p3").await;
+    let ns = p.ns.name.clone();
+    let (username, groups) = whoami(&p).await;
+    assert_eq!(username, "proxyauth:reader@it.local");
+    assert!(
+        groups.iter().any(|g| g == "proxyauth:it-readers"),
+        "{groups:?}"
+    );
+    assert!(
+        !groups.iter().any(|g| g == "it-readers"),
+        "an unprefixed group: {groups:?}"
+    );
+    let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
+    assert!(out.success(), "kubectl get pods: {out:?}");
+    assert!(
+        observe::audit_lines(&ns)
+            .iter()
+            .any(|line| line["event"] == "request"
+                && line["upstream_mode"] == "FrontProxy"
+                && line["user"] == "reader@it.local"
+                && line["upstream_user"] == "proxyauth:reader@it.local"),
+        "no request audited with both identities"
+    );
+}
+
+/// Point 4 (refusal): identity and impersonation headers a client adds
+/// never reach the apiserver: it still sees the asserted identity, and the
+/// cluster-wide read it would grant is refused.
+#[tokio::test]
+async fn p4_client_identity_headers_never_reach_the_apiserver() {
+    let p = fixture::front_proxied("rfc0014-p4").await;
+    let ns = p.ns.name.clone();
+    let bench = Bench::get();
+    let token = p.reader.cluster_token(&ns, fixture::CLUSTER).await;
+    let response = bench
+        .proxied(
+            reqwest::Method::POST,
+            &ns,
+            fixture::CLUSTER,
+            "/apis/authentication.k8s.io/v1/selfsubjectreviews",
+            &token,
+        )
+        .header("X-Remote-User", "system:admin")
+        .header("X-Remote-Group", "system:masters")
+        .header("Impersonate-User", "admin")
+        .json(&json!({ "apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview" }))
+        .send()
+        .await
+        .expect("SelfSubjectReview");
+    assert!(response.status().is_success(), "{}", response.status());
+    let review: Value = response.json().await.expect("JSON");
+    assert_eq!(
+        review["status"]["userInfo"]["username"],
+        "proxyauth:reader@it.local"
+    );
+    let out = p
+        .reader
+        .kubectl(&["--as", "admin", "get", "secrets", "-A"])
+        .await;
+    assert!(!out.success(), "a cluster-wide read went through: {out:?}");
+    let out = p.reader.kubectl(&["get", "secrets", "-A"]).await;
+    assert!(
+        !out.success() && out.stderr.contains("Forbidden"),
+        "the apiserver refuses the prefixed user a cluster-wide read: {out:?}"
+    );
+}
+
+/// Point 6: exec through FrontProxy — the upgrade path carries the asserted
+/// identity, and the RBAC that allows it names the prefixed group only.
+#[tokio::test]
+async fn p6_exec_goes_through_front_proxy() {
+    let p = fixture::front_proxied("rfc0014-p6").await;
+    let ns = p.ns.name.clone();
+    let out = p
+        .reader
+        .kubectl(&[
+            "-n",
+            &ns,
+            "exec",
+            "web",
+            "-c",
+            "app",
+            "--",
+            "echo",
+            "through-front-proxy",
+        ])
+        .await;
+    assert!(out.success(), "kubectl exec: {out:?}");
+    assert!(out.stdout.contains("through-front-proxy"), "{out:?}");
+}
+
+/// T29 (refusal): the certificate's Secret bound to another target — the
+/// cluster is not ready, kubectl gets the proxy's 503 naming the cause, and
+/// the certificate is never presented to the cluster's apiserver.
+#[tokio::test]
+async fn t29_a_certificate_bound_to_another_target_closes_the_cluster() {
+    let p = fixture::front_proxied("rfc0014-t29").await;
+    let ns = p.ns.name.clone();
+    fixture::install_front_proxy_cert(&ns, fixture::CLUSTER, "external:https://elsewhere:6443");
+    fixture::wait(
+        &ns,
+        &[
+            &format!("proxykubeapi/{}", fixture::CLUSTER),
+            "--for=jsonpath={.status.conditions[?(@.type==\"Ready\")].reason}=ClientCertTargetMismatch",
+        ],
+    );
+    let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
+    assert!(!out.success(), "kubectl must fail: {out:?}");
+    assert!(
+        out.stderr
+            .contains("not ready for upstream mode FrontProxy"),
+        "kubectl prints the proxy's message: {out:?}"
+    );
+}
+
+/// Point 11 (refusal): admission refuses a `client_cert` in FrontProxy.
+#[tokio::test]
+async fn p11_admission_refuses_a_client_cert_in_front_proxy() {
+    let p = fixture::proxied("rfc0014-p11", json!(null)).await;
+    let ns = p.ns.name.clone();
+    let patch = json!({ "spec": {
+        "client_cert": {
+            "cert": { "Secret": { "name": "x", "key": "tls.crt" } },
+            "key": { "Secret": { "name": "x", "key": "tls.key" } },
+        },
+        "auth_config": oidc_mapped(&json!({ "username": { "claim": "sub", "prefix": "" } })),
+        "upstream_auth": { "mode": "FrontProxy", "user_prefix": "p:", "group_prefix": "p:" },
+    } });
+    let out = Bench::get().admin(&[
+        "-n",
+        &ns,
+        "patch",
+        &format!("proxykubeapi/{}", fixture::CLUSTER),
+        "--type=merge",
+        "-p",
+        &patch.to_string(),
+    ]);
+    assert!(!out.status.success(), "admission let a client_cert through");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("client_cert is refused in FrontProxy"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
     );
 }

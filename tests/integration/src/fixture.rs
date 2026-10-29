@@ -281,3 +281,99 @@ pub fn wait(ns: &str, args: &[&str]) {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+/// RFC 0014: [`proxied`], switched to `FrontProxy`. `c` validates against
+/// Dex's `/userinfo`, the username mapped from `email`, prefixed
+/// `proxyauth:`; its certificate is the bench's `CN=proxyauth-it`, in the
+/// Secret `proxyauth-frontproxy-<ns>.c` of the proxy's namespace, bound to
+/// the bench's apiserver; `proxyauth:it-readers` is admin of the namespace
+/// in the apiserver.
+pub async fn front_proxied(test: &str) -> Proxied {
+    let p = proxied(test, Value::Null).await;
+    let bench = Bench::get();
+    let ns = p.ns.name.clone();
+    install_front_proxy_cert(&ns, CLUSTER, "service:default/kubernetes:443");
+    let rbac = json!({
+        "apiVersion": "rbac.authorization.k8s.io/v1",
+        "kind": "RoleBinding",
+        "metadata": { "name": "proxyauth-it-readers-admin", "namespace": ns },
+        "roleRef": { "apiGroup": "rbac.authorization.k8s.io",
+                     "kind": "ClusterRole", "name": "admin" },
+        "subjects": [{ "apiGroup": "rbac.authorization.k8s.io",
+                       "kind": "Group", "name": "proxyauth:it-readers" }],
+    });
+    bench.apply(&rbac.to_string());
+    let patch = json!({ "spec": {
+        "auth_config": {
+            "validate_against": "OidcProvider",
+            "oidc_provider": {
+                "enabled": true,
+                "issuer_url": bench.dex_url(),
+                "client_id": "kube_login",
+                "extra_scope": "openid profile email groups",
+                "claim_mappings": {
+                    "username": { "claim": "email", "prefix": "" },
+                    "groups": { "claim": "groups", "prefix": "" },
+                },
+            },
+        },
+        "upstream_auth": {
+            "mode": "FrontProxy",
+            "user_prefix": "proxyauth:",
+            "group_prefix": "proxyauth:",
+        },
+    } });
+    let out = bench.admin(&[
+        "-n",
+        &ns,
+        "patch",
+        &format!("proxykubeapi/{CLUSTER}"),
+        "--type=merge",
+        "-p",
+        &patch.to_string(),
+    ]);
+    assert!(
+        out.status.success(),
+        "switch to FrontProxy: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    wait(
+        &ns,
+        &[
+            &format!("proxykubeapi/{CLUSTER}"),
+            "--for=jsonpath={.status.upstreamAuth.mode}=FrontProxy",
+        ],
+    );
+    wait(
+        &ns,
+        &[
+            &format!("proxykubeapi/{CLUSTER}"),
+            "--for=jsonpath={.status.conditions[?(@.type==\"Ready\")].reason}=Reconciled",
+        ],
+    );
+    p
+}
+
+/// The bench's front-proxy certificate in `proxyauth-frontproxy-<ns>.<cluster>`
+/// of the proxy's namespace, labelled and bound to `target` (RFC 0014,
+/// decisions 49 and 56), as the proxy administrator would.
+pub fn install_front_proxy_cert(ns: &str, cluster: &str, target: &str) {
+    let bench = Bench::get();
+    let dir = bench.run.join("front-proxy");
+    let read = |file: &str| {
+        std::fs::read_to_string(dir.join(file)).unwrap_or_else(|e| panic!("{file} from it:up: {e}"))
+    };
+    let secret = json!({
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "type": "kubernetes.io/tls",
+        "metadata": {
+            "name": format!("proxyauth-frontproxy-{ns}.{cluster}"),
+            "namespace": crate::bench::STACK_NS,
+            "labels": { "app.kubernetes.io/managed-by": "proxyauthk8s" },
+            "annotations": { "proxyauth.weebo.si.rs/front-proxy-target": target },
+        },
+        "stringData": { "tls.crt": read("client.crt"), "tls.key": read("client.key") },
+    });
+    bench.apply(&secret.to_string());
+}

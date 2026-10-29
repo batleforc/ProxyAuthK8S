@@ -53,6 +53,11 @@ back:
       mountPath: /etc/proxyauth-it
       readOnly: true
 
+# RFC 0014 §6.P: FrontProxy is exercised; Issuer stays closed, the case of
+# a mode outside allowedModes (point 2).
+upstreamAuth:
+  allowedModes: [Passthrough, FrontProxy]
+
 front:
   replicas: 1
   podDisruptionBudget:
