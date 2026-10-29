@@ -77,8 +77,8 @@ la CA d'agrégation ou `--client-ca-file`, laisser
 
 **Phases.** 1 : le champ, la garde, les correctifs utiles à tous (cache des
 jetons, sous-protocole WebSocket) ; 2 : `FrontProxy` ; 3 : `Issuer`, à
-construire quand un utilisateur le demande. Phases 1 et 2 codées, en attente
-de la suite d'intégration (§17) ; phase 3 non commencée.
+construire quand un utilisateur le demande. Phases 1 et 2 codées, suite
+d'intégration verte (§17) ; phase 3 non commencée.
 
 ---
 
@@ -1724,6 +1724,14 @@ Codée sur la même branche, commits `d688b48` à `f47ae51`.
    le contrôle une fois préfixé (corrigé, vérifié sur la valeur brute) ; le
    cache des clients amont aurait réutilisé, pendant 300 s, le certificat de
    l'ancienne cible après un changement de `spec.service` (corrigé, T29).
+7. **Le message d'un `503` (ou `502`) n'atteint pas kubectl** quand tout le
+   cluster est fermé : kubectl échoue dès la découverte d'API, que client-go
+   lit brute, sans décoder le `Status` ; il n'affiche que
+   `(ServiceUnavailable)`. Vu par la première exécution de la suite
+   (`40867697092`, points 2, 9 et T29). Le message reste dans le corps de la
+   réponse (`kubectl -v=8`), les Conditions et l'audit ; les tests le lisent
+   par une requête directe, le runbook le dit. La promesse « lisible par
+   kubectl » de §4.2 ne vaut que pour une requête après la découverte.
 
 **Preuves**
 
@@ -1732,45 +1740,46 @@ Codée sur la même branche, commits `d688b48` à `f47ae51`.
   décisions 23, 45, 46 ; `bearer_subprotocol…`, `front_proxy_strips…`,
   `front_proxy_headers_replace_the_token_on_the_upgrade_path`, la sonde
   (`judge`), le certificat (`parse_cert`, `expiring`).
-- §6.P contre le banc, écrits (`tests/integration/tests/rfc0014.rs`) :
-  points 1, 2, 3, 4, 6, 9, 11, 15 et T29. **Pas encore observés** : au
-  2026-10-29 aucune exécution de la suite d'intégration n'est allée au
-  bout sur la branche (les premières annulées par les suivantes, celle de
-  `d88899d` en cours) ; ce paragraphe sera complété par ce qu'elle observe.
+- §6.P contre le banc (`tests/integration/tests/rfc0014.rs`) : points 1, 2,
+  3, 4, 6, 9, 11, 15 et T29 **observés verts** le 2026-10-29 sur `9b79d7e`
+  (exécution `40874702974`, 93 tests, 93 passés). Le banc a vu l'identité
+  préfixée côté apiserver (point 3), aucun en-tête d'identité client en amont
+  (point 4), un `exec` par `FrontProxy` (point 6), et la sonde fermer un
+  cluster au certificat d'une CA inconnue (`FrontProxyNotTrusted`, point 9)
+  ou lié à une autre cible (`ClientCertTargetMismatch`, T29) en deux tours
+  au plus.
 - Non couverts par la suite : points 5 (persona `system:masters`), 7
   (`FrontProxy` derrière un agent), 8 (en-têtes sans certificat, observé
   par la sonde k3s, décision 58), 14 (absence du jeton dans les logs), 16
   (écho amont absent du banc), 17 (binaire d'avant la phase 1).
 
-**Reste à faire avant de fusionner** : la suite d'intégration verte ; la
-documentation utilisateur (§11 : guide front-proxy, recette cert-manager,
-page de migration, runbook) ; la mise à jour du statut de la RFC.
+**Reste à faire avant de fusionner** : ouvrir la PR ; la mise à jour du
+statut de la RFC. La documentation de §11 pour `FrontProxy` est écrite
+(`front-proxy.mdx`, `migration/v0-5-0.mdx`, référence CRD régénérée) ; celle
+de l'`Issuer` attend la phase 3.
 
 ### 17.3 Phase 3 (`Issuer`)
 
 Non commencée.
 
-### 17.4 Pour reprendre (état au 2026-10-29, `613297b`)
+### 17.4 Pour reprendre (état au 2026-10-29, `9b79d7e`)
 
 - **Branche** : `probe/rfc0014-front-proxy`, poussée, sans PR. Tout le
   travail RFC 0014 y est ; rien n'est fusionné dans `main`.
-- **CI** : Rust tests et envtest verts jusqu'à `f47ae51` ; clippy vert sur
-  la CI jusqu'à `de5b1d4`, propre en local ensuite (le filtre `*` de
-  `back-clippy.yaml` ne voit pas une branche à `/` : le lancer à la main,
-  `gh workflow run back-clippy.yaml --ref probe/rfc0014-front-proxy`). La
-  suite d'intégration ne part que lancée à la main
-  (`gh workflow run integration.yaml --ref …`) ; l'exécution
-  `40865265876` (sur `d88899d`, sans la sonde ni le point 9) était en
-  cours : la relancer sur la tête de branche, puis lire
-  `gh run view <id> --log-failed`.
-- **Prochaines étapes, dans l'ordre** :
-  1. suite d'intégration verte sur la tête (`rfc0014.rs` : points 1, 2, 3,
-     4, 6, 9, 11, 15, T29), corriger ce qu'elle trouve, compléter §17.2
-     *Preuves* avec ce qu'elle observe ;
-  2. clippy lancé à la main sur la tête ;
-  3. documentation utilisateur de §11 (guide front-proxy avec la recette
-     cert-manager, page de migration, runbook 401/403/502/503) ;
-  4. ouvrir la PR ; passer le statut de la RFC (décision de l'auteur).
+- **CI** : tout vert sur `9b79d7e` (Rust tests, envtest, intégration
+  `40874702974` : 93/93) ; clippy vert sur `cd5e253`, le dernier commit
+  Rust (le filtre `*` de `back-clippy.yaml` ne voit pas une branche à `/` :
+  `gh workflow run back-clippy.yaml --ref probe/rfc0014-front-proxy`).
+  L'intégration ne part que lancée à la main
+  (`gh workflow run integration.yaml --ref …`).
+- **Documentation** : `front-proxy.mdx` (guide, recette cert-manager,
+  runbook 401/403/502/503), `migration/v0-5-0.mdx` (numéro de version
+  supposé), référence CRD régénérée ; sécurité, roadmap et plugin kubectl
+  amendés.
+- **Prochaines étapes** : ouvrir la PR ; passer le statut de la RFC
+  (décision de l'auteur). À trancher par l'auteur : un signal explicite
+  « sonde réussie » dans le statut (aujourd'hui une sonde réussie et une
+  sonde pas encore passée ne posent rien, écart 1 de §17.2).
 - **Contraintes de travail** : la machine ne tient pas les charges
   lourdes — en local seulement `cargo check`, `cargo clippy` et
   `cargo test -p <crate> --lib` (ou un binaire de test ciblé) ; la suite

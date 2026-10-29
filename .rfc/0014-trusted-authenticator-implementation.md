@@ -227,7 +227,7 @@ ceux que la RFC cite.
 ## 16. Implementation phases
 
 > **État (2026-10-29)** : phases 1 et 2 codées sur `probe/rfc0014-front-proxy`,
-> la suite d'intégration pas encore verte ; phase 3 non commencée. Ce qui a
+> la suite d'intégration verte le 2026-10-29 (`9b79d7e`) ; phase 3 non commencée. Ce qui a
 > été construit et chaque écart : RFC §17.
 
 | Phase | Content |
