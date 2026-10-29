@@ -586,7 +586,8 @@ mod tests {
     #[test]
     fn trusted_modes_refuse_what_would_make_the_asserted_identity_unsafe() {
         use upstream_auth::UpstreamAuthMode::{FrontProxy, Issuer};
-        let cases: [(&str, Box<dyn Fn(&mut ProxyKubeApiSpec)>); 6] = [
+        type Break = Box<dyn Fn(&mut ProxyKubeApiSpec)>;
+        let cases: [(&str, Break); 6] = [
             (
                 "client_cert",
                 Box::new(|s| {

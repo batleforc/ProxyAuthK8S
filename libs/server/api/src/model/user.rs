@@ -542,15 +542,15 @@ impl User {
             // the outcome, so it must not count toward their fail2login budget.
             Err(UserInfoError::Request(err)) => {
                 tracing::warn!("Could not reach the OIDC userinfo endpoint: {}", err);
-                return Err(UserAuthError::UserInfoUnreachable(err.to_string()));
+                Err(UserAuthError::UserInfoUnreachable(err.to_string()))
             }
             Err(UserInfoError::Response(status, _, message)) if status.is_server_error() => {
                 tracing::warn!(%status, "OIDC userinfo endpoint returned a server error");
-                return Err(UserAuthError::UserInfoUnreachable(message));
+                Err(UserAuthError::UserInfoUnreachable(message))
             }
             Err(UserInfoError::Other(err)) => {
                 tracing::warn!("Error while executing user info request: {}", err);
-                return Err(UserAuthError::UserInfoResponse);
+                Err(UserAuthError::UserInfoResponse)
             }
             Err(e) => {
                 tracing::warn!("Error while executing user info request: {:#?}", e);

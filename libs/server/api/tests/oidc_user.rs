@@ -187,6 +187,10 @@ async fn fails_when_discovery_is_unavailable() {
 
 // RFC 0014: `oidc_provider.claim_mappings` over the raw `/userinfo` claims.
 
+#[expect(
+    clippy::expect_used,
+    reason = "test helper: a bad fixture is a failed test"
+)]
 fn mappings(value: serde_json::Value) -> crd::authentication_configuration::ClaimMappings {
     serde_json::from_value(value).expect("claim mappings")
 }
