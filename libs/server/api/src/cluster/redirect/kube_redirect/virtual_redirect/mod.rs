@@ -482,6 +482,15 @@ pub(super) async fn virtual_redirect(
         let url = upstream_url(&base_url, forward.path(), query_string);
         let res = send_upstream(&proxy, &data, &url, &caller, request_body).await?;
         let status = res.status();
+        if caller.upstream.drops_authorization() && status == StatusCode::UNAUTHORIZED {
+            audit.emit_refusal(502);
+            return Ok(
+                crate::cluster::redirect::status_response::untrusted_upstream(
+                    &proxy.to_path(),
+                    proxy.upstream_mode().as_str(),
+                ),
+            );
+        }
 
         // Each branch emits the audit event for the status it really answers
         // with, exactly once. A watch never ends, so it is translated event by

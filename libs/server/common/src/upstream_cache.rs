@@ -81,9 +81,11 @@ fn tls_fingerprint(proxy: &ProxyKubeApi) -> String {
         "cert": proxy.spec.cert,
         "client_cert": proxy.spec.client_cert,
         // RFC 0014: the FrontProxy certificate follows the mode and is bound
-        // to the target, so a change of either is a new client.
+        // to the target (T29), so in that mode a retarget is a new client:
+        // a cached one would present the old target's certificate.
         "upstream_mode": proxy.upstream_mode().as_str(),
-        "service": proxy.spec.service,
+        "service": (proxy.upstream_mode() == crd::upstream_auth::UpstreamAuthMode::FrontProxy)
+            .then_some(&proxy.spec.service),
     });
     // `serde_json::Map` is ordered (no `preserve_order`), so the encoding is
     // stable; a serialisation failure is impossible for these plain types, and
@@ -316,6 +318,19 @@ mod tests {
         };
         retargeted.spec.expose_via_dashboard = true;
         assert_eq!(key, UpstreamCacheKey::for_proxy(&retargeted));
+
+        // RFC 0014: in FrontProxy the target is part of the key (T29).
+        let mut front_proxy = base.clone();
+        front_proxy.spec.upstream_auth = Some(crd::upstream_auth::UpstreamAuth {
+            mode: crd::upstream_auth::UpstreamAuthMode::FrontProxy,
+            ..Default::default()
+        });
+        let front_key = UpstreamCacheKey::for_proxy(&front_proxy);
+        assert_ne!(key, front_key);
+        front_proxy.spec.service = Service::ExternalService {
+            url: "https://elsewhere:6443".to_string(),
+        };
+        assert_ne!(front_key, UpstreamCacheKey::for_proxy(&front_proxy));
     }
 
     #[test]

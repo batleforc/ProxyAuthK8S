@@ -202,6 +202,13 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> Response {
     };
 
     let response_status = res.status();
+    if upstream_identity.is_some() && response_status == StatusCode::UNAUTHORIZED {
+        audit.emit_refusal(502);
+        return crate::cluster::redirect::status_response::untrusted_upstream(
+            &proxy.to_path(),
+            proxy.upstream_mode().as_str(),
+        );
+    }
     // Emitted as soon as the upstream answered: a watch stream stays open for
     // minutes and waiting for it to end would delay the audit record forever.
     audit.emit(response_status.as_u16());

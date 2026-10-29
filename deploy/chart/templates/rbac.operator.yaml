@@ -115,6 +115,15 @@ rules:
       - create
       - update
       - patch
+  # RFC 0014: the FrontProxy certificates, proxyauth-frontproxy-<ns>.<name>,
+  # live in the proxy's own namespace; read by name only. Covered already by
+  # the cluster-wide `get` unless rbac.referencedNamespaces replaces it.
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - get
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

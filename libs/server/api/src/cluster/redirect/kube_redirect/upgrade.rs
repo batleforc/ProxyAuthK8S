@@ -399,6 +399,15 @@ pub(super) async fn upgrade_redirect(
         // allow-list and identity stamping. Answer with the refusal and drop
         // both connections.
         let Some(upgrade_protocol) = switched_protocol(&response) else {
+            if upstream_identity.is_some() && response.status() == StatusCode::UNAUTHORIZED {
+                audit.emit_refusal(502);
+                return Ok(
+                    crate::cluster::redirect::status_response::untrusted_upstream(
+                        &proxy.to_path(),
+                        proxy.upstream_mode().as_str(),
+                    ),
+                );
+            }
             return Ok(refused_upgrade_response(response, &audit).await);
         };
 

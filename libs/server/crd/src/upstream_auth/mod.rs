@@ -49,10 +49,11 @@ impl UpstreamAuthMode {
     }
 }
 
-/// The modes this version serves; grows with each phase of RFC 0014. A mode
-/// outside it is refused with `503`, never relayed as `Passthrough`
-/// (decision 34).
-pub const SERVED_MODES: &[UpstreamAuthMode] = &[UpstreamAuthMode::Passthrough];
+/// The modes this version serves; grows with each phase of RFC 0014 (phase 2:
+/// `FrontProxy`). A mode outside it is refused with `503`, never relayed as
+/// `Passthrough` (decision 34).
+pub const SERVED_MODES: &[UpstreamAuthMode] =
+    &[UpstreamAuthMode::Passthrough, UpstreamAuthMode::FrontProxy];
 
 /// A prefix that is empty, starts with `system:`, carries a control character
 /// or an edge space would forge reserved names or end up in a header.

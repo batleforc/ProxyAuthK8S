@@ -115,6 +115,23 @@ static UPSTREAM_IDENTITY_REFUSED_COUNTER: LazyLock<Counter<u64>> = LazyLock::new
         .build()
 });
 
+/// `proxyauth_upstream_rejected_total{mode}` (RFC 0014 §10.1): the `401`s
+/// the apiserver gave to an identity the proxy asserted. Zero in steady
+/// state: any value is a broken trust.
+pub const UPSTREAM_REJECTED: &str = "proxyauth.upstream.rejected";
+
+static UPSTREAM_REJECTED_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(UPSTREAM_REJECTED)
+        .with_description("401s of the apiserver to an identity the proxy asserted, by mode.")
+        .build()
+});
+
+/// One `401` to an asserted identity.
+pub fn record_upstream_rejected(mode: &'static str) {
+    UPSTREAM_REJECTED_COUNTER.add(1, &[KeyValue::new("mode", mode)]);
+}
+
 /// One identity refused (RFC 0014 §4.2).
 pub fn record_upstream_identity_refused(reason: &'static str) {
     UPSTREAM_IDENTITY_REFUSED_COUNTER.add(1, &[KeyValue::new("reason", reason)]);
