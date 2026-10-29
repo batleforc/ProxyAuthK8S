@@ -1,6 +1,6 @@
 [package]
 name = "crdgen"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 license = "MIT"
 # A build tool: its git dependency is not a wildcard for cargo-deny.
@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 kube = { workspace = true }
-crd = { path = "../../libs/server/crd", version = "0.4.1" }
+crd = { path = "../../libs/server/crd", version = "0.4.2" }
 schemars = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
