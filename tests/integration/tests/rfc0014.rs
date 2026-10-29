@@ -700,7 +700,7 @@ async fn p7_front_proxy_crosses_the_agent_tunnel() {
 }
 
 /// Point 8 (refusal): straight to the apiserver, without the proxy's
-/// certificate, the `X-Remote-*` headers authenticate nobody: `401`.
+/// certificate, the `X-Remote-*` headers authenticate nobody.
 #[tokio::test]
 async fn p8_identity_headers_without_the_certificate_are_refused() {
     let bench = Bench::get();
@@ -736,7 +736,15 @@ async fn p8_identity_headers_without_the_certificate_are_refused() {
         .send()
         .await
         .expect("request to the apiserver");
-    assert_eq!(response.status(), 401);
+    // Every authenticated user may create a SelfSubjectReview: a 401, or a
+    // 403 to `system:anonymous`, both say the headers authenticated nobody.
+    let status = response.status().as_u16();
+    let body = response.text().await.unwrap_or_default();
+    assert!(
+        status == 401 || (status == 403 && body.contains("system:anonymous")),
+        "the headers must authenticate nobody: {status} {body}"
+    );
+    assert!(!body.contains("proxyauth:reader"), "{body}");
 }
 
 /// Point 14: the caller's Dex token never reaches the proxy's logs, the
