@@ -119,7 +119,7 @@ async fn resolve_unresolved(
                     args.client,
                     args.headers,
                     args.peer_ip,
-                    args.user,
+                    args.upstream,
                     args.base_url,
                     args.probe,
                     &name,
@@ -147,7 +147,7 @@ async fn resolve_unresolved(
     }
 
     if !from_cache {
-        store_cached_outcome(args.state, args.proxy, args.user, args.probe, &outcome).await;
+        store_cached_outcome(args.state, args.proxy, args.upstream, args.probe, &outcome).await;
     }
     outcome
 }
@@ -172,7 +172,7 @@ async fn rules_review(args: &ListFallbackArgs<'_>) -> RulesOutcome {
         args.client,
         args.headers,
         args.peer_ip,
-        args.user,
+        args.upstream,
         args.base_url,
         args.probe,
     )
@@ -207,14 +207,14 @@ pub(super) async fn resolve_outcome_for(
         return (outcome, false);
     }
 
-    let key = cache_key(args.proxy, args.user, args.probe);
+    let key = cache_key(args.proxy, args.upstream, args.probe);
     let lock = acquire_outcome_lock(&key);
     let result = {
         let _guard = lock.lock().await;
         // Double-checked: another request for this key may have resolved and
         // stored a fully-checked outcome — including the per-item checks —
         // while we were waiting for the lock.
-        match load_cached_outcome(args.state, args.proxy, args.user, args.probe).await {
+        match load_cached_outcome(args.state, args.proxy, args.upstream, args.probe).await {
             Some(outcome) => (resolve_unresolved(args, outcome, items, true).await, true),
             None => {
                 let outcome = rules_review(args).await;

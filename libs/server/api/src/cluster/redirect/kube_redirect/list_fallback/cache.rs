@@ -13,15 +13,36 @@ use tracing::warn;
 use crate::cluster::redirect::kube_redirect::list_fallback::{
     review::RulesOutcome, tuning::cache_ttl_seconds,
 };
-use crate::model::user::User;
+use crate::cluster::redirect::upstream_identity::Upstream;
 
 /// Deterministic, fixed-length identity for a cache key: the raw username and
 /// groups could contain anything a client sends, so hash rather than embed
 /// them directly.
-pub(super) fn identity_fingerprint(user: Option<&User>) -> String {
+pub(super) fn identity_fingerprint(upstream: Upstream<'_>) -> String {
     let mut hasher = Sha256::new();
-    match user {
-        Some(user) => {
+    match upstream {
+        // RFC 0014: the asserted identity, prefixes and `extra` included, is
+        // what the apiserver reviews; it never shares an entry with a
+        // Passthrough caller of the same name.
+        Upstream::Headers(identity) => {
+            hasher.update(b"front-proxy\0");
+            hasher.update(identity.username.as_bytes());
+            let mut groups: Vec<&str> = identity.groups.iter().map(String::as_str).collect();
+            groups.sort_unstable();
+            for group in groups {
+                hasher.update(b"\0");
+                hasher.update(group.as_bytes());
+            }
+            for (key, values) in &identity.extra {
+                hasher.update(b"\x01");
+                hasher.update(key.as_bytes());
+                for value in values {
+                    hasher.update(b"\0");
+                    hasher.update(value.as_bytes());
+                }
+            }
+        }
+        Upstream::Passthrough(Some(user)) => {
             hasher.update(user.username.as_bytes());
             let mut groups: Vec<&str> = user.groups.iter().map(String::as_str).collect();
             groups.sort_unstable();
@@ -30,7 +51,7 @@ pub(super) fn identity_fingerprint(user: Option<&User>) -> String {
                 hasher.update(group.as_bytes());
             }
         }
-        None => hasher.update(b"anonymous"),
+        Upstream::Passthrough(None) => hasher.update(b"anonymous"),
     }
     hasher
         .finalize()
@@ -45,13 +66,13 @@ pub(super) fn identity_fingerprint(user: Option<&User>) -> String {
 /// never collide on the same entry.
 pub(super) fn cache_key(
     proxy: &ProxyKubeApi,
-    user: Option<&User>,
+    upstream: Upstream<'_>,
     probe: virtual_api::AccessProbe,
 ) -> String {
     format!(
         "proxyk8sauth:listfallback:{}:{}:{}:{}:{}",
         proxy.to_path(),
-        identity_fingerprint(user),
+        identity_fingerprint(upstream),
         probe.group,
         probe.resource,
         probe.verb,
@@ -61,14 +82,14 @@ pub(super) fn cache_key(
 pub(super) async fn load_cached_outcome(
     state: &State,
     proxy: &ProxyKubeApi,
-    user: Option<&User>,
+    upstream: Upstream<'_>,
     probe: virtual_api::AccessProbe,
 ) -> Option<RulesOutcome> {
     if cache_ttl_seconds() == 0 {
         return None;
     }
     let raw = state
-        .redis_get(&cache_key(proxy, user, probe))
+        .redis_get(&cache_key(proxy, upstream, probe))
         .await
         .ok()??;
     serde_json::from_str(&raw).ok()
@@ -77,7 +98,7 @@ pub(super) async fn load_cached_outcome(
 pub(super) async fn store_cached_outcome(
     state: &State,
     proxy: &ProxyKubeApi,
-    user: Option<&User>,
+    upstream: Upstream<'_>,
     probe: virtual_api::AccessProbe,
     outcome: &RulesOutcome,
 ) {
@@ -89,7 +110,7 @@ pub(super) async fn store_cached_outcome(
         return;
     };
     if let Err(err) = state
-        .redis_set(&cache_key(proxy, user, probe), &raw, Some(ttl))
+        .redis_set(&cache_key(proxy, upstream, probe), &raw, Some(ttl))
         .await
     {
         warn!(%err, "could not cache the resolved namespace allow-set");

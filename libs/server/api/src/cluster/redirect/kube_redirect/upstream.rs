@@ -17,10 +17,9 @@ use tracing::info;
 
 use super::tls::build_tls_config;
 use crate::cluster::redirect::forwarded::{
-    forwarded_for_value, identity_headers, is_hop_by_hop, is_proxy_owned_header,
-    is_upstream_auth_header,
+    forwarded_for_value, is_hop_by_hop, is_proxy_owned_header, is_upstream_auth_header,
 };
-use crate::model::user::User;
+use crate::cluster::redirect::upstream_identity::Upstream;
 
 /// Upper bound on establishing the TCP + TLS connection to the target apiserver.
 const UPSTREAM_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -131,14 +130,19 @@ pub(super) fn apply_forward_headers(
     mut builder: reqwest::RequestBuilder,
     headers: &HeaderMap,
     peer_ip: Option<std::net::IpAddr>,
-    user: Option<&User>,
+    upstream: Upstream<'_>,
 ) -> reqwest::RequestBuilder {
     for (name, value) in headers {
         let name = name.as_str();
         // Skip headers that must not be forwarded or are managed by reqwest when
-        // streaming, any header the proxy itself is authoritative for, and any
-        // client-supplied upstream-auth/impersonation header.
-        if is_hop_by_hop(name) || is_proxy_owned_header(name) || is_upstream_auth_header(name) {
+        // streaming, any header the proxy itself is authoritative for, any
+        // client-supplied upstream-auth/impersonation header, and, when the
+        // proxy asserts the identity (RFC 0014), the caller's token.
+        if is_hop_by_hop(name)
+            || is_proxy_owned_header(name)
+            || is_upstream_auth_header(name)
+            || (upstream.drops_authorization() && name.eq_ignore_ascii_case("authorization"))
+        {
             continue;
         }
 
@@ -159,7 +163,7 @@ pub(super) fn apply_forward_headers(
         builder = builder.header("x-forwarded-for", forwarded_for);
     }
 
-    for (name, value) in identity_headers(user) {
+    for (name, value) in upstream.headers() {
         builder = builder.header(name, value);
     }
 
@@ -204,4 +208,62 @@ pub(crate) async fn self_subject_review_through_agent(
         .json()
         .await
         .map_err(|err| (Some(status.as_u16()), err.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cluster::redirect::upstream_identity::UpstreamIdentity;
+    use crate::model::user::User;
+
+    fn headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.append("authorization", "Bearer idp-token".parse().unwrap());
+        headers.append("x-remote-user", "system:admin".parse().unwrap());
+        headers.append("accept", "application/json".parse().unwrap());
+        headers
+    }
+
+    fn sent(upstream: Upstream<'_>) -> reqwest::Request {
+        apply_forward_headers(
+            reqwest::Client::new().get("https://api.example:6443/api"),
+            &headers(),
+            None,
+            upstream,
+        )
+        .build()
+        .unwrap()
+    }
+
+    /// T1, T5, T21 on the standard path, which the virtual APIs and the
+    /// list-fallback reviews share.
+    #[test]
+    fn front_proxy_strips_every_authorization_value_and_asserts_the_identity() {
+        let identity = UpstreamIdentity {
+            username: "proxyauth:alice".into(),
+            groups: vec!["proxyauth:dev".into(), "proxyauth:ops".into()],
+            extra: std::collections::BTreeMap::new(),
+        };
+        let request = sent(Upstream::Headers(&identity));
+        let headers = request.headers();
+        assert!(!headers.contains_key("authorization"));
+        assert!(!headers.contains_key("x-forwarded-user"));
+        assert_eq!(headers["x-remote-user"], "proxyauth:alice");
+        let groups: Vec<_> = headers.get_all("x-remote-group").iter().collect();
+        assert_eq!(groups, ["proxyauth:dev", "proxyauth:ops"]);
+        assert_eq!(headers["accept"], "application/json");
+    }
+
+    #[test]
+    fn passthrough_relays_the_token_and_never_a_client_identity_header() {
+        let user = User {
+            username: "alice".into(),
+            ..User::default()
+        };
+        let request = sent(Upstream::Passthrough(Some(&user)));
+        let headers = request.headers();
+        assert_eq!(headers["authorization"], "Bearer idp-token");
+        assert!(!headers.contains_key("x-remote-user"));
+        assert_eq!(headers["x-forwarded-user"], "alice");
+    }
 }

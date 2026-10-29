@@ -16,6 +16,7 @@ use crate::cluster::redirect::status_response::{
     upstream_mode_unavailable,
 };
 use crate::cluster::redirect::throttle;
+use crate::cluster::redirect::upstream_identity::UpstreamIdentity;
 use crate::helper::{extract_authorization_header, forwarded_for, peer_ip};
 use crate::model::user::User;
 
@@ -463,6 +464,40 @@ pub async fn redirect(
         }
     };
 
+    // RFC 0014: the identity asserted upstream, computed after the last
+    // gate, so a refused request never makes the proxy assert anything.
+    let upstream_identity = match (proxy.upstream_mode(), &proxy.spec.upstream_auth) {
+        (crd::upstream_auth::UpstreamAuthMode::FrontProxy, Some(upstream)) => {
+            let Some(user) = user.as_ref() else {
+                // Unreachable through admission (`validate` refuses the mode
+                // without validation); closed all the same.
+                audited!(
+                    audit,
+                    forbidden(
+                        "this cluster asserts the caller's identity upstream, which needs a validated user"
+                    )
+                );
+            };
+            match UpstreamIdentity::from_user(user, upstream) {
+                Ok(identity) => {
+                    audit.upstream_user = Some(identity.username.clone());
+                    audit.upstream_groups.clone_from(&identity.groups);
+                    Some(identity)
+                }
+                Err(refusal) => {
+                    warn!(
+                        reason = refusal.as_str(),
+                        "refusing an identity that cannot be asserted upstream"
+                    );
+                    crate::metrics::record_upstream_identity_refused(refusal.as_str());
+                    audit.reason = Some("upstream_identity_refused");
+                    audited!(audit, forbidden(&refusal.message(&ns, &cluster)));
+                }
+            }
+        }
+        _ => None,
+    };
+
     let ctx = RedirectContext {
         req,
         body: payload,
@@ -471,6 +506,7 @@ pub async fn redirect(
         peer_ip,
         proxy,
         user,
+        upstream_identity,
         audit,
         base_url,
         upstream_path,

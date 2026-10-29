@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use crate::cluster::redirect::kube_redirect::{
     list_fallback::tuning::upstream_timeout, upstream::apply_forward_headers,
 };
-use crate::model::user::User;
+use crate::cluster::redirect::upstream_identity::Upstream;
 
 /// `POST .../selfsubjectaccessreviews` as the impersonated caller.
 ///
@@ -27,7 +27,7 @@ pub(super) async fn check_access(
     client: &reqwest::Client,
     headers: &HeaderMap,
     peer_ip: Option<IpAddr>,
-    user: Option<&User>,
+    upstream: Upstream<'_>,
     base_url: &str,
     probe: virtual_api::AccessProbe,
     name: &str,
@@ -58,7 +58,7 @@ pub(super) async fn check_access(
     let mut builder = client
         .request(reqwest::Method::POST, &url)
         .timeout(upstream_timeout());
-    builder = apply_forward_headers(builder, headers, peer_ip, user);
+    builder = apply_forward_headers(builder, headers, peer_ip, upstream);
     builder = builder
         .header(http::header::CONTENT_TYPE.as_str(), "application/json")
         .body(body.to_string());
@@ -172,7 +172,7 @@ pub(super) async fn resolve_via_rules_review(
     client: &reqwest::Client,
     headers: &HeaderMap,
     peer_ip: Option<IpAddr>,
-    user: Option<&User>,
+    upstream: Upstream<'_>,
     base_url: &str,
     probe: virtual_api::AccessProbe,
 ) -> Option<RulesOutcome> {
@@ -195,7 +195,7 @@ pub(super) async fn resolve_via_rules_review(
     let mut builder = client
         .request(reqwest::Method::POST, &url)
         .timeout(upstream_timeout());
-    builder = apply_forward_headers(builder, headers, peer_ip, user);
+    builder = apply_forward_headers(builder, headers, peer_ip, upstream);
     builder = builder
         .header(http::header::CONTENT_TYPE.as_str(), "application/json")
         .body(body.to_string());

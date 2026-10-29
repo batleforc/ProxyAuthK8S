@@ -103,6 +103,23 @@ static AGENT_REFUSALS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
         .build()
 });
 
+/// `proxyauth_upstream_identity_refused_total{reason}` (RFC 0014 §10.1):
+/// identities refused before any call upstream, by the closed reason of
+/// [`crate::cluster::redirect::upstream_identity::IdentityRefusal`].
+pub const UPSTREAM_IDENTITY_REFUSED: &str = "proxyauth.upstream.identity.refused";
+
+static UPSTREAM_IDENTITY_REFUSED_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(UPSTREAM_IDENTITY_REFUSED)
+        .with_description("Identities refused before being asserted upstream, by reason.")
+        .build()
+});
+
+/// One identity refused (RFC 0014 §4.2).
+pub fn record_upstream_identity_refused(reason: &'static str) {
+    UPSTREAM_IDENTITY_REFUSED_COUNTER.add(1, &[KeyValue::new("reason", reason)]);
+}
+
 /// One refused tunnel.
 pub fn record_agent_refusal(reason: &'static str) {
     AGENT_REFUSALS_COUNTER.add(1, &[KeyValue::new("reason", reason)]);

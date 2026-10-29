@@ -9,6 +9,7 @@ use tracing::{debug, error, instrument, warn};
 use super::context::RedirectContext;
 use super::upstream::{apply_forward_headers, upstream_client};
 use crate::cluster::redirect::forwarded::is_hop_by_hop;
+use crate::cluster::redirect::upstream_identity::Upstream;
 use crate::duration::extract_timeout_from_query;
 
 const DEBUG_BODY_LOG_LIMIT: usize = 8 * 1024;
@@ -75,6 +76,7 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> Response {
         peer_ip,
         proxy,
         user,
+        upstream_identity,
         audit,
         ..
     } = ctx;
@@ -174,7 +176,12 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> Response {
         (None, None) => forwarded_req,
     };
 
-    forwarded_req = apply_forward_headers(forwarded_req, &req.headers, peer_ip, user.as_ref());
+    forwarded_req = apply_forward_headers(
+        forwarded_req,
+        &req.headers,
+        peer_ip,
+        Upstream::new(user.as_ref(), upstream_identity.as_ref()),
+    );
 
     // Kubernetes sends durations in Go format (`timeout=32s`, `1m30s`), so the
     // value has to be parsed as such and not as a bare number of seconds.
