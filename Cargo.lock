@@ -1119,7 +1119,7 @@ dependencies = [
  "trace",
  "tracing",
  "weebo-kit-api",
- "weebo-kit-domain",
+ "weebo-kit-domain 0.23.1",
  "weebo-kit-runtime",
  "wiremock",
 ]
@@ -2554,15 +2554,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "itertools"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
-dependencies = [
- "either",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3238,7 +3229,7 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.21.7",
  "chrono",
  "getrandom 0.2.17",
  "http",
@@ -3294,7 +3285,7 @@ dependencies = [
  "ed25519-dalek",
  "hmac 0.12.1",
  "http",
- "itertools 0.10.5",
+ "itertools",
  "log",
  "oauth2",
  "p256",
@@ -3797,7 +3788,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -4452,7 +4443,7 @@ checksum = "7bd22781911de0ca6debda95f073c8f18bec65d1a94f1fa9573f3102e514cea4"
 dependencies = [
  "ahash",
  "annotate-snippets",
- "base64 0.22.1",
+ "base64 0.21.7",
  "encoding_rs_io",
  "getrandom 0.3.4",
  "granit-parser",
@@ -5730,6 +5721,11 @@ dependencies = [
 
 [[package]]
 name = "weebo-kit-domain"
+version = "0.23.1"
+source = "git+https://github.com/batleforc/weebo-operator-kit?tag=v0.23.1#2eb2dbaf18131ccf13866cf6960dd6f0fa205ad7"
+
+[[package]]
+name = "weebo-kit-domain"
 version = "0.24.0"
 source = "git+https://github.com/batleforc/weebo-operator-kit?tag=v0.24.0#2dbed2d802e6ed73f9b981312798a921ac6ac800"
 
@@ -5758,7 +5754,7 @@ dependencies = [
  "tracing-subscriber",
  "weebo-kit-api",
  "weebo-kit-application",
- "weebo-kit-domain",
+ "weebo-kit-domain 0.24.0",
 ]
 
 [[package]]
