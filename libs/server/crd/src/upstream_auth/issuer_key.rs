@@ -131,14 +131,18 @@ pub struct Rotation {
 /// [`ACTIVATION_DELAY_SECONDS`], one pending key at a time), or revoke on a
 /// new `revoke:<nonce>` (the active key gone at once, a new one active at
 /// once). `new_key` makes a key, given its `created_at` and `activate_at`.
-pub fn plan(
+///
+/// # Errors
+///
+/// The error of `new_key`; nothing is to be written then.
+pub fn plan<E>(
     current: &IssuerKeySet,
     now: i64,
     rotation: Rotation,
     request: Option<&str>,
     processed: Option<&str>,
-    new_key: &mut dyn FnMut(i64, i64) -> IssuerKey,
-) -> Plan {
+    new_key: &mut dyn FnMut(i64, i64) -> Result<IssuerKey, E>,
+) -> Result<Plan, E> {
     let mut keys = current.clone();
     keys.keys.retain(|key| key.live(now));
     let fresh = request.filter(|value| Some(*value) != processed);
@@ -148,11 +152,11 @@ pub fn plan(
     if let Some(value) = fresh.filter(|value| value.starts_with("revoke:")) {
         let active = keys.current(now).map(|key| key.kid.clone());
         keys.keys.retain(|key| Some(&key.kid) != active.as_ref());
-        keys.keys.push(new_key(now, now));
-        return Plan::Write {
+        keys.keys.push(new_key(now, now)?);
+        return Ok(Plan::Write {
             keys,
             processed: Some(value.to_string()),
-        };
+        });
     }
     let pending = keys.keys.iter().any(|key| key.activate_at > now);
     let due = keys.current(now).is_some_and(|key| {
@@ -161,7 +165,7 @@ pub fn plan(
             .saturating_add(i64::from(rotation.rotation_days).saturating_mul(86_400))
     });
     if keys.current(now).is_none() && !pending {
-        keys.keys.push(new_key(now, now));
+        keys.keys.push(new_key(now, now)?);
     } else if !pending && (due || fresh.is_some()) {
         let activate_at = now.saturating_add(ACTIVATION_DELAY_SECONDS);
         for key in &mut keys.keys {
@@ -169,14 +173,14 @@ pub fn plan(
                 key.retire_at = Some(activate_at.saturating_add(retire_after));
             }
         }
-        keys.keys.push(new_key(now, activate_at));
+        keys.keys.push(new_key(now, activate_at)?);
     } else if fresh.is_none() && keys == *current {
-        return Plan::Keep;
+        return Ok(Plan::Keep);
     }
-    Plan::Write {
+    Ok(Plan::Write {
         processed: fresh.or(processed).map(ToString::to_string),
         keys,
-    }
+    })
 }
 
 /// Why a cluster's keys cannot be used. The messages name the Secret, never
@@ -277,11 +281,11 @@ mod tests {
         token_ttl_seconds: 300,
     };
 
-    fn maker() -> impl FnMut(i64, i64) -> IssuerKey {
+    fn maker() -> impl FnMut(i64, i64) -> Result<IssuerKey, ()> {
         let mut n: u32 = 0;
         move |created_at, activate_at| {
             n = n.saturating_add(1);
-            IssuerKey {
+            Ok(IssuerKey {
                 kid: format!("k{n}"),
                 pkcs8: String::new(),
                 x: String::new(),
@@ -289,14 +293,14 @@ mod tests {
                 created_at,
                 activate_at,
                 retire_at: None,
-            }
+            })
         }
     }
 
-    fn written(plan: Plan) -> (IssuerKeySet, Option<String>) {
+    fn written(plan: Result<Plan, ()>) -> (IssuerKeySet, Option<String>) {
         match plan {
-            Plan::Write { keys, processed } => (keys, processed),
-            Plan::Keep => panic!("expected a write"),
+            Ok(Plan::Write { keys, processed }) => (keys, processed),
+            _ => panic!("expected a write"),
         }
     }
 
@@ -313,7 +317,7 @@ mod tests {
         ));
         assert_eq!(keys.current(1_000).map(|k| k.kid.as_str()), Some("k1"));
         let again = plan(&keys, 1_001, ROTATION, None, None, &mut new_key);
-        assert_eq!(again, Plan::Keep);
+        assert_eq!(again, Ok(Plan::Keep));
     }
 
     #[test]
@@ -394,7 +398,7 @@ mod tests {
             Some("2026-10-29"),
             &mut new_key,
         );
-        assert_eq!(same, Plan::Keep);
+        assert_eq!(same, Ok(Plan::Keep));
         assert!(after.is_some());
     }
 
@@ -430,7 +434,7 @@ mod tests {
             Some("revoke:a1"),
             &mut new_key,
         );
-        assert_eq!(replay, Plan::Keep);
+        assert_eq!(replay, Ok(Plan::Keep));
     }
 
     #[test]

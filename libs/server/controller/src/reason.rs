@@ -76,6 +76,24 @@ weebo_kit_domain::reason_codes! {
         /// Advisory: the trust probe reached no conclusion (transport,
         /// `5xx`, no agent); the cluster stays served.
         UpstreamTrustUnknown,
+        /// `Issuer`: the key Secret is unreadable, not the proxy's, or
+        /// cannot be written; the message names the Secret.
+        IssuerKeyUnavailable,
+        /// `Issuer`: the path of `issuer_key.issuer_url` is not
+        /// `/issuer/<ns>/<name>`, the route the proxy serves.
+        IssuerUrlMismatch,
+        /// `Issuer`: the trust probe got `401`, or the apiserver also took
+        /// an unprefixed identity (no `userValidationRules`).
+        IssuerNotTrusted,
+        /// Advisory: a cluster preparing `Issuer` (still `Passthrough` with
+        /// `issuer_key`) would not be served once switched; the message
+        /// says why.
+        IssuerNotReady,
+        /// Advisory: the key has not rotated for `rotation_days` + 1.
+        IssuerKeyRotationOverdue,
+        /// Advisory: `Issuer` behind an agent: the apiserver must still
+        /// reach the proxy's public URL for the JWKS (decision 13).
+        IssuerBehindAgent,
     }
 }
 
@@ -97,7 +115,10 @@ impl Reason for ReasonCode {
             | Self::AgentVersionSkew
             | Self::ClientCertExpiring
             | Self::FrontProxyNotReady
-            | Self::UpstreamTrustUnknown => Severity::Advisory,
+            | Self::UpstreamTrustUnknown
+            | Self::IssuerNotReady
+            | Self::IssuerKeyRotationOverdue
+            | Self::IssuerBehindAgent => Severity::Advisory,
             Self::InvalidSpec
             | Self::OidcConfigUnresolved
             | Self::TargetUnreachable
@@ -115,7 +136,10 @@ impl Reason for ReasonCode {
             | Self::ClientCertSubjectReserved
             | Self::AudienceValidationRequired
             | Self::UpstreamIdentityNotHonoured
-            | Self::FrontProxyNotTrusted => Severity::Blocking,
+            | Self::FrontProxyNotTrusted
+            | Self::IssuerKeyUnavailable
+            | Self::IssuerUrlMismatch
+            | Self::IssuerNotTrusted => Severity::Blocking,
         }
     }
 }
@@ -131,7 +155,7 @@ mod tests {
 
     #[test]
     fn the_catalog_has_the_codes_of_rfc_0011_to_0014() {
-        assert_eq!(ReasonCode::ALL.len(), 28);
+        assert_eq!(ReasonCode::ALL.len(), 34);
     }
 
     #[test]
@@ -153,6 +177,9 @@ mod tests {
                 &ReasonCode::ClientCertExpiring,
                 &ReasonCode::FrontProxyNotReady,
                 &ReasonCode::UpstreamTrustUnknown,
+                &ReasonCode::IssuerNotReady,
+                &ReasonCode::IssuerKeyRotationOverdue,
+                &ReasonCode::IssuerBehindAgent,
             ]
         );
     }

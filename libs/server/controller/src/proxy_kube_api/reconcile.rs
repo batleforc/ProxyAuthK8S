@@ -176,6 +176,7 @@ pub async fn evaluate(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Evaluation {
         ..Default::default()
     });
     super::front_proxy::evaluate(proxy, &ctx, &mut evaluation).await;
+    super::issuer::evaluate(proxy, &ctx, &mut evaluation).await;
     if let Service::Agent(agent) = &proxy.spec.service {
         evaluation.status.agent = agent_status(proxy, &ctx).await;
         if let Some(status) = evaluation.status.agent.clone() {
@@ -394,12 +395,19 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
     // An agent's tunnels come and go without a change to the CR.
     // RFC 0014: a FrontProxy certificate expires and is renewed in place,
     // with no event on the CR; it is looked at again every few minutes.
+    // An Issuer key activates, retires and rotates on a clock, and the trust
+    // probe's verdict reaches the CR the same way.
     let front_proxy = proxy.upstream_mode() == crd::upstream_auth::UpstreamAuthMode::FrontProxy
         || evaluation
             .status
             .upstream_auth
             .as_ref()
-            .is_some_and(|upstream| upstream.client_cert_secret.is_some());
+            .is_some_and(|upstream| upstream.client_cert_secret.is_some())
+        || proxy
+            .spec
+            .upstream_auth
+            .as_ref()
+            .is_some_and(|upstream| upstream.issuer_key.is_some());
     let due_in = if matches!(proxy.spec.service, Service::Agent(_)) {
         Some(AGENT_REQUEUE_SECS)
     } else {

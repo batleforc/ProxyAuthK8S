@@ -19,6 +19,7 @@ use crate::error::Result;
 pub mod bootstrap;
 pub mod cleanup;
 pub mod front_proxy;
+pub mod issuer;
 pub mod reconcile;
 
 /// Redis key prefix under which cluster configurations are cached.

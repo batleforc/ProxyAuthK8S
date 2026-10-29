@@ -2234,6 +2234,10 @@ spec:
                   set by an RFC 0014 controller.
                 nullable: true
                 properties:
+                  audience:
+                    description: '`Issuer`: the `aud` of every JWT, to declare in the apiserver.'
+                    nullable: true
+                    type: string
                   clientCertNotAfter:
                     description: '`FrontProxy`: the certificate''s `notAfter`, RFC 3339.'
                     nullable: true
@@ -2248,6 +2252,22 @@ spec:
                     type: string
                   clientCertTarget:
                     description: '`FrontProxy`: the value its target annotation must hold.'
+                    nullable: true
+                    type: string
+                  issuerUrl:
+                    description: '`Issuer`: `issuer_key.issuer_url`, mirrored.'
+                    nullable: true
+                    type: string
+                  jwksUri:
+                    description: '`Issuer`: the JWKS the discovery document points to.'
+                    nullable: true
+                    type: string
+                  keyId:
+                    description: '`Issuer`: the `kid` of the key that signs.'
+                    nullable: true
+                    type: string
+                  keyRotatedAt:
+                    description: '`Issuer`: when that key began to sign, RFC 3339.'
                     nullable: true
                     type: string
                   mode:
@@ -2268,6 +2288,7 @@ spec:
                     - NotHonoured
                     - Rejected
                     - Unknown
+                    - Unguarded
                     nullable: true
                     type: string
                   trustSince:

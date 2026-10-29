@@ -78,13 +78,30 @@ fn preparing(proxy: &ProxyKubeApi) -> bool {
 /// In the effective mode `Ready=False` with `code`, the cluster no longer
 /// exposed; while preparing, the `FrontProxyNotReady` advisory.
 fn refuse(evaluation: &mut Evaluation, effective: bool, code: ReasonCode, message: String) {
+    refuse_as(
+        evaluation,
+        effective,
+        code,
+        ReasonCode::FrontProxyNotReady,
+        message,
+    );
+}
+
+/// [`refuse`] with the advisory of the mode being prepared.
+pub(super) fn refuse_as(
+    evaluation: &mut Evaluation,
+    effective: bool,
+    code: ReasonCode,
+    preparing: ReasonCode,
+    message: String,
+) {
     if effective {
         evaluation.status.exposed = false;
         evaluation.status.error = Some(message.clone());
         evaluation.ready = Err(Failure::new(code, message));
     } else {
         evaluation.advisories.push(Advisory {
-            reason: ReasonCode::FrontProxyNotReady,
+            reason: preparing,
             message,
         });
     }
@@ -189,38 +206,74 @@ pub async fn evaluate(proxy: &ProxyKubeApi, ctx: &State, evaluation: &mut Evalua
             message,
         ),
     }
-    let verdict = common::upstream_trust::get(&proxy.to_path());
-    if let Some((trust, since)) = &verdict {
-        status.trust = Some(match trust {
-            common::upstream_trust::Trust::Trusted => UpstreamTrust::Trusted,
-            common::upstream_trust::Trust::NotHonoured(_) => UpstreamTrust::NotHonoured,
-            common::upstream_trust::Trust::Rejected => UpstreamTrust::Rejected,
-            common::upstream_trust::Trust::Unknown(_) => UpstreamTrust::Unknown,
-        });
-        status.trust_since = k8s_openapi::jiff::Timestamp::try_from(*since)
-            .ok()
-            .map(|t| t.to_string());
-    }
+    let verdict = record_trust(proxy, &mut status);
     evaluation.status.upstream_auth = Some(status);
     // The trust probe's last word (RFC 0014 §5.4, decision 45), once the
     // certificate itself is sound.
     if effective && evaluation.ready.is_err() {
         return;
     }
-    match verdict.map(|(trust, _)| trust) {
-        Some(common::upstream_trust::Trust::NotHonoured(seen)) => refuse(
+    judge_trust(
+        verdict,
+        evaluation,
+        effective,
+        ReasonCode::FrontProxyNotReady,
+        (
+            ReasonCode::FrontProxyNotTrusted,
+            "the apiserver refuses the proxy's certificate (401): check that its CA is in --requestheader-client-ca-file and its CN in --requestheader-allowed-names".to_string(),
+        ),
+    );
+}
+
+/// The trust probe's last verdict on `proxy`, written into `status`
+/// (decision 60).
+pub(super) fn record_trust(
+    proxy: &ProxyKubeApi,
+    status: &mut UpstreamAuthStatus,
+) -> Option<common::upstream_trust::Trust> {
+    let (trust, since) = common::upstream_trust::get(&proxy.to_path())?;
+    status.trust = Some(match &trust {
+        common::upstream_trust::Trust::Trusted => UpstreamTrust::Trusted,
+        common::upstream_trust::Trust::NotHonoured(_) => UpstreamTrust::NotHonoured,
+        common::upstream_trust::Trust::Rejected => UpstreamTrust::Rejected,
+        common::upstream_trust::Trust::Unknown(_) => UpstreamTrust::Unknown,
+        common::upstream_trust::Trust::Unguarded => UpstreamTrust::Unguarded,
+    });
+    status.trust_since = k8s_openapi::jiff::Timestamp::try_from(since)
+        .ok()
+        .map(|t| t.to_string());
+    Some(trust)
+}
+
+/// What a verdict does to `Ready` (decision 45): a broken trust closes an
+/// effective cluster and warns a preparing one (`preparing`); `rejected` is
+/// the mode's reason and message for a `401`.
+pub(super) fn judge_trust(
+    verdict: Option<common::upstream_trust::Trust>,
+    evaluation: &mut Evaluation,
+    effective: bool,
+    preparing: ReasonCode,
+    rejected: (ReasonCode, String),
+) {
+    match verdict {
+        Some(common::upstream_trust::Trust::NotHonoured(seen)) => refuse_as(
             evaluation,
             effective,
             ReasonCode::UpstreamIdentityNotHonoured,
+            preparing,
             format!(
-                "the apiserver sees {seen} instead of the identity the proxy asserts: check --requestheader-client-ca-file (never --client-ca-file) and the --requestheader-*-headers flags"
+                "the apiserver sees {seen} instead of the identity the proxy asserts: check how it authenticates the proxy (--requestheader-* flags, or the issuer's claimMappings)"
             ),
         ),
-        Some(common::upstream_trust::Trust::Rejected) => refuse(
+        Some(common::upstream_trust::Trust::Rejected) => {
+            refuse_as(evaluation, effective, rejected.0, preparing, rejected.1);
+        }
+        Some(common::upstream_trust::Trust::Unguarded) => refuse_as(
             evaluation,
             effective,
-            ReasonCode::FrontProxyNotTrusted,
-            "the apiserver refuses the proxy's certificate (401): check that its CA is in --requestheader-client-ca-file and its CN in --requestheader-allowed-names".to_string(),
+            ReasonCode::IssuerNotTrusted,
+            preparing,
+            "the apiserver accepts an unprefixed identity from this issuer: add the userValidationRules of the issuer guide".to_string(),
         ),
         Some(common::upstream_trust::Trust::Unknown(why)) => evaluation.advisories.push(Advisory {
             reason: ReasonCode::UpstreamTrustUnknown,

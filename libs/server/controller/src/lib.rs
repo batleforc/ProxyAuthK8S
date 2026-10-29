@@ -168,6 +168,9 @@ pub async fn run(state: State) -> Result<()> {
         },
         () = run_leader_election(state.clone(), leadership.clone(), LEASE_RENEW_INTERVAL, LEASE_TTL) => {
         }
+        // RFC 0014 §5.3: the Issuer keys of clusters that are gone.
+        () = proxy_kube_api::issuer::run_sweep(controller_state.clone()) => {
+        }
     };
     // Shutting down: hand the Lease over now instead of letting the next
     // leader wait out its TTL (decision 36).

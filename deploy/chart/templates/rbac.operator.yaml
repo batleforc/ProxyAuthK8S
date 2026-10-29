@@ -115,15 +115,22 @@ rules:
       - create
       - update
       - patch
-  # RFC 0014: the FrontProxy certificates, proxyauth-frontproxy-<ns>.<name>,
-  # live in the proxy's own namespace; read by name only. Covered already by
-  # the cluster-wide `get` unless rbac.referencedNamespaces replaces it.
+  # RFC 0014: the FrontProxy certificates (proxyauth-frontproxy-<ns>.<name>,
+  # read by name) and the Issuer keys (proxyauth-issuer-<UID>, created,
+  # rotated and swept by the leader) live in the proxy's own namespace. RBAC
+  # cannot filter by label: `list` and `delete` reach every Secret of this
+  # namespace, which is the proxy administrator's (T18, decision 43); the
+  # code only touches the labelled ones.
   - apiGroups:
       - ""
     resources:
       - secrets
     verbs:
       - get
+      - list
+      - create
+      - update
+      - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

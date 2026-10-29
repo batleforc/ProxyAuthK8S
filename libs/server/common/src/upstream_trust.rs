@@ -18,6 +18,9 @@ pub enum Trust {
     Rejected,
     /// Transport error, `5xx`, no agent, timeout: no conclusion.
     Unknown(String),
+    /// `Issuer`: the apiserver also took an unprefixed identity, so its
+    /// `userValidationRules` are missing.
+    Unguarded,
 }
 
 /// A result older than this is no result: the controller then reports none.
