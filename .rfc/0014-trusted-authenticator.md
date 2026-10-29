@@ -18,8 +18,9 @@
 > **Revue finale du 2026-10-29** (six relecteurs : expérience utilisateur,
 > sécurité, résilience, qualité du code, stabilité, honnêteté) : les
 > corrections sans décision sont faites dans le texte ; ce qui changeait la
-> conception a été tranché au `/grill-me` du même jour (décisions 38 à 57,
-> §15) et reporté dans le corps. Restent ouvertes les deux sondes empiriques.
+> conception a été tranché au `/grill-me` du même jour (décisions 38 à 58,
+> §15) et reporté dans le corps. La sonde k3s est faite (décision 58) ; reste
+> la lecture des sources de l'apiserver (Still open 1).
 
 ---
 
@@ -732,7 +733,7 @@ sequenceDiagram
   perd rien : l'état est dans le Secret.
 - **Première clé** (création, ou recréation après perte du Secret) : aucune
   clé n'étant active, elle s'active tout de suite ; l'apiserver la charge sur
-  le `kid` inconnu (à vérifier, Still open 2). Le délai de 5 min ne vaut que
+  le `kid` inconnu (à vérifier, Still open 1). Le délai de 5 min ne vaut que
   pour une rotation, quand une clé active existe déjà.
 - **Délais** : `activate_at` = publication + 5 min (cache des réplicas 30 s +
   `Cache-Control: max-age=60` du JWKS + marge) ; le cache de 30 s est une
@@ -805,8 +806,10 @@ en préparation (§4.3) :
   k3s refuse l'anonyme) ; un certificat d'une CA `--client-ca-file` donne
   l'identité du CN/O (le message la nomme) ; en `Issuer`, un issuer pas
   encore déclaré ou un JWKS injoignable donnent `401`. Le `401` en
-  `FrontProxy` donne `FrontProxyNotTrusted`. Ces attentes viennent de la
-  connaissance de l'apiserver, pas d'une sonde (Still open 1).
+  `FrontProxy` donne `FrontProxyNotTrusted`. Observé sur le k3s du banc
+  (décision 58) : sans certificat ou avec un CN hors `allowed-names`, `401` ;
+  un certificat de `--client-ca-file` est authentifié sous son CN, les
+  en-têtes ignorés.
 - Sonder la **préparation** `FrontProxy` (Secret posé, mode encore
   `Passthrough`) supprime la fenêtre de `403` à la bascule : l'opérateur
   attend `UpstreamTrusted=True`, puis change le mode, comme en `Issuer`.
@@ -997,7 +1000,7 @@ en préparation (§4.3) :
   casser l'agrégation de k3s. `it:up` émet le certificat client
   `CN=proxyauth-it` dans le Secret `proxyauth-frontproxy-<ns>.<nom>` du namespace du
   proxy, avant même le `ProxyKubeApi` de test (le nom ne dépend pas de
-  l'UID). À sonder au début de la phase 2 (§15, Still open).
+  l'UID). Sondé (décision 58) : la concaténation garde l'agrégation.
 - `Issuer` : une entrée de plus dans l'`AuthenticationConfiguration` de
   `.it/k3d.yaml.tpl` (avec ses `userValidationRules`), issuer
   `https://proxyauth.k8s.localhost:8443/issuer/…`. Le nœud résout déjà ce nom
@@ -1012,9 +1015,9 @@ en préparation (§4.3) :
 - L'audit de l'apiserver du banc est activé (politique `Metadata`, journal
   lu par `task it:logs`) : c'est par lui que §6.P prouve qu'une requête n'est
   **pas** arrivée en amont, et quel `Authorization` est arrivé.
-- Le banc est partagé, et tourne désormais aussi dans Release Prepare : si la
-  sonde k3s (Still open 1) échoue, `FrontProxy` part sur un second cluster
-  k3d, plutôt que de casser toutes les suites.
+- Le banc est partagé, et tourne aussi dans Release Prepare : la sonde k3s
+  (décision 58) a montré que la concaténation ne casse pas l'agrégation, le
+  banc partagé suffit.
 - `.it/values.yaml` : `upstreamAuth.allowedModes: [Passthrough, FrontProxy,
   Issuer]`, et `OIDC_AUDIENCE_VALIDATION=enforce`.
 - Personas (`.it/personas.yaml`) : un persona dont Dex renvoie le groupe
@@ -1342,7 +1345,7 @@ flowchart LR
 | restauration de sauvegarde ou recréation GitOps du `ProxyKubeApi` | UID neuf | bref `503` en `Issuer` le temps d'une clé neuve, active tout de suite ; l'issuer vient de la spec, inchangé (décision 53) ; rien en `FrontProxy` : le Secret est nommé par `ns/nom` (décision 56) | automatique |
 | apiserver mal réglé (`allowed-names`, CA) | sonde (`FrontProxyNotTrusted`, `UpstreamIdentityNotHonoured`) | **fermé** en mode effectif : `Ready=False` et `503` (décision 45) ; avis en préparation | corriger l'apiserver ; la Condition dit quoi |
 | sonde qui n'aboutit pas (transport, `5xx`, agent absent, délai) | `UpstreamTrusted=Unknown` | relayé : une sonde aveugle ne ferme pas un cluster sain | automatique |
-| l'apiserver ne joint pas le JWKS, ou l'issuer n'y est pas déclaré | sonde (`IssuerNotTrusted`), `upstream_rejected_total` | **fermé** : `502` avec un `Status` qui nomme `UpstreamTrusted` (décision 46), puis `503` dès que la sonde pose `Ready=False` ; l'authentificateur JWT de l'apiserver réessaierait en tâche de fond sans bloquer son démarrage (à vérifier, Still open 2) | réseau, `certificateAuthority`, config |
+| l'apiserver ne joint pas le JWKS, ou l'issuer n'y est pas déclaré | sonde (`IssuerNotTrusted`), `upstream_rejected_total` | **fermé** : `502` avec un `Status` qui nomme `UpstreamTrusted` (décision 46), puis `503` dès que la sonde pose `Ready=False` ; l'authentificateur JWT de l'apiserver réessaierait en tâche de fond sans bloquer son démarrage (à vérifier, Still open 1) | réseau, `certificateAuthority`, config |
 | proxy ou Redis en panne pendant une rotation ou un redémarrage de l'apiserver | `upstream_rejected_total` | l'apiserver garde les clés déjà chargées ; une clé nouvelle ou un apiserver redémarré attendent le retour du JWKS | automatique ; le dernier bon document reste servi pendant une panne Redis, borné par `retire_at` |
 | décalage d'horloge proxy / apiserver | `401` en fin de vie des JWT | marge `max(60 s, 10 %)` avant `exp`, `nbf` −30 s | NTP |
 | identité refusée (§4.2) | `UpstreamIdentity::from_user` | **fermé** : `403`, hors fail2login (le jeton est valide, c'est le mapping qui ne l'est pas) | corriger le mapping ou l'IdP |
@@ -1497,8 +1500,8 @@ redémarrage (T26).
   | --- | --- | --- |
   | certificat `FrontProxy` renouvelé, même CA et même CN | rien | cas de la recette cert-manager, toutes les 24 h |
   | CN du certificat changé | ajouter le CN à `--requestheader-allowed-names` avant | la doc dit de choisir un CN et de le garder |
-  | CA `FrontProxy` changée | ancienne et nouvelle CA côte à côte dans `--requestheader-client-ca-file`, basculer l'émetteur, retirer l'ancienne | rechargement du fichier sans redémarrage : Still open 1 |
-  | clé `Issuer` tournée ou révoquée | rien : rechargement du JWKS sur `kid` inconnu | à vérifier, Still open 2 |
+  | CA `FrontProxy` changée | ancienne et nouvelle CA côte à côte dans `--requestheader-client-ca-file`, basculer l'émetteur, retirer l'ancienne | rechargement sans redémarrage, observé (décision 58) |
+  | clé `Issuer` tournée ou révoquée | rien : rechargement du JWKS sur `kid` inconnu | à vérifier, Still open 1 |
   | URL d'issuer changée | seconde entrée `jwt` le temps de la migration | voir plus bas |
 
   Un changement que l'apiserver refuse se voit à la sonde, relancée à chaque
@@ -1620,7 +1623,7 @@ Tranchées au `/grill-me` du 2026-10-27 (1 à 20), à la rédaction (21 à 27),
 puis après les revues sécurité, expérience utilisateur, stabilité du code et
 résilience du même jour (28 à 37), puis au `/grill-me` du 2026-10-29 sur les
 questions ouvertes par la revue finale à six relecteurs (38 à 55 ; la
-question d'origine est entre parenthèses), 56 qui rouvre la 49, et 57 (source du certificat). Toutes suivent la recommandation
+question d'origine est entre parenthèses), 56 qui rouvre la 49, 57 (source du certificat) et 58 (sonde k3s). Toutes suivent la recommandation
 de la revue, sauf la 46 (prémisse corrigée) et la 53 (option nouvelle).
 
 | # | Question | Decision |
@@ -1682,26 +1685,18 @@ de la revue, sauf la 46 (prémisse corrigée) et la 53 (option nouvelle).
 | 55 | Texte de la RFC 0010 (Q19) | **Amendé dans le même changement : bloc sous `upstream_auth.token_exchange`, `UpstreamCredential::Bearer`, `enabled` remplacé par le mode, booléen `token_exchange` de `/api/v1/clusters` dérivé du mode.** Deux textes contradictoires coûteraient à qui l'implémente. |
 | 56 | Nom du Secret `FrontProxy` (49 rouverte, 2026-10-29) | **`proxyauth-frontproxy-<ns>.<nom>`, et une annotation `proxyauth.weebo.si.rs/front-proxy-target` posée par l'admin, comparée à `spec.service` (`ClientCertTargetMismatch`) ; nom trop long : `ClientCertNameTooLong` ; jamais balayé.** Le nom par UID interdisait de déclarer le Secret avant le cluster et obligeait à le recopier à chaque restauration ou recréation. Le `ns/nom` est aussi sûr : un tenant ne crée de `ProxyKubeApi` que dans son namespace, et un nom de namespace n'a pas de point, donc pas de collision. Ce que l'UID protégeait en plus, un namespace repris par un autre tenant, et ce qu'il ne protégeait pas, un `spec.service` repointé vers un autre apiserver qui croit la même CA, l'annotation de cible le couvre (T29). |
 | 57 | Source du certificat `FrontProxy` | **Au choix de l'admin : tout ce qui écrit un Secret `kubernetes.io/tls` avec les labels et l'annotation de cible ; cert-manager recommandé (CA privée, 24 h, `rotationPolicy: Always`, une CA par apiserver cible) ; Vault Secrets Operator, External Secrets ou un pipeline possibles ; le proxy ne parle jamais à une PKI et ne crée pas de `Certificate`.** Des certificats courts renouvelés seuls bornent T6 à un jour sans code. Un `Certificate` créé par le contrôleur ferait émettre un identifiant cluster-admin à quiconque peut demander `FrontProxy`, et ferait de cert-manager une dépendance ; un client Vault dans le proxy ajouterait un secret et une surface sortante pour remplacer un Secret que ces outils écrivent déjà. Que VSO et External Secrets posent labels et annotations sur le Secret écrit est à vérifier dans la doc. |
+| 58 | Sonde k3s du front-proxy (ancien Still open 1, 2026-10-29) | **Tenu, observé sur `rancher/k3s:v1.35.9-k3s1` par `.it/probes/rfc0014-front-proxy.sh` (run CI 40855441199).** Avec la seule CA dédiée, l'agrégation (`metrics.k8s.io`) tombe ; avec la CA `request-header` de k3s (CN `system:auth-proxy`) concaténée, elle revient en 13 s et l'identité affirmée reste crue. Le fichier est rechargé sans redémarrage : une CA ajoutée est crue aussitôt, une CA retirée refusée. Sans certificat ou CN hors `allowed-names` : `401` (pas d'anonyme). Certificat de `--client-ca-file` avec `X-Remote-User` : authentifié sous son CN, en-têtes ignorés. Un `X-Remote-Group` par groupe, virgule non coupée ; clé `extra` décodée ; espace de fin de `X-Remote-User` supprimé, ce qui justifie le refus de §4.2. |
 
 ### Still open
 
-1. **Sonde k3s (phase 2).** Que l'apiserver de k3s du banc accepte un
-   `requestheader-client-ca-file` qui concatène sa CA d'agrégation et la CA
-   dédiée du run, sans casser son agrégation, est tiré de la connaissance de
-   k3s, pas d'une sonde. Vérifier aussi que l'apiserver recharge ce fichier
-   sans redémarrage quand la CA change (§13). Sonde :
-   `.it/probes/rfc0014-front-proxy.sh`, lancée par
-   `.github/workflows/probe-rfc0014.yaml` sur un cluster k3d jetable ; son
-   résumé sera cité au §17. À vérifier avant la phase 2. Ne change pas la
-   conception.
-2. **Comportement de l'apiserver à vérifier sur les sources (phases 1 à 3)** :
+1. **Comportement de l'apiserver à vérifier sur les sources (phases 1 à 3)** :
    rechargement du JWKS sur `kid` inconnu (go-oidc `RemoteKeySet`), absence de
    tolérance sur `exp`, rechargement à chaud de l'`AuthenticationConfiguration`
    quand un nouvel issuer est injoignable. Les délais de §5.3 en dépendent ;
    ils sont choisis larges. Y ajouter : l'ordre de l'union d'authentificateurs
    (requestheader, x509, bearer, sous-protocole WebSocket) et le passage au
-   suivant sur échec, qui justifie les décisions 39 et 40 ; ce que voit la
-   sonde `FrontProxy` (`401` ou CN) selon la CA (§5.4). La révocation
+   suivant sur échec, qui justifie les décisions 39 et 40 (la priorité de
+   x509 sur les en-têtes est déjà observée, décision 58). La révocation
    (décision 52) repose aussi sur le rechargement sur `kid` inconnu. Ne
    change pas la conception : si l'une de ces lectures est fausse, ce sont
    des délais et des messages qui bougent, pas les décisions.
