@@ -168,6 +168,29 @@ fn is_dropped_request_header(header_name: &http::header::HeaderName) -> bool {
         || is_upstream_auth_header(header_name.as_str())
 }
 
+/// The bearer-token entries of `Sec-WebSocket-Protocol`, the apiserver's
+/// `base64url.bearer.authorization.k8s.io.<token>` (RFC 0014, decision 39).
+const BEARER_SUBPROTOCOL_PREFIX: &str = "base64url.bearer.authorization.k8s.io.";
+
+/// `Sec-WebSocket-Protocol` without its bearer-token entries, in every mode:
+/// the proxy validates `Authorization` only, so a second token there was
+/// never checked, and in a trusted mode it would carry the caller's IdP token
+/// upstream (or let the apiserver fall back to it, its union of
+/// authenticators going on after a refusal). `None` when nothing is left.
+fn strip_bearer_subprotocols(value: &HeaderValue) -> Option<HeaderValue> {
+    let kept: Vec<&str> = value
+        .to_str()
+        .ok()?
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty() && !entry.starts_with(BEARER_SUBPROTOCOL_PREFIX))
+        .collect();
+    if kept.is_empty() {
+        return None;
+    }
+    HeaderValue::from_str(&kept.join(", ")).ok()
+}
+
 /// The handshake sent upstream, serialized by hyper: the request line of
 /// `upstream_url`, its `Host`, the rebuilt `Connection`/`Upgrade`, the client's
 /// headers minus the dropped ones, the forwarding chain and the proxy's
@@ -207,9 +230,16 @@ pub(super) fn build_upgrade_request(
         upstream_headers.insert(http::header::UPGRADE, upgrade.clone());
     }
     for (name, value) in headers {
-        if !is_dropped_request_header(name) {
-            upstream_headers.append(name, value.clone());
+        if is_dropped_request_header(name) {
+            continue;
         }
+        if *name == http::header::SEC_WEBSOCKET_PROTOCOL {
+            if let Some(value) = strip_bearer_subprotocols(value) {
+                upstream_headers.append(name, value);
+            }
+            continue;
+        }
+        upstream_headers.append(name, value.clone());
     }
 
     let incoming_forwarded_for = headers
@@ -331,5 +361,50 @@ mod tests {
         assert_eq!(req.headers()["upgrade"], "websocket");
         assert_eq!(req.headers()["sec-websocket-protocol"], "v5.channel.k8s.io");
         assert!(!req.headers().contains_key("transfer-encoding"));
+    }
+
+    /// Decision 39: a bearer token in the sub-protocol never goes upstream,
+    /// the channel protocols do, in their order.
+    #[test]
+    fn bearer_subprotocol_entries_are_stripped_in_every_mode() {
+        let token = "base64url.bearer.authorization.k8s.io.ZXlKaGJHY2lPaUpTVXpJMU5pSjk";
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "websocket".parse().unwrap());
+        headers.append(
+            "sec-websocket-protocol",
+            format!("v5.channel.k8s.io, {token}").parse().unwrap(),
+        );
+        headers.append(
+            "sec-websocket-protocol",
+            "v4.channel.k8s.io".parse().unwrap(),
+        );
+        let req = build_upgrade_request(
+            &headers,
+            &http::Method::GET,
+            &url("https://api.example:6443/api/v1/namespaces/d/pods/p/exec"),
+            None,
+            None,
+        )
+        .unwrap();
+        let sent: Vec<_> = req
+            .headers()
+            .get_all("sec-websocket-protocol")
+            .iter()
+            .map(|value| value.to_str().unwrap().to_string())
+            .collect();
+        assert_eq!(sent, ["v5.channel.k8s.io", "v4.channel.k8s.io"]);
+
+        // A header holding only the token is dropped altogether.
+        let mut headers = HeaderMap::new();
+        headers.insert("sec-websocket-protocol", token.parse().unwrap());
+        let req = build_upgrade_request(
+            &headers,
+            &http::Method::GET,
+            &url("https://api.example:6443/api/v1/namespaces/d/pods/p/exec"),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(!req.headers().contains_key("sec-websocket-protocol"));
     }
 }

@@ -651,6 +651,7 @@ mod security_contract_tests {
             username: "alice".to_string(),
             email: "alice@example.com".to_string(),
             groups: vec!["dev".to_string(), "platform".to_string()],
+            ..User::default()
         }
     }
 

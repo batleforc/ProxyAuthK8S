@@ -13,6 +13,14 @@ pub enum ControllerError {
     )]
     CrdUnavailable(#[source] kube::Error),
 
+    /// The installed `ProxyKubeApi` CRD predates RFC 0014: the apiserver
+    /// would prune `upstream_auth` and a trusted cluster would read as
+    /// `Passthrough` (decision 42).
+    #[error(
+        "the installed ProxyKubeApi CRD has no spec.upstream_auth (RFC 0014): upgrade chart-crd to this release before starting the controller"
+    )]
+    CrdOutdated,
+
     /// Kubernetes API error
     #[error("Kubernetes API error: {0}")]
     Kube(#[source] kube::Error),
@@ -53,7 +61,7 @@ impl ControllerError {
                 }
                 finalizer::Error::UnnamedObject | finalizer::Error::InvalidFinalizer => None,
             },
-            Self::InvalidResource(_) | Self::CrdUnavailable(_) => None,
+            Self::InvalidResource(_) | Self::CrdUnavailable(_) | Self::CrdOutdated => None,
         }
     }
 }

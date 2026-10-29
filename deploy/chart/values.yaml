@@ -266,6 +266,14 @@ agentGateway:
       cpu: 50m
       memory: 64Mi
 
+# RFC 0014: the upstream modes a ProxyKubeApi may ask for. FrontProxy and
+# Issuer make whoever edits a ProxyKubeApi the author of the identity the
+# target apiserver trusts (admin of that cluster, under the prefix): closed by
+# default. Passthrough is always allowed. A cluster asking for another mode
+# gets Ready=False (UpstreamModeNotAllowed) and a 503, never a Passthrough relay.
+upstreamAuth:
+  allowedModes: [Passthrough]
+
 rbac:
   # Namespaces whose Secrets / ConfigMaps / Services a ProxyKubeApi may
   # reference (certificates, OIDC material, in-cluster targets). Empty (default)

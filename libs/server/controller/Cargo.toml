@@ -37,6 +37,8 @@ common = { path = "../common", version = "0.4.2", features = ["test-util"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 rustls = { workspace = true }
 wiremock = "0.6"
+# The CRD schema check reads the generated manifest (RFC 0014, decision 42).
+serde_yaml_ng = { workspace = true }
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [package.metadata.cargo-machete]

@@ -173,11 +173,22 @@ impl JwtValidator {
     }
 
     /// Validate `token` against `authenticators` and return the identity it maps to.
-    #[instrument(skip_all, fields(issuer))]
     pub async fn validate(
         &self,
         token: &str,
         authenticators: &[JWTAuthenticator],
+    ) -> Result<MappedUser, JwtValidationError> {
+        self.validate_for(token, authenticators, false).await
+    }
+
+    /// [`Self::validate`], for a cluster whose mode is `trusted` (RFC 0014):
+    /// see [`map_user_for`].
+    #[instrument(skip_all, fields(issuer))]
+    pub async fn validate_for(
+        &self,
+        token: &str,
+        authenticators: &[JWTAuthenticator],
+        trusted: bool,
     ) -> Result<MappedUser, JwtValidationError> {
         let header = decode_header(token)
             .map_err(|e| JwtValidationError::Malformed(format!("unreadable header: {e}")))?;
@@ -231,7 +242,7 @@ impl JwtValidator {
             apply_claim_rule(rule, &claims)?;
         }
 
-        let user = map_user(&authenticator.claim_mappings, &claims)?;
+        let user = map_user_for(&authenticator.claim_mappings, &claims, trusted)?;
 
         for rule in &authenticator.user_validation_rules {
             let user_value = serde_json::to_value(&user).map_err(|e| {
@@ -329,13 +340,45 @@ pub(crate) fn apply_claim_rule(
 }
 
 /// Turn verified claims into the identity the proxy will authorize.
+#[cfg(test)]
 pub(crate) fn map_user(
     mappings: &ClaimMappings,
     claims: &serde_json::Value,
 ) -> Result<MappedUser, JwtValidationError> {
+    map_user_for(mappings, claims, false)
+}
+
+/// Whether the username is read from the `email` claim, by name or by an
+/// expression that mentions it.
+fn username_reads_email(mapping: &PrefixedClaimOrExpression) -> bool {
+    mapping.claim.as_deref() == Some("email")
+        || mapping
+            .expression
+            .as_deref()
+            .is_some_and(|expression| expression.contains("claims.email"))
+}
+
+/// [`map_user`], for a cluster whose mode makes the apiserver trust the
+/// proxy's identity (RFC 0014, decision 51): there, a username read from
+/// `email` requires `email_verified == true`, an absent claim included,
+/// stricter than the apiserver on purpose. Untrusted, the behaviour of
+/// [`map_user`].
+pub fn map_user_for(
+    mappings: &ClaimMappings,
+    claims: &serde_json::Value,
+    trusted: bool,
+) -> Result<MappedUser, JwtValidationError> {
     let username_mapping = mappings.username.as_ref().ok_or_else(|| {
         JwtValidationError::Configuration("claim_mappings.username is required".to_string())
     })?;
+    if trusted
+        && username_reads_email(username_mapping)
+        && claims.get("email_verified") != Some(&serde_json::Value::Bool(true))
+    {
+        return Err(JwtValidationError::Rejected(
+            "the username is read from email, which is not verified".to_string(),
+        ));
+    }
 
     let username = map_prefixed_string(username_mapping, claims, "username")?;
     // An empty username is an anonymous identity, not a user: the proxy would go
@@ -467,7 +510,7 @@ pub type SharedJwtValidator = Arc<JwtValidator>;
 
 #[cfg(test)]
 mod tests {
-    use super::{ALLOWED_ALGORITHMS, apply_claim_rule, map_user, unverified_issuer};
+    use super::{ALLOWED_ALGORITHMS, apply_claim_rule, map_user, map_user_for, unverified_issuer};
     use crate::error::JwtValidationError;
     use crd::authentication_configuration::{
         ClaimMappings, ClaimOrExpression, ClaimValidationRule, ExtraMapping,
@@ -532,6 +575,36 @@ mod tests {
     /// A JWKS publishes public keys, so accepting an HMAC algorithm would let
     /// anyone who can read it mint a token that verifies — the classic
     /// algorithm-confusion forgery.
+    #[test]
+    fn a_trusted_mode_refuses_an_unverified_email_as_username() {
+        let by_claim = mappings(claim_mapping("email", Some("")));
+        let mut by_expression = mappings(claim_mapping("sub", Some("")));
+        by_expression.username = Some(PrefixedClaimOrExpression {
+            prefix: None,
+            claim: None,
+            expression: Some("claims.email".to_string()),
+        });
+        for config in [&by_claim, &by_expression] {
+            for verified in [None, Some(false)] {
+                let mut claims = claims();
+                match verified {
+                    None => {
+                        claims.as_object_mut().unwrap().remove("email_verified");
+                    }
+                    Some(v) => claims["email_verified"] = serde_json::json!(v),
+                }
+                assert!(map_user_for(config, &claims, true).is_err(), "{verified:?}");
+                // Untrusted, nothing changes.
+                assert!(map_user_for(config, &claims, false).is_ok(), "{verified:?}");
+            }
+            let mut claims = claims();
+            claims["email_verified"] = serde_json::json!(true);
+            assert!(map_user_for(config, &claims, true).is_ok());
+        }
+        // A username that does not read email is not concerned.
+        assert!(map_user_for(&mappings(claim_mapping("sub", Some(""))), &claims(), true).is_ok());
+    }
+
     #[test]
     fn no_symmetric_algorithm_is_ever_accepted() {
         for symmetric in [Algorithm::HS256, Algorithm::HS384, Algorithm::HS512] {

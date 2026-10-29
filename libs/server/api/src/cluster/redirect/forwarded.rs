@@ -164,6 +164,7 @@ mod tests {
             username: "alice".to_string(),
             email: "alice@example.com".to_string(),
             groups: vec!["dev".to_string(), "platform".to_string()],
+            ..User::default()
         }
     }
 
@@ -298,6 +299,7 @@ mod tests {
             username: "alice\r\nx-admin: true".to_string(),
             email: String::new(),
             groups: vec!["dev\nx-admin: true".to_string()],
+            ..User::default()
         };
         let headers = identity_headers(Some(&user));
         assert_eq!(headers[0].1, "alicex-admin: true");

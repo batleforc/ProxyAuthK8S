@@ -125,6 +125,7 @@ pub async fn redirect(
     if matches!(proxy.spec.service, Service::Agent(_)) {
         audit.upstream_via = "agent";
     }
+    audit.upstream_mode = proxy.upstream_mode().as_str();
     // The Kubernetes verb, computed as the apiserver does (RFC 0006): every
     // audit line of this request carries it, refusals included.
     let request_info = crd::security::request_info(

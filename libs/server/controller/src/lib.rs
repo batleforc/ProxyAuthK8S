@@ -11,6 +11,7 @@ use std::{
 
 use common::State;
 use crd::ProxyKubeApi;
+use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
     Api,
     runtime::{Controller, watcher::Config},
@@ -79,6 +80,23 @@ pub async fn run_leader_election(
 /// apiserver unreachable). The caller is expected to stop the process so the
 /// pod restarts (and surfaces as `CrashLoopBackOff`) rather than serving with
 /// a controller that will never fill Redis.
+/// The `ProxyKubeApi` CRD's name.
+const PROXY_KUBE_API_CRD: &str = "proxykubeapis.weebo.si.rs";
+
+/// Whether the CRD's served `v1` schema knows `spec.upstream_auth`.
+fn crd_has_upstream_auth(crd: &CustomResourceDefinition) -> bool {
+    crd.spec.versions.iter().any(|version| {
+        version.name == "v1"
+            && version
+                .schema
+                .as_ref()
+                .and_then(|schema| schema.open_api_v3_schema.as_ref())
+                .and_then(|root| root.properties.as_ref()?.get("spec"))
+                .and_then(|spec| spec.properties.as_ref())
+                .is_some_and(|spec| spec.contains_key("upstream_auth"))
+    })
+}
+
 pub async fn run(state: State) -> Result<()> {
     let client = state.client.clone();
     let proxy_kube_apis = Api::<ProxyKubeApi>::all(client.clone());
@@ -86,6 +104,23 @@ pub async fn run(state: State) -> Result<()> {
         let err = ControllerError::CrdUnavailable(e);
         tracing::error!(error = %err, "Controller cannot start");
         return Err(err);
+    }
+    // RFC 0014, decision 42: a CRD older than the binary prunes
+    // `upstream_auth` on read, and a trusted cluster would be cached as
+    // Passthrough. Closed: no reconcile on such a CRD.
+    let crds = Api::<CustomResourceDefinition>::all(client.clone());
+    match crds.get(PROXY_KUBE_API_CRD).await {
+        Ok(crd) if crd_has_upstream_auth(&crd) => {}
+        Ok(_) => {
+            let err = ControllerError::CrdOutdated;
+            tracing::error!(error = %err, "Controller cannot start");
+            return Err(err);
+        }
+        Err(e) => {
+            let err = ControllerError::CrdUnavailable(e);
+            tracing::error!(error = %err, "Controller cannot start");
+            return Err(err);
+        }
     }
 
     let leadership = Arc::new(lease_lock(
@@ -143,4 +178,21 @@ pub async fn run(state: State) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn crd_from(manifest: &str) -> CustomResourceDefinition {
+        serde_yaml_ng::from_str(manifest).expect("crd")
+    }
+
+    #[test]
+    fn the_generated_crd_knows_upstream_auth_and_an_older_one_does_not() {
+        let current = include_str!("../../../../deploy/crds.yaml");
+        assert!(crd_has_upstream_auth(&crd_from(current)));
+        let older = current.replace("upstream_auth:", "upstream_auth_removed:");
+        assert!(!crd_has_upstream_auth(&crd_from(&older)));
+    }
 }
