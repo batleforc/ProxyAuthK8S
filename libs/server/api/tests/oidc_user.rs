@@ -295,8 +295,6 @@ async fn an_oversized_userinfo_body_is_refused() {
     let result =
         User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
             .await;
-    assert!(
-        result.is_err(),
-        "an oversized /userinfo must not resolve: {result:?}"
-    );
+    // No `{result:?}`: a resolved user would carry the token into the output.
+    assert!(result.is_err(), "an oversized /userinfo must not resolve");
 }
