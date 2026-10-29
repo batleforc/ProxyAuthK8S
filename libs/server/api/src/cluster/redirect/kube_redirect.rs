@@ -13,6 +13,7 @@ use tracing::{debug, error, info, instrument, warn};
 use crate::cluster::redirect::audit::{AuditContext, PortDecision};
 use crate::cluster::redirect::status_response::{
     agent_unavailable, bad_request, forbidden, too_many_requests, unauthorized,
+    upstream_mode_unavailable,
 };
 use crate::cluster::redirect::throttle;
 use crate::helper::{extract_authorization_header, forwarded_for, peer_ip};
@@ -49,6 +50,30 @@ macro_rules! audited {
     }};
 }
 
+/// Why this replica refuses the cluster's upstream mode, if it does (RFC 0014
+/// §4.2): outside `upstreamAuth.allowedModes`, or not served by this version.
+/// The message names who can act and never carries a token or a name.
+fn upstream_mode_refusal(proxy: &ProxyKubeApi) -> Option<String> {
+    let mode = proxy.upstream_mode();
+    if !common::config::get()
+        .proxy
+        .upstream_allowed_modes
+        .contains(&mode)
+    {
+        return Some(format!(
+            "upstream mode {} is not enabled on this proxy installation; ask the proxy administrator (upstreamAuth.allowedModes)",
+            mode.as_str()
+        ));
+    }
+    if !crd::upstream_auth::SERVED_MODES.contains(&mode) {
+        return Some(format!(
+            "this proxy replica cannot serve upstream mode {} yet; retry once the upgrade completes",
+            mode.as_str()
+        ));
+    }
+    None
+}
+
 /// The proxy route: `ns` and `cluster` come from the router, the upstream
 /// path from the raw URI (never percent-decoded, see RFC 0007 T3).
 #[instrument(name = "main_redirect", fields(http.method = ?req.method(), http.response.status_code), skip(req, data))]
@@ -66,10 +91,7 @@ pub async fn redirect(
     }
     let method = req.method.clone();
 
-    let proxy: ProxyKubeApi = match data
-        .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
-        .await
-    {
+    let proxy: ProxyKubeApi = match data.get_proxy_from_redis(&format!("{ns}/{cluster}")).await {
         Ok(Some(proxy)) => proxy,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
@@ -80,6 +102,13 @@ pub async fn redirect(
 
     if !proxy.spec.enabled {
         return StatusCode::NOT_FOUND.into_response();
+    }
+
+    // RFC 0014, before gate 1: a mode the installation does not allow, or
+    // this replica does not serve, is refused, never relayed as Passthrough.
+    if let Some(message) = upstream_mode_refusal(&proxy) {
+        warn!(ns, cluster, %message, "upstream mode refused");
+        return upstream_mode_unavailable(&message);
     }
 
     // Only strip the routing prefix, never an occurrence further down the path:
@@ -466,4 +495,43 @@ pub async fn redirect(
     }
 
     standard_redirect(ctx).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crd::upstream_auth::{UpstreamAuth, UpstreamAuthMode};
+
+    fn proxy(mode: Option<UpstreamAuthMode>) -> ProxyKubeApi {
+        let mut spec: crd::ProxyKubeApiSpec = serde_json::from_value(serde_json::json!({
+            "cert": { "SystemRoots": true },
+            "service": { "ExternalService": { "url": "https://cluster.example.com:6443" } }
+        }))
+        .expect("spec");
+        spec.upstream_auth = mode.map(|mode| UpstreamAuth {
+            mode,
+            ..UpstreamAuth::default()
+        });
+        ProxyKubeApi::new("c", spec)
+    }
+
+    #[test]
+    fn passthrough_and_an_absent_block_are_served() {
+        assert_eq!(upstream_mode_refusal(&proxy(None)), None);
+        assert_eq!(
+            upstream_mode_refusal(&proxy(Some(UpstreamAuthMode::Passthrough))),
+            None
+        );
+    }
+
+    /// Default installation: `allowedModes` is `Passthrough` alone, so a
+    /// trusted mode is refused, naming the chart value, never relayed.
+    #[test]
+    fn a_trusted_mode_outside_allowed_modes_is_refused_with_who_can_act() {
+        for mode in [UpstreamAuthMode::FrontProxy, UpstreamAuthMode::Issuer] {
+            let message = upstream_mode_refusal(&proxy(Some(mode))).expect("refused");
+            assert!(message.contains(mode.as_str()), "{message}");
+            assert!(message.contains("upstreamAuth.allowedModes"), "{message}");
+        }
+    }
 }

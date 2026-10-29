@@ -16,7 +16,7 @@ use weebo_kit_runtime::metrics::ReconcileMetrics;
 use weebo_kit_runtime::status::{self, StatusUpdate};
 
 use crate::error::{ControllerError, Result};
-use crate::proxy_kube_api::{FIELD_MANAGER, REDIS_PREFIX, recorder};
+use crate::proxy_kube_api::{FIELD_MANAGER, recorder};
 use crate::reason::ReasonCode;
 
 /// `proxyauth_reconcile_total{kind, result, reason}` and
@@ -100,6 +100,32 @@ pub async fn evaluate(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Evaluation {
             ReasonCode::OidcConfigUnresolved,
             format!("Failed to resolve the OIDC configuration: {e}"),
         )
+    } else if !common::config::get()
+        .proxy
+        .upstream_allowed_modes
+        .contains(&proxy.upstream_mode())
+    {
+        let mode = proxy.upstream_mode().as_str();
+        warn!(
+            "ProxyKubeApi {} asks for upstream mode {} outside allowedModes",
+            id, mode
+        );
+        Evaluation::failed(
+            ReasonCode::UpstreamModeNotAllowed,
+            format!(
+                "upstream mode {mode} is not enabled on this proxy installation; ask the proxy administrator (upstreamAuth.allowedModes)"
+            ),
+        )
+    } else if !crd::upstream_auth::SERVED_MODES.contains(&proxy.upstream_mode()) {
+        let mode = proxy.upstream_mode().as_str();
+        warn!(
+            "ProxyKubeApi {} asks for upstream mode {}, not served by this version",
+            id, mode
+        );
+        Evaluation::failed(
+            ReasonCode::UpstreamModeUnsupported,
+            format!("upstream mode {mode} is not served by this proxy version yet"),
+        )
     } else {
         match proxy.clone().is_reachable(ctx.clone()).await {
             Ok(true) => {
@@ -138,6 +164,11 @@ pub async fn evaluate(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Evaluation {
         }
     };
 
+    // Always written, `Passthrough` included: an empty `Upstream` column then
+    // means a controller older than RFC 0014.
+    evaluation.status.upstream_auth = Some(crd::upstream_auth::UpstreamAuthStatus {
+        mode: proxy.upstream_mode(),
+    });
     if let Service::Agent(agent) = &proxy.spec.service {
         evaluation.status.agent = agent_status(proxy, &ctx).await;
         if let Some(status) = evaluation.status.agent.clone() {
@@ -278,7 +309,23 @@ async fn agent_status(proxy: &ProxyKubeApi, ctx: &State) -> Option<AgentStatus> 
 /// read it, and keep the index in sync. The copy carries the status fields
 /// only: the conditions are the apiserver's (RFC 0011, decision 18).
 pub async fn cache(proxy: &ProxyKubeApi, status: &ProxyKubeApiStatus, ctx: &State) -> Result<()> {
-    let id = proxy.to_identifier();
+    let id = proxy.redis_key();
+    // RFC 0014, decision 42: one key per cluster, under the prefix of its
+    // mode. The other is dropped *first*, closed: a cluster switching to a
+    // trusted mode must vanish from older binaries before it exists for the
+    // new ones, never the other way round.
+    let other_prefix = if proxy.redis_prefix() == crd::REDIS_PREFIX {
+        crd::REDIS_TRUSTED_PREFIX
+    } else {
+        crd::REDIS_PREFIX
+    };
+    let other = format!("{other_prefix}:{}", proxy.to_path());
+    ctx.delete_key(&other)
+        .await
+        .map_err(ControllerError::Redis)?;
+    ctx.index_remove(other_prefix, &other)
+        .await
+        .map_err(ControllerError::Redis)?;
     let mut copy = proxy.clone();
     copy.status = Some(ProxyKubeApiStatus {
         conditions: Vec::new(),
@@ -295,7 +342,7 @@ pub async fn cache(proxy: &ProxyKubeApi, status: &ProxyKubeApiStatus, ctx: &Stat
     debug!("Successfully upsert ProxyKubeApi: {}", id);
     // Keep the index in sync so the dashboard can list clusters without a
     // `KEYS` scan, which a Redis cluster cannot answer anyway.
-    if let Err(err) = ctx.index_add(REDIS_PREFIX, &id).await {
+    if let Err(err) = ctx.index_add(proxy.redis_prefix(), &id).await {
         warn!("Failed to index ProxyKubeApi: {}. Error: {}", id, err);
     }
     Ok(())

@@ -18,12 +18,17 @@ pub async fn clean_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Resu
     info!("Cleaning ProxyKubeApi: {}", proxy.to_identifier());
     let id = proxy.to_identifier();
 
-    ctx.delete_key(&id).await.map_err(ControllerError::Redis)?;
-    // Drop the index entry too, otherwise the dashboard keeps listing a cluster
-    // whose configuration is gone.
-    ctx.index_remove(REDIS_PREFIX, &id)
-        .await
-        .map_err(ControllerError::Redis)?;
+    // Both prefixes (RFC 0014, decision 42): a cluster deleted mid-switch may
+    // still sit under the one it is leaving.
+    for prefix in [REDIS_PREFIX, crd::REDIS_TRUSTED_PREFIX] {
+        let key = format!("{prefix}:{}", proxy.to_path());
+        ctx.delete_key(&key).await.map_err(ControllerError::Redis)?;
+        // Drop the index entry too, otherwise the dashboard keeps listing a
+        // cluster whose configuration is gone.
+        ctx.index_remove(prefix, &key)
+            .await
+            .map_err(ControllerError::Redis)?;
+    }
     info!("Successfully deleted ProxyKubeApi: {}", id);
 
     // Drop this replica's cached upstream client/TLS configuration. Other

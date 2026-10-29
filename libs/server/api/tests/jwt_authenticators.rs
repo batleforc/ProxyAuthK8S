@@ -81,6 +81,7 @@ fn jwt_proxy(ns: &str, cluster: &str, authenticators: Vec<JWTAuthenticator>) -> 
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
             config_from: None,
+            claim_mappings: None,
         },
         disable_validation: false,
         validate_against: ValidateAgainst::JwtAuthenticators,

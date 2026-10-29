@@ -50,6 +50,8 @@ Chaque avis devient une condition `True` à côté de `Ready`, de type égal à 
 | `AgentBootstrapNeeded` | avis | `OneShotToken` : aucun agent connecté et le jeton est consommé ou expiré (annoter `proxyauth.weebo.si.rs/regenerate-bootstrap`), ou il n'a pas pu être écrit |
 | `AgentVersionSkew` | avis | un agent a plus d'une mineure de retard sur le proxy, est plus récent que lui, ou annonce une version qui n'est pas un SemVer ; ou la passerelle a refusé le protocole d'un agent alors que d'autres tunnels servent (RFC 0013) |
 | `AgentProtocolUnsupported` | bloquant | aucun tunnel, et la passerelle a refusé le protocole de l'agent dans les 5 dernières minutes : la cause de `AgentNoTunnel` ; le détail est dans `status.agent.refused` |
+| `UpstreamModeNotAllowed` | bloquant | `upstream_auth.mode` hors de `upstreamAuth.allowedModes` du chart (RFC 0014) ; le proxy répond `503` à ce cluster, jamais en `Passthrough` |
+| `UpstreamModeUnsupported` | bloquant | `upstream_auth.mode` que cette version ne sert pas encore (RFC 0014, décision 34) ; `503`, jamais en `Passthrough` |
 
 ## Les Events
 

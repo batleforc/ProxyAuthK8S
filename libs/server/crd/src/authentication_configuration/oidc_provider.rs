@@ -94,6 +94,10 @@ pub struct OidcProvider {
     /// reach this cluster, so they must stay visible in the CR that admission
     /// and review look at.
     pub config_from: Option<OidcConfigSource>,
+    /// How the raw `/userinfo` claims become the user, the same shape as a
+    /// `jwt` authenticator's (RFC 0014). Absent: `preferred_username` and
+    /// `groups`, as before. Required in `FrontProxy` and `Issuer`.
+    pub claim_mappings: Option<super::ClaimMappings>,
 }
 
 impl OidcProvider {
@@ -184,6 +188,7 @@ impl std::fmt::Debug for OidcProvider {
             accept_authorized_party,
             expose_oauth_authorization_server,
             config_from,
+            claim_mappings,
         } = self;
         f.debug_struct("OidcProvider")
             .field("enabled", enabled)
@@ -202,6 +207,8 @@ impl std::fmt::Debug for OidcProvider {
             )
             // Only a name/namespace reference, so it stays visible.
             .field("config_from", config_from)
+            // Claim names and CEL, no value.
+            .field("claim_mappings", claim_mappings)
             .finish()
     }
 }
@@ -222,6 +229,7 @@ mod tests {
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
             config_from: None,
+            claim_mappings: None,
         }
     }
 

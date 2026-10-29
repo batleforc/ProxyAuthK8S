@@ -131,6 +131,7 @@ fn provider_from(source: OidcConfigSource) -> OidcProvider {
         accept_authorized_party: false,
         expose_oauth_authorization_server: false,
         config_from: Some(source),
+        claim_mappings: None,
     }
 }
 

@@ -45,6 +45,18 @@ pub fn agent_unavailable() -> Response {
     )
 }
 
+/// 503 with a Kubernetes `Status` body naming who can act, for an upstream
+/// mode this replica will not serve (RFC 0014 §4.2). Never followed by a
+/// relay in another mode.
+#[must_use]
+pub fn upstream_mode_unavailable(message: &str) -> Response {
+    status_response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "ServiceUnavailable",
+        message,
+    )
+}
+
 /// 403 with a Kubernetes `Status` body.
 #[must_use]
 pub fn forbidden(message: &str) -> Response {

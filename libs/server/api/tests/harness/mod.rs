@@ -191,6 +191,7 @@ pub fn proxy_fixture(ns: &str, cluster: &str, upstream_url: &str) -> ProxyKubeAp
             dashboard_group: None,
             proxy_group: None,
             virtual_apis: Vec::new(),
+            upstream_auth: None,
         },
     );
     proxy.metadata.namespace = Some(ns.to_string());
@@ -211,6 +212,7 @@ pub fn oidc_auth_config(issuer_url: &str) -> AuthenticationConfiguration {
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
             config_from: None,
+            claim_mappings: None,
         },
         disable_validation: false,
         validate_against: ValidateAgainst::OidcProvider,
@@ -235,6 +237,7 @@ pub fn kubernetes_auth_config() -> AuthenticationConfiguration {
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
             config_from: None,
+            claim_mappings: None,
         },
         disable_validation: false,
         validate_against: ValidateAgainst::Kubernetes,

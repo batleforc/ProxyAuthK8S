@@ -43,6 +43,12 @@ weebo_kit_domain::reason_codes! {
         /// No tunnel, and the gateway refused the agent's protocols lately
         /// (RFC 0013): the cause of `AgentNoTunnel`.
         AgentProtocolUnsupported,
+        /// The cluster asks for an upstream mode outside
+        /// `upstreamAuth.allowedModes` (RFC 0014).
+        UpstreamModeNotAllowed,
+        /// The cluster asks for an upstream mode this version does not serve
+        /// yet (RFC 0014, decision 34).
+        UpstreamModeUnsupported,
     }
 }
 
@@ -70,7 +76,9 @@ impl Reason for ReasonCode {
             | Self::StatusWriteFailed
             | Self::FinalizerFailed
             | Self::AgentNoTunnel
-            | Self::AgentProtocolUnsupported => Severity::Blocking,
+            | Self::AgentProtocolUnsupported
+            | Self::UpstreamModeNotAllowed
+            | Self::UpstreamModeUnsupported => Severity::Blocking,
         }
     }
 }
@@ -85,8 +93,8 @@ mod tests {
     }
 
     #[test]
-    fn the_catalog_has_the_codes_of_rfc_0011_0012_and_0013() {
-        assert_eq!(ReasonCode::ALL.len(), 16);
+    fn the_catalog_has_the_codes_of_rfc_0011_to_0014() {
+        assert_eq!(ReasonCode::ALL.len(), 18);
     }
 
     #[test]

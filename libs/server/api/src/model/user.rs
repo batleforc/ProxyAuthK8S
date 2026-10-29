@@ -194,9 +194,7 @@ impl User {
         cluster: String,
         token: String,
     ) -> Result<Option<Self>, UserAuthError> {
-        let proxy: ProxyKubeApi = match state
-            .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
-            .await
+        let proxy: ProxyKubeApi = match state.get_proxy_from_redis(&format!("{ns}/{cluster}")).await
         {
             Ok(Some(proxy)) => proxy,
             Ok(None) => return Err(UserAuthError::ProxyNotFound),

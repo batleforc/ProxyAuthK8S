@@ -66,10 +66,7 @@ async fn cluster_login_inner(
     /// The CSRF token and nonce only need to survive the redirect round-trip.
     const CSRF_NONCE_TTL_SECONDS: u64 = 300;
 
-    let proxy: ProxyKubeApi = match data
-        .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
-        .await
-    {
+    let proxy: ProxyKubeApi = match data.get_proxy_from_redis(&format!("{ns}/{cluster}")).await {
         Ok(Some(proxy)) => proxy,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(e) => {

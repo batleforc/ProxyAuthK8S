@@ -129,6 +129,7 @@ pub fn proxy_fixture(ns: &str, cluster: &str, upstream_url: &str) -> ProxyKubeAp
             dashboard_group: None,
             proxy_group: None,
             virtual_apis: Vec::new(),
+            upstream_auth: None,
         },
     );
     proxy.metadata.namespace = Some(ns.to_string());

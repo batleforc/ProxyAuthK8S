@@ -182,6 +182,7 @@ mod tests {
                 dashboard_group: None,
                 proxy_group: None,
                 virtual_apis: Vec::new(),
+                upstream_auth: None,
             },
         );
         proxy.metadata.namespace = namespace.map(str::to_string);
