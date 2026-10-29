@@ -26,9 +26,9 @@
 >
 > **État de l'implémentation (2026-10-29)** : phases 1 et 2 codées sur la
 > branche `probe/rfc0014-front-proxy`, suite d'intégration verte, `Accepted`
-> le 2026-10-29, fusionnées par #323 ; phase 3 (`Issuer`)
-> non commencée, à construire quand un utilisateur la demande. Détail et
-> écarts : §17.
+> le 2026-10-29 ; phase 3 (`Issuer`) en cours sur la même branche, livrée
+> avec elles par #323 (décision de l'auteur, 2026-10-29). Détail et écarts :
+> §17.
 
 ---
 
@@ -77,9 +77,9 @@ la CA d'agrégation ou `--client-ca-file`, laisser
 `Issuer` vers lui-même.
 
 **Phases.** 1 : le champ, la garde, les correctifs utiles à tous (cache des
-jetons, sous-protocole WebSocket) ; 2 : `FrontProxy` ; 3 : `Issuer`, à
-construire quand un utilisateur le demande. Phases 1 et 2 codées, suite
-d'intégration verte (§17) ; phase 3 non commencée.
+jetons, sous-protocole WebSocket) ; 2 : `FrontProxy` ; 3 : `Issuer`.
+Phases 1 et 2 codées, suite d'intégration verte (§17) ; phase 3 en cours,
+dans la même PR (#323), avant la 0.5.0.
 
 ---
 
@@ -721,7 +721,8 @@ flowchart TD
 - Claims : `iss` (`spec.upstream_auth.issuer_key.issuer_url`), `aud` (une
   seule valeur, `to_identifier()`), `sub` (le nom transmis), `groups` (liste
   transmise), `extra` (objet, si mappé), `iat`, `nbf` (`iat` − 30 s), `exp` (`iat` +
-  `token_ttl_seconds`), `jti` (aléatoire).
+  `token_ttl_seconds`, jamais au-delà de l'`exp` du jeton source, décision
+  61), `jti` (aléatoire).
 - **Indépendant de la RFC 0010** (décision 31) : un `TtlCache`
   (`common/src/oidc_cache.rs:55`) borné, sans verrou par clé (une signature
   coûte des microsecondes), qui remplit `UpstreamCredential::Bearer` (§6.3).
@@ -731,7 +732,8 @@ flowchart TD
   issuer, "k": kid}`. Un changement de groupes chez l'IdP donne une autre clé,
   donc un autre JWT : le cache ne prolonge jamais des droits retirés. Aucune
   jointure par virgule (un nom de groupe peut en contenir).
-- Réutilisé jusqu'à `exp − max(60 s, 10 % de token_ttl_seconds)` : la marge
+- Réutilisé jusqu'à `exp − max(60 s, 10 % de token_ttl_seconds)`, et jamais
+  pour un jeton source qui expire avant (décision 61) : la marge
   couvre un décalage d'horloge entre proxy et apiserver. La doc exige NTP sur
   les deux.
 
@@ -1564,6 +1566,7 @@ de la revue, sauf la 46 (prémisse corrigée) et la 53 (option nouvelle).
 | 58 | Sonde k3s du front-proxy (ancien Still open 1, 2026-10-29) | **Tenu, observé sur `rancher/k3s:v1.35.9-k3s1` par `.it/probes/rfc0014-front-proxy.sh` (run CI 40855441199).** Avec la seule CA dédiée, l'agrégation (`metrics.k8s.io`) tombe ; avec la CA `request-header` de k3s (CN `system:auth-proxy`) concaténée, elle revient en 13 s et l'identité affirmée reste crue. Le fichier est rechargé sans redémarrage : une CA ajoutée est crue aussitôt, une CA retirée refusée. Sans certificat ou CN hors `allowed-names` : `401` (pas d'anonyme). Certificat de `--client-ca-file` avec `X-Remote-User` : authentifié sous son CN, en-têtes ignorés. Un `X-Remote-Group` par groupe, virgule non coupée ; clé `extra` décodée ; espace de fin de `X-Remote-User` supprimé, ce qui justifie le refus de §4.2. |
 | 59 | Comportement de l'apiserver, lu dans les sources (ancien Still open 1, 2026-10-29) | **Tenu, avec des précisions reportées dans le corps.** Lu à Kubernetes v1.35.0 et `github.com/coreos/go-oidc` v2.3.0 (la version de son `go.mod`). (a) JWKS : rechargé seulement quand aucune clé en cache ne vérifie le JWT et que le cache est à moins de 30 s de son expiration (`jwks.go`, `keysExpiryDelta`) ; l'expiration vient de `Cache-Control` ; aucune clé n'est évincée sans rechargement ; d'où le premier JWT d'un nouveau `kid` envoyé par la sonde, et `max-age=60` gardé comme limite (T15). (b) `exp` sans tolérance, `nbf` à 1 min, `iat` non vérifié (`verify.go`). (c) Rechargement de l'`AuthenticationConfiguration` : tout ou rien, refusé tant qu'un issuer ne répond pas en 1 min, retenté chaque minute ; au démarrage, découverte asynchrone retentée toutes les 10 s, sans bloquer (`authenticator/config.go`, `options/authentication.go`, `oidc.go`). (d) Union : requestheader, x509, bearer, sous-protocole WebSocket, avec `FailOnError: false` : un JWT refusé laisse passer au jeton du sous-protocole (`union.go`) ; les décisions 39 et 40 sont nécessaires. (e) Cache des jetons de l'apiserver : succès 10 s, échecs 0 s par défaut ; une clé révoquée reste crue ~40 s au plus. |
 | 60 | Suivre le verdict de la sonde (écart 1 de §17.2, 2026-10-29) | **`status.upstreamAuth.trust` (`Trusted`, `Rejected`, `NotHonoured`, `Unknown` ; absent tant qu'aucune sonde récente n'a conclu) et `trustSince` (début du verdict courant, pas de chaque tour), colonne `Trust` en `-o wide`.** Sans lui, une sonde réussie et une sonde pas encore passée ne posaient rien : l'opérateur basculait sur un critère indirect. La date du changement, pas du dernier tour, n'écrit le statut qu'à une transition. Remplace l'`UpstreamTrusted=True` que le kit ne sait pas porter. |
+| 61 | Durée d'un JWT émis face au jeton source (question de l'auteur, 2026-10-29) | **`exp = min(iat + token_ttl_seconds, exp du jeton source)` quand le jeton source porte un `exp` lisible, et l'entrée du cache des JWT émis bornée au même instant.** Sans cela, un JWT émis vivait jusqu'à 15 min de plus que le jeton qu'il remplace ; aucune requête après l'expiration de la source ne passait les portes, mais un flux ouvert juste avant, ou un JWT lu dans la mémoire du proxy, gardait cette marge. Le coût est nul : le proxy lit déjà l'`exp` de la source pour son cache (`jwt_time_to_expiry`, `oidc_cache.rs`). Un jeton source opaque (sans `exp` lisible) garde `token_ttl_seconds`. |
 
 ### Still open
 
@@ -1575,8 +1578,8 @@ Aucune.
 
 Dans l'annexe, §16, avec le contenu de chaque phase et l'ordre des
 contrôles. En bref : phase 1, le champ, la garde et les correctifs utiles à
-tous les clusters ; phase 2, `FrontProxy` ; phase 3, `Issuer`, à construire
-quand un utilisateur le demande.
+tous les clusters ; phase 2, `FrontProxy` ; phase 3, `Issuer`, livrée avec
+les deux autres dans #323.
 
 ---
 
@@ -1796,9 +1799,9 @@ Non commencée.
   du verdict, runbook 401/403/502/503), `migration/v0-5-0.mdx` (numéro de
   version supposé), référence CRD régénérée ; sécurité, roadmap et plugin
   kubectl amendés.
-- **Prochaines étapes** : la suite *heavy* (RFC suivante) avant la 0.5.0 ;
-  `Implemented` pour les phases 1 et 2 à la sortie de la 0.5.0 (phase 3
-  seulement à la demande).
+- **Prochaines étapes, dans l'ordre** : la phase 3 (`Issuer`) sur cette
+  branche, dans #323 ; la suite *heavy* (RFC suivante) ; la 0.5.0, avec
+  `Implemented` pour les trois phases.
 - **Contraintes de travail** : la machine ne tient pas les charges
   lourdes — en local seulement `cargo check`, `cargo clippy` et
   `cargo test -p <crate> --lib` (ou un binaire de test ciblé) ; la suite
@@ -1814,4 +1817,6 @@ Non commencée.
   `.rfc/REVIEW-roadmap-readme.md` (antérieures à ce travail).
 - **Décisions de l'auteur prises en route** : garder le repli fermé sur une
   valeur inconnue d'`UPSTREAM_AUTH_ALLOWED_MODES` (§17.1, écart 1) ;
-  phase 3 seulement à la demande.
+  la phase 3 dans la même PR que les phases 1 et 2, avant la 0.5.0
+  (2026-10-29 ; une note antérieure qui la remettait « à la demande »
+  était fausse).
