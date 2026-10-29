@@ -824,6 +824,11 @@ Phases 1 et 2, 2026-10-17.
   de `main` en ait un, le workflow tourne aussi sur `push` vers `main` (mêmes
   filtres de chemins) ; un tag hors de ces chemins se débloque par
   `gh workflow run integration.yaml --ref <tag>`, que l'erreur indique.
+- **Release sans étape manuelle (2026-10-28)** : v0.4.1 et v0.4.2 ont toutes
+  deux demandé ce lancement à la main, puis une relance de la release.
+  `release-prepare.yml` appelle désormais `integration.yaml`
+  (`workflow_call`) sur le commit taggé, et `gather-facts` en dépend : pousser
+  le tag suffit. La vérification de l'API disparaît.
 - **Check requis (2026-10-19)** : trois passages verts consécutifs
   d'`integration.yaml` sur `main` (`808d8c4`, `dceb3f3`, `df8b153`), puis
   `integration` ajouté aux checks requis de `main` par un ruleset dédié
