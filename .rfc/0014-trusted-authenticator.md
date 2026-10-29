@@ -8,12 +8,18 @@
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
 | Co-author   | Claude Opus 5.5 (1M context)                                           |
 | Created     | 2026-10-27                                                             |
-| Supersedes  | RFC 0010 §3, deux non-goals (« le proxy comme émetteur », « `X-Remote-*` ») ; amende RFC 0010 §4.1 et §6.3 (emplacement de la config, `UpstreamCredential::Bearer`) |
-| Touches     | `libs/server/crd/src/{lib.rs,upstream_auth/ (nouveau),authentication_configuration/oidc_provider.rs,status/}`, `libs/server/api/src/model/{user.rs,user_claim.rs}`, `libs/server/api/src/cluster/redirect/{forwarded.rs,audit.rs,kube_redirect.rs,upstream_identity.rs (nouveau)}`, `…/kube_redirect/{context.rs,upstream.rs,standard.rs,upgrade/connect.rs,upgrade.rs,virtual_redirect/,list_fallback/}`, `libs/server/api/src/issuer/` (nouveau), `libs/server/common/src/{config.rs,upstream_cache.rs}`, `libs/server/controller/src/proxy_kube_api/`, `libs/server/jwt_validator/` (`map_user` public), `deploy/chart/` (valeurs, RBAC), `fuzz/`, CRD générée, `.it/`, `tests/integration/`, `docs/content/docs/` |
+| Supersedes  | RFC 0010 §3, deux non-goals (« le proxy comme émetteur », « `X-Remote-*` ») ; amende RFC 0010 §4.1, §4.3, §4.4, §6.1, §6.3, §6.4 et §13 (emplacement de la config, `mode: TokenExchange` au lieu d'`enabled`, `UpstreamCredential::Bearer` ; décision 55) |
+| Touches     | `libs/server/crd/src/{lib.rs,upstream_auth/ (nouveau),authentication_configuration/oidc_provider.rs,status/}`, `libs/server/api/src/model/{user.rs,user_claim.rs}`, `libs/server/api/src/cluster/redirect/{forwarded.rs,audit.rs,kube_redirect.rs,upstream_identity.rs (nouveau)}`, `…/kube_redirect/{context.rs,upstream.rs,standard.rs,upgrade/connect.rs,upgrade.rs,virtual_redirect/,list_fallback/}`, `libs/server/api/src/issuer/` (nouveau), `libs/server/api/src/metrics.rs`, le routeur qui monte `/issuer/*`, `libs/server/api/Cargo.toml` (`secrecy` en dépendance normale), `libs/server/api/tests/upstream_auth.rs` (nouveau), `libs/server/common/src/{config.rs,upstream_cache.rs,oidc_cache.rs}`, `libs/server/controller/{Cargo.toml,src/proxy_kube_api/}`, `libs/server/jwt_validator/` (`map_user` public, paramètre `trusted`), `deploy/chart/` (valeurs, `values.schema.json`), `fuzz/`, CRD générée, `.it/`, `tests/integration/`, `docs/content/docs/`, `libs/server/api/src/cluster/redirect/kube_redirect/tls.rs` (certificat `FrontProxy`), `deploy/chart/templates/rbac.operator.yaml` (Role des Secrets, `get` sur la CRD), `.rfc/0010-token-exchange.md` (texte amendé, décision 55) ; la sonde et le signataire vivent dans `api` (décision 41) |
 | Risk        | high                                                                   |
 
-> Document de référence (environ 11 500 mots) : §1 à §4 suffisent pour en
+> Document de référence (environ 17 500 mots) : §1 à §4 suffisent pour en
 > discuter ; §5 à §16 servent à l'implémenter et à le relire.
+>
+> **Revue finale du 2026-10-29** (six relecteurs : expérience utilisateur,
+> sécurité, résilience, qualité du code, stabilité, honnêteté) : les
+> corrections sans décision sont faites dans le texte ; ce qui changeait la
+> conception a été tranché au `/grill-me` du même jour (décisions 38 à 57,
+> §15) et reporté dans le corps. Restent ouvertes les deux sondes empiriques.
 
 ---
 
@@ -27,10 +33,10 @@ cluster, un champ `upstream_auth` qui dit **comment le proxy présente
 l'identité** à l'apiserver. Deux modes nouveaux font du proxy l'intermédiaire
 d'authentification de confiance :
 
-- **`FrontProxy`** : le proxy s'authentifie par son certificat client mTLS
-  (le `client_cert` existant) et affirme l'identité dans `X-Remote-User`,
-  `X-Remote-Group` et `X-Remote-Extra-*`, que l'apiserver croit parce qu'il
-  fait confiance à la CA de ce certificat (`--requestheader-*`). Le jeton de
+- **`FrontProxy`** : le proxy s'authentifie par un certificat client mTLS
+  dédié, rangé dans **son** namespace par l'admin du proxy (décision 49), et
+  affirme l'identité dans `X-Remote-User`, `X-Remote-Group` et
+  `X-Remote-Extra-*`, que l'apiserver croit parce qu'il fait confiance à la CA de ce certificat (`--requestheader-*`). Le jeton de
   l'utilisateur ne part plus.
 - **`Issuer`** : le proxy signe un JWT court, avec une clé **propre au
   cluster**, et le met dans `Authorization` à la place du jeton de
@@ -43,7 +49,7 @@ impersonation : le proxy ne détient aucun droit `impersonate`. L'identité
 transmise est toujours préfixée et mappée explicitement ; un nom en `system:`
 est refusé. Les deux modes sont fermés par défaut pour toute l'installation
 (`upstreamAuth.allowedModes` du chart) : un tenant qui édite son
-`ProxyKubeApi` ne peut pas les activer seul. Une sonde du contrôleur vérifie,
+`ProxyKubeApi` ne peut pas les activer seul. Une sonde, sur le leader, vérifie,
 cluster par cluster, que l'apiserver voit bien l'identité que le proxy
 affirme (Condition `UpstreamTrusted`).
 
@@ -59,7 +65,9 @@ jwt:
 
 # avec cette RFC, mode FrontProxy
 # chart (une fois, par l'admin du proxy) :
-#   upstreamAuth.allowedModes: [Passthrough, TokenExchange, FrontProxy]
+#   upstreamAuth.allowedModes: [Passthrough, FrontProxy]
+#   Secret proxyauth-frontproxy-team-a.prod (tls.crt, tls.key) dans le
+#   namespace du proxy, annoté de la cible (décision 56)
 # apiserver (une fois, ne dépend plus de l'IdP) :
 #   --requestheader-client-ca-file=/etc/kubernetes/proxyauth-ca.crt  # CA dédiée
 #   --requestheader-allowed-names=proxyauth-team-a-prod
@@ -68,7 +76,7 @@ jwt:
 #   --requestheader-extra-headers-prefix=X-Remote-Extra-
 # ProxyKubeApi :
 spec:
-  client_cert: { cert: { Secret: … }, key: { Secret: … } }
+  # pas de client_cert : refusé en FrontProxy (décision 49)
   auth_config:
     validate_against: OidcProvider
     oidc_provider:
@@ -91,7 +99,7 @@ flowchart LR
     end
     subgraph F["FrontProxy"]
         C2["kubectl<br/>jeton IdP"] --> P2["proxy<br/>valide, retire Authorization"]
-        P2 -- "mTLS client_cert<br/>X-Remote-User: proxyauth:alice" --> A2["apiserver<br/>croit la CA du proxy"]
+        P2 -- "mTLS, certificat du proxy<br/>X-Remote-User: proxyauth:alice" --> A2["apiserver<br/>croit la CA du proxy"]
     end
     subgraph S["Issuer"]
         C3["kubectl<br/>jeton IdP"] --> P3["proxy<br/>valide, signe un JWT"]
@@ -134,7 +142,9 @@ ne quitte plus le proxy.
    commentaires parlent déjà d'une « front-proxy mTLS identity »
    (`upstream.rs:53`). Le proxy pose `x-forwarded-user` et `x-forwarded-groups`
    (`forwarded.rs:145`), qu'aucun apiserver ne lit. La moitié du mode
-   `FrontProxy` est écrite et ne sert à rien.
+   `FrontProxy` est écrite et ne sert à rien. (Le certificat du mode, lui,
+   quitte la CRD pour le namespace du proxy, décision 49 ; le chemin TLS qui
+   le présente est celui qui existe.)
 
 ---
 
@@ -143,7 +153,10 @@ ne quitte plus le proxy.
 **Goals**
 
 - Un cluster en `FrontProxy` ou `Issuer` reconnaît les utilisateurs du proxy
-  sans connaître leur IdP ; changer d'IdP ne touche que la CRD.
+  sans connaître leur IdP ; changer de client OIDC, d'audience ou d'URL d'IdP
+  ne touche que la CRD. Changer d'IdP **lui-même** change le `sub` de chacun :
+  les `RoleBinding` par utilisateur sont à réécrire, seuls ceux par groupe
+  (noms stables) survivent (§13).
 - L'identité vue par l'apiserver est celle que le proxy a validée et mappée
   explicitement, préfixée, jamais en `system:` ; en `Issuer`, l'apiserver le
   vérifie aussi.
@@ -161,9 +174,12 @@ ne quitte plus le proxy.
 - **L'impersonation** (`Impersonate-*`, verbe RBAC `impersonate`) : elle
   donnerait au proxy le droit de devenir n'importe qui, `system:` compris. Le
   non-goal de la RFC 0010 tient pour elle ; `Impersonate-*` reste filtré.
-- **Les clusters managés sans accès aux flags** (EKS, GKE, AKS) : ni
-  `--requestheader-*` ni `AuthenticationConfiguration` n'y sont réglables
-  partout ; ils restent en `Passthrough` ou `TokenExchange` (décision 1).
+- **Les clusters managés sans accès aux flags** (GKE, AKS) : ni
+  `--requestheader-*` ni `AuthenticationConfiguration` n'y sont réglables ;
+  ils restent en `Passthrough` ou `TokenExchange` (décision 1). EKS accepte un
+  fournisseur OIDC associé : `Issuer` pourrait l'atteindre si l'issuer du
+  proxy est public, sans `userValidationRules` (EKS ne les expose pas) ; non
+  testé, non promis.
 - **Une option pour transmettre un nom en `system:`** : aucune, même pour un
   administrateur. Qui veut `system:masters` passe par le kubeconfig admin.
 - **Des noms d'en-têtes configurables** pour `FrontProxy` : les valeurs par
@@ -177,8 +193,8 @@ ne quitte plus le proxy.
   que `auth_config` valide déjà ; la connexion par cluster
   (`kubectl-proxyauth login <cluster>`, via `oidc_provider`) reste. L'IdP
   disparaît de l'apiserver, pas de la CRD (décision 18).
-- **Afficher le mode dans le dashboard** : le front ne lit pas le statut des
-  CRD aujourd'hui (`VisibleCluster`, `get_all_visible_cluster_model.rs:36-45`) ;
+- **Afficher le mode dans le dashboard** : le front ne lit du statut des CRD
+  que `status.exposed` (`VisibleCluster`, `get_all_visible_cluster_model.rs:36-45`) ;
   le mode se lit par `kubectl get proxykubeapi -o wide`, les Conditions et les
   Events.
 - **Rendre le JWT du proxy au client** : il servirait hors du proxy, ce que le
@@ -190,6 +206,11 @@ ne quitte plus le proxy.
 
 ### 4.1 Configuration
 
+Trois rôles, nommés partout de la même façon : l'**admin du proxy** (le
+chart, `allowedModes`), l'**auteur du cluster** (qui écrit le `ProxyKubeApi`,
+souvent un tenant) et l'**opérateur de l'apiserver** (flags,
+`AuthenticationConfiguration`, RBAC du cluster cible).
+
 **Chart** (par l'admin du proxy, une fois pour l'installation ; décision 30) :
 
 ```yaml
@@ -197,45 +218,100 @@ upstreamAuth:
   # Modes qu'un ProxyKubeApi a le droit de demander. FrontProxy et Issuer font
   # de quiconque édite un ProxyKubeApi l'auteur de l'identité vue par
   # l'apiserver cible (§7.1, T19) : ils sont fermés par défaut.
-  allowedModes: [Passthrough, TokenExchange]
-  # Base publique des issuers (§4.5). Vide = API_CLUSTER_OIDC_BASE_REDIRECT_URL.
-  issuerBaseUrl: ""
+  # Passthrough est toujours permis : le schéma refuse une liste sans lui.
+  allowedModes: [Passthrough]
 ```
 
-Rendu en `UPSTREAM_AUTH_ALLOWED_MODES` et `UPSTREAM_AUTH_ISSUER_BASE_URL`
-(`common/src/config.rs`).
+Rendu en `UPSTREAM_AUTH_ALLOWED_MODES` (`common/src/config.rs`), valeurs
+séparées par des virgules ; absente (image neuve, chart ancien), elle vaut
+`Passthrough` ; une valeur inconnue arrête le démarrage avec un message qui
+la nomme (décision 47). `TokenExchange` n'existe pas encore : il entre dans
+l'énumération avec la RFC 0010, de façon additive.
 
 **`ProxyKubeApi`**, un bloc `upstream_auth` au niveau de `spec` :
 
 ```yaml
 upstream_auth:
-  mode: Passthrough        # défaut ; TokenExchange | FrontProxy | Issuer
+  mode: Passthrough        # défaut ; FrontProxy | Issuer (TokenExchange : RFC 0010)
   user_prefix: ""          # requis, non vide, en FrontProxy et Issuer
   group_prefix: ""         # idem
-  token_exchange: {}       # RFC 0010, requis en TokenExchange (§4.1 de la 0010)
   issuer_key:              # en Passthrough (préparation) ou Issuer
+    issuer_url: https://api.example.com/issuer/team-a/prod   # requis (décision 53)
     token_ttl_seconds: 300 # durée de vie d'un JWT émis ; 60 à 900
     rotation_days: 30      # rotation automatique de la clé ; 1 à 365
-    url: ""                # vide = figée à la création (§4.5)
 ```
+
+La RFC 0010 ajoutera `token_exchange` à ce bloc, avec la valeur
+`TokenExchange` du mode (décision 16, décision 47).
 
 - **Absent** : identique à `mode: Passthrough`, le comportement d'aujourd'hui.
 - **Un mode hors de `allowedModes`** : admis par l'admission (le chart ne
   peut pas modifier les règles CEL d'une CRD partagée), mais le contrôleur pose
   `Ready=False` (raison `UpstreamModeNotAllowed`) et le proxy répond `503` à
   toute requête vers ce cluster. Jamais de repli sur `Passthrough`.
-- **`TokenExchange`** : le bloc `auth_config.token_exchange` de la RFC 0010
-  déménage ici (décision 16) ; la 0010 n'étant pas implémentée, aucune CRD
-  publiée ne change. Les préfixes n'y servent pas : l'IdP du cluster décide
-  du nom.
-- **`FrontProxy`** : exige `client_cert`, signé par une **CA dédiée** que
-  l'apiserver ne connaît que par `--requestheader-client-ca-file` (jamais par
-  `--client-ca-file`, jamais la CA d'agrégation) ; son CN doit figurer dans
-  `--requestheader-allowed-names` (décision 28).
-- **`Issuer`** : le contrôleur crée la clé dès que `issuer_key` est présent,
-  même en `Passthrough` : l'opérateur prépare l'apiserver avec l'issuer et
-  l'audience du statut, attend `UpstreamTrusted=True` par la sonde, puis
-  bascule (décision 35).
+- **`TokenExchange`** (RFC 0010, plus tard) : le bloc
+  `auth_config.token_exchange` de la RFC 0010 déménagera ici (décision 16) ;
+  la 0010 n'étant pas implémentée, aucune CRD publiée ne change. Les préfixes
+  n'y servent pas : l'IdP du cluster décide du nom.
+- **`FrontProxy`** : `client_cert` est **refusé** (décision 49). Le proxy lit
+  le Secret `proxyauth-frontproxy-<ns>.<nom>` (clés `tls.crt`, `tls.key`), dans **son**
+  namespace, posé par l'admin du proxy, avec le label
+  `app.kubernetes.io/managed-by: proxyauthk8s` (pas de `cluster-uid` : le
+  nom suffit, décision 56) et l'annotation `proxyauth.weebo.si.rs/front-proxy-target`, la
+  forme canonique de `spec.service` que le statut affiche
+  (`clientCertTarget`) ; le statut en donne aussi le nom exact (décision 56).
+  Le nom se calcule avant que le `ProxyKubeApi` existe : le Secret se
+  déclare dans Git, à côté du cluster.
+  **Qui écrit ce Secret** n'importe pas au proxy (décision 57) : le contrat
+  est un Secret `kubernetes.io/tls` avec ses labels et son annotation. La
+  doc recommande cert-manager, avec un émetteur de CA privée (`CA`, Vault,
+  step-ca), pour des certificats courts renouvelés seuls ; Vault Secrets
+  Operator, External Secrets ou un pipeline conviennent aussi. Le proxy ne
+  parle jamais à une PKI.
+
+  ```yaml
+  # exemple de la doc, posé par l'admin du proxy dans son namespace
+  apiVersion: cert-manager.io/v1
+  kind: Certificate
+  metadata: { name: proxyauth-frontproxy-team-a.prod, namespace: proxyauth }
+  spec:
+    secretName: proxyauth-frontproxy-team-a.prod
+    commonName: proxyauth-team-a-prod      # dans --requestheader-allowed-names
+    usages: [client auth]
+    duration: 24h
+    renewBefore: 8h
+    privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+    issuerRef: { kind: Issuer, name: proxyauth-front-proxy-ca-team-a-prod }
+    secretTemplate:
+      labels: { app.kubernetes.io/managed-by: proxyauthk8s }
+      annotations:
+        proxyauth.weebo.si.rs/front-proxy-target: "external:https://10.0.0.10:6443"
+  ```
+
+  La clé privée de la CA vaut plus que tout certificat : quiconque la
+  détient fabrique un certificat que tout apiserver qui croit cette CA
+  accepte. La doc demande une CA par apiserver cible (ou un émetteur
+  externe), jamais une CA partagée entre clusters. Il est sans ambiguïté, un nom de
+  namespace ne contenant jamais de point : `team-a.prod` et `team.a-prod` ne
+  se confondent pas. Un nom qui dépasserait 253 caractères donne
+  `Ready=False` (`ClientCertNameTooLong`). Le
+  certificat est signé par une **CA dédiée** que l'apiserver ne connaît que
+  par `--requestheader-client-ca-file` (jamais par `--client-ca-file`, jamais
+  la CA d'agrégation) ; son CN doit figurer dans
+  `--requestheader-allowed-names` (décision 28). L'auteur du cluster ne peut
+  donc nommer ni ce certificat ni celui d'un autre cluster.
+- **`Issuer`** : `client_cert` est refusé aussi (décision 40 : x509 passerait
+  avant le JWT). Le contrôleur crée la clé dès que `issuer_key` est présent,
+  même en `Passthrough` : l'auteur du cluster écrit `issuer_key.issuer_url`,
+  l'opérateur de l'apiserver déclare cet issuer et l'audience du statut, la
+  sonde pose `UpstreamTrusted=True`, puis l'auteur bascule (décision 35).
+  L'annotation `proxyauth.weebo.si.rs/rotate-issuer-key` force une rotation
+  (décision 27) : le contrôleur retient dans le Secret la dernière valeur
+  traitée et n'agit que sur une valeur nouvelle ; une seule clé en attente
+  d'activation à la fois. Une valeur `revoke:<nonce>` révoque (décision 52,
+  §5.3). Retirer `issuer_key` (nécessaire pour passer d'`Issuer` à
+  `FrontProxy`) arrête la publication du JWKS et laisse le Secret au balayage
+  des orphelins (§5.3).
 - `user_prefix` et `group_prefix` n'ont **pas** de défaut : un préfixe est une
   décision de collision que personne n'a prise sinon (même argument que
   `PrefixedClaimOrExpression`, `claim_mappings.rs:33-45`).
@@ -252,8 +328,12 @@ claims **bruts** de `/userinfo` :
   identité que l'apiserver croit. La doc recommande `sub`.
 - **Présent** : `username` requis, `groups`, `uid`, `extra` comme pour un
   `JwtAuthenticator`, évalués par le même `map_user`
-  (`jwt_validator/src/validator.rs:332`). Avec `username: {claim: email}`,
-  `email_verified` doit valoir `true`, comme l'exige l'apiserver pour ce claim.
+  (`jwt_validator/src/validator.rs:332`). En `FrontProxy` et `Issuer`, un
+  `username` tiré d'`email` (forme `claim: email` ou expression qui lit
+  `claims.email`) exige `email_verified == true`, absent compris, ce qui est
+  plus strict que l'apiserver, exprès (décision 51). La vérification vit dans
+  `map_user`, pour `OidcProvider` et `JwtAuthenticators` ; en `Passthrough`,
+  rien ne change (Entra ID n'émet pas le claim).
 
 Défauts sûrs : `Passthrough` ne change rien ; activer `FrontProxy` ou `Issuer`
 demande l'admin du proxy (chart) **et** l'auteur du cluster, des préfixes et
@@ -278,26 +358,73 @@ un mapping explicite.
 
   | Raison (audit, métrique) | Cas | Message renvoyé |
   | --- | --- | --- |
-  | `system_prefix` | nom ou groupe transmis commençant par `system:` (insensible à la casse) | `the identity provider returned a reserved system: group or name, which this cluster cannot receive` |
-  | `empty_username` | nom vide après mapping | `the identity provider returned no username for the configured claim; ask the cluster operator to check claim_mappings` |
-  | `untransmittable` | caractère de contrôle, octet non transmissible, espace ou tabulation en début ou fin, groupe ou valeur `extra` vide, clé `extra` en majuscules ou dans `kubernetes.io` / `k8s.io` | `the identity provider returned a value this cluster cannot receive; ask the cluster operator` |
-  | `too_large` | plus de 64 groupes ou 8 Kio d'identité | `the identity is too large to forward` |
+  | `system_prefix` | nom ou groupe transmis commençant par `system:` (insensible à la casse) | `the identity mapped for this cluster has a reserved system: name or group; ask the owner of ProxyKubeApi <ns>/<name>` |
+  | `empty_username` | nom vide après mapping | `the identity mapped for this cluster has no username for the configured claim; ask the owner of ProxyKubeApi <ns>/<name> to check claim_mappings` |
+  | `untransmittable` | caractère de contrôle, octet non transmissible, espace ou tabulation en début ou fin, groupe ou valeur `extra` vide, clé `extra` en majuscules ou dans le domaine `kubernetes.io` / `k8s.io` ou l'un de leurs sous-domaines | `the identity mapped for this cluster has a value it cannot forward; ask the owner of ProxyKubeApi <ns>/<name>` |
+  | `too_large` | plus de 64 groupes ou 8 Kio d'identité | `the identity mapped for this cluster is too large to forward (more than 64 groups or 8 KiB); ask the owner of ProxyKubeApi <ns>/<name> to narrow the groups mapping` |
+
+  Le `ns/nom` du cluster n'est pas un secret, la valeur fautive n'apparaît
+  jamais. Le plafond de 64 groupes borne la taille d'en-tête (les apiservers
+  et les Ingress refusent couramment au-delà de 8 à 16 Kio d'en-têtes) ; un
+  annuaire Active Directory dépasse souvent 64 groupes : la doc recommande un
+  `groups.expression` qui filtre, et §13 le signale.
+
+  Les clés `extra` statiques (`claim_mappings.extra[].key`) sont aussi
+  validées à l'admission (minuscules, préfixées par un domaine, hors des
+  domaines réservés) : l'auteur du cluster l'apprend au `kubectl apply`, pas
+  par les `403` de ses utilisateurs ; le refus à la requête reste, en défense.
 
   Le refus `system:` est redondant avec un préfixe qui ne commence pas par
-  `system:`, et voulu : il ne dépend pas d'une règle de la CRD. Le refus d'un
-  nom vide est nouveau pour `OidcProvider` sans mapping ; `map_user` refuse
-  déjà un nom vide (`validator.rs:345-349`). Les valeurs ne sont jamais
+  `system:`, et voulu : il ne dépend pas d'une règle de la CRD. Ces refus ne
+  s'appliquent qu'en `FrontProxy` et `Issuer` (`UpstreamIdentity::from_user`
+  n'est appelée que là) : un cluster en `Passthrough` garde le comportement
+  d'aujourd'hui, y compris l'avertissement sur un `preferred_username` vide
+  (`model/user.rs:446-451`). Les valeurs ne sont jamais
   nettoyées (comme `sanitize_header_value`, `forwarded.rs:136`) : nettoyer
   changerait l'identité en silence, et l'apiserver supprime les espaces de
   bord d'un en-tête, ce qui ferait de `proxyauth:bob ` le `proxyauth:bob` d'un
   autre.
+- **`401` de l'apiserver en `FrontProxy` et `Issuer`** : jamais la faute de
+  l'utilisateur (le proxy a validé son jeton), c'est une confiance cassée. Le
+  proxy le traduit en `502` avec le `Status` `the cluster does not trust this
+  proxy (see UpstreamTrusted on ProxyKubeApi <ns>/<name>); contact the cluster
+  operator`, et le compte dans `proxyauth_upstream_rejected_total` (décision
+  46). Un `Unauthorized` nu enverrait l'utilisateur se reconnecter pour rien ;
+  le plugin, qui ne fait que relire le trousseau (`get_token.rs:143-173`), ne
+  boucle pas, mais n'aide pas non plus. En `Passthrough`, le `401` est relayé
+  comme aujourd'hui.
+- **Les `503`** ont, eux aussi, un `Status` lisible par kubectl (construit
+  comme `agent_unavailable()`, `status_response.rs:40`), qui nomme qui agit :
+
+  | Cause | Message renvoyé |
+  | --- | --- |
+  | mode hors de `allowedModes` | `upstream mode <mode> is not enabled on this proxy installation; ask the proxy administrator (upstreamAuth.allowedModes)` |
+  | mode non servi par ce réplica | `this proxy replica cannot serve upstream mode <mode> yet; retry once the upgrade completes` |
+  | clé `Issuer` indisponible, certificat `FrontProxy` absent, ou confiance cassée (`Ready=False`, décision 45) | `this cluster is not ready for upstream mode <mode>: <reason>; ask the proxy administrator (see the conditions of ProxyKubeApi <ns>/<name>)` |
+  | validation d'audience non stricte (décision 50) | `upstream mode <mode> requires OIDC audience validation; ask the proxy administrator (OIDC_AUDIENCE_VALIDATION=enforce)` |
+
 - **`FrontProxy`** : toutes les valeurs `Authorization` du client sont
   retirées ; le proxy envoie un `X-Remote-User`, **un `X-Remote-Group` par
   groupe** (l'apiserver lit chaque valeur, une virgule dans un nom de groupe
   ne le coupe pas), et un `X-Remote-Extra-<clé>` par valeur `extra`, la clé
-  encodée en pourcentage comme l'attend l'apiserver.
+  encodée en pourcentage comme l'attend l'apiserver (un `%` littéral compris).
+  Sur les deux chemins, chaque valeur répétée est **ajoutée** (`append`),
+  jamais remplacée : `build_upgrade_request` fait aujourd'hui `insert`
+  (`upgrade/connect.rs:224-229`), qui ne garderait que le dernier groupe.
 - **`Issuer`** : toutes les valeurs `Authorization` du client sont remplacées
-  par `Authorization: Bearer <JWT du proxy>` ; aucun `X-Remote-*` n'est envoyé.
+  par `Authorization: Bearer <JWT du proxy>`, marqué `set_sensitive(true)` ;
+  aucun `X-Remote-*` n'est envoyé.
+- **Le jeton dans `Sec-WebSocket-Protocol`** : l'apiserver accepte aussi un
+  jeton passé en sous-protocole `base64url.bearer.authorization.k8s.io.<jeton>`,
+  que le chemin upgrade relaie aujourd'hui tel quel
+  (`is_dropped_request_header`, `upgrade/connect.rs:157-169`). Le proxy
+  retire toute entrée `base64url.bearer.authorization.k8s.io.*` de
+  `Sec-WebSocket-Protocol`, **dans tous les modes**, et garde les autres
+  (`v5.channel.k8s.io`…) (décision 39). En `Passthrough`, ce jeton-là n'a
+  jamais été validé par le proxy, qui ne lit que `Authorization`
+  (`kube_redirect.rs:159`) ; en mode de confiance, il ferait partir le jeton
+  IdP et, en `Issuer`, offrirait à l'apiserver un repli sur une identité
+  brute. Changement visible listé en §13.
 - **`x-forwarded-user` et `x-forwarded-groups`** : posés comme aujourd'hui en
   `Passthrough` et `TokenExchange` ; **retirés** en `FrontProxy` et `Issuer`
   (décision 32), où ils porteraient l'identité brute, non préfixée, sur la
@@ -308,8 +435,8 @@ un mapping explicite.
   `review.rs:198`), tous par `apply_forward_headers` ; upgrade (exec, attach,
   port-forward : `build_upgrade_request`, `upgrade/connect.rs:175`, appelé par
   `upgrade.rs:380`). L'appel au jeton de repli (`resolve.rs:50-60`) passe par
-  `ca_only_client` (`upstream.rs:56`), qui ne présente pas `client_cert` et ne
-  reçoit **jamais** l'identité transmise.
+  `ca_only_client` (`upstream.rs:56`), qui ne présente aucun certificat client
+  et ne reçoit **jamais** l'identité transmise.
 - **Flux ouverts** : un `exec` ou un `watch` déjà ouvert garde l'identité de
   son ouverture, même si le certificat expire ou si la clé tourne entre-temps,
   comme aujourd'hui pour un jeton.
@@ -322,39 +449,62 @@ borner le coût) et par `ProxyKubeApi::validate` :
 
 | Condition | Rationale |
 | --- | --- |
-| `mode: FrontProxy` sans `client_cert` | l'apiserver ne croirait aucun `X-Remote-*` |
+| `client_cert` en `FrontProxy` ou en `Issuer` | en `FrontProxy`, le certificat vit dans le namespace du proxy (décision 49) ; en `Issuer`, x509 passerait avant le JWT (décision 40) |
 | `mode` `FrontProxy` ou `Issuer` et `validate_against: Kubernetes` | la `SelfSubjectReview` suppose que l'apiserver connaît l'IdP (décision 9) |
 | `mode` `FrontProxy` ou `Issuer` et `disable_validation: true` (ou `auth_config` absent) | le proxy affirmerait une identité qu'il n'a pas vérifiée |
 | `mode` `FrontProxy` ou `Issuer` avec `validate_against: OidcProvider` sans `oidc_provider.claim_mappings` | `preferred_username` ne doit pas devenir une identité de confiance (décision 36) |
 | `user_prefix` ou `group_prefix` absent ou vide en `FrontProxy` ou `Issuer` | collision avec un utilisateur local (décision 8) |
 | un préfixe qui commence par `system:` (`lowerAscii()`), contient un caractère de contrôle ou un espace de bord ; plus de 64 caractères (`maxLength`) | il fabriquerait des noms réservés, finit dans un en-tête |
-| `mode: TokenExchange` sans `token_exchange`, ou `token_exchange` hors de ce mode | une seule source de vérité pour l'`Authorization` (décision 16) |
-| `issuer_key` en `FrontProxy` ou `TokenExchange` ; `mode: Issuer` sans `issuer_key` ; `token_ttl_seconds` hors de 60 à 900 ; `rotation_days` hors de 1 à 365 ; `url` non `https` | bornes de T10 et de la rotation |
+| clé `claim_mappings.extra[].key` en majuscules, sans domaine, ou dans `kubernetes.io` / `k8s.io` et leurs sous-domaines | l'apiserver la réinterpréterait ou la réserve (§4.2) |
+| `issuer_key` en `FrontProxy` ; `mode: Issuer` sans `issuer_key` ; `issuer_key.issuer_url` absent, non `https`, ou d'hôte loopback ; `token_ttl_seconds` hors de 60 à 900 ; `rotation_days` hors de 1 à 365 | bornes de T10 et de la rotation ; une URL que l'apiserver joint (décision 53) |
+
+`ProxyKubeApi::validate` vérifie en plus ce que CEL ne voit pas (le namespace
+de l'objet) : le chemin d'`issuer_key.issuer_url` finit par
+`/issuer/<ns>/<nom>`, la route que le proxy sert, sinon `Ready=False`
+(`IssuerUrlMismatch`). Les règles sur `TokenExchange` arrivent avec la
+RFC 0010, quand le champ existe au schéma (décision 47).
 
 Conditions et Events (RFC 0011), ajoutés au tableau des codes de
 `docs/content/docs/status-and-events.mdx` avec leur sévérité ; la colonne
-`Upstream` (`.status.upstream_auth.mode`) rejoint `kubectl get proxykubeapi
--o wide` (`crd/src/lib.rs:47-52`) :
+`Upstream` (`.status.upstreamAuth.mode`) rejoint `kubectl get proxykubeapi
+-o wide` (`crd/src/lib.rs:47-52`). « Effectif » veut dire : le mode demandé
+est `FrontProxy` ou `Issuer` ; « en préparation » : `Passthrough` avec
+`issuer_key`, ou avec le Secret `proxyauth-frontproxy-<ns>.<nom>` présent et les
+deux préfixes posés (décision 45).
 
 | Condition (raison) | Sévérité | Quand | Effet |
 | --- | --- | --- | --- |
 | `Ready=False` (`UpstreamModeNotAllowed`) | erreur | mode hors de `allowedModes` | `503` sur ce cluster |
-| `Ready=False` (`IssuerUrlUnset`) | erreur | `Issuer` (ou `issuer_key`) et base d'issuer vide, par défaut (`https://localhost:5437`, `config.rs:424-427`) ou loopback | pas de clé publiée ; `503` en `Issuer` |
-| `Ready=False` (`IssuerKeyUnavailable`) | erreur | Secret de clé illisible ou refusé (§5.3) | `503` en `Issuer` |
-| `Ready=False` (`ClientCertInvalid`) | erreur | `client_cert` illisible ou expiré | `502` (connexion TLS refusée) |
-| `UpstreamTrusted=False` (`UpstreamIdentityNotHonoured`) | erreur | la sonde (§5.4) voit une autre identité que celle affirmée ; le message nomme l'identité vue | relayé ; à corriger avant la bascule |
-| `UpstreamTrusted=False` (`IssuerNotTrusted`) | erreur | la sonde reçoit `401` en `Issuer` ; le message donne issuer et audience à recopier | relayé |
-| `UpstreamTrusted=True` | — | la sonde voit l'identité affirmée | — |
-| `ClientCertExpiring` | avertissement | `client_cert` expire dans moins de 30 jours | relayé |
-| `ClientCertSubjectReserved` | avertissement | CN ou O du `client_cert` commence par `system:` | relayé ; doc : utiliser un certificat dédié |
+| `Ready=False` (`AudienceValidationRequired`) | erreur | mode effectif et `OIDC_AUDIENCE_VALIDATION` différent d'`enforce` (décision 50) | `503` |
+| `Ready=False` (`IssuerUrlMismatch`) | erreur | chemin d'`issuer_key.issuer_url` différent de `/issuer/<ns>/<nom>` | `503` en `Issuer` ; avis en préparation |
+| `Ready=False` (`IssuerKeyUnavailable`) | erreur | Secret de clé illisible ou qui échoue au contrôle de propriété (§5.3) ; le message nomme le Secret | `503` en `Issuer` ; avis en préparation |
+| `Ready=False` (`ClientCertMissing`) | erreur | mode effectif `FrontProxy` et Secret `proxyauth-frontproxy-<ns>.<nom>` absent, illisible ou sans les labels attendus ; le message donne le nom exact | `503` |
+| `Ready=False` (`ClientCertTargetMismatch`) | erreur | mode effectif `FrontProxy` et annotation `front-proxy-target` du Secret différente de la forme canonique de `spec.service` ; le message donne les deux | `503` ; avis en préparation |
+| `Ready=False` (`ClientCertNameTooLong`) | erreur | `proxyauth-frontproxy-<ns>.<nom>` dépasse 253 caractères | `503` ; avis en préparation |
+| `Ready=False` (`UpstreamIdentityNotHonoured`, `FrontProxyNotTrusted`, `IssuerNotTrusted`, `ClientCertSubjectReserved`) | erreur | mode effectif, et l'`UpstreamTrusted=False` de même raison, ou un CN ou O du certificat en `system:` | `503` (décision 45) |
+| `UpstreamTrusted=False` (`UpstreamIdentityNotHonoured`) | erreur | la sonde (§5.4) voit une autre identité que celle affirmée ; le message nomme l'identité vue | voir `Ready` ; avis en préparation |
+| `UpstreamTrusted=False` (`FrontProxyNotTrusted`) | erreur | la sonde reçoit `401` en `FrontProxy` (CA ou `allowed-names`) | idem |
+| `UpstreamTrusted=False` (`IssuerNotTrusted`) | erreur | la sonde reçoit `401` en `Issuer`, ou une identité non préfixée est **acceptée** (`userValidationRules` absentes) ; le message donne issuer et audience à recopier | idem ; attendu en préparation tant que l'apiserver n'est pas configuré |
+| `UpstreamTrusted=Unknown` (`ProbeFailed`) | avertissement | erreur de transport, `5xx`, agent absent, délai dépassé | relayé : une sonde qui ne voit rien ne ferme pas un cluster sain |
+| `UpstreamTrusted=True` | — | la sonde voit l'identité affirmée, groupe et `extra` compris | — |
+| `ClientCertExpiring` | avertissement | certificat `FrontProxy` à qui reste moins de `min(30 j, ⅓ de sa durée de vie)` : un certificat de 24 h, renouvelé par cert-manager, n'avertit pas en permanence | relayé |
+| `ClientCertSubjectReserved` | avertissement | en préparation : CN ou O du certificat en `system:` | relayé ; bloquant à la bascule |
 | `IssuerKeyRotationOverdue` | avertissement | la clé n'a pas tourné depuis `rotation_days` + 1 | relayé |
-| avertissement de statut | avertissement | `Issuer` avec `service: Agent` (décision 13) | relayé |
+| `IssuerBehindAgent` | avertissement | `Issuer` avec `service: Agent` (décision 13) | relayé |
+
+Les Conditions sur le certificat ne visent que `FrontProxy` et sa
+préparation : un cluster en `Passthrough` avec `client_cert` ne change pas de
+`Ready` (§13). `UpstreamTrusted` a une polarité inversée par rapport aux avis
+de la RFC 0011 (`True` = sain) ; `status-and-events.mdx` l'écrit. La Condition et
+son Event ne sont écrits qu'au changement d'état. La colonne `Upstream`
+affiche toujours le mode, `Passthrough` compris ; vide signifie « contrôleur
+trop ancien ».
 
 ### 4.4 API surface
 
 | Method | Path | Auth | Who may call | Limit |
 | --- | --- | --- | --- | --- |
-| GET | `/issuer/{ns}/{cluster}/.well-known/openid-configuration` | aucune (documents publics) | tout appelant, en pratique l'apiserver | limite par adresse dédiée, élevée, jamais bannie ; `404` si le cluster n'a pas de clé publiée |
+| GET | `/issuer/{ns}/{cluster}/.well-known/openid-configuration` | aucune (documents publics) | tout appelant, en pratique l'apiserver | servi de la mémoire, jamais banni, sans limiteur (décision 44) ; `404` si le cluster n'a pas de clé publiée |
 | GET | `/issuer/{ns}/{cluster}/jwks` | aucune | idem | idem |
 
 - Le préfixe `/issuer/` est séparé de `/clusters/` exprès : sous
@@ -366,8 +516,14 @@ Conditions et Events (RFC 0011), ajoutés au tableau des codes de
   `response_types_supported: [id_token]` et
   `subject_types_supported: [public]` : l'apiserver ne lit que les deux
   premiers.
-- Servies depuis un cache en mémoire du processus (le dernier document servi
-  reste servi si Redis tombe) ; pas le throttling Redis partagé
+- Servies depuis un cache en mémoire du processus, qui ne garde que des
+  entrées positives (un `{ns}/{cluster}` inventé n'y entre pas, la mémoire est
+  bornée par le nombre de clusters) ; pendant une panne Redis ou de l'API
+  kube, un petit magasin « dernier bon document » sert encore, jusqu'au
+  `retire_at` de la clé la plus récente qu'il publie, jamais au-delà
+  (`TtlCache` ne sait pas servir une entrée expirée) ; une révocation
+  (décision 52) le vide. Pas de limiteur par adresse : deux documents en
+  mémoire, rien à protéger (décision 44). Pas le throttling Redis partagé
   (`throttle_oauth_as`, `cluster/auth/mod.rs:81-104`), qui pourrait bannir
   l'adresse de sortie d'un control plane qui recharge son JWKS (§7.1, T15).
 - Ces routes ne servent que l'apiserver : hors de `swagger.json`, le client
@@ -375,31 +531,36 @@ Conditions et Events (RFC 0011), ajoutés au tableau des codes de
 
 ### 4.5 Statut et issuer
 
-`status.upstream_auth` (décision 19) :
+`status.upstreamAuth` (décision 19), en camelCase comme `observedGeneration`,
+`caFingerprints` et `proxyVersion` (`status/mod.rs:24-58`), publié par
+`fields()` et envoyé en `null` quand il disparaît (décision 54) :
 
 ```yaml
 status:
-  upstream_auth:
+  upstreamAuth:
     mode: Issuer
-    issuer_url: https://api.example.com/issuer/team-a/prod
+    issuerUrl: https://api.example.com/issuer/team-a/prod   # recopié de la spec
     audience: proxyk8sauth:team-a/prod
-    jwks_uri: https://api.example.com/issuer/team-a/prod/jwks
-    key_id: 3f1c…            # kid de la clé qui signe
-    key_rotated_at: 2026-10-27T10:00:00Z
+    jwksUri: https://api.example.com/issuer/team-a/prod/jwks
+    keyId: 3f1c…             # kid de la clé qui signe
+    keyRotatedAt: 2026-10-27T10:00:00Z
   # ou, en FrontProxy :
-  upstream_auth:
+  upstreamAuth:
     mode: FrontProxy
-    client_cert_not_after: 2027-01-12T00:00:00Z
-    client_cert_subject: CN=proxyauth-team-a-prod
+    clientCertSecret: proxyauth/proxyauth-frontproxy-team-a.prod   # le nom à créer
+    clientCertTarget: external:https://10.0.0.10:6443   # la valeur d'annotation attendue
+    clientCertNotAfter: 2027-01-12T00:00:00Z
+    clientCertSubject: CN=proxyauth-team-a-prod
 ```
 
-- **L'URL de l'issuer est figée** (décision 35) : à la création de la clé, le
-  contrôleur calcule `<base>/issuer/{ns}/{cluster}` (la base est
-  `UPSTREAM_AUTH_ISSUER_BASE_URL`, sinon `API_CLUSTER_OIDC_BASE_REDIRECT_URL`,
-  `common/src/config.rs:154`) et l'écrit dans `status.upstream_auth.issuer_url`.
-  Elle ne change plus ensuite, même si la variable change ; seul
-  `issuer_key.url` la change, explicitement. Le proxy signe avec l'URL du
-  statut, pas avec la variable : un redéploiement ne casse aucun cluster.
+- **L'URL de l'issuer est écrite par l'auteur du cluster**
+  (`issuer_key.issuer_url`, requise ; décision 53). Le proxy signe avec elle,
+  jamais avec une variable d'environnement : un redéploiement, une
+  restauration de sauvegarde ou une recréation GitOps ne la change pas, elle
+  vit dans Git avec le reste de la spec. Rien n'est figé ni recalculé ; le
+  statut n'en est que le miroir. La doc donne la valeur à écrire
+  (`<URL publique du proxy>/issuer/<ns>/<nom>`) et `validate` vérifie le
+  chemin (§4.3).
 - L'audience vaut `ProxyKubeApi::to_identifier()` (`crd/src/lib.rs:125`), déjà
   unique par cluster.
 
@@ -419,7 +580,8 @@ jwt:
       groups: { claim: groups, prefix: "" }
       extra:
         - key: example.com/team                  # une entrée par clé extra mappée
-          valueExpression: "claims.extra['example.com/team']"
+          # absente du JWT, une clé sans garde fait refuser le jeton
+          valueExpression: "claims.?extra['example.com/team'].orValue([])"
     userValidationRules:
       - expression: "user.username.startsWith('proxyauth:')"
         message: "the proxy asserts prefixed users only"
@@ -448,7 +610,7 @@ sequenceDiagram
     P->>P: portes 1 à 8 (jeton validé, mapping, groupe, allow-list)
     P->>P: identité transmise = préfixes + refus (§4.2)
     alt FrontProxy
-        P->>A: TLS avec client_cert<br/>X-Remote-User, X-Remote-Group (×n)<br/>sans Authorization ni x-forwarded-user
+        P->>A: TLS avec le certificat du proxy<br/>X-Remote-User, X-Remote-Group (×n)<br/>sans Authorization ni x-forwarded-user
     else Issuer
         P->>P: JWT en cache ou signé (clé du cluster)
         P->>A: Authorization: Bearer JWT (aud = ce cluster)
@@ -462,15 +624,23 @@ par la politique ne fait signer aucun JWT et ne pose aucun en-tête d'identité.
 
 **Invariant 1** : parce que `is_upstream_auth_header` (`forwarded.rs:59`)
 retire tout `X-Remote-*` et `Impersonate-*` du client **avant** que le proxy
-pose les siens, et que seul le client qui présente `client_cert` en reçoit,
-une identité affirmée à l'apiserver vient toujours du proxy.
+pose les siens, et que seul le client qui présente le certificat
+`FrontProxy` en reçoit, une identité affirmée à l'apiserver vient toujours du
+proxy. Parce que ce certificat n'est lu que sous le nom dérivé du `ns/nom` du
+cluster, dans le namespace du proxy, que `client_cert` est refusé dans ce
+mode, et que l'annotation du Secret lie le certificat à une cible, l'auteur
+d'un cluster ne peut présenter que le certificat de **son** cluster, et
+seulement vers l'apiserver pour lequel l'admin l'a posé.
 
 **Invariant 2** : parce que les préfixes sont non vides, ne commencent pas par
 `system:`, et que le nom transmis est refusé s'il commence par `system:`, le
 proxy n'affirme jamais `system:masters`, `system:admin` ni un compte de
 service. En `Issuer`, l'apiserver le vérifie aussi (`userValidationRules`,
-§4.5) : la propriété tient même si la clé fuit. En `FrontProxy`, elle ne tient
-que tant que le certificat ne fuit pas.
+§4.5) : la propriété tient même si la clé fuit, **à condition** que
+l'opérateur de l'apiserver ait recopié ces règles, ce que la sonde vérifie en
+présentant une identité non préfixée qui doit être refusée (§5.4,
+décision 45). En `FrontProxy`, elle ne tient que tant que le certificat ne
+fuit pas.
 
 ### 5.2 Le JWT émis (`Issuer`)
 
@@ -486,9 +656,9 @@ flowchart TD
 
 - Signé par `jsonwebtoken` 11 (`aws_lc_rs`, déjà dépendance de `api`) en
   ES256, avec la clé courante du cluster (§5.3).
-- Claims : `iss` (`status.upstream_auth.issuer_url`), `aud` (une seule valeur,
-  `to_identifier()`), `sub` (le nom transmis), `groups` (liste transmise),
-  `extra` (objet, si mappé), `iat`, `nbf` (`iat` − 30 s), `exp` (`iat` +
+- Claims : `iss` (`spec.upstream_auth.issuer_key.issuer_url`), `aud` (une
+  seule valeur, `to_identifier()`), `sub` (le nom transmis), `groups` (liste
+  transmise), `extra` (objet, si mappé), `iat`, `nbf` (`iat` − 30 s), `exp` (`iat` +
   `token_ttl_seconds`), `jti` (aléatoire).
 - **Indépendant de la RFC 0010** (décision 31) : un `TtlCache`
   (`common/src/oidc_cache.rs:55`) borné, sans verrou par clé (une signature
@@ -515,15 +685,27 @@ peut ni lire la clé, ni la remplacer, ni en déposer une à l'avance. Le Secret
 porte les labels `app.kubernetes.io/managed-by: proxyauthk8s` et
 `proxyauth.weebo.si.rs/cluster-uid`, et l'annotation du `ns/nom` du cluster.
 
-- **Jamais d'adoption** : le contrôleur ne lit qu'un Secret qu'il a créé
-  (labels attendus **et** annotation `proxyauth.weebo.si.rs/created-by` égale à
-  l'UID de son propre Deployment) ; un Secret du même nom qui ne passe pas ce
-  contrôle donne `IssuerKeyUnavailable`, jamais une clé adoptée.
+- **Propriété** (décision 43) : un Secret est au proxy s'il porte les labels
+  attendus **et** vit dans le namespace du proxy, que les tenants n'écrivent
+  pas. Pas d'annotation `created-by` : l'UID du Deployment n'est pas exposé
+  au pod (`dp.back.yaml:57-62`) et change à chaque réinstallation, ce qui
+  rendrait toutes les clés « étrangères » d'un coup. Un Secret du bon nom sans
+  les labels donne `IssuerKeyUnavailable`, dont le message nomme le Secret à
+  supprimer ; le contrôleur ne le supprime, ne l'écrase ni ne l'adopte
+  jamais.
 - **Pas d'`ownerReference`** (elle ne traverse pas les namespaces) : le
   contrôleur balaie les Secrets `proxyauth-issuer-*` dont l'UID ne correspond
-  plus à aucun `ProxyKubeApi`, après le délai de rétention. Recréer un cluster
-  sous le même nom donne un UID neuf, donc une clé neuve ; l'issuer et
-  l'audience, calculés depuis `ns/nom`, ne changent pas.
+  plus à aucun `ProxyKubeApi`, **seulement après une liste complète et
+  réussie** des `ProxyKubeApi` (une liste vide ou partielle ne balaie rien),
+  en deux temps : une annotation `proxyauth.weebo.si.rs/orphaned-since`,
+  écrite avec `resourceVersion`, puis la suppression 24 h plus tard si le
+  Secret est toujours orphelin, avec `Preconditions{uid, resourceVersion}`
+  (un ancien leader qui n'a pas vu la perte du bail ne supprime pas un
+  Secret réécrit entre-temps). Le Secret `proxyauth-frontproxy-*`, posé par
+  l'admin, n'est jamais balayé (il peut précéder son cluster, décision 56) :
+  un orphelin de plus de 24 h donne un avis dans les logs du leader. Recréer un cluster sous le même nom donne un UID neuf, donc une clé
+  neuve ; l'issuer (écrit dans la spec) et l'audience (calculée depuis
+  `ns/nom`) ne changent pas.
 - **Format déclaratif** (décision 37) : une seule clé de Secret `keys.json`,
   liste d'entrées `{kid, pkcs8 (base64), created_at, activate_at, retire_at}`.
 
@@ -548,38 +730,86 @@ sequenceDiagram
   récente dont `activate_at ≤ maintenant` ; aucune étape du contrôleur ne
   décide de l'activation. Un changement de leader au milieu d'une rotation ne
   perd rien : l'état est dans le Secret.
+- **Première clé** (création, ou recréation après perte du Secret) : aucune
+  clé n'étant active, elle s'active tout de suite ; l'apiserver la charge sur
+  le `kid` inconnu (à vérifier, Still open 2). Le délai de 5 min ne vaut que
+  pour une rotation, quand une clé active existe déjà.
 - **Délais** : `activate_at` = publication + 5 min (cache des réplicas 30 s +
-  `Cache-Control: max-age=60` du JWKS + marge) ; `retire_at` = activation de
-  la suivante + `token_ttl_seconds` + 5 min. Les clés dont `retire_at` est
+  `Cache-Control: max-age=60` du JWKS + marge) ; le cache de 30 s est une
+  constante, pas `PROXY_UPSTREAM_CLIENT_TTL` (300 s, réglable), qui mangerait
+  la marge ; un test lie `activate_at ≥ 2 × cache + max-age + décalage`.
+  Le contrôleur se remet en file au plus tard à
+  `min(prochaine rotation, prochain activate_at, prochain retire_at)` ;
+  `retire_at` = activation de la suivante + `token_ttl_seconds` + 5 min. Les clés dont `retire_at` est
   passé sont **purgées** du Secret : une restauration de sauvegarde ne
   ressuscite pas une clé retirée, et le Secret n'a pas besoin de sauvegarde
-  (le perdre ne casse que les JWT en cours, §10.2).
+  (le perdre ne casse que les JWT en cours, §10.2). Purger n'est **pas**
+  révoquer : l'apiserver ne recharge son JWKS que sur un `kid` inconnu et
+  peut garder la clé purgée jusqu'au prochain `kid` neuf.
+- **Révocation d'urgence** (décision 52) : l'annotation de rotation à la
+  valeur `revoke:<nonce>` (jamais réutilisée, donc traitée une seule fois)
+  retire **aussitôt** la clé active du Secret et du JWKS, sans attendre
+  `retire_at`, et crée une clé neuve active tout de suite. Le premier JWT
+  signé par ce `kid` inconnu force l'apiserver à recharger le JWKS, qui ne
+  contient plus l'ancienne clé. Les JWT en cours échouent jusqu'à leur
+  re-signature (une requête, `401` traduit en `502`) ; le magasin « dernier
+  bon document » des réplicas est vidé.
 - **Écriture** : `update` avec `resourceVersion` (concurrence optimiste) ;
   deux leaders qui se chevauchent ne créent pas deux `k2`.
-- **Lecture par le proxy** : un `get` par nom, derrière un cache de 30 s
-  (comme `cached_tls_config`, `tls.rs:18`), pas de watch (le proxy n'en a
-  aucun, et un watch demanderait `list`/`watch` sur les Secrets).
+- **Lecture par le proxy** : un `get` par nom, derrière un cache de 30 s, pas
+  de watch (le proxy n'en a aucun, et un watch demanderait `list`/`watch` sur
+  les Secrets). Ce n'est pas le modèle de `cached_tls_config` (`tls.rs:18`) :
+  `UpstreamCache` ne garde que les succès et n'a pas de vol unique
+  (`upstream_cache.rs:20-27`), et `TtlCache::get` jette une entrée expirée.
+  Donc (décision 44) : **un seul rafraîchissement par cluster** à la fois,
+  les autres requêtes servent la valeur en main ; délai de 2 s par `get` ;
+  reprise avec gigue après un échec ; sur erreur, la dernière `keys.json`
+  valide reste servie jusqu'au `retire_at` de sa clé la plus récente, puis
+  `IssuerKeyUnavailable`. Une API kube lente ne bloque donc aucune requête, et
+  une API en panne ne reçoit qu'un appel par cluster et par période de
+  reprise.
 - **Retour à `Passthrough`** : le Secret et le JWKS restent publiés tant que
   `issuer_key` est présent ; repasser en `Issuer` ne change pas de clé.
 
 ### 5.4 La sonde de confiance
 
-Le leader du contrôleur (RFC 0011) sonde chaque cluster en `FrontProxy` ou
-`Issuer`, ou qui porte `issuer_key` (décision 33) :
+La sonde (décision 33) tourne dans le **processus `api`**, sur le réplica qui
+détient le bail du leader (RFC 0011) (décision 41) : le client amont, la
+passerelle d'agent et le signataire y vivent (`upstream_client` est
+`pub(super)`, `upstream.rs:34`), le contrôleur ne peut pas importer `api`
+(`api/Cargo.toml:99`), et contrôleur et API tournent toujours dans le même
+Deployment (`dp.back.yaml`). Elle sonde chaque cluster en mode effectif ou
+en préparation (§4.3) :
 
 - Une `POST /apis/authentication.k8s.io/v1/selfsubjectreviews` (permise à tout
   utilisateur authentifié, sans RBAC) avec l'identité
-  `<user_prefix>proxyauth-probe`, sans groupe, présentée selon le mode visé :
-  en-têtes sur le client à certificat, ou JWT signé par la clé courante. Elle
-  passe par `upstream_client` (`upstream.rs:34`) et la passerelle d'agent si
-  besoin.
-- Toutes les 5 minutes, et à chaque changement de spec, de certificat ou de
-  clé ; le résultat pose `UpstreamTrusted` (§4.3).
-- Elle détecte : un `allowed-names` qui ne contient pas le CN (l'apiserver
-  voit alors le CN du certificat, et le message le nomme) ; une CA
-  `--client-ca-file` au lieu de `--requestheader-client-ca-file` (même
-  symptôme) ; un issuer pas encore déclaré ou un JWKS injoignable (`401`) ; une
-  URL d'issuer changée.
+  `<user_prefix>proxyauth-probe`, **un** groupe `<group_prefix>proxyauth-probe`
+  et **une** valeur `extra` (`proxyauth.weebo.si.rs/probe`), présentée selon
+  le mode visé : en-têtes sur le client à certificat, ou JWT signé par la clé
+  **active** (`activate_at` passé, jamais une clé en attente). Groupe et
+  `extra` doivent revenir : un apiserver sans `--requestheader-group-headers`
+  ou sans préfixe `extra` est vu.
+- En `Issuer`, une seconde revue présente une identité **non préfixée** ; elle
+  doit recevoir `401`. Acceptée, elle prouve l'absence des
+  `userValidationRules` (`IssuerNotTrusted`).
+- Toutes les 5 minutes, avec une gigue sur l'intervalle et un départ étalé
+  au changement de leader, et à chaque changement de spec, de certificat ou
+  de clé ; huit sondes au plus en parallèle ; 10 s de délai total par sonde
+  (le client amont ne borne que la connexion, `upstream.rs:117-121`). Le
+  résultat pose `UpstreamTrusted` (§4.3), écrit au changement seulement.
+  Erreur de transport, `5xx`, agent absent ou délai dépassé donnent
+  `Unknown`, jamais `False` (décision 45).
+- Ce qu'elle voit, avec la CA dédiée qu'exige §4.1 : un `allowed-names` qui
+  ne contient pas le CN, ou une CA inconnue comme front-proxy, donnent un
+  `401` (le certificat n'est vérifiable par aucun autre authentificateur, et
+  k3s refuse l'anonyme) ; un certificat d'une CA `--client-ca-file` donne
+  l'identité du CN/O (le message la nomme) ; en `Issuer`, un issuer pas
+  encore déclaré ou un JWKS injoignable donnent `401`. Le `401` en
+  `FrontProxy` donne `FrontProxyNotTrusted`. Ces attentes viennent de la
+  connaissance de l'apiserver, pas d'une sonde (Still open 1).
+- Sonder la **préparation** `FrontProxy` (Secret posé, mode encore
+  `Passthrough`) supprime la fenêtre de `403` à la bascule : l'opérateur
+  attend `UpstreamTrusted=True`, puis change le mode, comme en `Issuer`.
 
 ---
 
@@ -588,22 +818,25 @@ Le leader du contrôleur (RFC 0011) sonde chaque cluster en `FrontProxy` ou
 ### 6.1 CRD (`libs/server/crd/src/`)
 
 - `upstream_auth/mod.rs` (nouveau) : `UpstreamAuth { mode, user_prefix,
-  group_prefix, token_exchange, issuer_key }`, `UpstreamAuthMode {
-  Passthrough, TokenExchange, FrontProxy, Issuer }` (même style que
-  `ValidateAgainst`), `IssuerKeySettings { token_ttl_seconds, rotation_days,
-  url }`, avec `#[serde(default)]`, les règles CEL et les `maxLength` de §4.3.
+  group_prefix, issuer_key }`, `UpstreamAuthMode { Passthrough, FrontProxy,
+  Issuer }` (même style que `ValidateAgainst` ; `TokenExchange` et le champ
+  `token_exchange` arrivent avec la RFC 0010, décision 47),
+  `IssuerKeySettings { issuer_url, token_ttl_seconds, rotation_days }`, avec
+  `#[serde(default)]`, les règles CEL et les `maxLength` de §4.3.
 - `lib.rs` : `ProxyKubeApiSpec::upstream_auth: Option<UpstreamAuth>` ;
   `ProxyKubeApi::validate` appelle `UpstreamAuth::validate(&self.spec)`, qui
-  lit `client_cert` et `auth_config` (règles croisées) ; colonne `Upstream` en
+  lit `client_cert`, `auth_config` et `claim_mappings.extra` (règles
+  croisées), et le chemin d'`issuer_url` (§4.3) ; colonne `Upstream` en
   `-o wide`.
 - `authentication_configuration/oidc_provider.rs` : `claim_mappings:
   Option<ClaimMappings>`.
-- `status/mod.rs` : `upstream_auth: Option<UpstreamAuthStatus>` (§4.5),
+- `status/mod.rs` : `upstream_auth: Option<UpstreamAuthStatus>`, sérialisé
+  `upstreamAuth` en camelCase (§4.5, décision 54), publié par `fields()` et
   envoyé en `null` quand il disparaît (comme `warnings`,
   `status/mod.rs:105`).
-- RFC 0010 : `TokenExchange` est déclaré dans `upstream_auth/token_exchange.rs`
-  au lieu de `authentication_configuration/` ; son contenu est celui de la
-  0010 §6.1.
+- RFC 0010, plus tard : `TokenExchange` sera déclaré dans
+  `upstream_auth/token_exchange.rs` au lieu de
+  `authentication_configuration/` ; son contenu est celui de la 0010 §6.1.
 
 ### 6.2 L'identité (`libs/server/api/src/model/`)
 
@@ -611,14 +844,29 @@ Le leader du contrôleur (RFC 0011) sonde chaque cluster en `FrontProxy` ou
   `#[derive(Default)]` (`user.rs:136`) ; les six littéraux `User { … }`
   (`forwarded.rs:163,297`, `upgrade.rs:650`, `user.rs:252,312,454`) prennent
   `..Default::default()`.
-- `JwtAuthenticators` : `mapped.extra`, aujourd'hui jeté (`user.rs:252-263`),
-  remplit `User.extra`.
+- `JwtAuthenticators` : `mapped.extra`, dont seul `email` est lu aujourd'hui
+  (`user.rs:252-263`), remplit `User.extra`. La clé `email` y sert à
+  l'affichage et n'a pas de préfixe de domaine : elle n'est **pas**
+  transmise (seules les clés de `claim_mappings.extra` le sont, décision 26).
+- Le cache des jetons validés (`token_cache_key`, `oidc_cache.rs:141`, appelé
+  à `user.rs:369-381`) ne connaissait ni le cluster ni le mapping : sa clé
+  gagne une **empreinte du `claim_mappings`** (SHA-256 de sa forme JSON
+  canonique ; absent = une valeur fixe, `legacy`), passée à
+  `get_user_info_from_oidc_token` avec le mapping (décision 38). Deux
+  clusters au même mapping partagent l'entrée, deux mappings différents
+  jamais ; éditer le mapping change la clé, donc agit tout de suite. Le
+  dashboard (`state.oidc_client`, `user.rs:160`), sans mapping, garde la
+  valeur `legacy`. Livré en phase 1, avec le mapping.
 - `OidcProvider` : `/userinfo` est lu en `serde_json::Value` brut quand
   `claim_mappings` est présent : `GroupsUserInfoClaims` ne garde que `groups`
   (`user_claim.rs:5-21`), tout autre claim serait perdu. Les claims passent
-  par `map_user`, rendu `pub` dans `jwt_validator` (il est `pub(crate)`) ; avec
-  `username: {claim: email}`, `email_verified` doit valoir `true`. Sans
-  mapping, le code actuel.
+  par `map_user`, rendu `pub` dans `jwt_validator` (il est `pub(crate)`).
+  Sans mapping, le code actuel.
+- `map_user` gagne un paramètre `trusted: bool` : vrai en `FrontProxy` et
+  `Issuer`, il exige `email_verified == true` dès que `username` lit
+  `email`, par `claim: email` ou par une expression qui contient
+  `claims.email` (décision 51). Faux, le comportement d'aujourd'hui, pour les
+  deux `validate_against`.
 - `UpstreamIdentity::from_user(&User, &UpstreamAuth) -> Result<UpstreamIdentity,
   IdentityRefusal>` (nouveau, `cluster/redirect/upstream_identity.rs`, `pub`
   pour la cible de fuzz) : préfixes, puis refus de §4.2. Pure, sans E/S.
@@ -626,7 +874,17 @@ Le leader du contrôleur (RFC 0011) sonde chaque cluster en `FrontProxy` ou
 ### 6.3 Dans `redirect` (`kube_redirect.rs`)
 
 - Avant la porte 1 : un cluster dont le mode n'est pas dans `allowedModes`,
-  ou que ce réplica ne sait pas servir, répond `503` (décision 34).
+  que ce réplica ne sait pas servir, ou dont `Ready=False` porte une raison de
+  §4.3 qui ferme, répond `503` avec le message de §4.2 (décisions 34 et 45).
+- La recherche du cluster (`kube_redirect.rs:69-79`) lit d'abord la clé
+  Redis des clusters hors `Passthrough` (décision 42, §6.4), puis la clé
+  d'aujourd'hui.
+- Une réponse `401` de l'apiserver en `FrontProxy` ou `Issuer` devient le
+  `502` de §4.2 (décision 46), sur les chemins standard et virtuel ; sur le
+  chemin upgrade, la poignée refusée reçoit le même `502`.
+- Le chemin upgrade retire de `Sec-WebSocket-Protocol` les entrées
+  `base64url.bearer.authorization.k8s.io.*`, dans tous les modes, en
+  gardant les autres valeurs dans leur ordre (décision 39).
 - Après la porte 8, en `FrontProxy` et `Issuer` : calcul d'`UpstreamIdentity` ;
   un `IdentityRefusal` donne le `403` de §4.2, sans appel en amont.
 - `RedirectContext` (`kube_redirect/context.rs:23`) reçoit
@@ -634,37 +892,86 @@ Le leader du contrôleur (RFC 0011) sonde chaque cluster en `FrontProxy` ou
   `Passthrough | Bearer(SecretString) | Headers(UpstreamIdentity)`. La
   RFC 0010 y range son jeton échangé en `Bearer` (au lieu du champ
   `upstream_token` de son §6.3), l'`Issuer` aussi.
-- Le point de couture unique est `identity_headers` (`forwarded.rs:145`),
-  déjà appelé par `apply_forward_headers` (`upstream.rs:162`) et
-  `build_upgrade_request` (`upgrade/connect.rs:224`) : il reçoit
-  `&UpstreamCredential` et rend les en-têtes à poser et le traitement
-  d'`Authorization` (copier, remplacer, retirer). Le filtrage
-  `is_upstream_auth_header` reste appliqué avant, dans tous les cas.
+- Le point de couture est **double**. `identity_headers` (`forwarded.rs:145`)
+  ne rend aujourd'hui que les `x-forwarded-*` ; l'`Authorization` du client
+  est copiée par la boucle de chaque appelant, `apply_forward_headers`
+  (`upstream.rs:141-158`) et `build_upgrade_request`
+  (`upgrade/connect.rs:207-211`, `authorization` n'étant pas un en-tête
+  filtré, `forwarded.rs:198`). Donc : `identity_headers` reçoit
+  `&UpstreamCredential` et rend les en-têtes à poser ; un prédicat partagé,
+  à côté de `is_upstream_auth_header`, fait sauter `authorization` aux deux
+  boucles hors `Passthrough`. Le filtrage `is_upstream_auth_header` reste
+  appliqué avant, dans tous les cas. Changer `identity_headers` seul
+  laisserait le jeton IdP partir (T5).
+- `UpstreamCredential` atteint tous les chemins : `RedirectContext` pour le
+  relais standard et l'upgrade, `Caller` pour les API virtuelles
+  (`virtual_redirect/mod.rs:255`) et `ListFallbackArgs` pour les revues de
+  `list_fallback` (`virtual_redirect/mod.rs:400-411`, `review.rs:61,198`), qui
+  ne passent pas par `RedirectContext`. Les tests unitaires qui figent la
+  signature d'aujourd'hui (`forwarded.rs:284,296`, `upgrade.rs:747,824`)
+  changent avec elle.
 - `list_fallback/cache.rs:21-58` : la clé de cache des résultats de revue
-  inclut le mode et les préfixes, pour qu'un changement de mode ne serve pas
-  des résultats calculés sous l'ancienne identité.
+  (`identity_fingerprint`, qui ne hache que nom et groupes) inclut le mode,
+  les préfixes et les `extra` (qu'un webhook d'autorisation peut lire), pour
+  qu'un changement de mode ne serve pas des résultats calculés sous l'ancienne
+  identité.
 - `common/src/upstream_cache.rs` : l'entrée d'un client à certificat expire
-  au plus tard au `not_after` du certificat (`min(ttl, not_after − now)`) ; un
-  certificat renouvelé dans le même Secret est pris en compte en au plus
-  `PROXY_UPSTREAM_CLIENT_TTL` (300 s, `upstream_cache.rs:15-18`), car
-  l'empreinte du cache porte sur la référence, pas sur le contenu
-  (`upstream_cache.rs:78-82`). Documenté (§13).
+  au plus tard au `not_after` du certificat (`min(ttl, not_after − now)`, avec
+  un plancher de 30 s une fois le certificat expiré, sinon un TTL nul
+  désactive le cache et chaque requête relit le Secret). `not_after` n'est
+  connu qu'après la construction : `get_or_try_insert_with`
+  (`upstream_cache.rs:125`), qui fixe le TTL avant, gagne une variante dont le
+  constructeur rend `(valeur, ttl)` ; `upstream_client` réinsère la config TLS
+  avec ce même TTL. Un certificat renouvelé dans le même Secret ne sert qu'aux
+  **nouvelles** connexions, au plus `PROXY_UPSTREAM_CLIENT_TTL` (300 s,
+  `upstream_cache.rs:15-18`) plus tard, car l'empreinte du cache porte sur la
+  référence, pas sur le contenu (`upstream_cache.rs:78-82`) ; une connexion
+  déjà ouverte garde l'ancien jusqu'à sa fermeture. Documenté (§13).
+- `kube_redirect/tls.rs` : `build_tls_config` prend son certificat client,
+  en `FrontProxy`, du Secret `proxyauth-frontproxy-<ns>.<nom>` du namespace du proxy
+  (label `managed-by` contrôlé, annotation de cible comparée à
+  `spec.service`), jamais de `client_cert` (refusé à
+  l'admission, décisions 40 et 49) ; `UpstreamCacheKey::for_proxy`
+  (`upstream_cache.rs:60-82`) porte cette référence dans son empreinte.
 
 ### 6.4 Contrôleur (`libs/server/controller/src/proxy_kube_api/`)
 
-- `FrontProxy` : lit `client_cert`, parse le certificat (`x509-parser` 0.18,
-  nouvelle dépendance directe du contrôleur, déjà dans `Cargo.lock` par
-  `libs/agent/pki`) pour `not_after`, CN et O ; pose Conditions et statut
-  (§4.3, §4.5). Requeue au plus tard à `not_after` et à J−30.
-- `Issuer` / `issuer_key` : crée et fait tourner la clé (§5.3), calcule et fige
-  `issuer_url`, publie `status.upstream_auth`, balaie les Secrets orphelins.
-- Sonde (§5.4) sur le leader.
-- `allowedModes` : `Ready=False` (`UpstreamModeNotAllowed`) hors liste.
+- `FrontProxy` (effectif ou en préparation) : lit le Secret
+  `proxyauth-frontproxy-<ns>.<nom>` du namespace du proxy, compare son annotation de
+  cible à `spec.service`, parse le certificat
+  (`x509-parser` 0.18, nouvelle dépendance directe du contrôleur, déjà dans
+  `Cargo.lock` par `libs/agent/pki`) pour `not_after`, CN et O ; pose
+  Conditions et statut, dont `clientCertSecret`, le nom à créer (§4.3,
+  §4.5). Requeue au plus tard à `not_after` et à J−30.
+- `Issuer` / `issuer_key` : crée et fait tourner la clé (§5.3), recopie
+  `issuer_url` dans le statut, publie `status.upstreamAuth`, balaie les
+  Secrets orphelins.
+- Sonde (§5.4) : dans le processus `api`, sur le leader (décision 41) ; le
+  réconciliateur, dans le même processus, lit son dernier résultat pour
+  `UpstreamTrusted` et `Ready`.
+- `allowedModes` : `Ready=False` (`UpstreamModeNotAllowed`) hors liste ;
+  `OIDC_AUDIENCE_VALIDATION` différent d'`enforce` en mode effectif :
+  `Ready=False` (`AudienceValidationRequired`) (décision 50).
+- **Publication Redis** (décision 42) : un cluster dont le mode n'est pas
+  `Passthrough` est publié sous une clé nouvelle (préfixe
+  `<REDIS_PREFIX>upstream-auth:`, `crd/src/lib.rs:33`), et sa clé
+  d'aujourd'hui est supprimée. Un binaire d'avant la phase 1 ne lit que
+  l'ancienne : il ne trouve pas le cluster et répond « cluster inconnu »,
+  au lieu de relayer le jeton IdP. Retour en `Passthrough` : l'inverse.
+- **Démarrage** : le contrôleur lit le schéma installé de la CRD et refuse de
+  démarrer s'il ne connaît pas `upstream_auth` (CRD rétrogradée qui élaguerait
+  le champ), avec un message qui nomme la version de `chart-crd` attendue.
 - RBAC (`deploy/chart/templates/rbac.operator.yaml`) : un **Role** dans le
   namespace du proxy, hors de la condition `oneShotToken.enabled` (les verbes
-  `create`/`patch` de la ligne 57 n'existent qu'avec elle), avec `get`,
-  `create`, `update`, `delete` et `list` (pour le balayage, filtré par label)
-  sur `secrets`. Aucun droit nouveau sur les Secrets des namespaces des
+  `create`/`patch` des lignes 60-61, dans le bloc 51-62, n'existent qu'avec
+  elle), avec `get`, `create`, `update`, `delete` et `list` sur `secrets`. Le
+  RBAC ne sait pas filtrer par label : `list` lit et `delete` atteint **tous**
+  les Secrets du namespace du proxy, pour un ServiceAccount que le proxy
+  partage ; accepté, le namespace du proxy est celui de l'admin du proxy
+  (T18, décision 43). Le même `get` sert au certificat `FrontProxy`. Lire le
+  schéma de la CRD au démarrage demande `get` sur
+  `customresourcedefinitions`, limité par `resourceNames` à celle du
+  `ProxyKubeApi`. Aucun droit nouveau sur les Secrets des namespaces des
   tenants ; le `get` existant (lignes 63-75) reste `get` seul. Le proxy et le
   contrôleur partagent un ServiceAccount (`dp.back.yaml:23`) : « le proxy
   n'écrit jamais la clé » est tenu par le code, pas par le RBAC (§7.1, T18).
@@ -674,8 +981,9 @@ Le leader du contrôleur (RFC 0011) sonde chaque cluster en `FrontProxy` ou
 - `discovery` et `jwks` : handlers axum sous `/issuer/{ns}/{cluster}`, hors
   utoipa ; répondent depuis le cache en mémoire (§4.4), `Cache-Control:
   max-age=60`. `{ns}/{cluster}` → UID par la recherche de cluster existante
-  (Redis, `kube_redirect.rs:70`) ; si Redis ne répond pas, le dernier document
-  servi pour ce chemin reste servi.
+  (Redis, `kube_redirect.rs:70`) ; si Redis ou l'API kube ne répondent pas,
+  le magasin « dernier bon document » de §4.4 sert, borné par `retire_at`
+  (décision 44).
 - `sign(identity, cluster) -> SecretString`, appelé par `redirect` pour
   `UpstreamCredential::Bearer`.
 
@@ -687,38 +995,58 @@ Le leader du contrôleur (RFC 0011) sonde chaque cluster en `FrontProxy` ou
   `requestheader-allowed-names=system:auth-proxy,proxyauth-it` dans
   `.it/k3d.yaml.tpl` (qui ajoute déjà `authentication-config`), pour ne pas
   casser l'agrégation de k3s. `it:up` émet le certificat client
-  `CN=proxyauth-it` dans un Secret du cluster de test. À sonder au début de la
-  phase 2 (§15, Still open).
+  `CN=proxyauth-it` dans le Secret `proxyauth-frontproxy-<ns>.<nom>` du namespace du
+  proxy, avant même le `ProxyKubeApi` de test (le nom ne dépend pas de
+  l'UID). À sonder au début de la phase 2 (§15, Still open).
 - `Issuer` : une entrée de plus dans l'`AuthenticationConfiguration` de
   `.it/k3d.yaml.tpl` (avec ses `userValidationRules`), issuer
   `https://proxyauth.k8s.localhost:8443/issuer/…`. Le nœud résout déjà ce nom
-  vers Traefik (`hostAliases`, lignes 16-22) et la CA du run est déjà
+  vers Traefik (`hostAliases`, lignes 17-23) et la CA du run est déjà
   injectée (`__CA__`). L'apiserver recharge ce fichier à chaud (Kubernetes
-  1.30 et plus).
-- `.it/values.yaml` : `upstreamAuth.allowedModes` avec les quatre modes.
+  1.30 et plus). Le banc héberge donc l'issuer dans le cluster qui le croit,
+  ce que §10.2 déconseille en production : acceptable pour un banc jetable,
+  et c'est le cas qui exerce le démarrage à froid.
+- Un **écho amont** (un pod qui renvoie les en-têtes reçus, exposé comme
+  `ProxyKubeApi` de test) : c'est par lui que §6.P prouve ce qui part, ou
+  ne part pas, vers l'amont (points 3, 16 et 17).
+- L'audit de l'apiserver du banc est activé (politique `Metadata`, journal
+  lu par `task it:logs`) : c'est par lui que §6.P prouve qu'une requête n'est
+  **pas** arrivée en amont, et quel `Authorization` est arrivé.
+- Le banc est partagé, et tourne désormais aussi dans Release Prepare : si la
+  sonde k3s (Still open 1) échoue, `FrontProxy` part sur un second cluster
+  k3d, plutôt que de casser toutes les suites.
+- `.it/values.yaml` : `upstreamAuth.allowedModes: [Passthrough, FrontProxy,
+  Issuer]`, et `OIDC_AUDIENCE_VALIDATION=enforce`.
 - Personas (`.it/personas.yaml`) : un persona dont Dex renvoie le groupe
-  `system:masters`, un dont le claim de nom est absent.
+  `system:masters`, un dont le claim de nom est absent. Les mots de passe
+  statiques de Dex ne choisissent pas leurs groupes : le premier passe par le
+  connecteur qui porte déjà les groupes des personas ; le second s'obtient
+  par un `claim_mappings.username` qui vise un claim que Dex n'émet pas.
 
 ### 6.P Proof against a real client
 
 Suite d'intégration de la RFC 0009 (`tests/integration/tests/rfc0014.rs`),
 le kubectl épinglé du banc (`mise.toml`) et le CLI du dépôt, contre le k3s du
 banc (`.it/images.lock`) et le Dex existant. Chaque test passe par le proxy ;
-le kubeconfig admin ne sert qu'à préparer (RBAC, CRD, lecture du Secret de clé
-pour le point 12).
+le kubeconfig admin ne sert qu'à préparer (RBAC, CRD, Secret `FrontProxy`,
+lecture du Secret de clé pour les points 12 et 13).
 
 1. Cluster en `Passthrough` avec `oidc_provider.claim_mappings` (`username:
    email`) : `kubectl get pods` réussit, et la ligne d'audit `request` porte
    l'e-mail du persona, plus `preferred_username` (phase 1).
 2. **Refus** : un `ProxyKubeApi` en `FrontProxy` sur une installation dont
-   `allowedModes` ne le permet pas — `kubectl get pods` reçoit `503`, la
-   Condition `Ready=False` porte `UpstreamModeNotAllowed`, et aucune requête
-   n'atteint l'apiserver (phase 1).
+   `allowedModes` ne le permet pas — `kubectl get pods` reçoit `503` avec le
+   message de §4.2, la Condition `Ready=False` porte `UpstreamModeNotAllowed`,
+   et le journal d'audit de l'apiserver du banc (§6.6) n'a aucune entrée pour
+   ce persona sur cette fenêtre (phase 1).
 3. Cluster en `FrontProxy`, RBAC accordé au seul groupe
    `proxyauth:<groupe Dex>` : `kubectl auth whoami -o json` rend
    `username: proxyauth:<sub>` et ce groupe préfixé ; `kubectl get pods`
-   réussit ; la Condition `UpstreamTrusted=True`. Un nom préfixé ne peut venir
-   que des en-têtes : le jeton Dex relayé donnerait l'e-mail nu.
+   réussit ; la Condition `UpstreamTrusted=True`. Le nom préfixé prouve que
+   les en-têtes ont servi, **pas** que le jeton n'est pas parti (l'apiserver
+   essaie l'en-tête avant le jeton et s'arrête au premier succès) : la même
+   requête, rejouée par `curl` vers un écho en amont du banc, ne reçoit aucun
+   `Authorization` ni `Sec-WebSocket-Protocol` porteur de jeton.
 4. **Refus** : sur ce cluster, le persona ajoute `X-Remote-User:
    system:admin`, `X-Remote-Group: system:masters` et `Impersonate-User:
    admin` à sa requête (`kubectl --as` et un en-tête brut) — `whoami` rend
@@ -728,8 +1056,10 @@ pour le point 12).
    `group_prefix: proxyauth:` — accepté avec `proxyauth:system:masters`
    (préfixé, donc inoffensif) ; puis le persona sans claim de nom — `403` du
    proxy avec le message `empty_username`, ligne d'audit
-   `upstream_identity_refused`, et `proxyauth_upstream_rejected_total` n'a pas
-   bougé (aucun appel en amont).
+   `upstream_identity_refused`, et le journal d'audit de l'apiserver n'a
+   aucune entrée pour ce persona (aucun appel en amont ;
+   `proxyauth_upstream_rejected_total` ne compte que des `401` et ne prouve
+   rien ici).
 6. `kubectl exec` et `kubectl port-forward` sur un cluster en `FrontProxy` —
    le tunnel s'ouvre ; le RBAC qui l'autorise ne vise que le groupe préfixé.
 7. Cluster en `FrontProxy` derrière un agent (`service: Agent`, RFC 0012) —
@@ -739,36 +1069,62 @@ pour le point 12).
    certificat client, avec `X-Remote-User: proxyauth:<sub>` — `401` :
    l'apiserver ne croit pas les en-têtes sans le certificat.
 9. **Refus** : un cluster en `FrontProxy` dont le certificat est signé par une
-   CA que l'apiserver ne connaît pas comme front-proxy — la Condition passe à
-   `UpstreamTrusted=False` (`UpstreamIdentityNotHonoured`), le message nomme
-   l'identité vue.
+   CA que l'apiserver ne connaît pas comme front-proxy — la sonde reçoit `401`
+   et la Condition passe à `UpstreamTrusted=False` (`FrontProxyNotTrusted`),
+   `Ready=False`, et `kubectl get pods` reçoit `503` sans appel en amont ;
+   avec un certificat de la CA `--client-ca-file`, la raison est
+   `UpstreamIdentityNotHonoured` et le message nomme l'identité vue. Puis
+   l'apiserver coupé : `UpstreamTrusted=Unknown` (`ProbeFailed`), le cluster
+   reste servi.
 10. Cluster en `Issuer`, préparé en `Passthrough` avec `issuer_key` puis
     basculé après `UpstreamTrusted=True` : `kubectl auth whoami` rend
     l'identité préfixée ; aucune requête n'a reçu `401` pendant la bascule ;
     dix `kubectl get pods` de suite ne signent qu'un JWT
     (`proxyauth_issuer_tokens_total{result="cache_hit"}` monte de 9).
 11. **Refus** : `kubectl apply` d'un `ProxyKubeApi` en `Issuer` avec
-    `validate_against: Kubernetes`, puis en `FrontProxy` sans `client_cert`,
-    puis en `FrontProxy` sans `claim_mappings` — refusés par l'admission ; les
-    messages CEL de §4.3 sont cités.
+    `validate_against: Kubernetes`, puis en `FrontProxy` **avec** un
+    `client_cert`, puis en `Issuer` avec un `client_cert`, puis en
+    `FrontProxy` sans `claim_mappings`, puis en `Issuer` sans
+    `issuer_key.issuer_url` — refusés par l'admission ; les messages CEL de
+    §4.3 sont cités.
 12. **Refus** : deux clusters en `Issuer` vers le même apiserver ; un JWT
     signé avec la clé de A et l'`aud` de B, puis un JWT signé avec la clé de B
     portant `groups: [system:masters]` — tous deux `401` à l'apiserver (le
     second par la `userValidationRule`).
 13. Rotation par l'annotation pendant une boucle de `kubectl get pods` —
     aucune requête en échec ; le JWKS a contenu les deux `kid` ; l'ancien en
-    disparaît, et du Secret, après `retire_at`.
+    disparaît, et du Secret, après `retire_at`. Puis l'annotation
+    `revoke:<nonce>` : un JWT signé avec la clé révoquée (copiée du Secret par
+    le kubeconfig admin avant) reçoit `401` de l'apiserver dès la première
+    requête signée par la clé neuve, et la boucle de `kubectl get pods` ne
+    perd qu'une requête par réplica, en `502`.
 14. La réponse relayée et les logs du proxy (`task it:logs`) ne contiennent
     ni le jeton Dex du persona au-delà de la porte 4, ni un JWT émis, ni la clé
-    (recherche de leurs chaînes) ; en `FrontProxy`, le point 3 prouve par le
-    nom que le jeton Dex n'a pas servi à l'apiserver.
+    (recherche de leurs chaînes) ; en `FrontProxy`, le point 3 prouve par
+    l'écho amont que le jeton Dex n'est pas parti.
+15. **Refus** : deux clusters sur le même client Dex, A en `FrontProxy`
+    (`username: sub`), B en `Passthrough` qui mappe tout le monde sur
+    `admin` ; le persona appelle B puis A dans la durée du cache —
+    `kubectl auth whoami` sur A rend `proxyauth:<sub>`, jamais
+    `proxyauth:admin` (décision 38, phase 1).
+16. **Refus** : `curl` d'un `exec` WebSocket avec le sous-protocole
+    `base64url.bearer.authorization.k8s.io.<jeton Dex>` et
+    `v5.channel.k8s.io`, sur un cluster en `Passthrough` puis en
+    `FrontProxy`, vers l'écho amont — la poignée relayée ne garde que
+    `v5.channel.k8s.io`, et `kubectl exec` (qui ne l'envoie pas) marche
+    toujours (décision 39).
+17. **Refus** : un binaire d'avant la phase 1 (l'image du proxy au tag
+    précédent) démarré à côté, sur un cluster en `FrontProxy` — il
+    répond « cluster inconnu », et l'écho amont ne reçoit rien de lui
+    (décision 42).
 
 **Deliberately untouched**, so reviewers do not go looking:
 
 - `cluster/auth/oauth/*` et `libs/cli/cli/src/login/` — la connexion par
   cluster passe toujours par `oidc_provider` ; seul l'apiserver oublie l'IdP.
-- `jwt_validator` — sa validation ne change pas ; seul `map_user` devient
-  `pub`.
+- `jwt_validator` — sa validation ne change pas ; `map_user` devient `pub`
+  et gagne le paramètre `trusted` (décision 51), sans effet quand il est
+  faux.
 - `forwarded.rs::UPSTREAM_AUTH_PREFIXES` — les deux préfixes restent filtrés
   sur l'entrée client ; le proxy pose ses `X-Remote-*` après ce filtrage.
 - `apps/agent` — l'agent ne termine pas le TLS (RFC 0012,
@@ -798,7 +1154,7 @@ flowchart LR
     E["auteur du ProxyKubeApi<br/>(tenant)"] -- "B7 : mapping, préfixes, mode" --> P
     P -- "B3 : mTLS + X-Remote-* (FrontProxy)<br/>ou JWT (Issuer)" --> A["apiserver"]
     A -- "B4 : GET JWKS" --> P
-    S["Secrets : client_cert (ns tenant)<br/>clé issuer (ns proxy)"] -- "B5" --> P
+    S["Secrets du namespace du proxy :<br/>certificat FrontProxy, clé issuer"] -- "B5" --> P
     X["tiers sur le réseau<br/>du cluster"] -. "B6 : direct" .-> A
 ```
 
@@ -807,26 +1163,32 @@ flowchart LR
 | T1 | Spoofing : le client envoie `X-Remote-User`, `X-Remote-Group` ou `Impersonate-*` | B1→B3 | retirés par `is_upstream_auth_header` (`forwarded.rs:59`) avant que le proxy pose les siens, sur tous les chemins | aucun |
 | T2 | Elevation : l'IdP renvoie `system:masters` ou un nom en `system:` | B2 | préfixe obligatoire (CEL + `validate`) et refus `system:` en dur (`UpstreamIdentity::from_user`) ; en `Issuer`, aussi `userValidationRules` à l'apiserver | aucun |
 | T3 | Elevation : collision avec un utilisateur local par préfixe vide ou `system:` | B7 | préfixe requis, non vide, sans `system:`, refusé à l'admission | un préfixe qui entre en collision avec un autre authentificateur du cluster ; accepté (admin du proxy), documenté |
-| T4 | Tampering : un claim avec CR/LF ou un octet non transmissible injecte un en-tête (chemin upgrade sérialisé à la main) | B2→B3 | valeur refusée en `403` (§4.2), pas nettoyée ; en-têtes construits par `HeaderValue` | aucun |
-| T5 | Info disclosure : le jeton IdP de l'utilisateur part vers l'apiserver | B3 | `FrontProxy` retire toutes les valeurs `Authorization` ; `Issuer` les remplace | aucun |
-| T6 | Spoofing / Elevation : vol du `client_cert` d'un cluster `FrontProxy` | B5, B6 | Secret géré par l'opérateur ; CA dédiée exigée ; avertissements d'expiration et de sujet réservé ; doc : certificat court, NetworkPolicy vers l'apiserver | **cluster-admin** : le détenteur envoie `X-Remote-Group: system:masters` directement, l'apiserver ne filtre pas ; jusqu'à l'expiration (pas de révocation). Accepté (admin du proxy, en autorisant `FrontProxy`) ; `Issuer` contient mieux ce vol |
-| T7 | Spoofing : l'apiserver a `--requestheader-allowed-names` vide, ou le certificat vient de `--client-ca-file` (O=`system:masters` possible) | B6 | doc ; Condition `ClientCertSubjectReserved` ; la sonde voit l'écart (`UpstreamIdentityNotHonoured`) | dépend de l'apiserver ; accepté (opérateur) |
-| T8 | Spoofing : vol de la clé `Issuer` d'un cluster | B5 | une clé par cluster, dans le namespace du proxy, jamais en log, rotation ; `aud` par cluster ; `userValidationRules` à l'apiserver | le détenteur signe pour **ce** cluster tout utilisateur préfixé jusqu'à la rotation ; la compromission du processus proxy ouvre tous les clusters en `Issuer` et `FrontProxy` ; accepté (admin du proxy) |
+| T4 | Tampering : un claim avec CR/LF ou un octet non transmissible injecte un en-tête | B2→B3 | valeur refusée en `403` (§4.2), pas nettoyée ; en-têtes construits par `HeaderValue::from_str` sur les deux chemins (hyper sérialise l'upgrade, `upgrade.rs:254`) | aucun |
+| T5 | Info disclosure : le jeton IdP de l'utilisateur part vers l'apiserver | B3 | `FrontProxy` retire toutes les valeurs `Authorization` ; `Issuer` les remplace ; prédicat partagé aux deux boucles de copie (§6.3) ; entrées de jeton retirées de `Sec-WebSocket-Protocol` dans tous les modes (décision 39) | aucun |
+| T6 | Spoofing / Elevation : vol du certificat `FrontProxy` d'un cluster | B5, B6 | Secret dans le namespace du proxy, posé par l'admin du proxy, lu par un nom dérivé du `ns/nom` et lié à une cible (décisions 49 et 56) ; CA dédiée exigée ; avertissements d'expiration ; sujet réservé bloquant à la bascule ; doc : certificat court, NetworkPolicy vers l'apiserver | **cluster-admin** : le détenteur envoie `X-Remote-Group: system:masters` directement, l'apiserver ne filtre pas ; jusqu'à l'expiration (pas de révocation), soit 24 h avec la recette cert-manager de la doc (décision 57). Accepté (admin du proxy, en autorisant `FrontProxy`) ; `Issuer` contient mieux ce vol |
+| T7 | Spoofing : l'apiserver a `--requestheader-allowed-names` vide, ou le certificat vient de `--client-ca-file` (O=`system:masters` possible) | B6 | doc ; `ClientCertSubjectReserved` et `UpstreamIdentityNotHonoured` donnent `Ready=False` et `503` en mode effectif (décision 45) | un apiserver qui accepte tout CN de la CA dédiée (`allowed-names` vide) n'est pas visible à la sonde ; accepté (opérateur), documenté |
+| T8 | Spoofing : vol de la clé `Issuer` d'un cluster | B5 | une clé par cluster, dans le namespace du proxy, jamais en log, rotation ; révocation d'urgence `revoke:<nonce>` qui force un `kid` neuf (décision 52) ; `aud` par cluster ; `userValidationRules` à l'apiserver, vérifiées par la sonde | le détenteur signe pour **ce** cluster tout utilisateur préfixé jusqu'à la révocation (une rotation simple ne suffit pas : l'apiserver garde la clé jusqu'au prochain `kid` inconnu) ; la compromission du processus proxy ouvre tous les clusters en `Issuer` et `FrontProxy` ; accepté (admin du proxy) |
 | T9 | Elevation : un JWT émis pour A rejoué sur B | B3 | `aud` = `to_identifier()` de A, clé de A ; B ne déclare que son issuer | aucun |
 | T10 | Elevation : un JWT émis sert hors du proxy | B3 | jamais dans une réponse ni un log (`SecretString`) ; TTL ≤ 900 s | s'il fuyait, valide jusqu'à son `exp` ; accepté |
 | T11 | Elevation : un JWT en cache garde des groupes retirés | cache | clé de cache = hash du JSON canonique de l'identité transmise | la latence de validation du proxy (`OIDC_TOKEN_CACHE_TTL`, 30 s) ; inchangée |
 | T12 | Info disclosure : un utilisateur reçoit le JWT d'un autre | cache | clé = identité + UID + issuer + `kid` | aucun |
 | T13 | Spoofing : sans validation, le proxy affirme une identité non vérifiée | B1 | `disable_validation` et `auth_config` absent refusés avec ces modes (CEL) ; `from_user` exige `Some(user)` | aucun |
 | T14 | Tampering : le JWKS servi à l'apiserver est remplacé | B4 | servi en HTTPS par le proxy, depuis le Secret seul ; l'apiserver épingle la CA (`certificateAuthority`) | qui contrôle l'Ingress du proxy contrôle déjà le proxy |
-| T15 | DoS : des JWT au `kid` aléatoire font recharger le JWKS à l'apiserver, qui inonde `/issuer/*` ; énumération des clusters en `Issuer` | B4 | cache en mémoire, limite dédiée jamais bannie (pas le bannissement Redis partagé) ; l'apiserver garde ses clés pendant une panne | une panne du proxy bloque les rotations, pas les clés déjà connues ; l'existence d'un cluster en `Issuer` est visible, comme dans la config de son apiserver ; accepté |
+| T15 | DoS : des JWT au `kid` aléatoire font recharger le JWKS à l'apiserver, qui inonde `/issuer/*` ; énumération des clusters en `Issuer` | B4 | documents servis de la mémoire, entrées positives seulement, jamais bannis, sans limiteur (décision 44) ; l'apiserver garde ses clés pendant une panne | une panne du proxy bloque les rotations, pas les clés déjà connues ; l'existence d'un cluster en `Issuer` est visible, comme dans la config de son apiserver ; accepté |
 | T16 | Repudiation : une action en amont qu'on ne relie pas à une personne | B3 | audit du proxy avec le mode et l'identité transmise (§10.1) ; l'apiserver journalise le même nom préfixé | aucun |
-| T17 | Spoofing : le client à jeton de repli (`list_fallback`) porte une identité affirmée | B3 | `ca_only_client` ne présente pas `client_cert` et ne reçoit jamais `Headers` | aucun |
-| T18 | Tampering / Spoofing : un admin de namespace lit, remplace ou dépose à l'avance la clé `Issuer` | B5 | Secret dans le namespace du proxy ; jamais d'adoption (labels + annotation `created-by`) ; le proxy ne l'écrit jamais (code) | proxy et contrôleur partagent un ServiceAccount : le RBAC seul ne l'empêche pas d'écrire ; accepté |
+| T17 | Spoofing : le client à jeton de repli (`list_fallback`) porte une identité affirmée | B3 | `ca_only_client` ne présente aucun certificat client et ne reçoit jamais `Headers` | aucun |
+| T18 | Tampering / Spoofing : un admin de namespace lit, remplace ou dépose à l'avance la clé `Issuer` ou le certificat `FrontProxy` | B5 | Secrets dans le namespace du proxy, que les tenants n'écrivent pas ; propriété = labels + namespace (décision 43) ; un Secret qui échoue au contrôle n'est jamais adopté ni écrasé ; le proxy n'écrit jamais la clé (code) | proxy et contrôleur partagent un ServiceAccount, dont `list`/`delete` couvrent tous les Secrets du namespace du proxy : le RBAC seul n'empêche ni la lecture ni l'écriture ; accepté (namespace de l'admin du proxy) |
 | T19 | Elevation : qui édite un `ProxyKubeApi` choisit l'identité transmise (mapping CEL vers `admin`, groupes constants) | B7 | `allowedModes` du chart, fermé par défaut ; en `Issuer`, le préfixe vérifié par l'apiserver borne ce choix aux utilisateurs préfixés ; doc : « éditer un `ProxyKubeApi` en `FrontProxy` ou `Issuer` = être admin du cluster cible, sous le préfixe » | en `FrontProxy`, sans borne à l'apiserver hors `system:` ; accepté (admin du proxy, qui autorise le mode) |
-| T20 | Info disclosure : pendant une mise à jour, un réplica v0.4.x ignore `upstream_auth` et relaie le jeton IdP avec `client_cert` | B3 | la phase 1 livre la garde (`503` pour un mode non servi) ; la doc exige tous les réplicas à cette version avant toute bascule (RFC 0013 pour la voir) | un opérateur qui saute une version ; documenté |
+| T20 | Info disclosure : pendant une mise à jour, un réplica v0.4.x ignore `upstream_auth` et relaie le jeton IdP | B3 | voir T26 : il ne trouve plus le cluster (décision 42) | aucun |
 | T21 | Spoofing : `x-forwarded-user` porte l'identité brute sur la connexion de confiance, qu'un apiserver mal réglé croirait | B3 | retirés en `FrontProxy` et `Issuer` | aucun |
 | T22 | Spoofing : espaces de bord ou clé `extra` en majuscules réinterprétés par l'apiserver (collision `proxyauth:bob ` / `proxyauth:bob`) | B3 | refusés (`untransmittable`) | aucun |
-| T23 | Spoofing : identité tirée d'un `email` non vérifié | B2 | `email_verified` exigé avec `claim: email` ; mapping explicite exigé | aucun |
+| T23 | Spoofing : identité tirée d'un `email` non vérifié | B2 | `map_user` exige `email_verified == true` en mode de confiance, pour `claim: email` et pour une expression qui lit `claims.email`, sur les deux `validate_against` (décision 51) ; mapping explicite exigé | une expression qui obtient l'e-mail sans écrire `claims.email` ; accepté, documenté |
+| T24 | Spoofing / Elevation : un `User` mappé pour le cluster B est servi, depuis le cache des jetons validés, au cluster A du même IdP | B2, B7 | empreinte du `claim_mappings` dans `token_cache_key` (décision 38) | aucun |
+| T25 | Spoofing : en `Issuer`, un `client_cert` présent fait authentifier la requête au nom du certificat (x509 passe avant le jeton), et le préfixe vérifié ne prouve plus rien | B3 | `client_cert` refusé en `Issuer` (CEL + `validate`, décision 40) | aucun |
+| T26 | Info disclosure : un réplica d'avant la phase 1, ou une CRD rétrogradée qui élague `upstream_auth`, relaie le jeton IdP sans erreur | B3 | clusters hors `Passthrough` publiés sous une clé Redis que les anciens binaires ne lisent pas ; contrôleur qui refuse une CRD sans `upstream_auth` (décision 42) | une CRD rétrogradée pendant que le contrôleur tourne déjà, jusqu'à son redémarrage ; documenté (§13) |
+| T27 | Spoofing / Elevation : qui lit les Secrets du namespace du `ProxyKubeApi` détient le certificat `FrontProxy` ; avec `PROXYAUTH_ALLOW_CROSS_NS_CERT`, un tenant vise le certificat d'un autre | B5, B7 | `client_cert` refusé en `FrontProxy` ; le certificat vit dans le namespace du proxy, sous un nom dérivé du `ns/nom`, sans ambiguïté (décisions 48, 49 et 56) | aucun |
+| T29 | Elevation : un tenant repointe `spec.service` de son cluster `FrontProxy` vers un autre apiserver qui croit la même CA, ou reprend un namespace supprimé et hérite du certificat de l'ancien `ns/nom` | B5, B7 | annotation `front-proxy-target` du Secret, posée par l'admin, comparée à `spec.service` ; écart = `Ready=False` (`ClientCertTargetMismatch`) et `503` (décision 56) | un tenant qui reprend le même `ns/nom` **et** la même cible ; la doc dit de supprimer le Secret avec le cluster ; accepté (admin du proxy) |
+| T28 | Spoofing : `OIDC_AUDIENCE_VALIDATION=off` fait accepter tout jeton de l'IdP, et en mode de confiance l'apiserver ne revérifie plus l'audience | B1 | `enforce` exigé en mode effectif, sinon `Ready=False` (`AudienceValidationRequired`) et `503` (décision 50) | aucun |
 
 ### 7.2 Authentication and authorisation
 
@@ -848,32 +1210,40 @@ flowchart LR
   valeurs non transmissibles (T4, T22) ; groupes un par en-tête ; clés `extra`
   en minuscules, encodées en pourcentage, hors `kubernetes.io` et `k8s.io` ;
   64 groupes et 8 Kio au plus.
-- `/userinfo` est lu brut quand il est mappé : borné par la limite de taille
-  de réponse existante du client OIDC.
-- `user_prefix`, `group_prefix`, `issuer_key.url` : schéma et CEL.
+- `/userinfo` est lu brut quand il est mappé. Le client OIDC n'a **aucun**
+  plafond de corps aujourd'hui (`common/src/oidc_conf.rs:97-111`,
+  `model/user.rs:409` ; seul le JWKS en a un,
+  `PROXY_JWKS_MAX_DOCUMENT_BYTES`) : la phase 1 en ajoute un, sur le modèle
+  de celui du JWKS.
+- `user_prefix`, `group_prefix`, `issuer_key.issuer_url`, les clés `extra` :
+  schéma, CEL et `validate`.
 - Aucune URL nouvelle contrôlée par un utilisateur et jointe par le proxy :
-  l'issuer vient de la config du proxy ou du champ `url` (auteur du cluster,
-  `https` exigé), que seul l'apiserver joint ; pas de nouveau SSRF.
+  l'issuer vient du champ `issuer_url` (auteur du cluster, `https` exigé,
+  loopback refusé), que seul l'apiserver joint, jamais le proxy ; pas de
+  nouveau SSRF.
 
 ### 7.4 Secrets and cryptography
 
-- `FrontProxy` : le `client_cert` existant, géré par l'opérateur ; aucune
-  nouvelle forme de secret.
+- `FrontProxy` : un Secret TLS ordinaire (`tls.crt`, `tls.key`) dans le
+  namespace du proxy, posé par l'admin du proxy (décision 49) ; jamais en log,
+  métrique ou statut, seuls le sujet et `not_after` sont publiés.
 - `Issuer` : ECDSA P-256 / SHA-256 (ES256), générée par `ring`, signée par
   `jsonwebtoken` 11 (backend `aws-lc-rs`) ; aucune crypto maison. PKCS#8 dans
   un Secret du namespace du proxy ; jamais dans Redis, un log, une métrique,
   le statut ou une réponse ; seul le `kid` (empreinte de la clé publique) est
   publié. Clés retirées purgées.
-- Les JWT émis vivent en mémoire dans un `SecretString` (`secrecy` 0.10.3, déjà
-  dépendance directe de `api`).
+- Les JWT émis vivent en mémoire dans un `SecretString` (`secrecy` 0.10.3,
+  qui passe en dépendance normale d'`api`, §8).
 - Le jeton IdP de l'utilisateur n'est gardé que haché, comme aujourd'hui.
 
 ### 7.5 Abuse and resource exhaustion
 
 - Une signature au plus par (identité, cluster, réplica) et par durée de vie,
   après toutes les portes : un appelant non autorisé ne fait rien signer.
-- Signature ES256 : de l'ordre de 50 µs, à mesurer en phase 3 ; un cache plein
-  est vidé (`TtlCache`) et fait re-signer, coût négligeable.
+- Signature ES256 : **estimée** de l'ordre de 50 µs, non mesurée ; un banc
+  d'essai la mesure en phase 3 (§14), et l'absence de verrou par clé
+  (décision 31) en dépend. Un cache plein (10 000 entrées, `oidc_cache.rs:49`)
+  est vidé (`TtlCache`) et fait re-signer.
 - Sonde : une requête par cluster toutes les 5 minutes.
 
 ### 7.6 Existing defences that still hold
@@ -891,13 +1261,16 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- |
 | `jsonwebtoken` (déjà dépendance de `api`) | 11.1.0, `aws_lc_rs` | signer le JWT ; déjà utilisé pour valider | MIT | aucune (`task audit` vert au 2026-10-27, à relancer en phase 3) | inchangé |
 | `ring` (déjà dépendance du contrôleur) | 0.17.14 | générer la clé P-256 en PKCS#8 | Apache-2.0 AND ISC | aucune | inchangé |
-| `x509-parser` (**nouvelle dépendance directe** du contrôleur ; déjà dans `Cargo.lock` par `libs/agent/pki`) | 0.18.1 | lire `not_after`, CN et O du `client_cert` | MIT OR Apache-2.0 | aucune | rusticata ; déjà utilisée par `libs/agent/pki` |
-| `secrecy` (déjà dépendance de `api`) | 0.10.3 | JWT émis en mémoire | MIT OR Apache-2.0 | aucune | inchangé |
+| `x509-parser` (**nouvelle dépendance directe** du contrôleur ; déjà dans `Cargo.lock` par `libs/agent/pki`) | 0.18.1 | lire `not_after`, CN et O du certificat `FrontProxy` | MIT OR Apache-2.0 | aucune | rusticata ; déjà utilisée par `libs/agent/pki` |
+| `secrecy` (aujourd'hui en `[dev-dependencies]` d'`api`, `api/Cargo.toml:94` ; passe en `[dependencies]`, déjà dans `Cargo.lock` par `crd_runtime`) | 0.10.3 | JWT émis en mémoire ; `TtlCache` exige `V: Clone`, d'où un `Arc<SecretString>` si `SecretString` ne l'est pas | MIT OR Apache-2.0 | aucune | inchangé |
+| cert-manager, Vault Secrets Operator, External Secrets (**optionnels**, installés par l'opérateur, jamais une dépendance du proxy) | celle de l'opérateur | écrire le Secret `FrontProxy` et le renouveler (décision 57) | Apache-2.0 (cert-manager) | hors de `task audit` : suivis par l'opérateur | projets CNCF / HashiCorp |
 | k3s du banc | `.it/images.lock`, inchangé | ses flags front-proxy et `authentication-config` | Apache-2.0 | inchangé | inchangé |
 
 - Aucune crate nouvelle dans `Cargo.lock`.
 - **Build and release** : inchangés ; aucune image, aucune action CI. Le chart
-  gagne deux valeurs (`upstreamAuth.*`) et `values.schema.json` suit.
+  gagne une valeur (`upstreamAuth.allowedModes`), `values.schema.json` suit,
+  et le RBAC un Role (Secrets du namespace du proxy) et un `get` nommé sur la
+  CRD.
 - **Updates** : rien de nouveau à suivre (Renovate couvre déjà ces crates).
 
 ---
@@ -909,9 +1282,10 @@ flowchart LR
 | identité transmise (nom, groupes, `extra` préfixés) | oui | en-têtes ou JWT, en transit | — | l'apiserver du cluster | **oui, vers l'apiserver** ; elle y allait déjà, dans le jeton IdP |
 | claims bruts de `/userinfo` | oui | mémoire, le temps du mapping ; le `User` résultant dans le cache de validation existant | `OIDC_TOKEN_CACHE_TTL` | le processus | non |
 | JWT émis | oui | mémoire du pod | ≤ `token_ttl_seconds` | le processus | vers l'apiserver seulement |
+| clé privée du certificat `FrontProxy` | non | Secret du namespace du proxy | jusqu'à son remplacement par l'admin | proxy, admins du namespace du proxy | non |
 | clé privée `Issuer` | non | Secret du namespace du proxy | jusqu'à `retire_at`, puis purgée | contrôleur, proxy, admins du namespace du proxy | non |
 | clé publique, issuer, audience | non | JWKS, statut | tant que la clé est publiée | public / lecteurs de la CRD | oui (public) |
-| `client_cert_subject`, `not_after` | non (identité du proxy) | statut | tant que le cluster existe | lecteurs de la CRD | non |
+| `clientCertSubject`, `clientCertNotAfter`, `clientCertSecret` | non (identité du proxy) | statut | tant que le cluster existe | lecteurs de la CRD | non |
 | champs d'audit `upstream_mode`, `upstream_user`, `upstream_groups` | oui | logs (cible `audit`) | celle des logs | l'opérateur | selon la collecte |
 
 - Le changement net est une **réduction** : le jeton IdP, qui ouvre d'autres
@@ -942,8 +1316,11 @@ flowchart LR
   `upstream_user` et `upstream_groups` (l'identité préfixée réellement
   transmise) ; un refus de §4.2 écrit `request` avec `outcome: denied` et
   `reason: upstream_identity_refused` ; une rotation écrit
-  `issuer_key_rotated` (cluster, ancien et nouveau `kid`) ; un changement de
-  `UpstreamTrusted` écrit un Event. Jamais une clé, un certificat ou un jeton.
+  `issuer_key_rotated` (cluster, ancien et nouveau `kid`), nouvelle variante
+  d'`Event` et nouvelle valeur du label de la métrique d'audit ; un
+  changement de `UpstreamTrusted` écrit un Event. Les champs sont ajoutés,
+  rien n'est retiré : `audit_schema` reste à 1 (`audit.rs:24`). Jamais une
+  clé, un certificat ou un jeton.
 - **Alerts** : aucune livrée ; la doc propose
   `increase(proxyauth_upstream_rejected_total[5m]) > 0`, une alerte sur
   `UpstreamTrusted=False` et sur `ClientCertExpiring`.
@@ -953,26 +1330,36 @@ flowchart LR
 | Failure | Detected by | Behaviour (fail open / closed) | Recovery |
 | --- | --- | --- | --- |
 | mode hors de `allowedModes`, ou réplica trop ancien pour le mode | config, version | **fermé** : `503`, jamais de repli sur `Passthrough` | autoriser le mode ; finir la mise à jour |
-| Secret de clé `Issuer` absent, illisible ou non créé par le contrôleur | lecture | **fermé** : `503` | le contrôleur recrée la clé (même issuer et audience : l'apiserver n'a rien à changer) ; les JWT en cours échouent jusqu'à re-signature |
+| Secret de clé `Issuer` absent | lecture | **fermé** : `503` le temps de la recréation | le contrôleur recrée la clé, active tout de suite (même issuer et audience : l'apiserver n'a rien à changer) ; les JWT en cours échouent jusqu'à re-signature |
+| Secret de clé du bon nom mais sans les labels attendus | contrôle de propriété | **fermé** : `503`, `IssuerKeyUnavailable` qui nomme le Secret ; jamais adopté, écrasé ni supprimé (décision 43) | l'admin du proxy supprime le Secret ; le contrôleur en crée un neuf |
 | réplicas en désaccord sur la clé courante (cache de 30 s) | — | sûr : `activate_at` est 5 min après la publication, tous les réplicas publient les deux clés avant | automatique |
 | changement de leader pendant une rotation | — | sûr : l'état est dans le Secret, l'écriture vérifie `resourceVersion` | automatique |
-| URL publique du proxy changée | — | sûr : l'issuer est figé dans le statut | changer `issuer_key.url` explicitement, avec une seconde entrée `jwt` à l'apiserver le temps de la migration (§13) |
-| `client_cert` expiré ou absent | Condition, erreur TLS | **fermé** : `502`, ou `401` de l'apiserver sur une connexion déjà ouverte | renouveler ; pris en compte en ≤ 300 s |
-| apiserver mal réglé (`allowed-names`, CA) | sonde (`UpstreamIdentityNotHonoured`) | relayé : les utilisateurs reçoivent des `403` au nom du certificat | corriger l'apiserver ; la Condition dit quoi |
-| l'apiserver ne joint pas le JWKS, ou l'issuer n'y est pas déclaré | sonde (`IssuerNotTrusted`), `upstream_rejected_total` | **fermé** : `401` relayé ; l'authentificateur JWT de l'apiserver réessaie en tâche de fond sans bloquer son démarrage | réseau, `certificateAuthority`, config |
-| proxy ou Redis en panne pendant une rotation ou un redémarrage de l'apiserver | `upstream_rejected_total` | l'apiserver garde les clés déjà chargées ; une clé nouvelle ou un apiserver redémarré attendent le retour du JWKS | automatique ; le dernier document servi reste servi pendant une panne Redis |
+| URL publique du proxy changée | — | sûr : l'issuer est écrit dans la spec, jamais dérivé d'une variable (décision 53) | changer `issuer_key.issuer_url`, avec une seconde entrée `jwt` à l'apiserver le temps de la migration (§13) |
+| certificat `FrontProxy` illisible ou absent | Condition `ClientCertMissing` | **fermé** : `503`, le message donne le nom du Secret | l'admin du proxy pose le Secret |
+| certificat `FrontProxy` expiré | Condition | **fermé** pour les nouvelles connexions : `401` de l'apiserver ; une connexion déjà ouverte reste authentifiée (le certificat n'est vérifié qu'à la poignée), jusqu'à sa fermeture, bornée par le TTL du client au `not_after` (§6.3) | renouveler ; nouvelles connexions en ≤ 300 s |
+| API kube du cluster de gestion lente ou en panne | délai de 2 s sur la lecture du Secret de clé | sûr : la dernière `keys.json` valide reste servie jusqu'au `retire_at` de sa clé la plus récente, un seul rafraîchissement par cluster, reprise avec gigue ; ensuite **fermé**, `IssuerKeyUnavailable` (décision 44) | automatique au retour de l'API |
+| réinstallation du chart | — | sûr : la propriété ne dépend que des labels et du namespace (décision 43) ; les clés restent | automatique |
+| restauration de sauvegarde ou recréation GitOps du `ProxyKubeApi` | UID neuf | bref `503` en `Issuer` le temps d'une clé neuve, active tout de suite ; l'issuer vient de la spec, inchangé (décision 53) ; rien en `FrontProxy` : le Secret est nommé par `ns/nom` (décision 56) | automatique |
+| apiserver mal réglé (`allowed-names`, CA) | sonde (`FrontProxyNotTrusted`, `UpstreamIdentityNotHonoured`) | **fermé** en mode effectif : `Ready=False` et `503` (décision 45) ; avis en préparation | corriger l'apiserver ; la Condition dit quoi |
+| sonde qui n'aboutit pas (transport, `5xx`, agent absent, délai) | `UpstreamTrusted=Unknown` | relayé : une sonde aveugle ne ferme pas un cluster sain | automatique |
+| l'apiserver ne joint pas le JWKS, ou l'issuer n'y est pas déclaré | sonde (`IssuerNotTrusted`), `upstream_rejected_total` | **fermé** : `502` avec un `Status` qui nomme `UpstreamTrusted` (décision 46), puis `503` dès que la sonde pose `Ready=False` ; l'authentificateur JWT de l'apiserver réessaierait en tâche de fond sans bloquer son démarrage (à vérifier, Still open 2) | réseau, `certificateAuthority`, config |
+| proxy ou Redis en panne pendant une rotation ou un redémarrage de l'apiserver | `upstream_rejected_total` | l'apiserver garde les clés déjà chargées ; une clé nouvelle ou un apiserver redémarré attendent le retour du JWKS | automatique ; le dernier bon document reste servi pendant une panne Redis, borné par `retire_at` |
 | décalage d'horloge proxy / apiserver | `401` en fin de vie des JWT | marge `max(60 s, 10 %)` avant `exp`, `nbf` −30 s | NTP |
 | identité refusée (§4.2) | `UpstreamIdentity::from_user` | **fermé** : `403`, hors fail2login (le jeton est valide, c'est le mapping qui ne l'est pas) | corriger le mapping ou l'IdP |
-| cluster supprimé puis recréé sous le même nom | UID neuf | bref `503` le temps que le leader crée la clé et mette Redis à jour | automatique ; issuer et audience inchangés, le JWKS publie la clé neuve |
+| cluster supprimé puis recréé sous le même nom | UID neuf | bref `503` le temps que le leader crée la clé et mette Redis à jour ; en `FrontProxy`, le Secret est repris tel quel | automatique ; issuer et audience inchangés, le JWKS publie la clé neuve |
 | le cluster de gestion est lui-même la cible en `Issuer` | — | l'apiserver dépend du proxy qu'il héberge pour charger ses clés | déconseillé dans la doc ; préférer `FrontProxy` |
 
 Toujours fermé : aucun échec de `FrontProxy` ou `Issuer` ne relaie le jeton
-IdP de l'utilisateur.
+IdP de l'utilisateur. Un réplica trop ancien ne trouve pas le cluster, un
+contrôleur refuse une CRD sans `upstream_auth` (décision 42), et le
+sous-protocole WebSocket ne porte plus de jeton (décision 39). Le seul trou
+restant est une CRD rétrogradée sous un contrôleur déjà démarré, jusqu'à son
+redémarrage (T26).
 
 ### 10.3 Performance and capacity
 
-- `FrontProxy` : aucun coût nouveau (des en-têtes) ; la connexion mTLS
-  existait déjà.
+- `FrontProxy` : aucun coût nouveau (des en-têtes) ; le chemin mTLS existait
+  déjà, seul le Secret lu change.
 - `Issuer` : une signature par (identité, cluster, réplica) et par durée de
   vie, puis une recherche en mémoire ; environ 1 Kio par entrée de cache ; la
   signature croît linéairement avec les réplicas (HPA), négligeable. JWKS : un
@@ -998,18 +1385,27 @@ IdP de l'utilisateur.
   - référence CRD (régénérée) et `status-and-events.mdx` (toutes les raisons
     de §4.3 avec leur sévérité) ;
   - guide « configurer un apiserver en front-proxy » : CA dédiée,
-    `allowed-names`, certificat court, NetworkPolicy ;
-  - guide « déclarer le proxy comme émetteur » : bloc
-    `AuthenticationConfiguration` avec `userValidationRules`, préparation en
-    `Passthrough`, migration d'URL, NTP ;
+    `allowed-names`, certificat court, NetworkPolicy, la recette
+    cert-manager (une CA par apiserver cible, `rotationPolicy: Always`) et
+    ses équivalents Vault, et le Secret
+    `proxyauth-frontproxy-<ns>.<nom>` que l'admin du proxy pose, avec son annotation de
+    cible, à la main ou par cert-manager ;
+  - guide « déclarer le proxy comme émetteur » : la valeur
+    d'`issuer_key.issuer_url` à écrire, bloc `AuthenticationConfiguration`
+    avec `userValidationRules`, préparation en `Passthrough`, migration
+    d'URL, révocation d'urgence (`revoke:<nonce>`), NTP ;
   - page de migration : `allowedModes`, prérequis de version, `RoleBinding`
     préfixés, ce qu'affiche `kubectl auth whoami`, changement des noms quand
     on ajoute `claim_mappings` ;
   - runbook « diagnostiquer un 401 ou un 403 selon le mode » ;
-  - page du plugin kubectl : le nom préfixé affiché ;
+  - page du plugin kubectl : `kubectl auth whoami` affiche le nom préfixé (le
+    plugin n'affiche aucun nom) ; le résumé de cluster du dashboard
+    (`ClusterNoSSOView.vue:62,112`) continue d'afficher l'identité du
+    dashboard, pas celle que les `RoleBinding` doivent viser ;
   - tableau des deux préfixes (`claim_mappings` et `upstream_auth`) pour les
     trois `validate_against`.
-  - La RFC 0010 reçoit un pointeur d'en-tête vers celle-ci.
+  - La RFC 0010 est amendée dans son texte (décision 55), pas seulement son
+    en-tête.
 
 ---
 
@@ -1017,20 +1413,21 @@ IdP de l'utilisateur.
 
 | Alternative | Why rejected |
 | --- | --- |
-| Impersonation (`Impersonate-*` avec un compte du proxy) | le droit `impersonate` couvre `system:` sauf RBAC très fin, et sa compromission ouvre tout le cluster ; rejeté avec la RFC 0010 et à nouveau ici (décision 2) |
+| Impersonation (`Impersonate-*` avec un compte du proxy) | **Pour** : révocable par le RBAC, l'audit de l'apiserver nomme `impersonatedUser`, fonctionne sur GKE et AKS (la décision 1 les exclut sans elle). **Contre** : le rayon d'un vol est le même que pour `FrontProxy` (T6, cluster-admin), mais le droit vit dans le cluster cible, que le proxy ne contrôle pas, et un `resourceNames` d'impersonation ne sait pas exprimer « tout sauf `system:` » ; le jeton du compte est un secret de longue durée de plus, quand `FrontProxy` n'a qu'un certificat dédié et court. Rejeté avec la RFC 0010 et à nouveau ici (décision 2) ; la différence réelle est la révocabilité, dont l'absence en `FrontProxy` est un risque résiduel écrit (T6) |
 | `FrontProxy` seul | ne couvre pas les apiservers dont les flags `--requestheader-*` sont réservés à l'agrégation ; ne permet pas à l'apiserver de vérifier le préfixe |
-| `Issuer` seul | demande que l'apiserver joigne le proxy, ce qu'un cluster en mode agent derrière un NAT ne peut souvent pas ; une clé à gérer quand un certificat existe déjà |
+| `Issuer` seul | demande que l'apiserver joigne le proxy, ce qu'un cluster en mode agent derrière un NAT ne peut souvent pas ; une clé à gérer quand un certificat suffit à `FrontProxy` |
 | Une clé `Issuer` par instance | une seule clé volée ouvrirait tous les clusters : l'objection de la RFC 0010 (décision 17) |
 | Clé dans le namespace du `ProxyKubeApi`, avec `ownerReference` | l'admin du namespace lit, remplace ou dépose la clé (T18) (décision 29) |
 | Les réplicas surveillent le Secret (watch) | demande `list`/`watch` sur les Secrets ; un `get` avec un cache de 30 s suffit, la rotation est réglée sur ce délai |
 | Activation de la clé par une étape du contrôleur | un réplica en retard sert l'ancien JWKS pendant qu'un autre signe avec la nouvelle clé ; un changement de leader perd l'état (décision 37) |
 | `Issuer` branché sur le pipeline de la RFC 0010 | un verrou par clé et un cache pensés pour un échange distant, pour une signature de quelques microsecondes ; bloquerait la phase 3 sur la 0010 (décision 31, revient sur la décision 15) |
-| Issuer dérivé à chaque requête de la variable d'URL | un redéploiement avec une autre URL casse tous les clusters en `Issuer` à la fois (décision 35) |
+| Issuer dérivé à chaque requête de la variable d'URL | un redéploiement avec une autre URL casse tous les clusters en `Issuer` à la fois (décision 35) ; l'URL est désormais écrite dans la spec (décision 53) |
 | Issuer sous `/clusters/{ns}/{cluster}/.well-known/…` | masquerait la découverte des ServiceAccounts de l'apiserver, relayée sous ce même préfixe |
 | `X-Remote-Group` en une valeur séparée par des virgules | un groupe qui contient une virgule serait coupé en deux groupes, dont l'un choisi par l'IdP |
 | Nettoyer les valeurs non transmissibles | changerait l'identité en silence |
 | Autoriser `FrontProxy`/`Issuer` par la seule CRD | tout tenant qui édite son `ProxyKubeApi` choisirait l'identité vue par l'apiserver cible (T19) (décision 30) |
-| Afficher le mode dans le dashboard | le front ne lit pas le statut des CRD ; `-o wide` et les Conditions suffisent à l'opérateur |
+| `ValidatingAdmissionPolicy` paramétrée, livrée par le chart, qui refuse un mode hors de `allowedModes` à l'admission | réponse immédiate au `kubectl apply` au lieu d'un `Ready=False` plus tard ; mais un second point d'application que la garde du proxy doit de toute façon doubler (une VAP peut être retirée ou mal liée), et une ressource de cluster de plus dans le chart ; retenue comme amélioration possible, pas comme contrôle : la garde `503` reste la seule qui ferme |
+| Afficher le mode dans le dashboard | le front ne lit du statut des CRD que `status.exposed` ; `-o wide` et les Conditions suffisent à l'opérateur |
 | Ne rien faire | chaque changement d'IdP touche chaque apiserver ; le jeton IdP reste dans chaque cluster |
 
 ---
@@ -1039,44 +1436,98 @@ IdP de l'utilisateur.
 
 - **Default behaviour** : inchangé ; `upstream_auth` absent vaut
   `Passthrough`, `claim_mappings` absent garde `preferred_username`,
-  `allowedModes` ferme `FrontProxy` et `Issuer`.
-- **Prérequis de version** (décision 34) : tous les réplicas doivent tourner
-  au moins la version de la phase 1 avant qu'un cluster passe hors de
-  `Passthrough` ; un réplica plus ancien ignorerait le champ et relaierait le
-  jeton IdP (T20). La version des réplicas se lit par la RFC 0013.
+  `allowedModes` ferme `FrontProxy` et `Issuer`. Deux changements visibles
+  touchent pourtant tous les clusters : le sous-protocole WebSocket perd ses
+  entrées de jeton (décision 39), et la clé du cache des jetons validés gagne
+  l'empreinte du mapping (décision 38 ; vidage du cache au déploiement, une
+  revalidation par utilisateur).
+- **Prérequis de version** (décision 34) : finir la mise à jour avant qu'un
+  cluster passe hors de `Passthrough` reste la consigne ; elle n'est plus le
+  seul garde-fou, car un réplica d'avant la phase 1 ne trouve pas les
+  clusters hors `Passthrough` (clé Redis nouvelle, décision 42) et répond
+  « cluster inconnu » au lieu de relayer le jeton IdP. La RFC 0013 ne donne
+  pas la version des réplicas `api`, seulement celle des agents et du
+  contrôleur.
 - **Ajouter `claim_mappings` à un cluster existant** change le nom vu par le
   proxy (par exemple de `preferred_username` à `sub`) : allow-lists par nom,
   rate limit par sujet et continuité de l'audit sont à revoir ; la doc le dit.
-- **Migration vers `FrontProxy`** : (1) `allowedModes` ; (2) configurer
-  l'apiserver (CA dédiée, `allowed-names`) sans retirer l'OIDC existant ;
-  (3) écrire les `RoleBinding` pour les noms préfixés ; (4) passer le mode ;
-  (5) vérifier `UpstreamTrusted=True`. Réversible en repassant à
-  `Passthrough`, tant que l'apiserver garde son OIDC.
+- **Plus de 64 groupes** : un utilisateur d'annuaire au-delà reçoit `403`
+  (`too_large`) en `FrontProxy` et `Issuer` ; filtrer par
+  `groups.expression` avant la bascule.
+- **Changer d'IdP** (pas seulement de client) : le `sub` change, les
+  `RoleBinding` par utilisateur sont à réécrire sur chaque cluster (§3).
+- **Chart** : `deploy/chart/values.schema.json` a `additionalProperties:
+  false` à la racine, `upstreamAuth` y entre avec une énumération pour
+  `allowedModes`. Sans `UPSTREAM_AUTH_ALLOWED_MODES` (image neuve, chart
+  ancien), la valeur est `Passthrough` ; une liste sans `Passthrough` est
+  refusée par le schéma, une valeur inconnue arrête le démarrage
+  (décision 47).
+- **Rétrograder la CRD** (`helm rollback` de `chart-crd`) élague
+  `upstream_auth` à la lecture : le contrôleur refuse alors de démarrer,
+  et les anciens binaires ne trouvent pas les clusters hors `Passthrough`
+  (décision 42) ; repasser chaque cluster en `Passthrough` avant reste la
+  voie documentée.
+- **Sous-protocole WebSocket** (décision 39), dans tous les modes : une
+  entrée `base64url.bearer.authorization.k8s.io.*` n'est plus relayée. Un
+  client qui ne s'authentifierait que par elle (aucun dans ce dépôt ; kubectl
+  envoie `Authorization`) reçoit le `401` du proxy, qui ne l'a jamais lue.
+- **Migration vers `FrontProxy`** : (1) `allowedModes` ; (2) poser les deux
+  préfixes en restant en `Passthrough` ; l'admin du proxy crée le Secret
+  `proxyauth-frontproxy-<ns>.<nom>` et son annotation de cible ; retirer `client_cert`
+  s'il y en avait un ; (3) configurer l'apiserver (CA dédiée,
+  `allowed-names`) sans retirer l'OIDC existant, et écrire les `RoleBinding`
+  pour les noms préfixés ; (4) attendre `UpstreamTrusted=True` (la sonde
+  sonde la préparation) ; (5) passer le mode. Aucune fenêtre de `403`.
+  Réversible en repassant à `Passthrough`, tant que l'apiserver garde son
+  OIDC.
 - **Migration vers `Issuer`** : (1) `allowedModes` ; (2) ajouter `issuer_key`
-  en restant en `Passthrough` : la clé et le JWKS sont publiés, le statut donne
-  issuer et audience ; (3) déclarer l'issuer dans l'`AuthenticationConfiguration`
-  et écrire le RBAC préfixé ; (4) attendre `UpstreamTrusted=True` ; (5) passer
+  avec `issuer_url` en restant en `Passthrough`, et retirer `client_cert` :
+  la clé et le JWKS sont publiés, le statut donne l'audience ; (3) déclarer
+  l'issuer dans l'`AuthenticationConfiguration` et écrire le RBAC préfixé ; (4) attendre `UpstreamTrusted=True` ; (5) passer
   le mode. Aucune fenêtre de `401`.
-- **Changer l'URL publique** d'un cluster en `Issuer` : (1) déclarer la nouvelle
-  URL comme seconde entrée `jwt` de l'apiserver ; (2) poser `issuer_key.url` ;
-  (3) retirer l'ancienne entrée après `UpstreamTrusted=True`.
-- **Renouveler un `client_cert`** : remplacer le contenu du Secret ; le proxy le
-  prend en au plus 300 s (`PROXY_UPSTREAM_CLIENT_TTL`) ; renouveler avant
+- **Changer l'URL publique** d'un cluster en `Issuer` : (1) déclarer la
+  nouvelle URL comme seconde entrée `jwt` de l'apiserver ; (2) changer
+  `issuer_key.issuer_url` ; (3) retirer l'ancienne entrée après
+  `UpstreamTrusted=True`.
+- **Ce que l'apiserver suit seul, et ce qu'il faut lui dire** : il croit une
+  CA et un CN (`FrontProxy`) ou une URL d'issuer (`Issuer`), jamais un
+  certificat ni une clé précis.
+
+  | Changement | Côté apiserver | Note |
+  | --- | --- | --- |
+  | certificat `FrontProxy` renouvelé, même CA et même CN | rien | cas de la recette cert-manager, toutes les 24 h |
+  | CN du certificat changé | ajouter le CN à `--requestheader-allowed-names` avant | la doc dit de choisir un CN et de le garder |
+  | CA `FrontProxy` changée | ancienne et nouvelle CA côte à côte dans `--requestheader-client-ca-file`, basculer l'émetteur, retirer l'ancienne | rechargement du fichier sans redémarrage : Still open 1 |
+  | clé `Issuer` tournée ou révoquée | rien : rechargement du JWKS sur `kid` inconnu | à vérifier, Still open 2 |
+  | URL d'issuer changée | seconde entrée `jwt` le temps de la migration | voir plus bas |
+
+  Un changement que l'apiserver refuse se voit à la sonde, relancée à chaque
+  changement de certificat ou de clé : `UpstreamTrusted=False`, puis `503`
+  lisible, jamais de repli sur le jeton de l'utilisateur.
+- **Renouveler le certificat `FrontProxy`** : l'admin du proxy remplace le
+  contenu du Secret ; le proxy le prend pour les nouvelles connexions en au
+  plus 300 s (`PROXY_UPSTREAM_CLIENT_TTL`) ; renouveler avant
   `ClientCertExpiring` évite toute coupure.
 - **Ce que voient les utilisateurs** : `kubectl auth whoami` affiche le nom
-  préfixé ; la connexion par cluster (`kubectl-proxyauth login <cluster>`) ne
-  change pas.
-- **RFC 0010** : son bloc de config change d'emplacement avant toute
-  implémentation ; aucune donnée à migrer.
-- **Operator prerequisites** : accès aux flags ou à l'`AuthenticationConfiguration`
-  de l'apiserver ; pour `FrontProxy`, une CA dédiée et un certificat client
-  court ; pour `Issuer`, une URL publique du proxy (pas la valeur par défaut)
-  joignable depuis l'apiserver, et NTP.
+  préfixé ; un défaut de confiance donne un `502` lisible, pas un
+  `Unauthorized` (décision 46) ; la connexion par cluster
+  (`kubectl-proxyauth login <cluster>`) ne change pas.
+- **RFC 0010** : son texte est amendé dans le même changement (décision 55) :
+  bloc sous `upstream_auth`, `mode: TokenExchange` au lieu d'`enabled`,
+  `UpstreamCredential::Bearer` ; aucune donnée à migrer.
+- **Operator prerequisites** : accès aux flags ou à
+  l'`AuthenticationConfiguration` de l'apiserver ; pour `FrontProxy`, une CA
+  dédiée et un certificat client court, posé par l'admin du proxy dans son namespace ; pour `Issuer`, une
+  URL publique du proxy joignable depuis l'apiserver, écrite dans
+  `issuer_key.issuer_url`, et NTP ; pour les deux,
+  `OIDC_AUDIENCE_VALIDATION=enforce`.
 - **Rollback** : repasser en `Passthrough` ; la clé et le JWKS restent publiés
   tant que `issuer_key` est présent. Un rollback rouvre le flux du jeton IdP
   vers le cluster (T5), par choix. Un retour du binaire à une version
-  antérieure à la phase 1 est interdit tant qu'un cluster est hors
-  `Passthrough` (T20).
+  antérieure à la phase 1, tant qu'un cluster est hors `Passthrough`, rend
+  ces clusters injoignables (« cluster inconnu ») au lieu de relayer le jeton
+  (décision 42) : fermé, pas sûr pour les utilisateurs ; la doc dit de
+  repasser en `Passthrough` d'abord.
 - **Feature flag** : `allowedModes` pour l'installation, le mode par cluster.
 
 ---
@@ -1085,25 +1536,32 @@ IdP de l'utilisateur.
 
 - **Unit** (`libs/server/crd`) : règles CEL et `validate()` de §4.3, une par
   ligne ; sérialisation du statut ; colonne `-o wide`.
-- **Unit** (`model/user.rs`) : `/userinfo` brut avec un claim personnalisé
-  mappé ; `email_verified` exigé ; `extra` des `JwtAuthenticators` conservé.
+- **Unit** (`crd`) : chemin d'`issuer_url` contre `/issuer/<ns>/<nom>` ;
+  clés `extra` réservées refusées à l'admission.
+- **Unit** (`model/user.rs`) : empreinte du mapping dans la clé de cache ;
+  `/userinfo` brut avec un claim personnalisé mappé ; `email_verified` exigé ; `extra` des `JwtAuthenticators` conservé.
 - **Unit + fuzz** (`cluster/redirect/upstream_identity.rs`) : la cible
   `fuzz/fuzz_targets/fuzz_upstream_identity.rs` (avec son `[[bin]]` dans
   `fuzz/Cargo.toml`) sur `from_user` — pour tout nom, groupes et `extra`
   arbitraires, le résultat est soit un refus, soit une identité dont aucune
   valeur ne commence par `system:`, ne porte d'espace de bord, et dont chaque
-  valeur est un `HeaderValue` valide ; le corpus couvre aussi la sérialisation
-  à la main du chemin upgrade.
+  valeur est un `HeaderValue` valide.
 - **Unit** (`issuer/`) : claims signés, `kid`, choix de la clé courante par
-  `activate_at`, purge par `retire_at`, refus d'un Secret non créé par le
-  contrôleur, clé de cache canonique (groupes à virgule), marge avant `exp`,
-  vérification par `jwt_validator` d'un JWT émis (aller-retour).
+  `activate_at`, purge par `retire_at`, refus d'un Secret sans les labels
+  attendus, clé de cache canonique (groupes à virgule), marge avant `exp`,
+  vérification par `jwt_validator` d'un JWT émis (aller-retour) ;
+  propriété par labels et namespace, sans `created-by` ; première
+  clé active aussitôt ; annotation de rotation traitée une seule fois ; lien
+  entre `activate_at` et la constante de cache.
+- **Bench** (`issuer/` ; `criterion` absent, donc un test `#[ignore]`
+  chronométré) : coût d'une signature ES256, pour valider l'estimation de §7.5.
 - **Integration** (`libs/server/api/tests/upstream_auth.rs`, wiremock pour
   l'apiserver) : en-têtes reçus par l'apiserver simulé pour chaque mode et
   chaque chemin (standard, virtuel, upgrade, revues de `list_fallback`) ; ni
-  jeton IdP ni `x-forwarded-user` en `FrontProxy` et `Issuer` ; clé de cache de
+  jeton IdP ni `x-forwarded-user` en `FrontProxy` et `Issuer` ; plusieurs
+  `X-Remote-Group` sur le chemin upgrade (`append`) ; clé de cache de
   `list_fallback` après un changement de mode ; `503` pour un mode non
-  autorisé.
+  autorisé, avec son message.
 - **Proof** : §6.P (`tests/integration/tests/rfc0014.rs`).
 - **Security** (`libs/server/api/tests/upstream_auth.rs`), un test par ligne :
   - T1 `client_identity_headers_never_reach_the_apiserver_in_front_proxy`
@@ -1111,9 +1569,11 @@ IdP de l'utilisateur.
   - T3 `an_empty_or_system_prefix_is_refused_at_admission`
   - T4 `a_claim_with_a_control_character_is_refused_not_cleaned`
   - T5 `front_proxy_strips_every_authorization_value`
-  - T6 `front_proxy_headers_ride_only_the_client_cert_connection`
-  - T7 `a_reserved_client_cert_subject_warns` (contrôleur) ; la sonde, §6.P
-    point 9
+  - T6 `front_proxy_headers_ride_only_the_certificate_connection` (demande un
+    serveur mTLS de test, `rcgen` + `rustls`, déjà en dev-dependencies : le
+    harnais wiremock pose `client_cert: None`, `harness/mod.rs:184`)
+  - T7 `a_reserved_client_cert_subject_closes_an_effective_front_proxy`
+    (contrôleur) ; la sonde, §6.P point 9
   - T8 `the_issuer_key_never_appears_in_logs_status_or_responses`
   - T9 `a_jwt_for_one_cluster_carries_only_its_audience`
   - T10 `the_issued_jwt_never_reaches_the_client`
@@ -1124,16 +1584,31 @@ IdP de l'utilisateur.
   - T15 `issuer_routes_are_never_banned_and_served_from_memory`
   - T16 `an_upstream_request_audits_the_transmitted_identity`
   - T17 `the_fallback_token_client_never_carries_remote_headers`
-  - T18 `a_secret_not_created_by_the_controller_is_never_adopted`
+  - T18 `a_secret_without_the_expected_labels_is_never_adopted`
   - T19 `a_mode_outside_allowed_modes_answers_503`
   - T20 `an_unserved_mode_answers_503_never_passthrough`
   - T21 `forwarded_identity_headers_are_dropped_in_trusted_modes`
   - T22 `edge_whitespace_and_uppercase_extra_keys_are_refused`
   - T23 `an_unverified_email_is_refused_as_username`
+  - T24 `a_mapping_from_one_cluster_never_serves_another`
+  - T25 `client_cert_is_refused_in_issuer_and_front_proxy`
+  - T26 `a_pre_phase1_lookup_never_finds_a_trusted_cluster`, et
+    `the_controller_refuses_a_crd_without_upstream_auth`
+  - T27 `a_front_proxy_cert_is_read_only_from_the_proxy_namespace_by_name`
+  - T29 `a_front_proxy_cert_for_another_target_closes_the_cluster`
+  - T28 `audience_validation_off_closes_trusted_modes`
+  - décision 39 `bearer_subprotocol_entries_are_stripped_in_every_mode`
+  - décision 45 `a_probe_transport_error_is_unknown_never_false`
+  - décision 46 `an_upstream_401_in_a_trusted_mode_becomes_502`
+  - décision 43 `a_sweep_after_a_partial_list_deletes_nothing`
+  - décision 44 `a_slow_kube_api_never_blocks_a_signed_request`
+  - décision 52 `revoke_drops_the_key_and_signs_with_a_fresh_kid`
 - **Audit** : `task audit` vert (aucune crate nouvelle dans `Cargo.lock`).
 - **Existing suites** : `http_contract`, `proxy_security`, `proxy_upgrade`,
-  envtest, `rfc0003`, `rfc0006`, `rfc0007`, `rfc0012` inchangés : un cluster en
-  `Passthrough` se comporte comme avant.
+  envtest, `rfc0003`, `rfc0006`, `rfc0007`, `rfc0012` restent verts sans
+  changement d'attente : un cluster en `Passthrough` se comporte comme avant.
+  Les tests unitaires qui figent la signature d'`identity_headers`
+  (`forwarded.rs:284,296`, `upgrade.rs:747,824`) changent avec elle (§6.3).
 
 ---
 
@@ -1143,7 +1618,10 @@ IdP de l'utilisateur.
 
 Tranchées au `/grill-me` du 2026-10-27 (1 à 20), à la rédaction (21 à 27),
 puis après les revues sécurité, expérience utilisateur, stabilité du code et
-résilience du même jour (28 à 37).
+résilience du même jour (28 à 37), puis au `/grill-me` du 2026-10-29 sur les
+questions ouvertes par la revue finale à six relecteurs (38 à 55 ; la
+question d'origine est entre parenthèses), 56 qui rouvre la 49, et 57 (source du certificat). Toutes suivent la recommandation
+de la revue, sauf la 46 (prémisse corrigée) et la 53 (option nouvelle).
 
 | # | Question | Decision |
 | --- | --- | --- |
@@ -1152,13 +1630,13 @@ résilience du même jour (28 à 37).
 | 3 | Granularité | **Par cluster**, `Passthrough` par défaut (complétée par la décision 30). |
 | 4 | Forme | **Une RFC** (celle-ci), avec ses preuves §6.P. |
 | 5 | Audit de l'apiserver | **Le nom préfixé** y apparaît comme utilisateur authentifié ; pas de champ `impersonatedUser`, puisqu'il n'y a pas d'impersonation. |
-| 6 | RFC séparée de la 0010 | **Oui**, la 0014 ; la 0010 reçoit un pointeur. |
+| 6 | RFC séparée de la 0010 | **Oui**, la 0014 ; la 0010 reçoit un pointeur (puis un amendement de son texte, décision 55). |
 | 7 | Mécanismes | **Les deux** : `FrontProxy` (mTLS + `X-Remote-*`) et `Issuer` (JWT signé par le proxy). |
 | 8 | Préfixes | **Obligatoires, non vides, sans `system:`** ; refus en dur de tout nom transmis en `system:`. |
 | 9 | Modes de validation | **`FrontProxy` et `Issuer` refusés avec `validate_against: Kubernetes`** ; `claim_mappings` ajouté à `OidcProvider`, dans le périmètre. |
 | 10 | `Authorization` | **Retirée en `FrontProxy`, remplacée en `Issuer`** : le jeton IdP ne sort jamais du proxy. |
 | 11 | Forme dans la CRD | **`upstream_auth { mode, user_prefix, group_prefix, … }`** ; en-têtes fixes, valeurs de kubeadm et k3s. |
-| 12 | Jetons `Issuer` | **ES256, Secret géré par le contrôleur, rotation avec chevauchement, `aud` par cluster, TTL 5 min avec cache** ; préfixes et refus `system:` avant la signature. |
+| 12 | Jetons `Issuer` | **ES256, Secret géré par le contrôleur, rotation avec chevauchement, `aud` par cluster, TTL 5 min avec cache** ; préfixes et refus `system:` avant la signature. Clé ~~par instance~~ : par cluster, décision 17 ; rotation précisée par la décision 37. |
 | 13 | `Issuer` en mode agent | **Permis, avec un avertissement** ; la doc recommande `FrontProxy`. |
 | 14 | Découpage | **Trois phases** (§16). |
 | 15 | Rapport avec la 0010 | ~~**`Issuer` est une source du pipeline de la 0010** ; la phase 3 suit l'implémentation de la 0010.~~ Remplacée par la décision 31. |
@@ -1174,29 +1652,59 @@ résilience du même jour (28 à 37).
 | 25 | Audience | **`ProxyKubeApi::to_identifier()`**, déjà unique par cluster. |
 | 26 | `uid` et `extra` | **`uid` non transmis ; `extra` seulement depuis `claim_mappings.extra`.** |
 | 27 | Rotation | **30 jours par défaut, annotation `proxyauth.weebo.si.rs/rotate-issuer-key`** ; délais fixés par la décision 37. |
-| 28 | Protection côté apiserver | **En `Issuer`, `userValidationRules` sur le préfixe dans le modèle de la doc ; en `FrontProxy`, risque résiduel cluster-admin écrit, CA dédiée exigée, certificat court, avertissement sur un sujet `system:`.** Le refus `system:` du proxy seul ne survit pas à un vol. |
+| 28 | Protection côté apiserver | **En `Issuer`, `userValidationRules` sur le préfixe dans le modèle de la doc ; en `FrontProxy`, risque résiduel cluster-admin écrit, CA dédiée exigée, certificat court, avertissement sur un sujet `system:`** (devenu bloquant à la bascule, décision 45). Le refus `system:` du proxy seul ne survit pas à un vol. |
 | 29 | Où vivent les clés | **Namespace du proxy, nommées par UID, jamais adoptées, lues par `get` avec cache.** Le namespace du tenant laissait l'admin du namespace lire ou déposer la clé. |
 | 30 | Qui active les modes de confiance | **`upstreamAuth.allowedModes` du chart, fermé par défaut à `FrontProxy` et `Issuer`.** Éditer un `ProxyKubeApi` dans ces modes équivaut à administrer le cluster cible. |
 | 31 | `Issuer` et la 0010 | **`Issuer` autonome** (`TtlCache`, `UpstreamCredential::Bearer`) ; la 0010 se branche plus tard sur la même variante. Revient sur la décision 15 : rien de technique ne liait les deux, et la phase 3 restait bloquée. |
 | 32 | `x-forwarded-*` | **Retirés en `FrontProxy` et `Issuer`.** Ils porteraient l'identité brute, non préfixée, sur la connexion que l'apiserver croit. |
 | 33 | Sonde de confiance | **Oui, `SelfSubjectReview` par le leader, Condition `UpstreamTrusted`.** Seul diagnostic par cluster, les métriques n'ayant pas de label `cluster`. |
-| 34 | Mise à jour progressive | **La phase 1 livre la garde (`503` pour un mode non servi) ; tous les réplicas à cette version avant toute bascule.** Un réplica ancien relaierait le jeton IdP. |
-| 35 | Préparation et URL de l'issuer | **`issuer_key` permis en `Passthrough` ; issuer figé dans le statut, `issuer_key.url` pour le changer ; base par défaut ou loopback refusée ; bloc renommé `issuer_key`.** Supprime la fenêtre de `401` et la panne collective sur changement d'URL. |
-| 36 | Mapping explicite | **`claim_mappings` requis en `FrontProxy` et `Issuer` ; `email_verified` exigé avec `claim: email` ; `sub` recommandé.** `preferred_username` est souvent modifiable par l'utilisateur. |
+| 34 | Mise à jour progressive | **La phase 1 livre la garde (`503` pour un mode non servi) ; tous les réplicas à cette version avant toute bascule.** Un réplica ancien relaierait le jeton IdP. Complétée par la décision 42, qui rend ce cas fermé dans le code. |
+| 35 | Préparation et URL de l'issuer | **`issuer_key` permis en `Passthrough` ; ~~issuer figé dans le statut, `issuer_key.url` pour le changer ; base par défaut ou loopback refusée~~ ; bloc renommé `issuer_key`.** Supprime la fenêtre de `401`. La partie barrée est remplacée par la décision 53. |
+| 36 | Mapping explicite | **`claim_mappings` requis en `FrontProxy` et `Issuer` ; `email_verified` exigé avec `claim: email` ; `sub` recommandé.** `preferred_username` est souvent modifiable par l'utilisateur. Étendue à `JwtAuthenticators` et à la forme `expression` par la décision 51. |
 | 37 | Rotation déclarative | **`activate_at` et `retire_at` dans le Secret, activation à 5 min, écriture avec `resourceVersion`, purge des clés retirées, Secret conservé au retour à `Passthrough`.** Une activation par étape du contrôleur faisait signer un réplica avec une clé qu'un autre ne publiait pas encore. |
+| 38 | Cache des jetons validés (Q3) | **Empreinte du `claim_mappings` dans `token_cache_key` ; absent = valeur fixe `legacy` ; phase 1.** Deux clusters au même mapping partagent l'entrée ; l'UID du cluster aurait multiplié les appels à l'IdP sans gain. |
+| 39 | Jeton dans `Sec-WebSocket-Protocol` (Q4) | **Entrées `base64url.bearer.authorization.k8s.io.*` retirées dans tous les modes.** En `Passthrough`, le proxy ne valide que `Authorization` : un second jeton, jamais lu, n'a rien à faire en amont. Aucun client du dépôt ne s'en sert. |
+| 40 | `Issuer` avec un `client_cert` (Q5) | **Refusé (CEL et `validate`).** x509 passerait avant le JWT ; un client CA seule de plus ajouterait une troisième identité TLS au cache, sans usage. |
+| 41 | Où tourne la sonde (Q6) | **Dans le processus `api`, gardée par le bail du leader.** Client amont, passerelle et signataire y vivent ; contrôleur et API partagent toujours le Deployment (`dp.back.yaml`). |
+| 42 | Réplica ancien, CRD rétrogradée (Q7) | **Clusters hors `Passthrough` publiés sous une clé Redis nouvelle ; contrôleur qui refuse une CRD sans `upstream_auth` ; phase 1.** Seule option fermée sans registre de versions des réplicas, que la RFC 0013 ne fournit pas. |
+| 43 | Propriété des Secrets et balayage (Q8) | **Labels + namespace du proxy, sans `created-by` ; Secret qui échoue au contrôle jamais touché, Condition qui le nomme ; balayage après une liste complète, en deux temps (24 h, préconditions) ; `list`/`delete` larges acceptés (T18).** L'UID du Deployment n'est pas exposé et change à la réinstallation. |
+| 44 | Résilience de la lecture de clé (Q9) | **Dernière `keys.json` valide jusqu'à son `retire_at` ; un rafraîchissement par cluster, 2 s, gigue ; magasin « dernier bon document » pour `/issuer/*` ; pas de limiteur.** Deux documents en mémoire n'ont rien à protéger. |
+| 45 | Poids de la sonde (Q10) | **En mode effectif, écart, `401` ou sujet réservé : `Ready=False` et `503` ; transport, `5xx`, agent absent : `Unknown`, servi ; avis seulement en préparation ; préparation `FrontProxy` sondée ; groupe, `extra` et identité non préfixée sondés.** Un certificat d'O `system:masters` rend « relayé » inacceptable. |
+| 46 | `401` amont en mode de confiance (Q11) | **Traduit en `502` avec un `Status` qui nomme `UpstreamTrusted`.** La revue craignait une boucle de connexion ; le plugin ne fait que relire le trousseau (`get_token.rs:143-173`), il n'y en a pas. Reste qu'un `Unauthorized` nu envoie l'utilisateur se reconnecter pour rien. |
+| 47 | Sémantique d'`allowedModes` (Q12) | **`Passthrough` toujours permis, liste sans lui refusée ; virgules ; valeur inconnue = arrêt au démarrage ; énumération sans `TokenExchange` en phase 1, défaut `[Passthrough]`.** `TokenExchange` revient, additif, avec le schéma de la 0010. |
+| 48 | Certificat `FrontProxy` hors du namespace du tenant (Q13) | **Dans le namespace du proxy, et toute référence inter-namespace refusée.** C'est un identifiant cluster-admin ; la décision 30 fait déjà du mode un choix de l'admin du proxy. |
+| 49 | Comment un cluster `FrontProxy` trouve son certificat (Q13b) | **`client_cert` refusé en `FrontProxy` ; Secret ~~`proxyauth-frontproxy-<UID>`~~ dans le namespace du proxy, posé par l'admin, nommé dans le statut, `ClientCertMissing` sinon.** L'auteur du cluster ne peut nommer ni ce certificat ni celui d'un autre. Le nom par UID est remplacé par la décision 56. |
+| 50 | Validation d'audience (Q14) | **`enforce` exigé en mode effectif, sinon `Ready=False` (`AudienceValidationRequired`) et `503`.** Le proxy y est le seul à vérifier l'audience. |
+| 51 | Où vérifier `email_verified` (Q15) | **Dans `map_user`, formes `claim` et `expression`, seulement en mode de confiance ; absent refusé.** Un seul endroit, les deux chemins, aucun cluster existant ne change ; plus strict que l'apiserver, exprès. |
+| 52 | Révoquer une clé (Q16) | **Annotation `revoke:<nonce>` : retrait immédiat, clé neuve active tout de suite, `kid` neuf qui force le rechargement du JWKS.** Sans elle, une clé fuitée restait crue jusqu'à 30 jours. |
+| 53 | Durabilité de l'URL de l'issuer (Q17) | **`issuer_key.issuer_url` requis, écrit par l'auteur du cluster ; plus de gel ni de recalcul ; `IssuerUrlUnset` et `UPSTREAM_AUTH_ISSUER_BASE_URL` supprimés ; chemin vérifié par `validate`.** Revient en partie sur la décision 35 : le statut et `keys.json` disparaissaient avec l'UID à une restauration ; la spec vit dans Git. |
+| 54 | Forme du statut (Q18) | **camelCase (`status.upstreamAuth.issuerUrl`…), `issuer_key.issuer_url` dans la spec, `null` par `fields()`.** Comme `observedGeneration`, `caFingerprints`, `proxyVersion` ; renommer après publication casserait l'API. |
+| 55 | Texte de la RFC 0010 (Q19) | **Amendé dans le même changement : bloc sous `upstream_auth.token_exchange`, `UpstreamCredential::Bearer`, `enabled` remplacé par le mode, booléen `token_exchange` de `/api/v1/clusters` dérivé du mode.** Deux textes contradictoires coûteraient à qui l'implémente. |
+| 56 | Nom du Secret `FrontProxy` (49 rouverte, 2026-10-29) | **`proxyauth-frontproxy-<ns>.<nom>`, et une annotation `proxyauth.weebo.si.rs/front-proxy-target` posée par l'admin, comparée à `spec.service` (`ClientCertTargetMismatch`) ; nom trop long : `ClientCertNameTooLong` ; jamais balayé.** Le nom par UID interdisait de déclarer le Secret avant le cluster et obligeait à le recopier à chaque restauration ou recréation. Le `ns/nom` est aussi sûr : un tenant ne crée de `ProxyKubeApi` que dans son namespace, et un nom de namespace n'a pas de point, donc pas de collision. Ce que l'UID protégeait en plus, un namespace repris par un autre tenant, et ce qu'il ne protégeait pas, un `spec.service` repointé vers un autre apiserver qui croit la même CA, l'annotation de cible le couvre (T29). |
+| 57 | Source du certificat `FrontProxy` | **Au choix de l'admin : tout ce qui écrit un Secret `kubernetes.io/tls` avec les labels et l'annotation de cible ; cert-manager recommandé (CA privée, 24 h, `rotationPolicy: Always`, une CA par apiserver cible) ; Vault Secrets Operator, External Secrets ou un pipeline possibles ; le proxy ne parle jamais à une PKI et ne crée pas de `Certificate`.** Des certificats courts renouvelés seuls bornent T6 à un jour sans code. Un `Certificate` créé par le contrôleur ferait émettre un identifiant cluster-admin à quiconque peut demander `FrontProxy`, et ferait de cert-manager une dépendance ; un client Vault dans le proxy ajouterait un secret et une surface sortante pour remplacer un Secret que ces outils écrivent déjà. Que VSO et External Secrets posent labels et annotations sur le Secret écrit est à vérifier dans la doc. |
 
 ### Still open
 
 1. **Sonde k3s (phase 2).** Que l'apiserver de k3s du banc accepte un
    `requestheader-client-ca-file` qui concatène sa CA d'agrégation et la CA
    dédiée du run, sans casser son agrégation, est tiré de la connaissance de
-   k3s, pas d'une sonde. À vérifier avant la phase 2. Ne change pas la
+   k3s, pas d'une sonde. Vérifier aussi que l'apiserver recharge ce fichier
+   sans redémarrage quand la CA change (§13). Sonde :
+   `.it/probes/rfc0014-front-proxy.sh`, lancée par
+   `.github/workflows/probe-rfc0014.yaml` sur un cluster k3d jetable ; son
+   résumé sera cité au §17. À vérifier avant la phase 2. Ne change pas la
    conception.
-2. **Comportement de l'apiserver à vérifier sur les sources (phase 3)** :
+2. **Comportement de l'apiserver à vérifier sur les sources (phases 1 à 3)** :
    rechargement du JWKS sur `kid` inconnu (go-oidc `RemoteKeySet`), absence de
    tolérance sur `exp`, rechargement à chaud de l'`AuthenticationConfiguration`
    quand un nouvel issuer est injoignable. Les délais de §5.3 en dépendent ;
-   ils sont choisis larges.
+   ils sont choisis larges. Y ajouter : l'ordre de l'union d'authentificateurs
+   (requestheader, x509, bearer, sous-protocole WebSocket) et le passage au
+   suivant sur échec, qui justifie les décisions 39 et 40 ; ce que voit la
+   sonde `FrontProxy` (`401` ou CN) selon la CA (§5.4). La révocation
+   (décision 52) repose aussi sur le rechargement sur `kid` inconnu. Ne
+   change pas la conception : si l'une de ces lectures est fausse, ce sont
+   des délais et des messages qui bougent, pas les décisions.
 
 ---
 
@@ -1204,16 +1712,23 @@ résilience du même jour (28 à 37).
 
 | Phase | Content |
 | --- | --- |
-| 1 | `claim_mappings` sur `OidcProvider` (`/userinfo` brut, `map_user` public, `email_verified`) ; `User.extra` et `Default`, `extra` des `JwtAuthenticators` ; le champ `upstream_auth` (CRD, CEL, colonne `-o wide`, statut `mode`) avec `allowedModes` et la **garde** : `503` pour tout mode non autorisé ou non servi ; `upstream_mode` dans l'audit. §6.P points 1 et 2, T19, T20, T23. Utile seul : aligner le nom vu par le proxy, et rendre sûres les mises à jour suivantes. |
-| 2 | `FrontProxy` : `UpstreamIdentity` et ses refus, `UpstreamCredential` dans `RedirectContext` par `identity_headers`, tous les chemins, clé de cache de `list_fallback`, retrait de `x-forwarded-*`, métriques ; contrôleur : certificat (`x509-parser`), Conditions, sonde `UpstreamTrusted` ; cache TLS borné par `not_after` ; tests T1 à T7, T13, T16, T17, T21, T22 ; fuzz ; banc (CA dédiée, persona `system:masters`) ; doc front-proxy, migration, runbook. §6.P points 3 à 9 et 11 (partie `FrontProxy`). |
-| 3 | `Issuer`, indépendant de la RFC 0010 : clé déclarative et rotation (contrôleur, Role dans le namespace du proxy), issuer figé, routes `/issuer/*` et leur cache, signature et `TtlCache`, sonde en mode `Issuer`, statut, métriques, tests T8 à T12, T14, T15, T18 ; banc (`AuthenticationConfiguration` avec l'issuer du proxy et ses `userValidationRules`, deux clusters) ; doc émetteur. §6.P points 10 à 14. |
+| 1 | `claim_mappings` sur `OidcProvider` (`/userinfo` brut et plafonné, `map_user` public avec `trusted` et `email_verified`) et son empreinte dans la clé du cache des jetons (décision 38) ; `User.extra` et `Default`, `extra` des `JwtAuthenticators` ; le champ `upstream_auth` (CRD sans `TokenExchange`, CEL, colonne `-o wide`, statut `upstreamAuth.mode` en camelCase) avec `allowedModes` (décision 47) et la **garde** : `503` pour tout mode non autorisé ou non servi ; clé Redis des clusters hors `Passthrough` et refus d'une CRD sans le champ (décision 42) ; retrait du jeton de `Sec-WebSocket-Protocol` dans tous les modes (décision 39) ; `upstream_mode` dans l'audit ; texte de la RFC 0010 amendé (décision 55). §6.P points 1, 2, 15, 16 et 17 ; T19, T20, T23, T24, T26. Utile seul : aligner le nom vu par le proxy, et rendre sûres les mises à jour suivantes. |
+| 2 | `FrontProxy` : `UpstreamIdentity` et ses refus, `UpstreamCredential` dans `RedirectContext`, `Caller` et `ListFallbackArgs`, prédicat partagé sur `authorization`, `append` sur le chemin upgrade, clé de cache de `list_fallback`, retrait de `x-forwarded-*`, `401` amont traduit en `502` (décision 46), métriques ; certificat lu du Secret `proxyauth-frontproxy-<ns>.<nom>` du namespace du proxy, lié à sa cible, `client_cert` refusé dans ce mode (décisions 48, 49, 56) ; `enforce` exigé (décision 50) ; contrôleur : certificat (`x509-parser`), Conditions ; sonde dans `api` sur le leader, avec `Unknown` et son poids sur `Ready` (décisions 41, 45) ; cache TLS borné par `not_after` ; tests T1 à T7, T13, T16, T17, T21, T22, T27, T28, T29 ; fuzz ; banc (CA dédiée, audit de l'apiserver, écho amont, persona `system:masters`) ; doc front-proxy, migration, runbook. §6.P points 3 à 9 et 11 (partie `FrontProxy`). |
+| 3 | `Issuer`, indépendant de la RFC 0010 : `client_cert` refusé (décision 40) ; `issuer_key.issuer_url` requis et vérifié (décision 53) ; clé déclarative, rotation et révocation `revoke:<nonce>` (décision 52) ; propriété par labels et namespace, balayage en deux temps (décision 43) ; lecture de clé résiliente (décision 44) ; Role dans le namespace du proxy ; routes `/issuer/*` et leur magasin « dernier bon document » ; signature et `TtlCache` ; `UpstreamCredential::Bearer` ; sonde en mode `Issuer` (dont l'identité non préfixée) ; statut ; métriques ; tests T8 à T12, T14, T15, T18, T25 ; banc (`AuthenticationConfiguration` avec l'issuer du proxy et ses `userValidationRules`, deux clusters) ; doc émetteur. §6.P points 10 à 14. |
+
+`UpstreamCredential::Bearer` n'arrive qu'en phase 3 (ou avec la RFC 0010) :
+livré en phase 2 sans constructeur, il ferait échouer le lint sur du code
+mort.
 
 La RFC 0010 peut être livrée avant, entre ou après les phases 2 et 3 : elle
 range sa config sous `upstream_auth` (décision 16) et son jeton dans
 `UpstreamCredential::Bearer`.
 
 Chaque contrôle arrive dans la phase de la surface qu'il protège : la garde
-de version et `allowedModes` en phase 1, avant tout mode de confiance ; les
+de version, `allowedModes`, la clé Redis nouvelle et l'empreinte du mapping
+dans le cache en phase 1, avant tout mode de confiance ; les
 refus `system:`, nom vide et valeurs non transmissibles en phase 2 avec le
-premier en-tête `X-Remote-*` ; la vérification d'`aud`, la clé par cluster et
-la non-adoption en phase 3 avec le premier JWT.
+premier en-tête `X-Remote-*`, avec le certificat dans le namespace du proxy
+et `enforce` ; la vérification d'`aud`, la clé par cluster, le refus de
+`client_cert` en `Issuer` et la non-adoption en phase 3 avec le premier
+JWT.

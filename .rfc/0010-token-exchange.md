@@ -8,8 +8,8 @@
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
 | Co-author   | Claude Opus 5.5 (1M context)                                           |
 | Created     | 2026-10-18                                                             |
-| Supersedes  | — (amendée par [0014](0014-trusted-authenticator.md) : config sous `upstream_auth`, deux non-goals de §3 levés) |
-| Touches     | `libs/server/crd/src/authentication_configuration/`, `libs/server/common/src/{oidc_cache.rs,token_exchange.rs}`, `libs/server/api/src/cluster/redirect/{kube_redirect.rs,forwarded.rs,audit.rs}`, `…/kube_redirect/{standard.rs,upgrade/connect.rs,virtual_redirect/,list_fallback/}`, `libs/server/api/src/visible_clusters/`, `libs/server/api/src/server_auth/` (nouveau), `libs/server/api/src/metrics.rs`, `libs/cli/cli/src/login/`, `apps/front/src/`, CRD générée, `swagger.json` et clients générés, `.it/`, `tests/integration/`, `.docs/content/docs/` |
+| Supersedes  | — (amendée par [0014](0014-trusted-authenticator.md) : config sous `upstream_auth.token_exchange`, `mode: TokenExchange` au lieu d'`enabled`, jeton dans `UpstreamCredential::Bearer`, deux non-goals de §3 levés ; texte amendé en §4.1, §4.3, §4.4, §6.1, §6.3, §6.4, §13) |
+| Touches     | `libs/server/crd/src/upstream_auth/` (RFC 0014), `libs/server/common/src/{oidc_cache.rs,token_exchange.rs}`, `libs/server/api/src/cluster/redirect/{kube_redirect.rs,forwarded.rs,audit.rs}`, `…/kube_redirect/{standard.rs,upgrade/connect.rs,virtual_redirect/,list_fallback/}`, `libs/server/api/src/visible_clusters/`, `libs/server/api/src/server_auth/` (nouveau), `libs/server/api/src/metrics.rs`, `libs/cli/cli/src/login/`, `apps/front/src/`, CRD générée, `swagger.json` et clients générés, `.it/`, `tests/integration/`, `.docs/content/docs/` |
 | Risk        | high                                                                   |
 
 
@@ -61,8 +61,9 @@ spec:
       issuer_url: https://sso.example.com/realms/corp
       client_id: kube-prod            # client confidentiel, échange activé
       config_from: { name: kube-prod-oidc }   # client_secret
+  upstream_auth:                      # RFC 0014, décision 16
+    mode: TokenExchange               # défaut : Passthrough
     token_exchange:
-      enabled: true                   # défaut : false
       audience: kube-prod             # le jeton échangé est pour l'apiserver
       max_cache_seconds: 300          # défaut : 300
 ```
@@ -149,20 +150,28 @@ proxy demain.
 
 ### 4.1 Configuration
 
-Un bloc `token_exchange` sous `auth_config` :
+> **Amendé par la RFC 0014 (décision 55, 2026-10-29).** Le bloc vit sous
+> `spec.upstream_auth`, et c'est `upstream_auth.mode: TokenExchange` qui active l'échange : le champ
+> `enabled` disparaît, le mode en tient lieu (RFC 0014 §4.1, décisions 16 et
+> 47). `TokenExchange` entre dans l'énumération des modes avec cette RFC, et
+> doit figurer dans `upstreamAuth.allowedModes` du chart.
+
+Un bloc `token_exchange` sous `upstream_auth`, requis en
+`mode: TokenExchange` et refusé dans les autres modes :
 
 ```yaml
-token_exchange:
-  enabled: false            # défaut ; true active l'échange pour ce cluster
-  audience: ""              # paramètre `audience` envoyé ; vide = omis
-  scope: ""                 # paramètre `scope` envoyé ; vide = omis
-  connector_id: ""          # Dex seulement (§6.2) ; vide = omis
-  max_cache_seconds: 300    # plafond de vie d'un jeton échangé en cache
+upstream_auth:
+  mode: TokenExchange       # active l'échange ; défaut : Passthrough
+  token_exchange:
+    audience: ""            # paramètre `audience` envoyé ; vide = omis
+    scope: ""               # paramètre `scope` envoyé ; vide = omis
+    connector_id: ""        # Dex seulement (§6.2) ; vide = omis
+    max_cache_seconds: 300  # plafond de vie d'un jeton échangé en cache
 ```
 
-- **Absent ou `enabled: false`** : rien ne change, le jeton du client est
-  validé selon `validate_against` et relayé.
-- **`enabled: true`** : le jeton du client est validé contre l'IdP **du
+- **Mode autre que `TokenExchange`** (dont `upstream_auth` absent) : rien ne
+  change, le jeton du client est validé selon `validate_against` et relayé.
+- **`mode: TokenExchange`** : le jeton du client est validé contre l'IdP **du
   proxy** (`state.oidc_client`, le même chemin que le dashboard) et
   `validate_against` ne s'applique plus au jeton entrant ; il reste utilisé
   par le contrôleur pour son statut.
@@ -172,8 +181,9 @@ token_exchange:
 - `max_cache_seconds` borne le temps pendant lequel un changement de groupes
   chez l'IdP peut ne pas être vu par l'apiserver (§7, T9). `0` désactive le
   cache : un échange par requête.
-- Défaut sûr : `enabled: false`. Activer l'échange envoie le jeton du proxy
-  de l'utilisateur à l'IdP du cluster ; c'est un choix de l'opérateur.
+- Défaut sûr : `mode: Passthrough`, et `TokenExchange` hors des
+  `allowedModes` par défaut du chart. Activer l'échange envoie le jeton du
+  proxy de l'utilisateur à l'IdP du cluster ; c'est un choix de l'opérateur.
 
 ### 4.2 Behaviour rules
 
@@ -199,8 +209,9 @@ aujourd'hui) :
 
 | Condition | Rationale |
 | --- | --- |
-| `token_exchange.enabled` et `oidc_provider.enabled: false` | aucun client pour échanger : chaque requête échouerait |
-| `token_exchange.enabled` et `disable_validation: true` | l'échange exige un utilisateur validé ; sans validation, n'importe quel porteur obtiendrait un jeton |
+| `mode: TokenExchange` sans `token_exchange`, ou `token_exchange` hors de ce mode | une seule source de vérité pour l'`Authorization` (RFC 0014, décision 16) |
+| `mode: TokenExchange` et `oidc_provider.enabled: false` | aucun client pour échanger : chaque requête échouerait |
+| `mode: TokenExchange` et `disable_validation: true` | l'échange exige un utilisateur validé ; sans validation, n'importe quel porteur obtiendrait un jeton |
 | `max_cache_seconds` > 3600 | borne T9 ; une heure couvre tout IdP raisonnable |
 | `audience`, `scope` ou `connector_id` avec CR, LF ou `&` | ces valeurs sont envoyées dans un formulaire ; refusées plutôt qu'échappées |
 
@@ -216,7 +227,7 @@ le dashboard) :
 
 | Method | Path | Auth | Who may call | Limit |
 | --- | --- | --- | --- | --- |
-| GET | `/api/v1/clusters` (champ ajouté `token_exchange: bool` par cluster) | jeton du proxy | inchangé | inchangé |
+| GET | `/api/v1/clusters` (champ ajouté `token_exchange: bool` par cluster, **calculé** depuis `upstream_auth.mode == TokenExchange`, RFC 0014 décision 55) | jeton du proxy | inchangé | inchangé |
 | GET | `/api/v1/auth/login` | aucune (démarre un SSO) | tout appelant ; `redirect_uri` loopback seulement (comme `/oauth/authorize`) | throttling non scopé |
 | GET | `/api/v1/auth/callback` | état à usage unique (Redis, 300 s) | l'IdP du proxy, au retour | throttling non scopé |
 | POST | `/api/v1/auth/refresh` | refresh token dans le corps (formulaire) | le détenteur d'un refresh token | throttling non scopé et fail2login (un `invalid_grant` compte) |
@@ -277,11 +288,15 @@ concurrents sur une même clé sont regroupés derrière un verrou par clé, com
 
 ## 6. Detailed design
 
-### 6.1 CRD (`libs/server/crd/src/authentication_configuration/`)
+### 6.1 CRD (`libs/server/crd/src/upstream_auth/`)
 
-- `token_exchange.rs` : `TokenExchange { enabled, audience, scope,
-  connector_id, max_cache_seconds }`, `#[serde(default)]`, et ses règles CEL
-  (§4.3) dans `AuthenticationConfiguration`.
+> **Amendé par la RFC 0014 (décision 55, 2026-10-29).** Le type vit dans
+> `upstream_auth/` et non plus dans `authentication_configuration/` ; `enabled` disparaît (RFC 0014 §6.1).
+
+- `upstream_auth/token_exchange.rs` : `TokenExchange { audience, scope,
+  connector_id, max_cache_seconds }`, `#[serde(default)]` ;
+  `UpstreamAuthMode` gagne la variante `TokenExchange` et `UpstreamAuth` le
+  champ `token_exchange` ; ses règles CEL (§4.3) sur `ProxyKubeApiSpec`.
 - `warnings()` étendu pour les deux avertissements de §4.3.
 
 ### 6.2 L'appel d'échange (`libs/server/common/src/token_exchange.rs`)
@@ -304,20 +319,28 @@ concurrents sur une même clé sont regroupés derrière un verrou par clé, com
 
 ### 6.3 Dans `redirect` (`libs/server/api/src/cluster/redirect/kube_redirect.rs`)
 
-- Porte 4 : si `token_exchange.enabled`, le jeton est validé par
+> **Amendé par la RFC 0014 (décision 55, 2026-10-29).** Le jeton échangé est
+> rangé dans `UpstreamCredential::Bearer` (RFC 0014 §6.3), pas dans un champ
+> `upstream_token` ; le point de couture d'`Authorization` est celui de la
+> 0014.
+
+- Porte 4 : si `upstream_auth.mode` vaut `TokenExchange`, le jeton est
+  validé par
   `User::get_user_info_from_oidc_token(token, data.oidc_client)` au lieu de
   `get_user_info_with_proxy`. Le throttling et `is_caller_fault()` sont
   inchangés.
 - Après la porte 8 : `exchanged = token_exchange::exchange(&data, &proxy,
-  token).await`, rangé dans `RedirectContext` (`upstream_token:
-  Option<SecretString>`).
+  token).await`, rangé dans `RedirectContext` (`upstream:
+  UpstreamCredential::Bearer(SecretString)`).
 - `apply_forward_headers` (`upstream.rs`) et `build_upgrade_request`
-  (`upgrade/connect.rs`) remplacent `Authorization` quand `upstream_token` est
-  présent ; `list_fallback` et `virtual_redirect` lisent le même champ.
+  (`upgrade/connect.rs`) remplacent `Authorization` pour une
+  `UpstreamCredential::Bearer` ; `list_fallback` et `virtual_redirect` la
+  reçoivent par `ListFallbackArgs` et `Caller` (RFC 0014 §6.3).
 
 ### 6.4 Les clients
 
-- `visible_clusters` : champ `token_exchange` dans la réponse.
+- `visible_clusters` : champ `token_exchange` dans la réponse, vrai quand
+  `upstream_auth.mode` vaut `TokenExchange`.
 - CLI : `login clusters` ne lance pas de SSO pour un cluster en échange et
   écrit un contexte dont l'exec renvoie le jeton du serveur ; `get-token`
   n'a pas de jeton de cluster à chercher et rafraîchit le jeton du serveur
@@ -447,7 +470,8 @@ flowchart LR
   même garde-fou que `/oauth/authorize` contre la redirection ouverte) et
   `/api/v1/auth/refresh` (un refresh token est la preuve ; l'IdP en juge). Les
   deux passent par le throttling non scopé avant tout appel à l'IdP (T12).
-- Défaut : `enabled: false` ; un cluster sans le bloc n'échange rien.
+- Défaut : `mode: Passthrough`, et `TokenExchange` hors des `allowedModes`
+  par défaut du chart ; un cluster sans `upstream_auth` n'échange rien.
 - Un contournement de la porte 4 donnerait un jeton du cluster à son auteur :
   c'est pourquoi l'échange n'accepte que des requêtes dont `user` est
   `Some` (affirmé dans `exchange`, et `disable_validation` interdit avec
@@ -587,7 +611,8 @@ l'apiserver.
 
 ## 13. Rollout and compatibility
 
-- **Default behaviour** : inchangé ; le bloc est absent ou `enabled: false`.
+- **Default behaviour** : inchangé ; `upstream_auth` absent ou dans un autre
+  mode que `TokenExchange`.
 - **Migration** : activer l'échange sur un cluster rend invalides les jetons
   de cluster déjà distribués pour lui (décision 1) ; les utilisateurs refont
   `kubectl-proxyauth login clusters`, qui écrit le nouveau contexte.
@@ -598,8 +623,10 @@ l'apiserver.
 - **CLI** : `login --server-url --token` reste disponible ; la connexion SSO au
   serveur est un ajout, qui demande la redirection du proxy (`OIDC_REDIRECT_URL`)
   déjà enregistrée chez son IdP.
-- **Rollback** : désactiver le bloc ; rien n'est persisté (cache en mémoire).
-- **Feature flag** : le champ `enabled` par cluster.
+- **Rollback** : repasser en `mode: Passthrough` ; rien n'est persisté (cache
+  en mémoire).
+- **Feature flag** : `upstream_auth.mode` par cluster, et
+  `upstreamAuth.allowedModes` du chart pour l'installation (RFC 0014).
 
 ---
 
