@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::authentication_configuration::{ClaimMappings, ValidateAgainst};
 
 pub mod front_proxy;
+pub mod issuer_key;
 
 /// `Passthrough` relays the caller's token, as before RFC 0014. The two others
 /// make the proxy the apiserver's trusted authenticator: `FrontProxy` asserts
@@ -249,6 +250,9 @@ pub enum UpstreamTrust {
     Rejected,
     /// The probe reached no conclusion.
     Unknown,
+    /// `Issuer`: the apiserver also took an unprefixed identity, its
+    /// `userValidationRules` are missing (`IssuerNotTrusted`).
+    Unguarded,
 }
 
 /// `status.upstreamAuth` (RFC 0014 §4.5). A `None` is serialised as `null`:
@@ -270,6 +274,21 @@ pub struct UpstreamAuthStatus {
     /// `FrontProxy`: the certificate's subject.
     #[serde(default)]
     pub client_cert_subject: Option<String>,
+    /// `Issuer`: `issuer_key.issuer_url`, mirrored.
+    #[serde(default)]
+    pub issuer_url: Option<String>,
+    /// `Issuer`: the `aud` of every JWT, to declare in the apiserver.
+    #[serde(default)]
+    pub audience: Option<String>,
+    /// `Issuer`: the JWKS the discovery document points to.
+    #[serde(default)]
+    pub jwks_uri: Option<String>,
+    /// `Issuer`: the `kid` of the key that signs.
+    #[serde(default)]
+    pub key_id: Option<String>,
+    /// `Issuer`: when that key began to sign, RFC 3339.
+    #[serde(default)]
+    pub key_rotated_at: Option<String>,
     /// The trust probe's last verdict; absent until a probe concludes, or
     /// when its last result is older than 15 minutes.
     #[serde(default)]
