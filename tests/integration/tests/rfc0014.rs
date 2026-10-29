@@ -178,6 +178,15 @@ async fn p2_a_mode_outside_allowed_modes_answers_503_and_is_never_relayed() {
             && message.contains("upstreamAuth.allowedModes"),
         "{body}"
     );
+    // The refusal is audited, with the mode that was asked for.
+    assert!(
+        observe::audit_lines(&ns)
+            .iter()
+            .any(|line| line["event"] == "request"
+                && line["status"] == 503
+                && line["upstream_mode"] == "FrontProxy"),
+        "no audited 503 for the FrontProxy cluster"
+    );
     let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
     assert!(!out.success(), "kubectl must fail: {out:?}");
     assert!(

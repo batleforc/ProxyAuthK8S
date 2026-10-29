@@ -283,3 +283,20 @@ async fn an_unverified_email_is_refused_as_username_in_a_trusted_mode() {
     let user = mapped(&server, &by_email, false).await.unwrap().unwrap();
     assert_eq!(user.username, "alice@example.com");
 }
+
+/// RFC 0014 §7.3: a `/userinfo` body past `PROXY_JWKS_MAX_DOCUMENT_BYTES`
+/// (64 KiB by default) is refused, not read whole.
+#[tokio::test]
+async fn an_oversized_userinfo_body_is_refused() {
+    let server = MockServer::start().await;
+    mount_discovery(&server).await;
+    let groups: Vec<String> = (0..8_000).map(|i| format!("group-{i:04}")).collect();
+    mount_userinfo(&server, json!({ "sub": "alice-sub", "groups": groups })).await;
+    let result =
+        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
+            .await;
+    assert!(
+        result.is_err(),
+        "an oversized /userinfo must not resolve: {result:?}"
+    );
+}

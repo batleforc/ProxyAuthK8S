@@ -507,10 +507,9 @@ impl User {
         })
     }
 
-    /// `/userinfo` for `token`, as `AC` claims. A transport failure or a 5xx
-    /// is `UserInfoUnreachable`, never the caller's fault.
-    // shortcut: the body is not size-capped, as before RFC 0014; cap it like
-    // the JWKS (PROXY_JWKS_MAX_DOCUMENT_BYTES) when the HTTP client allows it.
+    /// `/userinfo` for `token`, as `AC` claims. A transport failure, a 5xx or
+    /// a body above `PROXY_JWKS_MAX_DOCUMENT_BYTES` (RFC 0014 §7.3) is
+    /// `UserInfoUnreachable`: the provider's doing, never the caller's fault.
     async fn fetch_userinfo<AC: AdditionalClaims>(
         token: &str,
         oidc_conf: &OidcConf,
@@ -519,10 +518,15 @@ impl User {
             tracing::error!("Error while getting OIDC core client: {}", e);
             UserAuthError::OidcCore(e.to_string())
         })?;
-        let http_client = oidc_conf.oidc_reqwest_client().map_err(|e| {
+        let client = oidc_conf.reqwest_client().map_err(|e| {
             tracing::error!("Error while building OIDC http client: {}", e);
             UserAuthError::OidcHttpClient(e.to_string())
         })?;
+        let max = common::config::get().proxy.jwks_max_document_bytes;
+        let http_client = move |request: openidconnect::HttpRequest| {
+            let client = client.clone();
+            async move { capped_call(&client, request, max).await }
+        };
 
         tracing::debug!(
             "Creating user info request for OIDC provider with token of length: {}",
@@ -558,4 +562,43 @@ impl User {
             }
         }
     }
+}
+
+/// Why a bounded `/userinfo` call failed.
+#[derive(Debug, thiserror::Error)]
+enum CappedCallError {
+    #[error("{0}")]
+    Http(#[from] reqwest::Error),
+    #[error("response larger than {0} bytes")]
+    TooLarge(usize),
+    #[error("{0}")]
+    Response(#[from] http::Error),
+}
+
+/// `request` through `client`, the response body read in chunks and refused
+/// past `max` bytes, `Content-Length` or not.
+async fn capped_call(
+    client: &reqwest::Client,
+    request: openidconnect::HttpRequest,
+    max: usize,
+) -> Result<openidconnect::HttpResponse, CappedCallError> {
+    let mut response = client.execute(reqwest::Request::try_from(request)?).await?;
+    if response
+        .content_length()
+        .is_some_and(|length| length > max as u64)
+    {
+        return Err(CappedCallError::TooLarge(max));
+    }
+    let mut builder = http::Response::builder().status(response.status());
+    for (name, value) in response.headers() {
+        builder = builder.header(name, value);
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if body.len().saturating_add(chunk.len()) > max {
+            return Err(CappedCallError::TooLarge(max));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(builder.body(body)?)
 }

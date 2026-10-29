@@ -1569,3 +1569,75 @@ Dans l'annexe, §16, avec le contenu de chaque phase et l'ordre des
 contrôles. En bref : phase 1, le champ, la garde et les correctifs utiles à
 tous les clusters ; phase 2, `FrontProxy` ; phase 3, `Issuer`, à construire
 quand un utilisateur le demande.
+
+---
+
+## 17. Revision against the tree (2026-10-29) — phase 1
+
+Phase 1 livrée sur la branche `probe/rfc0014-front-proxy` (à partir du
+commit `57a3411`). Ce qui a été construit, et chaque écart au texte,
+avec sa raison.
+
+**Construit** : `upstream_auth` (CRD, règles CEL de §4.3, miroir dans
+`validate`, `status.upstreamAuth.mode`, colonne `Upstream`) ;
+`oidc_provider.claim_mappings` appliqué aux claims bruts de `/userinfo`
+(`User::get_user_info_mapped`, `jwt_validator::map_user_for`) ; `User.extra` ;
+empreinte du mapping dans la clé du cache des jetons (décision 38) ;
+`email_verified` en mode de confiance (décision 51) ;
+`UPSTREAM_AUTH_ALLOWED_MODES` et `upstreamAuth.allowedModes` du chart ; la
+garde `503` avant la porte 1 ; `Ready=False` (`UpstreamModeNotAllowed`,
+`UpstreamModeUnsupported`) ; la clé Redis `proxyk8sauth-upstream-auth` pour
+les clusters de confiance et la lecture `get_proxy_from_redis` /
+`list_proxies` sur tous les chemins (décision 42) ; le refus de démarrer du
+contrôleur sur une CRD sans `upstream_auth` ; le nettoyage du
+sous-protocole WebSocket (décision 39) ; `upstream_mode` dans l'audit.
+
+**Écarts**
+
+1. **Valeur inconnue dans `UPSTREAM_AUTH_ALLOWED_MODES`** : la décision 47
+   disait « arrête le démarrage ». Le chargeur de configuration du dépôt ne
+   sait qu'avertir et reprendre un défaut ; la valeur inconnue fait donc
+   retomber sur `Passthrough` seul, avec un avertissement au démarrage :
+   fermé, pas un arrêt. Le schéma du chart refuse la valeur avant qu'elle
+   n'arrive. À trancher si l'arrêt dur est voulu malgré tout.
+2. **Règles des clés `extra`** : dans `validate` seulement, pas en CEL (une
+   règle sur la liste non bornée `extra` dépasserait le budget de coût de
+   l'apiserver), et seulement en mode de confiance (un cluster
+   `Passthrough` existant avec une clé `email` reste valide). L'auteur le
+   voit en `Ready=False` (`InvalidSpec`), pas au `kubectl apply`.
+3. **Mode non servi** : une raison à part, `UpstreamModeUnsupported`, à côté
+   d'`UpstreamModeNotAllowed` (§4.3 ne nommait que la seconde) ;
+   `SERVED_MODES` (`crd::upstream_auth`) vaut `[Passthrough]` en phase 1.
+4. **Plafond de corps de `/userinfo`** : livré par un client HTTP qui lit
+   la réponse par morceaux et la refuse au-delà de
+   `PROXY_JWKS_MAX_DOCUMENT_BYTES` (64 Kio), réglage réutilisé plutôt
+   qu'un nouveau ; il vaut pour les deux chemins, mappé et historique
+   (`an_oversized_userinfo_body_is_refused`). Un dépassement est
+   `UserInfoUnreachable`, la faute du fournisseur, jamais de l'appelant.
+5. **Ligne d'audit du refus de mode** : la garde répond après la création
+   du contexte d'audit ; un `503` de mode écrit une ligne `request` avec
+   `upstream_mode` (§6.P point 2 le vérifie).
+6. **Écriture Redis** : la clé de l'autre préfixe est supprimée **avant**
+   l'écriture de la nouvelle, pour qu'un cluster qui passe en mode de
+   confiance disparaisse des anciens binaires avant d'exister pour les
+   nouveaux ; un `404` bref pendant la bascule en est le prix.
+7. **RBAC** : le `get` sur les CRD existait déjà dans
+   `rbac.operator.yaml` ; aucun changement de RBAC en phase 1.
+8. **§6.P** : la phase 1 prouve les points 1, 2 et 15
+   (`tests/integration/tests/rfc0014.rs`). Le point 2 prouve l'absence de
+   relais par le message, propre au proxy, plutôt que par l'audit de
+   l'apiserver, que le banc n'active pas encore. Le point 16 est couvert par
+   le test unitaire `bearer_subprotocol_entries_are_stripped_in_every_mode`,
+   le banc n'ayant pas d'écho amont ; le point 17 (binaire d'avant la
+   phase 1) n'est pas encore prouvé.
+
+**Tests de sécurité livrés** : T19 et T20
+(`a_trusted_mode_outside_allowed_modes_is_refused_with_who_can_act`), T23
+(`a_trusted_mode_refuses_an_unverified_email_as_username`,
+`an_unverified_email_is_refused_as_username_in_a_trusted_mode`), T24
+(`a_mapping_from_one_cluster_never_serves_another`, unitaire et §6.P 15),
+T26 (`the_generated_crd_knows_upstream_auth_and_an_older_one_does_not`),
+décision 39 (`bearer_subprotocol_entries_are_stripped_in_every_mode`).
+
+**Supply chain** : aucune crate nouvelle ; `serde_yaml_ng` (déjà au
+workspace) devient dev-dependency du contrôleur.

@@ -104,13 +104,6 @@ pub async fn redirect(
         return StatusCode::NOT_FOUND.into_response();
     }
 
-    // RFC 0014, before gate 1: a mode the installation does not allow, or
-    // this replica does not serve, is refused, never relayed as Passthrough.
-    if let Some(message) = upstream_mode_refusal(&proxy) {
-        warn!(ns, cluster, %message, "upstream mode refused");
-        return upstream_mode_unavailable(&message);
-    }
-
     // Only strip the routing prefix, never an occurrence further down the path:
     // `/clusters/{ns}/{cluster}` may legitimately reappear inside the upstream path.
     let prefix = format!("/clusters/{ns}/{cluster}");
@@ -126,6 +119,12 @@ pub async fn redirect(
         audit.upstream_via = "agent";
     }
     audit.upstream_mode = proxy.upstream_mode().as_str();
+    // RFC 0014, before gate 1: a mode the installation does not allow, or
+    // this replica does not serve, is refused, never relayed as Passthrough.
+    if let Some(message) = upstream_mode_refusal(&proxy) {
+        warn!(ns, cluster, %message, "upstream mode refused");
+        audited!(audit, upstream_mode_unavailable(&message));
+    }
     // The Kubernetes verb, computed as the apiserver does (RFC 0006): every
     // audit line of this request carries it, refusals included.
     let request_info = crd::security::request_info(
