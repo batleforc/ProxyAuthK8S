@@ -2,14 +2,14 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Draft                                                                  |
+| Status      | In review                                                              |
 | Short       | Authentificateur de confiance (front-proxy, émetteur)                  |
 | Settles     | Ne plus déclarer l'IdP de chaque utilisateur dans chaque apiserver     |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
 | Co-author   | Claude Opus 5.5 (1M context)                                           |
 | Created     | 2026-10-27                                                             |
 | Supersedes  | RFC 0010 §3, deux non-goals (« le proxy comme émetteur », « `X-Remote-*` ») ; amende RFC 0010 §4.1, §4.3, §4.4, §6.1, §6.3, §6.4 et §13 (emplacement de la config, `mode: TokenExchange` au lieu d'`enabled`, `UpstreamCredential::Bearer` ; décision 55) |
-| Touches     | `libs/server/crd/src/{lib.rs,upstream_auth/ (nouveau),authentication_configuration/oidc_provider.rs,status/}`, `libs/server/api/src/model/{user.rs,user_claim.rs}`, `libs/server/api/src/cluster/redirect/{forwarded.rs,audit.rs,kube_redirect.rs,upstream_identity.rs (nouveau)}`, `…/kube_redirect/{context.rs,upstream.rs,standard.rs,upgrade/connect.rs,upgrade.rs,virtual_redirect/,list_fallback/}`, `libs/server/api/src/issuer/` (nouveau), `libs/server/api/src/metrics.rs`, le routeur qui monte `/issuer/*`, `libs/server/api/Cargo.toml` (`secrecy` en dépendance normale), `libs/server/api/tests/upstream_auth.rs` (nouveau), `libs/server/common/src/{config.rs,upstream_cache.rs,oidc_cache.rs}`, `libs/server/controller/{Cargo.toml,src/proxy_kube_api/}`, `libs/server/jwt_validator/` (`map_user` public, paramètre `trusted`), `deploy/chart/` (valeurs, `values.schema.json`), `fuzz/`, CRD générée, `.it/`, `tests/integration/`, `docs/content/docs/`, `libs/server/api/src/cluster/redirect/kube_redirect/tls.rs` (certificat `FrontProxy`), `deploy/chart/templates/rbac.operator.yaml` (Role des Secrets, `get` sur la CRD), `.rfc/0010-token-exchange.md` (texte amendé, décision 55), `.rfc/0014-trusted-authenticator-implementation.md` (annexe) ; la sonde et le signataire vivent dans `api` (décision 41) |
+| Touches     | `libs/server/crd/src/{lib.rs,upstream_auth/ (nouveau),authentication_configuration/oidc_provider.rs,status/}`, `libs/server/api/src/model/{user.rs,user_claim.rs}`, `libs/server/api/src/cluster/redirect/{forwarded.rs,audit.rs,kube_redirect.rs,upstream_identity.rs (nouveau)}`, `…/kube_redirect/{context.rs,upstream.rs,standard.rs,upgrade/connect.rs,upgrade.rs,virtual_redirect/,list_fallback/}`, `libs/server/api/src/issuer/` (nouveau), `libs/server/api/src/metrics.rs`, le routeur qui monte `/issuer/*`, `libs/server/api/Cargo.toml` (`secrecy` en dépendance normale), `libs/server/api/tests/upstream_auth.rs` (nouveau), `libs/server/common/src/{config.rs,upstream_cache.rs,oidc_cache.rs,upstream_trust.rs}`, `libs/server/controller/{Cargo.toml,src/proxy_kube_api/}`, `libs/server/jwt_validator/` (`map_user` public, paramètre `trusted`), `deploy/chart/` (valeurs, `values.schema.json`), `fuzz/`, CRD générée, `.it/`, `tests/integration/`, `docs/content/docs/`, `libs/server/api/src/cluster/redirect/kube_redirect/tls.rs` (certificat `FrontProxy`), `deploy/chart/templates/rbac.operator.yaml` (Role des Secrets, `get` sur la CRD), `.rfc/0010-token-exchange.md` (texte amendé, décision 55), `.rfc/0014-trusted-authenticator-implementation.md` (annexe) ; la sonde et le signataire vivent dans `api` (décision 41) |
 | Risk        | high                                                                   |
 
 > Document de référence (environ 17 000 mots, plus l'annexe d'implémentation
@@ -25,7 +25,8 @@
 > sources de l'apiserver (décision 59) closent *Still open*.
 >
 > **État de l'implémentation (2026-10-29)** : phases 1 et 2 codées sur la
-> branche `probe/rfc0014-front-proxy`, non fusionnées ; phase 3 (`Issuer`)
+> branche `probe/rfc0014-front-proxy`, suite d'intégration verte, en revue
+> (`In review`) ; phase 3 (`Issuer`)
 > non commencée, à construire quand un utilisateur la demande. Détail et
 > écarts : §17.
 
@@ -1562,6 +1563,7 @@ de la revue, sauf la 46 (prémisse corrigée) et la 53 (option nouvelle).
 | 57 | Source du certificat `FrontProxy` | **Au choix de l'admin : tout ce qui écrit un Secret `kubernetes.io/tls` avec les labels et l'annotation de cible ; cert-manager recommandé (CA privée, 24 h, `rotationPolicy: Always`, une CA par apiserver cible) ; Vault Secrets Operator, External Secrets ou un pipeline possibles ; le proxy ne parle jamais à une PKI et ne crée pas de `Certificate`.** Des certificats courts renouvelés seuls bornent T6 à un jour sans code. Un `Certificate` créé par le contrôleur ferait émettre un identifiant cluster-admin à quiconque peut demander `FrontProxy`, et ferait de cert-manager une dépendance ; un client Vault dans le proxy ajouterait un secret et une surface sortante pour remplacer un Secret que ces outils écrivent déjà. Que VSO et External Secrets posent labels et annotations sur le Secret écrit est à vérifier dans la doc. |
 | 58 | Sonde k3s du front-proxy (ancien Still open 1, 2026-10-29) | **Tenu, observé sur `rancher/k3s:v1.35.9-k3s1` par `.it/probes/rfc0014-front-proxy.sh` (run CI 40855441199).** Avec la seule CA dédiée, l'agrégation (`metrics.k8s.io`) tombe ; avec la CA `request-header` de k3s (CN `system:auth-proxy`) concaténée, elle revient en 13 s et l'identité affirmée reste crue. Le fichier est rechargé sans redémarrage : une CA ajoutée est crue aussitôt, une CA retirée refusée. Sans certificat ou CN hors `allowed-names` : `401` (pas d'anonyme). Certificat de `--client-ca-file` avec `X-Remote-User` : authentifié sous son CN, en-têtes ignorés. Un `X-Remote-Group` par groupe, virgule non coupée ; clé `extra` décodée ; espace de fin de `X-Remote-User` supprimé, ce qui justifie le refus de §4.2. |
 | 59 | Comportement de l'apiserver, lu dans les sources (ancien Still open 1, 2026-10-29) | **Tenu, avec des précisions reportées dans le corps.** Lu à Kubernetes v1.35.0 et `github.com/coreos/go-oidc` v2.3.0 (la version de son `go.mod`). (a) JWKS : rechargé seulement quand aucune clé en cache ne vérifie le JWT et que le cache est à moins de 30 s de son expiration (`jwks.go`, `keysExpiryDelta`) ; l'expiration vient de `Cache-Control` ; aucune clé n'est évincée sans rechargement ; d'où le premier JWT d'un nouveau `kid` envoyé par la sonde, et `max-age=60` gardé comme limite (T15). (b) `exp` sans tolérance, `nbf` à 1 min, `iat` non vérifié (`verify.go`). (c) Rechargement de l'`AuthenticationConfiguration` : tout ou rien, refusé tant qu'un issuer ne répond pas en 1 min, retenté chaque minute ; au démarrage, découverte asynchrone retentée toutes les 10 s, sans bloquer (`authenticator/config.go`, `options/authentication.go`, `oidc.go`). (d) Union : requestheader, x509, bearer, sous-protocole WebSocket, avec `FailOnError: false` : un JWT refusé laisse passer au jeton du sous-protocole (`union.go`) ; les décisions 39 et 40 sont nécessaires. (e) Cache des jetons de l'apiserver : succès 10 s, échecs 0 s par défaut ; une clé révoquée reste crue ~40 s au plus. |
+| 60 | Suivre le verdict de la sonde (écart 1 de §17.2, 2026-10-29) | **`status.upstreamAuth.trust` (`Trusted`, `Rejected`, `NotHonoured`, `Unknown` ; absent tant qu'aucune sonde récente n'a conclu) et `trustSince` (début du verdict courant, pas de chaque tour), colonne `Trust` en `-o wide`.** Sans lui, une sonde réussie et une sonde pas encore passée ne posaient rien : l'opérateur basculait sur un critère indirect. La date du changement, pas du dernier tour, n'écrit le statut qu'à une transition. Remplace l'`UpstreamTrusted=True` que le kit ne sait pas porter. |
 
 ### Still open
 
@@ -1708,7 +1710,12 @@ Codée sur la même branche, commits `d688b48` à `f47ae51`.
    que `Ready` et des avis de type égal à leur code ; la sonde s'y exprime
    par les raisons `UpstreamIdentityNotHonoured`, `FrontProxyNotTrusted`
    (sur `Ready`) et l'avis `UpstreamTrustUnknown`. Un résultat absent ou
-   plus vieux que 15 min ne dit rien.
+   plus vieux que 15 min ne dit rien. Le succès se lit dans
+   `status.upstreamAuth.trust` et `trustSince` (décision 60), prouvé au banc
+   (`Trusted` au point 3, `Rejected` au point 9). Les champs de
+   `status.upstreamAuth` partent à `null` quand ils disparaissent : le merge
+   patch gardait sinon une valeur périmée (un `clientCertSubject` après le
+   retrait du Secret).
 2. **Rythme de la sonde** : un tour par minute, pas « 5 min et à chaque
    changement » ; sans flux de changements, le tour court en tient lieu.
    Le contrôleur remet en file les clusters `FrontProxy` chaque minute,
@@ -1762,24 +1769,21 @@ de l'`Issuer` attend la phase 3.
 
 Non commencée.
 
-### 17.4 Pour reprendre (état au 2026-10-29, `9b79d7e`)
+### 17.4 Pour reprendre (état au 2026-10-29)
 
-- **Branche** : `probe/rfc0014-front-proxy`, poussée, sans PR. Tout le
-  travail RFC 0014 y est ; rien n'est fusionné dans `main`.
-- **CI** : tout vert sur `9b79d7e` (Rust tests, envtest, intégration
-  `40874702974` : 93/93) ; clippy vert sur `cd5e253`, le dernier commit
-  Rust (le filtre `*` de `back-clippy.yaml` ne voit pas une branche à `/` :
-  `gh workflow run back-clippy.yaml --ref probe/rfc0014-front-proxy`).
-  L'intégration ne part que lancée à la main
-  (`gh workflow run integration.yaml --ref …`).
-- **Documentation** : `front-proxy.mdx` (guide, recette cert-manager,
-  runbook 401/403/502/503), `migration/v0-5-0.mdx` (numéro de version
-  supposé), référence CRD régénérée ; sécurité, roadmap et plugin kubectl
-  amendés.
-- **Prochaines étapes** : ouvrir la PR ; passer le statut de la RFC
-  (décision de l'auteur). À trancher par l'auteur : un signal explicite
-  « sonde réussie » dans le statut (aujourd'hui une sonde réussie et une
-  sonde pas encore passée ne posent rien, écart 1 de §17.2).
+- **Branche** : `probe/rfc0014-front-proxy`, PR ouverte vers `main` (voir
+  `.rfc/README.md`). RFC en `In review`.
+- **CI** : verte sur `9b79d7e` (Rust tests, envtest, intégration
+  `40874702974` : 93/93) ; la décision 60 (statut `trust`) est arrivée
+  après, sa suite est à relancer sur la tête. Clippy et l'intégration ne
+  partent que lancés à la main : `gh workflow run back-clippy.yaml --ref
+  probe/rfc0014-front-proxy`, idem `integration.yaml`.
+- **Documentation** : `front-proxy.mdx` (guide, recette cert-manager, suivi
+  du verdict, runbook 401/403/502/503), `migration/v0-5-0.mdx` (numéro de
+  version supposé), référence CRD régénérée ; sécurité, roadmap et plugin
+  kubectl amendés.
+- **Prochaines étapes** : la revue de la PR ; `Accepted` puis, à la fusion,
+  `Implemented` pour les phases 1 et 2 (phase 3 seulement à la demande).
 - **Contraintes de travail** : la machine ne tient pas les charges
   lourdes — en local seulement `cargo check`, `cargo clippy` et
   `cargo test -p <crate> --lib` (ou un binaire de test ciblé) ; la suite
