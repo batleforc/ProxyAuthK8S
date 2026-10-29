@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::authentication_configuration::{ClaimMappings, ValidateAgainst};
 
+pub mod front_proxy;
+
 /// `Passthrough` relays the caller's token, as before RFC 0014. The two others
 /// make the proxy the apiserver's trusted authenticator: `FrontProxy` asserts
 /// the identity in `X-Remote-*` headers over mutual TLS, `Issuer` in a JWT the
@@ -235,10 +237,23 @@ impl UpstreamAuth {
     }
 }
 
-/// `status.upstreamAuth` (RFC 0014 §4.5). Phase 1 publishes the mode only.
+/// `status.upstreamAuth` (RFC 0014 §4.5).
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UpstreamAuthStatus {
     pub mode: UpstreamAuthMode,
+    /// `FrontProxy`: the Secret to create, `<proxy namespace>/<name>`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_cert_secret: Option<String>,
+    /// `FrontProxy`: the value its target annotation must hold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_cert_target: Option<String>,
+    /// `FrontProxy`: the certificate's `notAfter`, RFC 3339.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_cert_not_after: Option<String>,
+    /// `FrontProxy`: the certificate's subject.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_cert_subject: Option<String>,
 }
 
 #[cfg(test)]

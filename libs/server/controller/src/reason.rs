@@ -49,6 +49,24 @@ weebo_kit_domain::reason_codes! {
         /// The cluster asks for an upstream mode this version does not serve
         /// yet (RFC 0014, decision 34).
         UpstreamModeUnsupported,
+        /// `FrontProxy`: its Secret is missing, unreadable or unlabelled
+        /// (RFC 0014 §4.3).
+        ClientCertMissing,
+        /// `FrontProxy`: the Secret was issued for another target (T29).
+        ClientCertTargetMismatch,
+        /// `FrontProxy`: `proxyauth-frontproxy-<ns>.<name>` is too long.
+        ClientCertNameTooLong,
+        /// `FrontProxy`: the certificate's CN or O starts with `system:`.
+        ClientCertSubjectReserved,
+        /// A trusted mode with `OIDC_AUDIENCE_VALIDATION` other than
+        /// `enforce` (decision 50).
+        AudienceValidationRequired,
+        /// Advisory: the `FrontProxy` certificate expires within
+        /// `min(30 days, a third of its lifetime)`.
+        ClientCertExpiring,
+        /// Advisory: a cluster preparing `FrontProxy` (still `Passthrough`)
+        /// would not be served once switched; the message says why.
+        FrontProxyNotReady,
     }
 }
 
@@ -67,7 +85,9 @@ impl Reason for ReasonCode {
             | Self::Deleted
             | Self::AgentLimitCapped
             | Self::AgentBootstrapNeeded
-            | Self::AgentVersionSkew => Severity::Advisory,
+            | Self::AgentVersionSkew
+            | Self::ClientCertExpiring
+            | Self::FrontProxyNotReady => Severity::Advisory,
             Self::InvalidSpec
             | Self::OidcConfigUnresolved
             | Self::TargetUnreachable
@@ -78,7 +98,12 @@ impl Reason for ReasonCode {
             | Self::AgentNoTunnel
             | Self::AgentProtocolUnsupported
             | Self::UpstreamModeNotAllowed
-            | Self::UpstreamModeUnsupported => Severity::Blocking,
+            | Self::UpstreamModeUnsupported
+            | Self::ClientCertMissing
+            | Self::ClientCertTargetMismatch
+            | Self::ClientCertNameTooLong
+            | Self::ClientCertSubjectReserved
+            | Self::AudienceValidationRequired => Severity::Blocking,
         }
     }
 }
@@ -94,7 +119,7 @@ mod tests {
 
     #[test]
     fn the_catalog_has_the_codes_of_rfc_0011_to_0014() {
-        assert_eq!(ReasonCode::ALL.len(), 18);
+        assert_eq!(ReasonCode::ALL.len(), 25);
     }
 
     #[test]
@@ -113,6 +138,8 @@ mod tests {
                 &ReasonCode::AgentLimitCapped,
                 &ReasonCode::AgentBootstrapNeeded,
                 &ReasonCode::AgentVersionSkew,
+                &ReasonCode::ClientCertExpiring,
+                &ReasonCode::FrontProxyNotReady,
             ]
         );
     }

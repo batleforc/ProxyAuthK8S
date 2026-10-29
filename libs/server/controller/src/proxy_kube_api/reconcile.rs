@@ -29,6 +29,10 @@ static METRICS: LazyLock<ReconcileMetrics> =
 /// for `status.agent` to follow its tunnels.
 const AGENT_REQUEUE_SECS: u64 = 60;
 
+/// At most this long between two reconciles of a `FrontProxy` cluster, or of
+/// one preparing it (RFC 0014): its certificate and Secret follow no event.
+const FRONT_PROXY_REQUEUE_SECS: u64 = 300;
+
 /// The `kind` label of the reconcile metrics.
 const KIND: &str = "ProxyKubeApi";
 
@@ -168,7 +172,9 @@ pub async fn evaluate(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Evaluation {
     // means a controller older than RFC 0014.
     evaluation.status.upstream_auth = Some(crd::upstream_auth::UpstreamAuthStatus {
         mode: proxy.upstream_mode(),
+        ..Default::default()
     });
+    super::front_proxy::evaluate(proxy, &ctx, &mut evaluation).await;
     if let Service::Agent(agent) = &proxy.spec.service {
         evaluation.status.agent = agent_status(proxy, &ctx).await;
         if let Some(status) = evaluation.status.agent.clone() {
@@ -385,7 +391,19 @@ pub async fn reconcile_proxy_kube_api(proxy: &ProxyKubeApi, ctx: Arc<State>) -> 
     METRICS.record(KIND, reason, started.elapsed());
     published?;
     // An agent's tunnels come and go without a change to the CR.
-    let due_in = matches!(proxy.spec.service, Service::Agent(_)).then_some(AGENT_REQUEUE_SECS);
+    // RFC 0014: a FrontProxy certificate expires and is renewed in place,
+    // with no event on the CR; it is looked at again every few minutes.
+    let front_proxy = proxy.upstream_mode() == crd::upstream_auth::UpstreamAuthMode::FrontProxy
+        || evaluation
+            .status
+            .upstream_auth
+            .as_ref()
+            .is_some_and(|upstream| upstream.client_cert_secret.is_some());
+    let due_in = if matches!(proxy.spec.service, Service::Agent(_)) {
+        Some(AGENT_REQUEUE_SECS)
+    } else {
+        front_proxy.then_some(FRONT_PROXY_REQUEUE_SECS)
+    };
     Ok(requeue_after(proxy, evaluation.steady(), due_in))
 }
 

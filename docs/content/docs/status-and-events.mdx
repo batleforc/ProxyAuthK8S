@@ -52,6 +52,13 @@ Chaque avis devient une condition `True` à côté de `Ready`, de type égal à 
 | `AgentProtocolUnsupported` | bloquant | aucun tunnel, et la passerelle a refusé le protocole de l'agent dans les 5 dernières minutes : la cause de `AgentNoTunnel` ; le détail est dans `status.agent.refused` |
 | `UpstreamModeNotAllowed` | bloquant | `upstream_auth.mode` hors de `upstreamAuth.allowedModes` du chart (RFC 0014) ; le proxy répond `503` à ce cluster, jamais en `Passthrough` |
 | `UpstreamModeUnsupported` | bloquant | `upstream_auth.mode` que cette version ne sert pas encore (RFC 0014, décision 34) ; `503`, jamais en `Passthrough` |
+| `ClientCertMissing` | bloquant | `FrontProxy` : le Secret `proxyauth-frontproxy-<ns>.<nom>` du namespace du proxy est absent, illisible, sans le label `app.kubernetes.io/managed-by=proxyauthk8s`, ou son certificat est expiré ou illisible ; `status.upstreamAuth.clientCertSecret` donne le nom |
+| `ClientCertTargetMismatch` | bloquant | `FrontProxy` : l'annotation `proxyauth.weebo.si.rs/front-proxy-target` du Secret ne vaut pas `status.upstreamAuth.clientCertTarget` (certificat posé pour une autre cible) |
+| `ClientCertNameTooLong` | bloquant | `FrontProxy` : `proxyauth-frontproxy-<ns>.<nom>` dépasse 253 caractères |
+| `ClientCertSubjectReserved` | bloquant | `FrontProxy` : le CN ou l'O du certificat commence par `system:` ; utiliser un certificat dédié |
+| `AudienceValidationRequired` | bloquant | un mode de confiance alors que `OIDC_AUDIENCE_VALIDATION` n'est pas `enforce` |
+| `ClientCertExpiring` | avis | le certificat `FrontProxy` expire dans moins de `min(30 j, ⅓ de sa durée de vie)` |
+| `FrontProxyNotReady` | avis | un cluster encore en `Passthrough` qui prépare `FrontProxy` (préfixes posés) ne serait pas servi une fois basculé ; le message dit pourquoi |
 
 ## Les Events
 

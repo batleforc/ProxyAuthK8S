@@ -2230,6 +2230,22 @@ spec:
                   set by an RFC 0014 controller.
                 nullable: true
                 properties:
+                  clientCertNotAfter:
+                    description: '`FrontProxy`: the certificate''s `notAfter`, RFC 3339.'
+                    nullable: true
+                    type: string
+                  clientCertSecret:
+                    description: '`FrontProxy`: the Secret to create, `<proxy namespace>/<name>`.'
+                    nullable: true
+                    type: string
+                  clientCertSubject:
+                    description: '`FrontProxy`: the certificate''s subject.'
+                    nullable: true
+                    type: string
+                  clientCertTarget:
+                    description: '`FrontProxy`: the value its target annotation must hold.'
+                    nullable: true
+                    type: string
                   mode:
                     description: |-
                       `Passthrough` relays the caller's token, as before RFC 0014. The two others

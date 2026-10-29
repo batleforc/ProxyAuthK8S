@@ -80,6 +80,10 @@ fn tls_fingerprint(proxy: &ProxyKubeApi) -> String {
         "uid": proxy.metadata.uid,
         "cert": proxy.spec.cert,
         "client_cert": proxy.spec.client_cert,
+        // RFC 0014: the FrontProxy certificate follows the mode and is bound
+        // to the target, so a change of either is a new client.
+        "upstream_mode": proxy.upstream_mode().as_str(),
+        "service": proxy.spec.service,
     });
     // `serde_json::Map` is ordered (no `preserve_order`), so the encoding is
     // stable; a serialisation failure is impossible for these plain types, and

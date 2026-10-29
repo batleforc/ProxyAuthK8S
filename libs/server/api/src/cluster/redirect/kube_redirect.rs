@@ -72,6 +72,32 @@ fn upstream_mode_refusal(proxy: &ProxyKubeApi) -> Option<String> {
             mode.as_str()
         ));
     }
+    if !mode.is_trusted() {
+        return None;
+    }
+    // Decision 50: in a trusted mode the proxy is the only one to check the
+    // audience.
+    if common::token_audience::AudienceValidationMode::from_env()
+        != common::token_audience::AudienceValidationMode::Enforce
+    {
+        return Some(format!(
+            "upstream mode {} requires OIDC audience validation; ask the proxy administrator (OIDC_AUDIENCE_VALIDATION=enforce)",
+            mode.as_str()
+        ));
+    }
+    // Decision 45: a trusted cluster the controller found not ready (its
+    // certificate, its target) is closed, with the controller's reason.
+    let status = proxy.status.as_ref();
+    if !status.is_some_and(|status| status.exposed) {
+        let reason = status
+            .and_then(|status| status.error.as_deref())
+            .unwrap_or("not reconciled yet");
+        return Some(format!(
+            "this cluster is not ready for upstream mode {}: {reason}; ask the proxy administrator (see the conditions of ProxyKubeApi {})",
+            mode.as_str(),
+            proxy.to_path()
+        ));
+    }
     None
 }
 

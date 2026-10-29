@@ -65,19 +65,27 @@ pub(super) async fn build_tls_config(
             .map_err(|e| e.to_string())?
     };
 
-    let client_cert = if attach_client_cert {
-        proxy.spec.client_cert.as_ref()
-    } else {
-        None
-    };
-    let Some(client_cert) = client_cert else {
+    if !attach_client_cert {
         return Ok(builder.with_no_client_auth());
+    }
+    // RFC 0014: in FrontProxy the certificate is the one the proxy
+    // administrator put in the proxy's namespace for this cluster and this
+    // target, never a `client_cert` (refused by admission in this mode).
+    let (cert_pem, key_pem) = if proxy.upstream_mode()
+        == crd::upstream_auth::UpstreamAuthMode::FrontProxy
+    {
+        crd::upstream_auth::front_proxy::load(state.client.clone(), &state.lease_namespace, proxy)
+            .await
+            .map_err(|e| e.to_string())?
+    } else {
+        let Some(client_cert) = proxy.spec.client_cert.as_ref() else {
+            return Ok(builder.with_no_client_auth());
+        };
+        client_cert
+            .resolve(state.client.clone(), &namespace)
+            .await
+            .map_err(|e| e.to_string())?
     };
-
-    let (cert_pem, key_pem) = client_cert
-        .resolve(state.client.clone(), &namespace)
-        .await
-        .map_err(|e| e.to_string())?;
     let cert_chain: Vec<CertificateDer<'static>> =
         CertificateDer::pem_slice_iter(cert_pem.as_bytes())
             .collect::<Result<Vec<_>, _>>()
