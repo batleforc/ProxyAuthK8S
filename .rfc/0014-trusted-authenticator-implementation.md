@@ -226,6 +226,10 @@ ceux que la RFC cite.
 
 ## 16. Implementation phases
 
+> **État (2026-10-29)** : phases 1 et 2 codées sur `probe/rfc0014-front-proxy`,
+> la suite d'intégration pas encore verte ; phase 3 non commencée. Ce qui a
+> été construit et chaque écart : RFC §17.
+
 | Phase | Content |
 | --- | --- |
 | 1 | `claim_mappings` sur `OidcProvider` (`/userinfo` brut et plafonné, `map_user` public avec `trusted` et `email_verified`) et son empreinte dans la clé du cache des jetons (décision 38) ; `User.extra` et `Default`, `extra` des `JwtAuthenticators` ; le champ `upstream_auth` (CRD sans `TokenExchange`, CEL, colonne `-o wide`, statut `upstreamAuth.mode` en camelCase) avec `allowedModes` (décision 47) et la **garde** : `503` pour tout mode non autorisé ou non servi ; clé Redis des clusters hors `Passthrough` et refus d'une CRD sans le champ (décision 42) ; retrait du jeton de `Sec-WebSocket-Protocol` dans tous les modes (décision 39) ; `upstream_mode` dans l'audit ; texte de la RFC 0010 amendé (décision 55). §6.P points 1, 2, 15, 16 et 17 ; T19, T20, T23, T24, T26. Utile seul : aligner le nom vu par le proxy, et rendre sûres les mises à jour suivantes. |

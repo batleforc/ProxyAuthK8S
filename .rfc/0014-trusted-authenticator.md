@@ -23,6 +23,11 @@
 > conception a été tranché au `/grill-me` du même jour (décisions 38 à 59,
 > §15) et reporté dans le corps. La sonde k3s (décision 58) et la lecture des
 > sources de l'apiserver (décision 59) closent *Still open*.
+>
+> **État de l'implémentation (2026-10-29)** : phases 1 et 2 codées sur la
+> branche `probe/rfc0014-front-proxy`, non fusionnées ; phase 3 (`Issuer`)
+> non commencée, à construire quand un utilisateur la demande. Détail et
+> écarts : §17.
 
 ---
 
@@ -72,7 +77,8 @@ la CA d'agrégation ou `--client-ca-file`, laisser
 
 **Phases.** 1 : le champ, la garde, les correctifs utiles à tous (cache des
 jetons, sous-protocole WebSocket) ; 2 : `FrontProxy` ; 3 : `Issuer`, à
-construire quand un utilisateur le demande.
+construire quand un utilisateur le demande. Phases 1 et 2 codées, en attente
+de la suite d'intégration (§17) ; phase 3 non commencée.
 
 ---
 
@@ -1572,7 +1578,9 @@ quand un utilisateur le demande.
 
 ---
 
-## 17. Revision against the tree (2026-10-29) — phase 1
+## 17. Revision against the tree (2026-10-29)
+
+### 17.1 Phase 1
 
 Phase 1 livrée sur la branche `probe/rfc0014-front-proxy` (à partir du
 commit `57a3411`). Ce qui a été construit, et chaque écart au texte,
@@ -1641,3 +1649,103 @@ décision 39 (`bearer_subprotocol_entries_are_stripped_in_every_mode`).
 
 **Supply chain** : aucune crate nouvelle ; `serde_yaml_ng` (déjà au
 workspace) devient dev-dependency du contrôleur.
+
+### 17.2 Phase 2 (`FrontProxy`)
+
+Codée sur la même branche, commits `d688b48` à `f47ae51`.
+
+**Construit**
+
+- `UpstreamIdentity::from_user` (`cluster/redirect/upstream_identity.rs`) :
+  préfixes, puis les refus de §4.2 (`system_prefix`, `empty_username`,
+  `untransmittable`, `too_large`) en `403` avant tout appel en amont, avec le
+  message qui nomme le `ProxyKubeApi`, la ligne d'audit
+  `reason: upstream_identity_refused` et
+  `proxyauth_upstream_identity_refused_total{reason}` ; cible de fuzz
+  `fuzz_upstream_identity`.
+- `Upstream` (`Passthrough` ou `Headers`) remplace l'`Option<&User>` à la
+  couture : relais standard, API virtuelles (`Caller`), revues de
+  `list_fallback` (`ListFallbackArgs`, clé de cache sur l'identité
+  affirmée), upgrade. En `Headers` : toute valeur `Authorization` retirée,
+  `X-Remote-User`, un `X-Remote-Group` par groupe, `X-Remote-Extra-<clé>`
+  encodée, tous ajoutés (`append`) ; pas de `x-forwarded-*`. L'audit porte
+  `upstream_user` et `upstream_groups`.
+- Le certificat : `crd::upstream_auth::front_proxy` lit
+  `proxyauth-frontproxy-<ns>.<nom>` dans le namespace du proxy, refusé sans
+  le label `app.kubernetes.io/managed-by=proxyauthk8s` ou si l'annotation
+  `proxyauth.weebo.si.rs/front-proxy-target` ne vaut pas la forme canonique
+  de `spec.service` ; `build_tls_config` le présente en `FrontProxy`. En
+  `FrontProxy`, la clé du cache des clients amont inclut `spec.service`.
+- Le contrôleur (`proxy_kube_api/front_proxy.rs`) : Secret, certificat
+  (`x509-parser`), statut `clientCertSecret`, `clientCertTarget`,
+  `clientCertNotAfter`, `clientCertSubject` ; en mode effectif
+  `Ready=False` (`ClientCertMissing`, `ClientCertTargetMismatch`,
+  `ClientCertNameTooLong`, `ClientCertSubjectReserved`,
+  `AudienceValidationRequired`) ; en préparation l'avis
+  `FrontProxyNotReady` ; `ClientCertExpiring` à
+  `min(30 j, ⅓ de la durée de vie)`.
+- La sonde de confiance (`api::upstream_probe`) : sur le leader, une
+  `SelfSubjectReview` par cluster `FrontProxy` (effectif ou en
+  préparation), identité `<préfixe>proxyauth-probe`, un groupe, un `extra`
+  `proxyauth.weebo.si.rs/probe`, sur la connexion qui présente le
+  certificat ; réponse dans `common::upstream_trust`, lue par le
+  contrôleur : `UpstreamIdentityNotHonoured`, `FrontProxyNotTrusted`
+  (bloquants), `UpstreamTrustUnknown` (avis).
+- Le proxy ferme un cluster de confiance non prêt (`503` avec la raison du
+  contrôleur, décision 45) et sans `enforce` (décision 50) ; un `401` de
+  l'apiserver à une identité affirmée devient `502`, sur les trois chemins,
+  compté dans `proxyauth_upstream_rejected_total{mode}` (décision 46).
+- `SERVED_MODES` : `Passthrough`, `FrontProxy`.
+- Chart : `get` sur les Secrets du namespace de la release (le Role du
+  bail), pour le cas `rbac.referencedNamespaces`.
+- Banc : CA front-proxy dédiée générée par `it:up`, concaténée à la CA
+  d'agrégation de k3s une fois celle-ci créée (décision 58), certificat
+  `CN=proxyauth-it`, `FrontProxy` dans `allowedModes`.
+
+**Écarts**
+
+1. **Pas de Condition `UpstreamTrusted`** : le kit (`weebo-kit`) ne connaît
+   que `Ready` et des avis de type égal à leur code ; la sonde s'y exprime
+   par les raisons `UpstreamIdentityNotHonoured`, `FrontProxyNotTrusted`
+   (sur `Ready`) et l'avis `UpstreamTrustUnknown`. Un résultat absent ou
+   plus vieux que 15 min ne dit rien.
+2. **Rythme de la sonde** : un tour par minute, pas « 5 min et à chaque
+   changement » ; sans flux de changements, le tour court en tient lieu.
+   Le contrôleur remet en file les clusters `FrontProxy` chaque minute,
+   pour que la réponse de la sonde atteigne la CR sans événement.
+3. **Noms non ASCII** : transmis tels quels, pas refusés ; une valeur
+   d'en-tête porte les octets UTF-8 et l'apiserver les relit (`élodie`
+   devient `proxyauth:élodie`).
+4. **`empty_username`** : `map_user` refuse déjà un nom vide à
+   l'authentification (`401`) ; le refus de `from_user` reste, en défense.
+5. **Label du Secret `FrontProxy`** : `managed-by` seul, sans
+   `cluster-uid` (le nom suffit, décision 56).
+6. **Deux défauts trouvés en écrivant les tests** : un groupe vide passait
+   le contrôle une fois préfixé (corrigé, vérifié sur la valeur brute) ; le
+   cache des clients amont aurait réutilisé, pendant 300 s, le certificat de
+   l'ancienne cible après un changement de `spec.service` (corrigé, T29).
+
+**Preuves**
+
+- Unitaires et intégration en processus, verts en local et sur la CI
+  (Rust tests, envtest, clippy) : T1, T2, T4, T5, T7, T18, T21, T22, T29,
+  décisions 23, 45, 46 ; `bearer_subprotocol…`, `front_proxy_strips…`,
+  `front_proxy_headers_replace_the_token_on_the_upgrade_path`, la sonde
+  (`judge`), le certificat (`parse_cert`, `expiring`).
+- §6.P contre le banc, écrits (`tests/integration/tests/rfc0014.rs`) :
+  points 1, 2, 3, 4, 6, 9, 11, 15 et T29. **Pas encore observés** : au
+  2026-10-29 aucune exécution de la suite d'intégration n'est allée au
+  bout sur la branche (les premières annulées par les suivantes, celle de
+  `d88899d` en cours) ; ce paragraphe sera complété par ce qu'elle observe.
+- Non couverts par la suite : points 5 (persona `system:masters`), 7
+  (`FrontProxy` derrière un agent), 8 (en-têtes sans certificat, observé
+  par la sonde k3s, décision 58), 14 (absence du jeton dans les logs), 16
+  (écho amont absent du banc), 17 (binaire d'avant la phase 1).
+
+**Reste à faire avant de fusionner** : la suite d'intégration verte ; la
+documentation utilisateur (§11 : guide front-proxy, recette cert-manager,
+page de migration, runbook) ; la mise à jour du statut de la RFC.
+
+### 17.3 Phase 3 (`Issuer`)
+
+Non commencée.
