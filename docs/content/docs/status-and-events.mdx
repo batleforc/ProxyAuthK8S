@@ -62,11 +62,17 @@ Chaque avis devient une condition `True` à côté de `Ready`, de type égal à 
 | `UpstreamIdentityNotHonoured` | bloquant | la sonde de confiance (`SelfSubjectReview` par le leader, chaque minute) voit une autre identité que celle affirmée : certificat d'une CA `--client-ca-file`, ou en-tête de groupe ou d'`extra` non lu ; le message nomme l'identité vue |
 | `FrontProxyNotTrusted` | bloquant | la sonde de confiance reçoit `401` : la CA du certificat n'est pas dans `--requestheader-client-ca-file`, ou son CN pas dans `--requestheader-allowed-names` |
 | `UpstreamTrustUnknown` | avis | la sonde de confiance n'a pas conclu (transport, `5xx`, agent absent) ; le cluster reste servi |
+| `IssuerKeyUnavailable` | bloquant | `Issuer` : le Secret `proxyauth-issuer-<UID>` du namespace du proxy est illisible, ne porte pas les labels du proxy (jamais adopté ni écrasé : le supprimer), ou ne peut pas être écrit ; le message le nomme |
+| `IssuerUrlMismatch` | bloquant | `Issuer` : le chemin de `issuer_key.issuer_url` n'est pas `/issuer/<ns>/<nom>`, la route que le proxy sert |
+| `IssuerNotTrusted` | bloquant | `Issuer` : la sonde reçoit `401` (issuer ou audience non déclarés dans l'`AuthenticationConfiguration`), ou l'apiserver accepte aussi une identité non préfixée (`userValidationRules` absentes) |
+| `IssuerNotReady` | avis | un cluster encore en `Passthrough` avec `issuer_key` ne serait pas servi une fois basculé en `Issuer` ; le message dit pourquoi |
+| `IssuerKeyRotationOverdue` | avis | la clé `Issuer` n'a pas tourné depuis plus de `rotation_days` + 1 jours |
+| `IssuerBehindAgent` | avis | `Issuer` derrière un agent : l'apiserver doit quand même joindre l'URL publique du proxy pour le JWKS |
 
 Le verdict de la sonde de confiance se suit aussi hors des conditions, succès compris :
-`status.upstreamAuth.trust` (`Trusted`, `Rejected`, `NotHonoured`, `Unknown`) et
+`status.upstreamAuth.trust` (`Trusted`, `Rejected`, `NotHonoured`, `Unknown`, `Unguarded`) et
 `status.upstreamAuth.trustSince`, colonne `Trust` en `-o wide`
-([Apiserver en front-proxy](/docs/front-proxy#5-vérifier-puis-basculer)).
+([Apiserver en front-proxy](/docs/front-proxy#5-vérifier-puis-basculer), [Le proxy comme émetteur](/docs/issuer)).
 
 ## Les Events
 

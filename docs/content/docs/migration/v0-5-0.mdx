@@ -7,8 +7,9 @@ icon: CircleArrowUp
 import { Callout } from 'fumadocs-ui/components/callout';
 
 La 0.5.0 ajoute `upstream_auth` (RFC 0014) : un cluster peut faire croire à son apiserver
-l'identité affirmée par le proxy ([Apiserver en front-proxy](/docs/front-proxy)) au lieu de
-lui relayer le jeton de l'IdP. Rien ne change sans action de l'admin du proxy :
+l'identité affirmée par le proxy, en en-têtes ([Apiserver en front-proxy](/docs/front-proxy))
+ou dans un JWT que le proxy signe ([Le proxy comme émetteur](/docs/issuer)), au lieu de lui
+relayer le jeton de l'IdP. Rien ne change sans action de l'admin du proxy :
 `upstreamAuth.allowedModes` vaut `[Passthrough]`.
 
 ## Mettre à jour
@@ -27,8 +28,11 @@ helm upgrade proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart:0.5.0 \
 Le contrôleur refuse de démarrer sur une CRD qui ne connaît pas `upstream_auth`, avec un
 message qui nomme la version de `chart-crd` attendue.
 
-Si vous gérez le RBAC vous-même et listez `rbac.referencedNamespaces`, le compte du serveur a
-besoin de `get` sur les `secrets` du namespace de la release (le certificat `FrontProxy`).
+Si vous gérez le RBAC vous-même, le compte du serveur a besoin, sur les `secrets` du
+namespace de la release, de `get` (le certificat `FrontProxy`) et de `list`, `create`,
+`update` et `delete` (les clés `Issuer`, que le contrôleur crée, fait tourner et balaie).
+L'Ingress du chart route désormais `/issuer/` vers le back : à reporter si vous exposez le
+proxy autrement.
 
 ## Ce qui change pour tous les clusters
 

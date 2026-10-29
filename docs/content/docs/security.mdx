@@ -757,8 +757,10 @@ si l'apiserver est câblé sur ces noms, un client pourrait envoyer `X-Remote-Us
 header `Authorization` du client, lui, **reste transmis** : c'est le seul credential amont en mode
 `validate_against: Kubernetes` sans mTLS. Exception : en `upstream_auth.mode: FrontProxy`
 (RFC 0014), `Authorization` et `x-forwarded-*` sont retirés et le proxy affirme lui-même
-l'identité, préfixée, en `X-Remote-*` sur son certificat front-proxy ; modèle de confiance et
-risques acceptés dans [Apiserver en front-proxy](/docs/front-proxy#ce-que-vous-acceptez).
+l'identité, préfixée, en `X-Remote-*` sur son certificat front-proxy ; en `Issuer`,
+`Authorization` est remplacé par un JWT que le proxy signe. Modèles de confiance et risques
+acceptés dans [Apiserver en front-proxy](/docs/front-proxy#ce-que-vous-acceptez) et
+[Le proxy comme émetteur](/docs/issuer#ce-que-vous-acceptez).
 
 ## Journal d'audit
 
