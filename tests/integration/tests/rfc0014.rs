@@ -451,3 +451,114 @@ async fn p11_admission_refuses_a_client_cert_in_front_proxy() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+/// Point 9 (refusal): a certificate of a CA the apiserver does not trust as
+/// front-proxy — the trust probe gets `401`, the cluster closes with
+/// `FrontProxyNotTrusted`, and kubectl gets the proxy's 503.
+#[tokio::test]
+async fn p9_a_certificate_of_an_untrusted_ca_closes_the_cluster() {
+    let p = fixture::front_proxied("rfc0014-p9").await;
+    let ns = p.ns.name.clone();
+    let dir = tempfile::tempdir().expect("temp dir");
+    let run = |args: &[&str]| {
+        let out = std::process::Command::new("openssl")
+            .args(args)
+            .current_dir(dir.path())
+            .output()
+            .expect("openssl is on PATH");
+        assert!(out.status.success(), "openssl {args:?}: {out:?}");
+    };
+    run(&[
+        "req",
+        "-x509",
+        "-newkey",
+        "ec",
+        "-pkeyopt",
+        "ec_paramgen_curve:P-256",
+        "-nodes",
+        "-days",
+        "1",
+        "-subj",
+        "/CN=untrusted-ca",
+        "-keyout",
+        "ca.key",
+        "-out",
+        "ca.crt",
+    ]);
+    run(&[
+        "req",
+        "-newkey",
+        "ec",
+        "-pkeyopt",
+        "ec_paramgen_curve:P-256",
+        "-nodes",
+        "-subj",
+        "/CN=proxyauth-it",
+        "-keyout",
+        "client.key",
+        "-out",
+        "client.csr",
+    ]);
+    std::fs::write(
+        dir.path().join("client.ext"),
+        "extendedKeyUsage=clientAuth\n",
+    )
+    .expect("ext");
+    run(&[
+        "x509",
+        "-req",
+        "-in",
+        "client.csr",
+        "-CA",
+        "ca.crt",
+        "-CAkey",
+        "ca.key",
+        "-CAcreateserial",
+        "-days",
+        "1",
+        "-extfile",
+        "client.ext",
+        "-out",
+        "client.crt",
+    ]);
+    let read = |file: &str| std::fs::read_to_string(dir.path().join(file)).expect("pem");
+    let secret = json!({
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "type": "kubernetes.io/tls",
+        "metadata": {
+            "name": format!("proxyauth-frontproxy-{ns}.{}", fixture::CLUSTER),
+            "namespace": integration::bench::STACK_NS,
+            "labels": { "app.kubernetes.io/managed-by": "proxyauthk8s" },
+            "annotations": { "proxyauth.weebo.si.rs/front-proxy-target": "service:default/kubernetes:443" },
+        },
+        "stringData": { "tls.crt": read("client.crt"), "tls.key": read("client.key") },
+    });
+    Bench::get().apply(&secret.to_string());
+    // A probe round (60 s), then the controller's requeue (60 s).
+    let mut reason = String::new();
+    for _ in 0..90 {
+        let out = Bench::get().admin(&[
+            "-n",
+            &ns,
+            "get",
+            &format!("proxykubeapi/{}", fixture::CLUSTER),
+            "-o",
+            "jsonpath={.status.conditions[?(@.type==\"Ready\")].reason}",
+        ]);
+        reason = String::from_utf8_lossy(&out.stdout).to_string();
+        if reason == "FrontProxyNotTrusted" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    }
+    assert_eq!(reason, "FrontProxyNotTrusted");
+    let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
+    assert!(
+        !out.success()
+            && out
+                .stderr
+                .contains("not ready for upstream mode FrontProxy"),
+        "kubectl prints the proxy's message: {out:?}"
+    );
+}

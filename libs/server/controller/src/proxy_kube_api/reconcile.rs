@@ -30,8 +30,9 @@ static METRICS: LazyLock<ReconcileMetrics> =
 const AGENT_REQUEUE_SECS: u64 = 60;
 
 /// At most this long between two reconciles of a `FrontProxy` cluster, or of
-/// one preparing it (RFC 0014): its certificate and Secret follow no event.
-const FRONT_PROXY_REQUEUE_SECS: u64 = 300;
+/// one preparing it (RFC 0014): its certificate, its Secret and the trust
+/// probe's answer follow no event. The probe's round.
+const FRONT_PROXY_REQUEUE_SECS: u64 = 60;
 
 /// The `kind` label of the reconcile metrics.
 const KIND: &str = "ProxyKubeApi";

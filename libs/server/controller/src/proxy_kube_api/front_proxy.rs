@@ -2,7 +2,8 @@
 //! its certificate's Secret, the certificate itself, the audience mode. In
 //! the effective mode a problem is `Ready=False` (the proxy then answers
 //! `503`); while a `Passthrough` cluster prepares the switch it is an
-//! advisory, `FrontProxyNotReady`.
+//! advisory, `FrontProxyNotReady`. Requeued every minute, the trust probe's
+//! round.
 
 use common::State;
 use common::token_audience::AudienceValidationMode;
