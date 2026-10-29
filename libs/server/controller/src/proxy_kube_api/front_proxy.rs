@@ -189,6 +189,32 @@ pub async fn evaluate(proxy: &ProxyKubeApi, ctx: &State, evaluation: &mut Evalua
         ),
     }
     evaluation.status.upstream_auth = Some(status);
+    // The trust probe's last word (RFC 0014 §5.4, decision 45), once the
+    // certificate itself is sound.
+    if effective && evaluation.ready.is_err() {
+        return;
+    }
+    match common::upstream_trust::get(&proxy.to_path()) {
+        Some(common::upstream_trust::Trust::NotHonoured(seen)) => refuse(
+            evaluation,
+            effective,
+            ReasonCode::UpstreamIdentityNotHonoured,
+            format!(
+                "the apiserver sees {seen} instead of the identity the proxy asserts: check --requestheader-client-ca-file (never --client-ca-file) and the --requestheader-*-headers flags"
+            ),
+        ),
+        Some(common::upstream_trust::Trust::Rejected) => refuse(
+            evaluation,
+            effective,
+            ReasonCode::FrontProxyNotTrusted,
+            "the apiserver refuses the proxy's certificate (401): check that its CA is in --requestheader-client-ca-file and its CN in --requestheader-allowed-names".to_string(),
+        ),
+        Some(common::upstream_trust::Trust::Unknown(why)) => evaluation.advisories.push(Advisory {
+            reason: ReasonCode::UpstreamTrustUnknown,
+            message: format!("the trust probe reached no conclusion: {why}"),
+        }),
+        Some(common::upstream_trust::Trust::Trusted) | None => {}
+    }
 }
 
 #[cfg(test)]

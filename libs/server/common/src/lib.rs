@@ -18,6 +18,7 @@ pub mod state;
 pub mod token_audience;
 pub mod traits;
 pub mod upstream_cache;
+pub mod upstream_trust;
 
 pub use error::{StateInitError, TlsConfigError};
 pub use server_config::ServerConfig;

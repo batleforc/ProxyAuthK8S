@@ -67,6 +67,15 @@ weebo_kit_domain::reason_codes! {
         /// Advisory: a cluster preparing `FrontProxy` (still `Passthrough`)
         /// would not be served once switched; the message says why.
         FrontProxyNotReady,
+        /// The trust probe saw another identity than the one asserted
+        /// (RFC 0014 §5.4): the certificate taken for itself, or a header
+        /// the apiserver does not read.
+        UpstreamIdentityNotHonoured,
+        /// The trust probe got `401`: the CA or `allowed-names`.
+        FrontProxyNotTrusted,
+        /// Advisory: the trust probe reached no conclusion (transport,
+        /// `5xx`, no agent); the cluster stays served.
+        UpstreamTrustUnknown,
     }
 }
 
@@ -87,7 +96,8 @@ impl Reason for ReasonCode {
             | Self::AgentBootstrapNeeded
             | Self::AgentVersionSkew
             | Self::ClientCertExpiring
-            | Self::FrontProxyNotReady => Severity::Advisory,
+            | Self::FrontProxyNotReady
+            | Self::UpstreamTrustUnknown => Severity::Advisory,
             Self::InvalidSpec
             | Self::OidcConfigUnresolved
             | Self::TargetUnreachable
@@ -103,7 +113,9 @@ impl Reason for ReasonCode {
             | Self::ClientCertTargetMismatch
             | Self::ClientCertNameTooLong
             | Self::ClientCertSubjectReserved
-            | Self::AudienceValidationRequired => Severity::Blocking,
+            | Self::AudienceValidationRequired
+            | Self::UpstreamIdentityNotHonoured
+            | Self::FrontProxyNotTrusted => Severity::Blocking,
         }
     }
 }
@@ -119,7 +131,7 @@ mod tests {
 
     #[test]
     fn the_catalog_has_the_codes_of_rfc_0011_to_0014() {
-        assert_eq!(ReasonCode::ALL.len(), 25);
+        assert_eq!(ReasonCode::ALL.len(), 28);
     }
 
     #[test]
@@ -140,6 +152,7 @@ mod tests {
                 &ReasonCode::AgentVersionSkew,
                 &ReasonCode::ClientCertExpiring,
                 &ReasonCode::FrontProxyNotReady,
+                &ReasonCode::UpstreamTrustUnknown,
             ]
         );
     }

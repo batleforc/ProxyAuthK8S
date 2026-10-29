@@ -26,6 +26,7 @@ pub mod model;
 mod root_span;
 #[cfg(feature = "server")]
 pub mod server;
+pub mod upstream_probe;
 pub mod visible_clusters;
 
 /// The state every handler shares.

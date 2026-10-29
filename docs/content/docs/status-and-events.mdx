@@ -59,6 +59,9 @@ Chaque avis devient une condition `True` à côté de `Ready`, de type égal à 
 | `AudienceValidationRequired` | bloquant | un mode de confiance alors que `OIDC_AUDIENCE_VALIDATION` n'est pas `enforce` |
 | `ClientCertExpiring` | avis | le certificat `FrontProxy` expire dans moins de `min(30 j, ⅓ de sa durée de vie)` |
 | `FrontProxyNotReady` | avis | un cluster encore en `Passthrough` qui prépare `FrontProxy` (préfixes posés) ne serait pas servi une fois basculé ; le message dit pourquoi |
+| `UpstreamIdentityNotHonoured` | bloquant | la sonde de confiance (`SelfSubjectReview` par le leader, chaque minute) voit une autre identité que celle affirmée : certificat d'une CA `--client-ca-file`, ou en-tête de groupe ou d'`extra` non lu ; le message nomme l'identité vue |
+| `FrontProxyNotTrusted` | bloquant | la sonde de confiance reçoit `401` : la CA du certificat n'est pas dans `--requestheader-client-ca-file`, ou son CN pas dans `--requestheader-allowed-names` |
+| `UpstreamTrustUnknown` | avis | la sonde de confiance n'a pas conclu (transport, `5xx`, agent absent) ; le cluster reste servi |
 
 ## Les Events
 

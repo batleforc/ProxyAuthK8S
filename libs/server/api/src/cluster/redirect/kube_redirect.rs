@@ -29,7 +29,7 @@ mod standard;
 mod tls;
 mod upgrade;
 mod upstream;
-pub(crate) use upstream::self_subject_review_through_agent;
+pub(crate) use upstream::{probe_client, self_subject_review_through_agent};
 mod virtual_redirect;
 mod websocket;
 

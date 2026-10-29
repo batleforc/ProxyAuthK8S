@@ -15,7 +15,7 @@ use k8s_openapi::api::authentication::v1::SelfSubjectReview;
 use kube::ResourceExt;
 use tracing::info;
 
-use super::tls::build_tls_config;
+use super::tls::{ClientCert, build_tls_config};
 use crate::cluster::redirect::forwarded::{
     forwarded_for_value, is_hop_by_hop, is_proxy_owned_header, is_upstream_auth_header,
 };
@@ -38,7 +38,7 @@ pub(super) async fn upstream_client(
     let ttl = upstream_client_ttl();
     UPSTREAM_CLIENTS
         .get_or_try_insert_with(&key, ttl, || async {
-            let tls_config = Arc::new(build_tls_config(proxy, data, true).await?);
+            let tls_config = Arc::new(build_tls_config(proxy, data, ClientCert::Configured).await?);
             UPSTREAM_TLS_CONFIGS.insert(key.clone(), Arc::clone(&tls_config), ttl);
             build_upstream_client((*tls_config).clone(), agent_proxy(proxy, data).await?)
         })
@@ -57,7 +57,19 @@ pub(super) async fn ca_only_client(
     data: &State,
 ) -> Result<reqwest::Client, String> {
     build_upstream_client(
-        build_tls_config(proxy, data, false).await?,
+        build_tls_config(proxy, data, ClientCert::None).await?,
+        agent_proxy(proxy, data).await?,
+    )
+}
+
+/// A client presenting the `FrontProxy` certificate whatever the mode, never
+/// cached: the trust probe's (RFC 0014 §5.4), every few minutes per cluster.
+pub(crate) async fn probe_client(
+    proxy: &ProxyKubeApi,
+    data: &State,
+) -> Result<reqwest::Client, String> {
+    build_upstream_client(
+        build_tls_config(proxy, data, ClientCert::FrontProxy).await?,
         agent_proxy(proxy, data).await?,
     )
 }
