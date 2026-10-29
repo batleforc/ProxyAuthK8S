@@ -18,9 +18,9 @@
 > **Revue finale du 2026-10-29** (six relecteurs : expérience utilisateur,
 > sécurité, résilience, qualité du code, stabilité, honnêteté) : les
 > corrections sans décision sont faites dans le texte ; ce qui changeait la
-> conception a été tranché au `/grill-me` du même jour (décisions 38 à 58,
-> §15) et reporté dans le corps. La sonde k3s est faite (décision 58) ; reste
-> la lecture des sources de l'apiserver (Still open 1).
+> conception a été tranché au `/grill-me` du même jour (décisions 38 à 59,
+> §15) et reporté dans le corps. La sonde k3s (décision 58) et la lecture des
+> sources de l'apiserver (décision 59) closent *Still open*.
 
 ---
 
@@ -516,7 +516,9 @@ trop ancien ».
   `id_token_signing_alg_values_supported: [ES256]`,
   `response_types_supported: [id_token]` et
   `subject_types_supported: [public]` : l'apiserver ne lit que les deux
-  premiers.
+  premiers. Le champ `issuer` vaut `issuer_key.issuer_url` octet pour octet
+  (barre finale comprise) : go-oidc refuse une découverte dont l'`issuer`
+  diffère, et l'authentificateur reste alors non initialisé (décision 59).
 - Servies depuis un cache en mémoire du processus, qui ne garde que des
   entrées positives (un `{ns}/{cluster}` inventé n'y entre pas, la mémoire est
   bornée par le nombre de clusters) ; pendant une panne Redis ou de l'API
@@ -732,27 +734,40 @@ sequenceDiagram
   décide de l'activation. Un changement de leader au milieu d'une rotation ne
   perd rien : l'état est dans le Secret.
 - **Première clé** (création, ou recréation après perte du Secret) : aucune
-  clé n'étant active, elle s'active tout de suite ; l'apiserver la charge sur
-  le `kid` inconnu (à vérifier, Still open 1). Le délai de 5 min ne vaut que
-  pour une rotation, quand une clé active existe déjà.
+  clé n'étant active, elle s'active tout de suite ; l'apiserver la charge au
+  premier JWT, son cache de clés partant vide (décision 59). Le délai de
+  5 min ne vaut que pour une rotation, quand une clé active existe déjà.
 - **Délais** : `activate_at` = publication + 5 min (cache des réplicas 30 s +
   `Cache-Control: max-age=60` du JWKS + marge) ; le cache de 30 s est une
   constante, pas `PROXY_UPSTREAM_CLIENT_TTL` (300 s, réglable), qui mangerait
   la marge ; un test lie `activate_at ≥ 2 × cache + max-age + décalage`.
+  Ce délai sert la cohérence **entre réplicas** : l'apiserver, lui, ne lit
+  jamais le JWKS d'avance (décision 59). Il ne le recharge que quand aucune
+  clé en cache ne vérifie un JWT **et** que son cache a moins de 30 s avant
+  expiration ; avec `max-age=60`, c'est au plus un rechargement par 30 s et
+  par apiserver. Le `max-age` est gardé exprès : sans lui, chaque JWT au
+  `kid` inventé ferait recharger le JWKS (T15). Pour qu'un utilisateur ne
+  tombe pas sur cette fenêtre de 30 s, la sonde envoie le **premier** JWT du
+  nouveau `kid` juste après `activate_at` (§5.4).
   Le contrôleur se remet en file au plus tard à
   `min(prochaine rotation, prochain activate_at, prochain retire_at)` ;
   `retire_at` = activation de la suivante + `token_ttl_seconds` + 5 min. Les clés dont `retire_at` est
   passé sont **purgées** du Secret : une restauration de sauvegarde ne
   ressuscite pas une clé retirée, et le Secret n'a pas besoin de sauvegarde
   (le perdre ne casse que les JWT en cours, §10.2). Purger n'est **pas**
-  révoquer : l'apiserver ne recharge son JWKS que sur un `kid` inconnu et
-  peut garder la clé purgée jusqu'au prochain `kid` neuf.
+  révoquer : go-oidc n'évince jamais une clé de lui-même, l'apiserver garde
+  la clé purgée jusqu'au prochain rechargement, déclenché par un `kid`
+  inconnu (décision 59).
 - **Révocation d'urgence** (décision 52) : l'annotation de rotation à la
   valeur `revoke:<nonce>` (jamais réutilisée, donc traitée une seule fois)
   retire **aussitôt** la clé active du Secret et du JWKS, sans attendre
-  `retire_at`, et crée une clé neuve active tout de suite. Le premier JWT
-  signé par ce `kid` inconnu force l'apiserver à recharger le JWKS, qui ne
-  contient plus l'ancienne clé. Les JWT en cours échouent jusqu'à leur
+  `retire_at`, et crée une clé neuve active tout de suite. La sonde part
+  aussitôt avec un JWT signé par ce `kid` inconnu, ce qui force l'apiserver
+  à recharger le JWKS, qui ne contient plus l'ancienne clé ; si l'apiserver
+  a rechargé dans les 30 s d'avant, elle réessaie jusqu'à ce qu'il le fasse,
+  sans attendre du trafic. Une clé révoquée reste donc crue au plus ~30 s,
+  plus les 10 s du cache des jetons réussis de l'apiserver
+  (`TokenSuccessCacheTTL`, décision 59). Les JWT en cours échouent jusqu'à leur
   re-signature (une requête, `401` traduit en `502`) ; le magasin « dernier
   bon document » des réplicas est vidé.
 - **Écriture** : `update` avec `resourceVersion` (concurrence optimiste) ;
@@ -795,7 +810,9 @@ en préparation (§4.3) :
   `userValidationRules` (`IssuerNotTrusted`).
 - Toutes les 5 minutes, avec une gigue sur l'intervalle et un départ étalé
   au changement de leader, et à chaque changement de spec, de certificat ou
-  de clé ; huit sondes au plus en parallèle ; 10 s de délai total par sonde
+  de clé, et juste après chaque `activate_at` et chaque révocation, avec le
+  JWT du nouveau `kid`, pour que ce soit elle qui fasse recharger le JWKS
+  (§5.3) ; huit sondes au plus en parallèle ; 10 s de délai total par sonde
   (le client amont ne borne que la connexion, `upstream.rs:117-121`). Le
   résultat pose `UpstreamTrusted` (§4.3), écrit au changement seulement.
   Erreur de transport, `5xx`, agent absent ou délai dépassé donnent
@@ -1170,7 +1187,7 @@ flowchart LR
 | T5 | Info disclosure : le jeton IdP de l'utilisateur part vers l'apiserver | B3 | `FrontProxy` retire toutes les valeurs `Authorization` ; `Issuer` les remplace ; prédicat partagé aux deux boucles de copie (§6.3) ; entrées de jeton retirées de `Sec-WebSocket-Protocol` dans tous les modes (décision 39) | aucun |
 | T6 | Spoofing / Elevation : vol du certificat `FrontProxy` d'un cluster | B5, B6 | Secret dans le namespace du proxy, posé par l'admin du proxy, lu par un nom dérivé du `ns/nom` et lié à une cible (décisions 49 et 56) ; CA dédiée exigée ; avertissements d'expiration ; sujet réservé bloquant à la bascule ; doc : certificat court, NetworkPolicy vers l'apiserver | **cluster-admin** : le détenteur envoie `X-Remote-Group: system:masters` directement, l'apiserver ne filtre pas ; jusqu'à l'expiration (pas de révocation), soit 24 h avec la recette cert-manager de la doc (décision 57). Accepté (admin du proxy, en autorisant `FrontProxy`) ; `Issuer` contient mieux ce vol |
 | T7 | Spoofing : l'apiserver a `--requestheader-allowed-names` vide, ou le certificat vient de `--client-ca-file` (O=`system:masters` possible) | B6 | doc ; `ClientCertSubjectReserved` et `UpstreamIdentityNotHonoured` donnent `Ready=False` et `503` en mode effectif (décision 45) | un apiserver qui accepte tout CN de la CA dédiée (`allowed-names` vide) n'est pas visible à la sonde ; accepté (opérateur), documenté |
-| T8 | Spoofing : vol de la clé `Issuer` d'un cluster | B5 | une clé par cluster, dans le namespace du proxy, jamais en log, rotation ; révocation d'urgence `revoke:<nonce>` qui force un `kid` neuf (décision 52) ; `aud` par cluster ; `userValidationRules` à l'apiserver, vérifiées par la sonde | le détenteur signe pour **ce** cluster tout utilisateur préfixé jusqu'à la révocation (une rotation simple ne suffit pas : l'apiserver garde la clé jusqu'au prochain `kid` inconnu) ; la compromission du processus proxy ouvre tous les clusters en `Issuer` et `FrontProxy` ; accepté (admin du proxy) |
+| T8 | Spoofing : vol de la clé `Issuer` d'un cluster | B5 | une clé par cluster, dans le namespace du proxy, jamais en log, rotation ; révocation d'urgence `revoke:<nonce>` qui force un `kid` neuf (décision 52) ; `aud` par cluster ; `userValidationRules` à l'apiserver, vérifiées par la sonde | le détenteur signe pour **ce** cluster tout utilisateur préfixé jusqu'à la révocation, plus ~40 s (une rotation simple ne suffit pas : go-oidc garde la clé jusqu'au prochain `kid` inconnu, décision 59) ; la compromission du processus proxy ouvre tous les clusters en `Issuer` et `FrontProxy` ; accepté (admin du proxy) |
 | T9 | Elevation : un JWT émis pour A rejoué sur B | B3 | `aud` = `to_identifier()` de A, clé de A ; B ne déclare que son issuer | aucun |
 | T10 | Elevation : un JWT émis sert hors du proxy | B3 | jamais dans une réponse ni un log (`SecretString`) ; TTL ≤ 900 s | s'il fuyait, valide jusqu'à son `exp` ; accepté |
 | T11 | Elevation : un JWT en cache garde des groupes retirés | cache | clé de cache = hash du JSON canonique de l'identité transmise | la latence de validation du proxy (`OIDC_TOKEN_CACHE_TTL`, 30 s) ; inchangée |
@@ -1345,12 +1362,13 @@ flowchart LR
 | restauration de sauvegarde ou recréation GitOps du `ProxyKubeApi` | UID neuf | bref `503` en `Issuer` le temps d'une clé neuve, active tout de suite ; l'issuer vient de la spec, inchangé (décision 53) ; rien en `FrontProxy` : le Secret est nommé par `ns/nom` (décision 56) | automatique |
 | apiserver mal réglé (`allowed-names`, CA) | sonde (`FrontProxyNotTrusted`, `UpstreamIdentityNotHonoured`) | **fermé** en mode effectif : `Ready=False` et `503` (décision 45) ; avis en préparation | corriger l'apiserver ; la Condition dit quoi |
 | sonde qui n'aboutit pas (transport, `5xx`, agent absent, délai) | `UpstreamTrusted=Unknown` | relayé : une sonde aveugle ne ferme pas un cluster sain | automatique |
-| l'apiserver ne joint pas le JWKS, ou l'issuer n'y est pas déclaré | sonde (`IssuerNotTrusted`), `upstream_rejected_total` | **fermé** : `502` avec un `Status` qui nomme `UpstreamTrusted` (décision 46), puis `503` dès que la sonde pose `Ready=False` ; l'authentificateur JWT de l'apiserver réessaierait en tâche de fond sans bloquer son démarrage (à vérifier, Still open 1) | réseau, `certificateAuthority`, config |
+| l'apiserver ne joint pas le JWKS, ou l'issuer n'y est pas déclaré | sonde (`IssuerNotTrusted`), `upstream_rejected_total` | **fermé** : `502` avec un `Status` qui nomme `UpstreamTrusted` (décision 46), puis `503` dès que la sonde pose `Ready=False` ; au démarrage, l'apiserver ne bloque pas et retente la découverte toutes les 10 s ; à un **rechargement** de l'`AuthenticationConfiguration`, la nouvelle config est **refusée en bloc** tant que l'issuer ne répond pas (décision 59) | réseau, `certificateAuthority`, config |
 | proxy ou Redis en panne pendant une rotation ou un redémarrage de l'apiserver | `upstream_rejected_total` | l'apiserver garde les clés déjà chargées ; une clé nouvelle ou un apiserver redémarré attendent le retour du JWKS | automatique ; le dernier bon document reste servi pendant une panne Redis, borné par `retire_at` |
-| décalage d'horloge proxy / apiserver | `401` en fin de vie des JWT | marge `max(60 s, 10 %)` avant `exp`, `nbf` −30 s | NTP |
+| décalage d'horloge proxy / apiserver | `401` en fin de vie des JWT | `exp` sans aucune tolérance à l'apiserver, `nbf` à 1 min, `iat` non vérifié (décision 59) : la marge `max(60 s, 10 %)` avant `exp` couvre un décalage de moins de 60 s, `nbf` −30 s | NTP |
+| proxy injoignable quand l'opérateur modifie l'`AuthenticationConfiguration` du cluster pour une autre raison | l'apiserver garde l'ancienne config, retente chaque minute | **couplage** : le rechargement est tout ou rien, un issuer du proxy injoignable bloque aussi les changements des autres issuers (décision 59) | rétablir le proxy ; la doc le dit dans le guide « émetteur » |
 | identité refusée (§4.2) | `UpstreamIdentity::from_user` | **fermé** : `403`, hors fail2login (le jeton est valide, c'est le mapping qui ne l'est pas) | corriger le mapping ou l'IdP |
 | cluster supprimé puis recréé sous le même nom | UID neuf | bref `503` le temps que le leader crée la clé et mette Redis à jour ; en `FrontProxy`, le Secret est repris tel quel | automatique ; issuer et audience inchangés, le JWKS publie la clé neuve |
-| le cluster de gestion est lui-même la cible en `Issuer` | — | l'apiserver dépend du proxy qu'il héberge pour charger ses clés | déconseillé dans la doc ; préférer `FrontProxy` |
+| le cluster de gestion est lui-même la cible en `Issuer` | — | pas d'interblocage : l'apiserver démarre sans l'issuer et retente toutes les 10 s, les JWT du proxy échouent jusqu'à ce que le proxy réponde (décision 59) | déconseillé dans la doc ; préférer `FrontProxy` |
 
 Toujours fermé : aucun échec de `FrontProxy` ou `Issuer` ne relaie le jeton
 IdP de l'utilisateur. Un réplica trop ancien ne trouve pas le cluster, un
@@ -1396,7 +1414,8 @@ redémarrage (T26).
   - guide « déclarer le proxy comme émetteur » : la valeur
     d'`issuer_key.issuer_url` à écrire, bloc `AuthenticationConfiguration`
     avec `userValidationRules`, préparation en `Passthrough`, migration
-    d'URL, révocation d'urgence (`revoke:<nonce>`), NTP ;
+    d'URL, révocation d'urgence (`revoke:<nonce>`), NTP, et le couplage du
+    rechargement tout ou rien de l'`AuthenticationConfiguration` ;
   - page de migration : `allowedModes`, prérequis de version, `RoleBinding`
     préfixés, ce qu'affiche `kubectl auth whoami`, changement des noms quand
     on ajoute `claim_mappings` ;
@@ -1501,7 +1520,7 @@ redémarrage (T26).
   | certificat `FrontProxy` renouvelé, même CA et même CN | rien | cas de la recette cert-manager, toutes les 24 h |
   | CN du certificat changé | ajouter le CN à `--requestheader-allowed-names` avant | la doc dit de choisir un CN et de le garder |
   | CA `FrontProxy` changée | ancienne et nouvelle CA côte à côte dans `--requestheader-client-ca-file`, basculer l'émetteur, retirer l'ancienne | rechargement sans redémarrage, observé (décision 58) |
-  | clé `Issuer` tournée ou révoquée | rien : rechargement du JWKS sur `kid` inconnu | à vérifier, Still open 1 |
+  | clé `Issuer` tournée ou révoquée | rien : rechargement du JWKS sur `kid` inconnu, déclenché par la sonde | lu dans les sources (décision 59) |
   | URL d'issuer changée | seconde entrée `jwt` le temps de la migration | voir plus bas |
 
   Un changement que l'apiserver refuse se voit à la sonde, relancée à chaque
@@ -1623,7 +1642,7 @@ Tranchées au `/grill-me` du 2026-10-27 (1 à 20), à la rédaction (21 à 27),
 puis après les revues sécurité, expérience utilisateur, stabilité du code et
 résilience du même jour (28 à 37), puis au `/grill-me` du 2026-10-29 sur les
 questions ouvertes par la revue finale à six relecteurs (38 à 55 ; la
-question d'origine est entre parenthèses), 56 qui rouvre la 49, 57 (source du certificat) et 58 (sonde k3s). Toutes suivent la recommandation
+question d'origine est entre parenthèses), 56 qui rouvre la 49, 57 (source du certificat), 58 (sonde k3s) et 59 (sources de l'apiserver). Toutes suivent la recommandation
 de la revue, sauf la 46 (prémisse corrigée) et la 53 (option nouvelle).
 
 | # | Question | Decision |
@@ -1686,20 +1705,11 @@ de la revue, sauf la 46 (prémisse corrigée) et la 53 (option nouvelle).
 | 56 | Nom du Secret `FrontProxy` (49 rouverte, 2026-10-29) | **`proxyauth-frontproxy-<ns>.<nom>`, et une annotation `proxyauth.weebo.si.rs/front-proxy-target` posée par l'admin, comparée à `spec.service` (`ClientCertTargetMismatch`) ; nom trop long : `ClientCertNameTooLong` ; jamais balayé.** Le nom par UID interdisait de déclarer le Secret avant le cluster et obligeait à le recopier à chaque restauration ou recréation. Le `ns/nom` est aussi sûr : un tenant ne crée de `ProxyKubeApi` que dans son namespace, et un nom de namespace n'a pas de point, donc pas de collision. Ce que l'UID protégeait en plus, un namespace repris par un autre tenant, et ce qu'il ne protégeait pas, un `spec.service` repointé vers un autre apiserver qui croit la même CA, l'annotation de cible le couvre (T29). |
 | 57 | Source du certificat `FrontProxy` | **Au choix de l'admin : tout ce qui écrit un Secret `kubernetes.io/tls` avec les labels et l'annotation de cible ; cert-manager recommandé (CA privée, 24 h, `rotationPolicy: Always`, une CA par apiserver cible) ; Vault Secrets Operator, External Secrets ou un pipeline possibles ; le proxy ne parle jamais à une PKI et ne crée pas de `Certificate`.** Des certificats courts renouvelés seuls bornent T6 à un jour sans code. Un `Certificate` créé par le contrôleur ferait émettre un identifiant cluster-admin à quiconque peut demander `FrontProxy`, et ferait de cert-manager une dépendance ; un client Vault dans le proxy ajouterait un secret et une surface sortante pour remplacer un Secret que ces outils écrivent déjà. Que VSO et External Secrets posent labels et annotations sur le Secret écrit est à vérifier dans la doc. |
 | 58 | Sonde k3s du front-proxy (ancien Still open 1, 2026-10-29) | **Tenu, observé sur `rancher/k3s:v1.35.9-k3s1` par `.it/probes/rfc0014-front-proxy.sh` (run CI 40855441199).** Avec la seule CA dédiée, l'agrégation (`metrics.k8s.io`) tombe ; avec la CA `request-header` de k3s (CN `system:auth-proxy`) concaténée, elle revient en 13 s et l'identité affirmée reste crue. Le fichier est rechargé sans redémarrage : une CA ajoutée est crue aussitôt, une CA retirée refusée. Sans certificat ou CN hors `allowed-names` : `401` (pas d'anonyme). Certificat de `--client-ca-file` avec `X-Remote-User` : authentifié sous son CN, en-têtes ignorés. Un `X-Remote-Group` par groupe, virgule non coupée ; clé `extra` décodée ; espace de fin de `X-Remote-User` supprimé, ce qui justifie le refus de §4.2. |
+| 59 | Comportement de l'apiserver, lu dans les sources (ancien Still open 1, 2026-10-29) | **Tenu, avec des précisions reportées dans le corps.** Lu à Kubernetes v1.35.0 et `github.com/coreos/go-oidc` v2.3.0 (la version de son `go.mod`). (a) JWKS : rechargé seulement quand aucune clé en cache ne vérifie le JWT et que le cache est à moins de 30 s de son expiration (`jwks.go`, `keysExpiryDelta`) ; l'expiration vient de `Cache-Control` ; aucune clé n'est évincée sans rechargement ; d'où le premier JWT d'un nouveau `kid` envoyé par la sonde, et `max-age=60` gardé comme limite (T15). (b) `exp` sans tolérance, `nbf` à 1 min, `iat` non vérifié (`verify.go`). (c) Rechargement de l'`AuthenticationConfiguration` : tout ou rien, refusé tant qu'un issuer ne répond pas en 1 min, retenté chaque minute ; au démarrage, découverte asynchrone retentée toutes les 10 s, sans bloquer (`authenticator/config.go`, `options/authentication.go`, `oidc.go`). (d) Union : requestheader, x509, bearer, sous-protocole WebSocket, avec `FailOnError: false` : un JWT refusé laisse passer au jeton du sous-protocole (`union.go`) ; les décisions 39 et 40 sont nécessaires. (e) Cache des jetons de l'apiserver : succès 10 s, échecs 0 s par défaut ; une clé révoquée reste crue ~40 s au plus. |
 
 ### Still open
 
-1. **Comportement de l'apiserver à vérifier sur les sources (phases 1 à 3)** :
-   rechargement du JWKS sur `kid` inconnu (go-oidc `RemoteKeySet`), absence de
-   tolérance sur `exp`, rechargement à chaud de l'`AuthenticationConfiguration`
-   quand un nouvel issuer est injoignable. Les délais de §5.3 en dépendent ;
-   ils sont choisis larges. Y ajouter : l'ordre de l'union d'authentificateurs
-   (requestheader, x509, bearer, sous-protocole WebSocket) et le passage au
-   suivant sur échec, qui justifie les décisions 39 et 40 (la priorité de
-   x509 sur les en-têtes est déjà observée, décision 58). La révocation
-   (décision 52) repose aussi sur le rechargement sur `kid` inconnu. Ne
-   change pas la conception : si l'une de ces lectures est fausse, ce sont
-   des délais et des messages qui bougent, pas les décisions.
+Aucune.
 
 ---
 
