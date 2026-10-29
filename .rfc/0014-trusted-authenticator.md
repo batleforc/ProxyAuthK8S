@@ -1771,8 +1771,7 @@ Non commencée.
 
 ### 17.4 Pour reprendre (état au 2026-10-29)
 
-- **Branche** : `probe/rfc0014-front-proxy`, PR ouverte vers `main` (voir
-  `.rfc/README.md`). RFC en `In review`.
+- **Branche** : `probe/rfc0014-front-proxy`, PR #323 vers `main`. RFC en `In review`.
 - **CI** : verte sur `9b79d7e` (Rust tests, envtest, intégration
   `40874702974` : 93/93) ; la décision 60 (statut `trust`) est arrivée
   après, sa suite est à relancer sur la tête. Clippy et l'intégration ne
