@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review                                                              |
+| Status      | Accepted                                                               |
 | Short       | Authentificateur de confiance (front-proxy, émetteur)                  |
 | Settles     | Ne plus déclarer l'IdP de chaque utilisateur dans chaque apiserver     |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -25,8 +25,8 @@
 > sources de l'apiserver (décision 59) closent *Still open*.
 >
 > **État de l'implémentation (2026-10-29)** : phases 1 et 2 codées sur la
-> branche `probe/rfc0014-front-proxy`, suite d'intégration verte, en revue
-> (`In review`) ; phase 3 (`Issuer`)
+> branche `probe/rfc0014-front-proxy`, suite d'intégration verte, `Accepted`
+> le 2026-10-29, fusionnées par #323 ; phase 3 (`Issuer`)
 > non commencée, à construire quand un utilisateur la demande. Détail et
 > écarts : §17.
 
@@ -1787,7 +1787,7 @@ Non commencée.
 
 ### 17.4 Pour reprendre (état au 2026-10-29)
 
-- **Branche** : `probe/rfc0014-front-proxy`, PR #323 vers `main`. RFC en `In review`.
+- **Branche** : `probe/rfc0014-front-proxy`, PR #323 vers `main`. RFC `Accepted` le 2026-10-29.
 - **CI** : toute la CI de la PR verte sur `e9493b0` (intégration
   `40900947199` : 98/98, CodeQL compris). Clippy et l'intégration ne
   partent que lancés à la main : `gh workflow run back-clippy.yaml --ref
@@ -1796,8 +1796,9 @@ Non commencée.
   du verdict, runbook 401/403/502/503), `migration/v0-5-0.mdx` (numéro de
   version supposé), référence CRD régénérée ; sécurité, roadmap et plugin
   kubectl amendés.
-- **Prochaines étapes** : la revue de la PR ; `Accepted` puis, à la fusion,
-  `Implemented` pour les phases 1 et 2 (phase 3 seulement à la demande).
+- **Prochaines étapes** : la suite *heavy* (RFC suivante) avant la 0.5.0 ;
+  `Implemented` pour les phases 1 et 2 à la sortie de la 0.5.0 (phase 3
+  seulement à la demande).
 - **Contraintes de travail** : la machine ne tient pas les charges
   lourdes — en local seulement `cargo check`, `cargo clippy` et
   `cargo test -p <crate> --lib` (ou un binaire de test ciblé) ; la suite
