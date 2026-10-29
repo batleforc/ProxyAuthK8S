@@ -240,6 +240,7 @@ pub async fn sign(
         && cached_exp <= exp
         && iat < cached_exp.saturating_sub(margin)
     {
+        crate::metrics::record_issuer_token("cache_hit");
         return Ok((*jwt).clone());
     }
     let mut claims = json!({
@@ -258,6 +259,7 @@ pub async fn sign(
         object.insert("extra".to_string(), json!(identity.extra));
     }
     let jwt = Arc::new(SecretString::from(encode(key, &claims)?));
+    crate::metrics::record_issuer_token("signed");
     if let Ok(keep) = u64::try_from(exp.saturating_sub(margin).saturating_sub(iat)) {
         JWTS.insert(
             cache_key,

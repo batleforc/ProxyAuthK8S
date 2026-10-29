@@ -168,88 +168,6 @@ async fn p1_claim_mappings_name_the_user_in_passthrough() {
     );
 }
 
-/// Point 2 (refusal): a cluster asking for `Issuer` on an installation
-/// whose `allowedModes` does not hold it — kubectl gets the proxy's `503`
-/// with its message, and the Condition says why. The message is the
-/// proxy's own: nothing was relayed, the apiserver has no such text.
-#[tokio::test]
-async fn p2_a_mode_outside_allowed_modes_answers_503_and_is_never_relayed() {
-    let p = fixture::proxied("rfc0014-p2", json!(null)).await;
-    let ns = p.ns.name.clone();
-    let bench = Bench::get();
-    patch_cluster(
-        &ns,
-        fixture::CLUSTER,
-        &json!({
-            "auth_config": oidc_mapped(&json!({ "username": { "claim": "sub", "prefix": "" } })),
-            "upstream_auth": {
-                "mode": "Issuer",
-                "user_prefix": "proxyauth:",
-                "group_prefix": "proxyauth:",
-                "issuer_key": { "issuer_url": format!("{}/issuer/{ns}/{}", bench.base_url(), fixture::CLUSTER) },
-            },
-        }),
-        "UpstreamModeNotAllowed",
-    );
-    let reason = bench.admin(&[
-        "-n",
-        &ns,
-        "get",
-        &format!("proxykubeapi/{}", fixture::CLUSTER),
-        "-o",
-        "jsonpath={.status.conditions[?(@.type==\"Ready\")].reason}",
-    ]);
-    assert_eq!(
-        String::from_utf8_lossy(&reason.stdout),
-        "UpstreamModeNotAllowed"
-    );
-    let mode = bench.admin(&[
-        "-n",
-        &ns,
-        "get",
-        &format!("proxykubeapi/{}", fixture::CLUSTER),
-        "-o",
-        "jsonpath={.status.upstreamAuth.mode}",
-    ]);
-    assert_eq!(String::from_utf8_lossy(&mode.stdout), "Issuer");
-
-    let token = p.reader.cluster_token(&ns, fixture::CLUSTER).await;
-    let response = bench
-        .proxied(
-            reqwest::Method::GET,
-            &ns,
-            fixture::CLUSTER,
-            &format!("/api/v1/namespaces/{ns}/pods"),
-            &token,
-        )
-        .send()
-        .await
-        .expect("request");
-    assert_eq!(response.status(), 503);
-    let body: Value = response.json().await.expect("a Kubernetes Status");
-    let message = body["message"].as_str().unwrap_or_default();
-    assert!(
-        message.contains("upstream mode Issuer is not enabled")
-            && message.contains("upstreamAuth.allowedModes"),
-        "{body}"
-    );
-    // The refusal is audited, with the mode that was asked for.
-    assert!(
-        observe::audit_lines(&ns)
-            .iter()
-            .any(|line| line["event"] == "request"
-                && line["status"] == 503
-                && line["upstream_mode"] == "Issuer"),
-        "no audited 503 for the Issuer cluster"
-    );
-    // kubectl reads discovery raw: it shows the code, not the message.
-    let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
-    assert!(
-        !out.success() && out.stderr.contains("(ServiceUnavailable)"),
-        "kubectl must fail with the 503: {out:?}"
-    );
-}
-
 /// Point 15 (refusal): two clusters on the same Dex client, one mapping the
 /// username from `email`, the other mapping everyone to `admin` — the same
 /// token sent to both, the second within the cache's lifetime, is audited
@@ -771,4 +689,278 @@ async fn p14_the_dex_token_never_reaches_the_logs() {
         !String::from_utf8_lossy(&logs.stdout).contains(signature),
         "the Dex token is in the back's logs"
     );
+}
+
+/// `.status.upstreamAuth.<field>` of the test cluster.
+fn upstream_status(ns: &str, field: &str) -> String {
+    let out = Bench::get().admin(&[
+        "-n",
+        ns,
+        "get",
+        &format!("proxykubeapi/{}", fixture::CLUSTER),
+        "-o",
+        &format!("jsonpath={{.status.upstreamAuth.{field}}}"),
+    ]);
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+/// The issuer document `doc` of the test cluster, through the Ingress.
+async fn issuer_document(ns: &str, doc: &str) -> Value {
+    let bench = Bench::get();
+    let url = format!(
+        "{}/issuer/{ns}/{}/{doc}",
+        bench.base_url(),
+        fixture::CLUSTER
+    );
+    let response = bench.http().get(&url).send().await.expect("issuer route");
+    assert_eq!(response.status(), 200, "{url}");
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .and_then(|v| v.to_str().ok()),
+        Some("max-age=60")
+    );
+    response.json().await.expect("a JSON document")
+}
+
+/// The `kid`s the JWKS of the test cluster publishes.
+async fn published_kids(ns: &str) -> Vec<String> {
+    issuer_document(ns, "jwks").await["keys"]
+        .as_array()
+        .map(|keys| {
+            keys.iter()
+                .filter_map(|key| key["kid"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Switch the test cluster to `Issuer`, once its preparation is trusted.
+fn switch_to_issuer(ns: &str) {
+    let patch = json!({ "spec": { "upstream_auth": { "mode": "Issuer" } } });
+    let out = Bench::get().admin(&[
+        "-n",
+        ns,
+        "patch",
+        &format!("proxykubeapi/{}", fixture::CLUSTER),
+        "--type=merge",
+        "-p",
+        &patch.to_string(),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    fixture::wait(
+        ns,
+        &[
+            &format!("proxykubeapi/{}", fixture::CLUSTER),
+            "--for=jsonpath={.status.upstreamAuth.mode}=Issuer",
+        ],
+    );
+}
+
+/// Point 10: an `Issuer` cluster prepared in `Passthrough` — the probe
+/// trusts it before the switch — then switched: the apiserver sees the
+/// prefixed identity from the proxy's JWT, the documents name the issuer
+/// byte for byte and publish the signing key (T14), and ten requests sign
+/// one JWT.
+#[tokio::test]
+async fn p10_an_issuer_cluster_asserts_the_prefixed_identity() {
+    let p = fixture::proxied("rfc0014-p10", Value::Null).await;
+    let ns = p.ns.name.clone();
+    fixture::prepare_issuer(&p);
+    wait_trust(&ns, "Trusted").await;
+    assert_eq!(
+        upstream_status(&ns, "audience"),
+        format!("proxyk8sauth:{ns}/{}", fixture::CLUSTER)
+    );
+    let discovery = issuer_document(&ns, ".well-known/openid-configuration").await;
+    assert_eq!(discovery["issuer"], fixture::issuer_url(&ns));
+    let key_id = upstream_status(&ns, "keyId");
+    assert!(published_kids(&ns).await.contains(&key_id), "{key_id}");
+
+    switch_to_issuer(&ns);
+    let (username, groups) = whoami(&p.reader).await;
+    assert_eq!(username, "proxyauth:reader@it.local");
+    assert!(
+        groups.iter().any(|g| g == "proxyauth:it-readers"),
+        "{groups:?}"
+    );
+    assert!(!groups.iter().any(|g| g == "it-readers"), "{groups:?}");
+    let (reused, ()) = observe::metric_delta(
+        "proxyauth_issuer_tokens_total",
+        &[("result", "cache_hit")],
+        async {
+            for _ in 0..10 {
+                let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
+                assert!(out.success(), "kubectl get pods: {out:?}");
+            }
+        },
+    )
+    .await;
+    assert!(reused >= 9.0, "only {reused} JWTs reused");
+    // T10: the JWT never reaches the client, nor the logs.
+    let logs = Bench::get().admin(&[
+        "-n",
+        integration::bench::STACK_NS,
+        "logs",
+        &format!("deployment/{}", integration::bench::BACK_SERVICE),
+        "--tail=-1",
+    ]);
+    assert!(
+        !String::from_utf8_lossy(&logs.stdout).contains("eyJhbGciOiJFUzI1NiI"),
+        "an ES256 JWT is in the back's logs"
+    );
+}
+
+/// Point 11 (refusal), `Issuer`: admission refuses a `client_cert` (x509
+/// would win over the JWT, T25) and the mode without `issuer_key`.
+#[tokio::test]
+async fn p11_admission_refuses_an_issuer_without_its_key_or_with_a_client_cert() {
+    let p = fixture::proxied("rfc0014-p11i", Value::Null).await;
+    let ns = p.ns.name.clone();
+    let auth = oidc_mapped(&json!({ "username": { "claim": "sub", "prefix": "" } }));
+    let refused = |spec: Value, message: &str| {
+        let out = Bench::get().admin(&[
+            "-n",
+            &ns,
+            "patch",
+            &format!("proxykubeapi/{}", fixture::CLUSTER),
+            "--type=merge",
+            "-p",
+            &json!({ "spec": spec }).to_string(),
+        ]);
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        assert!(
+            !out.status.success() && stderr.contains(message),
+            "{stderr}"
+        );
+    };
+    refused(
+        json!({
+            "client_cert": {
+                "cert": { "Secret": { "name": "x", "key": "tls.crt" } },
+                "key": { "Secret": { "name": "x", "key": "tls.key" } },
+            },
+            "auth_config": auth,
+            "upstream_auth": { "mode": "Issuer", "user_prefix": "p:", "group_prefix": "p:",
+                "issuer_key": { "issuer_url": fixture::issuer_url(&ns) } },
+        }),
+        "client_cert is refused in FrontProxy and Issuer",
+    );
+    refused(
+        json!({
+            "auth_config": auth,
+            "upstream_auth": { "mode": "Issuer", "user_prefix": "p:", "group_prefix": "p:" },
+        }),
+        "mode Issuer requires issuer_key",
+    );
+}
+
+/// Point 12 (refusal): the apiserver declares the issuer without its
+/// `userValidationRules`, so it would also take an unprefixed identity. The
+/// probe sees it (`Unguarded`) and the switched cluster is closed with
+/// `IssuerNotTrusted`, never served.
+#[tokio::test]
+async fn p12_an_issuer_without_prefix_rules_is_closed() {
+    let p = fixture::proxied("rfc0014-p12", Value::Null).await;
+    let ns = p.ns.name.clone();
+    fixture::prepare_issuer(&p);
+    wait_trust(&ns, "Unguarded").await;
+    switch_to_issuer(&ns);
+    fixture::wait(
+        &ns,
+        &[
+            &format!("proxykubeapi/{}", fixture::CLUSTER),
+            "--for=jsonpath={.status.conditions[?(@.type==\"Ready\")].reason}=IssuerNotTrusted",
+        ],
+    );
+    assert_closed(&p, "not ready for upstream mode Issuer").await;
+}
+
+/// Point 13: a rotation by annotation while requests run — none fails, the
+/// JWKS publishes both `kid`s before the new one signs — then a revocation:
+/// the revoked key leaves the JWKS at once, a new one signs, and requests
+/// recover.
+#[tokio::test]
+async fn p13_a_rotation_loses_no_request_and_a_revocation_replaces_the_key() {
+    let p = fixture::proxied("rfc0014-p13", Value::Null).await;
+    let ns = p.ns.name.clone();
+    fixture::prepare_issuer(&p);
+    wait_trust(&ns, "Trusted").await;
+    switch_to_issuer(&ns);
+    let first = upstream_status(&ns, "keyId");
+    let annotate = |value: &str| {
+        let out = Bench::get().admin(&[
+            "-n",
+            &ns,
+            "annotate",
+            "--overwrite",
+            &format!("proxykubeapi/{}", fixture::CLUSTER),
+            &format!("proxyauth.weebo.si.rs/rotate-issuer-key={value}"),
+        ]);
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    annotate("it-rotation");
+    // Published before it signs, then signing within the 5 min delay and a
+    // requeue; requests keep working all along.
+    let mut both = false;
+    let mut second = first.clone();
+    for _ in 0..90 {
+        let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
+        assert!(
+            out.success(),
+            "a request failed during the rotation: {out:?}"
+        );
+        both |= published_kids(&ns).await.len() >= 2;
+        second = upstream_status(&ns, "keyId");
+        if second != first {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    }
+    assert!(both, "the JWKS never published two keys");
+    assert_ne!(second, first, "the key never rotated");
+    for _ in 0..3 {
+        let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
+        assert!(out.success(), "after the rotation: {out:?}");
+    }
+
+    annotate("revoke:it-1");
+    let mut third = second.clone();
+    for _ in 0..30 {
+        third = upstream_status(&ns, "keyId");
+        if third != second && !published_kids(&ns).await.contains(&second) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    }
+    assert_ne!(third, second, "the revocation made no new key");
+    assert!(
+        !published_kids(&ns).await.contains(&second),
+        "the revoked key is still published"
+    );
+    // A replica may sign with the revoked key until its 30 s cache ends,
+    // and the apiserver reloads its JWKS at most every 30 s: requests
+    // recover within a minute or two.
+    let mut recovered = false;
+    for _ in 0..40 {
+        if p.reader
+            .kubectl(&["-n", &ns, "get", "pods"])
+            .await
+            .success()
+        {
+            recovered = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    }
+    assert!(recovered, "requests never recovered after the revocation");
 }

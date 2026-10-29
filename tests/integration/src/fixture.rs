@@ -297,9 +297,69 @@ pub async fn front_proxied(test: &str) -> Proxied {
 /// Switch the fixture's cluster to `FrontProxy`, as [`front_proxied`]
 /// describes, its certificate bound to `target` (`clientCertTarget`).
 pub fn use_front_proxy(p: &Proxied, target: &str) {
-    let bench = Bench::get();
     let ns = p.ns.name.clone();
     install_front_proxy_cert(&ns, CLUSTER, target);
+    assert_prefixed(
+        p,
+        &json!({
+            "mode": "FrontProxy",
+            "user_prefix": "proxyauth:",
+            "group_prefix": "proxyauth:",
+        }),
+    );
+    wait(
+        &ns,
+        &[
+            &format!("proxykubeapi/{CLUSTER}"),
+            "--for=jsonpath={.status.upstreamAuth.mode}=FrontProxy",
+        ],
+    );
+    wait(
+        &ns,
+        &[
+            &format!("proxykubeapi/{CLUSTER}"),
+            "--for=jsonpath={.status.conditions[?(@.type==\"Ready\")].reason}=Reconciled",
+        ],
+    );
+}
+
+/// The issuer URL the bench's apiserver declares for the cluster of `ns`
+/// (`.it/k3d.yaml.tpl`), through the Ingress it resolves in the cluster.
+#[must_use]
+pub fn issuer_url(ns: &str) -> String {
+    format!("https://proxyauth.k8s.localhost:8443/issuer/{ns}/{CLUSTER}")
+}
+
+/// RFC 0014 §13, `Issuer` step 2: the fixture's cluster still in
+/// `Passthrough`, with its prefixes and `issuer_key`, once the controller
+/// published its key.
+pub fn prepare_issuer(p: &Proxied) {
+    let ns = p.ns.name.clone();
+    let url = issuer_url(&ns);
+    assert_prefixed(
+        p,
+        &json!({
+            "mode": "Passthrough",
+            "user_prefix": "proxyauth:",
+            "group_prefix": "proxyauth:",
+            "issuer_key": { "issuer_url": url },
+        }),
+    );
+    wait(
+        &ns,
+        &[
+            &format!("proxykubeapi/{CLUSTER}"),
+            &format!("--for=jsonpath={{.status.upstreamAuth.issuerUrl}}={url}"),
+        ],
+    );
+}
+
+/// Grant `proxyauth:it-readers` the namespace in the apiserver, and set the
+/// cluster's `upstream_auth` to `upstream`, its username mapped from Dex's
+/// `email` (a trusted mode requires `claim_mappings`).
+fn assert_prefixed(p: &Proxied, upstream: &Value) {
+    let bench = Bench::get();
+    let ns = p.ns.name.clone();
     let rbac = json!({
         "apiVersion": "rbac.authorization.k8s.io/v1",
         "kind": "RoleBinding",
@@ -324,11 +384,7 @@ pub fn use_front_proxy(p: &Proxied, target: &str) {
                 },
             },
         },
-        "upstream_auth": {
-            "mode": "FrontProxy",
-            "user_prefix": "proxyauth:",
-            "group_prefix": "proxyauth:",
-        },
+        "upstream_auth": upstream,
     } });
     let out = bench.admin(&[
         "-n",
@@ -341,22 +397,8 @@ pub fn use_front_proxy(p: &Proxied, target: &str) {
     ]);
     assert!(
         out.status.success(),
-        "switch to FrontProxy: {}",
+        "set upstream_auth: {}",
         String::from_utf8_lossy(&out.stderr)
-    );
-    wait(
-        &ns,
-        &[
-            &format!("proxykubeapi/{CLUSTER}"),
-            "--for=jsonpath={.status.upstreamAuth.mode}=FrontProxy",
-        ],
-    );
-    wait(
-        &ns,
-        &[
-            &format!("proxykubeapi/{CLUSTER}"),
-            "--for=jsonpath={.status.conditions[?(@.type==\"Ready\")].reason}=Reconciled",
-        ],
     );
 }
 

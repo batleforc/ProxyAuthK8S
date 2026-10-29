@@ -132,6 +132,22 @@ pub fn record_upstream_rejected(mode: &'static str) {
     UPSTREAM_REJECTED_COUNTER.add(1, &[KeyValue::new("mode", mode)]);
 }
 
+/// `proxyauth_issuer_tokens_total{result}`: the JWTs an `Issuer` cluster
+/// needed, `signed` or reused (`cache_hit`) (RFC 0014 §5.2).
+pub const ISSUER_TOKENS: &str = "proxyauth.issuer.tokens";
+
+static ISSUER_TOKENS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(ISSUER_TOKENS)
+        .with_description("Issuer JWTs, by result: signed or cache_hit.")
+        .build()
+});
+
+/// One `Issuer` JWT, `signed` or `cache_hit`.
+pub fn record_issuer_token(result: &'static str) {
+    ISSUER_TOKENS_COUNTER.add(1, &[KeyValue::new("result", result)]);
+}
+
 /// One identity refused (RFC 0014 §4.2).
 pub fn record_upstream_identity_refused(reason: &'static str) {
     UPSTREAM_IDENTITY_REFUSED_COUNTER.add(1, &[KeyValue::new("reason", reason)]);

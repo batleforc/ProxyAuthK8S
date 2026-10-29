@@ -106,7 +106,7 @@ cp "$FP/ca.crt" "$FP/requestheader-ca.crt"
 
 step "cluster"
 awk -v image="$K3S" -v ca="$RUN/ca/rootCA.pem" -v traefik="$PWD/.it/traefik-config.yaml" -v fp="$(cd "$FP" && pwd)" '
-  /^ *__CA__$/ { while ((getline line < ca) > 0) print "              " line; next }
+  /^ *__CA__$/ { while ((getline line < ca) > 0) print "              " line; close(ca); next }
   { gsub(/__IMAGE__/, image); gsub(/__TRAEFIK_CONFIG__/, traefik); gsub(/__FRONT_PROXY_DIR__/, fp); print }' .it/k3d.yaml.tpl >"$RUN/k3d.yaml"
 sed -i "s/127.0.0.1:8443:8443/127.0.0.1:$PORT:8443/" "$RUN/k3d.yaml"
 k3d cluster create "$CLUSTER" --config "$RUN/k3d.yaml" --wait

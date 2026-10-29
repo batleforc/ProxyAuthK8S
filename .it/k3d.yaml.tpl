@@ -82,4 +82,58 @@ files:
           userValidationRules:
             - expression: "user.groups.all(group, !group.startsWith('system:'))"
               message: "groups cannot use the reserved system: prefix"
+        # RFC 0014 §6.P point 10: the proxy as the issuer of a test cluster; the
+        # apiserver checks the prefix itself (decision 28).
+        - issuer:
+            url: https://proxyauth.k8s.localhost:8443/issuer/it-rfc0014-p10/c
+            audiences:
+              - proxyk8sauth:it-rfc0014-p10/c
+            certificateAuthority: |
+      __CA__
+          claimMappings:
+            username:
+              claim: sub
+              prefix: ""
+            groups:
+              claim: groups
+              prefix: ""
+          userValidationRules:
+            - expression: "user.username.startsWith('proxyauth:')"
+              message: "the proxy asserts prefixed users only"
+            - expression: "user.groups.all(g, g.startsWith('proxyauth:'))"
+              message: "the proxy asserts prefixed groups only"
+        # Point 12: the same without userValidationRules, which the probe must
+        # see (IssuerNotTrusted).
+        - issuer:
+            url: https://proxyauth.k8s.localhost:8443/issuer/it-rfc0014-p12/c
+            audiences:
+              - proxyk8sauth:it-rfc0014-p12/c
+            certificateAuthority: |
+      __CA__
+          claimMappings:
+            username:
+              claim: sub
+              prefix: ""
+            groups:
+              claim: groups
+              prefix: ""
+        # Point 13: rotation and revocation.
+        - issuer:
+            url: https://proxyauth.k8s.localhost:8443/issuer/it-rfc0014-p13/c
+            audiences:
+              - proxyk8sauth:it-rfc0014-p13/c
+            certificateAuthority: |
+      __CA__
+          claimMappings:
+            username:
+              claim: sub
+              prefix: ""
+            groups:
+              claim: groups
+              prefix: ""
+          userValidationRules:
+            - expression: "user.username.startsWith('proxyauth:')"
+              message: "the proxy asserts prefixed users only"
+            - expression: "user.groups.all(g, g.startsWith('proxyauth:'))"
+              message: "the proxy asserts prefixed groups only"
     destination: /var/lib/apiserver/authentication.yaml
