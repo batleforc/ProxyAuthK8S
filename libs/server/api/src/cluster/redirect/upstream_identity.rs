@@ -1,5 +1,5 @@
-//! The identity the proxy asserts to the apiserver in `FrontProxy` (RFC 0014
-//! §4.2), and what each request presents upstream.
+//! The identity the proxy asserts to the apiserver in `FrontProxy` and
+//! `Issuer` (RFC 0014 §4.2), and what each request presents upstream.
 //!
 //! Pure and without I/O: [`UpstreamIdentity::from_user`] is the fuzz target
 //! of `fuzz_upstream_identity`.
@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use crd::upstream_auth::{UpstreamAuth, extra_key_refusal};
 use http::HeaderValue;
+use secrecy::{ExposeSecret as _, SecretString};
 
 use crate::model::user::User;
 
@@ -151,6 +152,14 @@ impl UpstreamIdentity {
     }
 }
 
+/// The identity a trusted mode asserts upstream, and in `Issuer` the JWT
+/// the proxy signed for it (RFC 0014 §5.2).
+#[derive(Debug)]
+pub struct Asserted {
+    pub identity: UpstreamIdentity,
+    pub token: Option<SecretString>,
+}
+
 /// What a request presents to the apiserver (RFC 0014 §6.3).
 #[derive(Clone, Copy, Debug)]
 pub enum Upstream<'a> {
@@ -160,18 +169,31 @@ pub enum Upstream<'a> {
     /// `FrontProxy`: every `Authorization` is dropped, `X-Remote-*` assert
     /// the identity, on the connection that presents the proxy's certificate.
     Headers(&'a UpstreamIdentity),
+    /// `Issuer`: every `Authorization` is replaced by the proxy's JWT for
+    /// the identity; no `X-Remote-*`, no `x-forwarded-*`.
+    Bearer(&'a UpstreamIdentity, &'a SecretString),
 }
 
 impl<'a> Upstream<'a> {
     #[must_use]
-    pub fn new(user: Option<&'a User>, identity: Option<&'a UpstreamIdentity>) -> Self {
-        identity.map_or(Self::Passthrough(user), Self::Headers)
+    pub fn new(user: Option<&'a User>, asserted: Option<&'a Asserted>) -> Self {
+        match asserted {
+            None => Self::Passthrough(user),
+            Some(Asserted {
+                identity,
+                token: None,
+            }) => Self::Headers(identity),
+            Some(Asserted {
+                identity,
+                token: Some(token),
+            }) => Self::Bearer(identity, token),
+        }
     }
 
     /// Whether the client's `Authorization` must not reach the apiserver.
     #[must_use]
     pub fn drops_authorization(self) -> bool {
-        matches!(self, Self::Headers(_))
+        !matches!(self, Self::Passthrough(_))
     }
 
     /// The headers the proxy sets upstream, each one appended (a repeated
@@ -202,6 +224,10 @@ impl<'a> Upstream<'a> {
                 }
                 headers
             }
+            Self::Bearer(_, token) => vec![(
+                "authorization".to_string(),
+                format!("Bearer {}", token.expose_secret()),
+            )],
         }
     }
 }

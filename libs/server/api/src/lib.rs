@@ -20,6 +20,7 @@ pub mod base;
 pub mod cluster;
 pub mod duration;
 pub mod helper;
+pub mod issuer;
 pub mod metrics;
 pub mod model;
 #[cfg(feature = "server")]
@@ -79,11 +80,13 @@ pub fn cluster_router() -> OpenApiRouter<SharedState> {
 pub fn app_router() -> (Router<SharedState>, OpenApiType) {
     let mut api_doc = ApiDoc::openapi();
     api_doc.info.version = env!("CARGO_PKG_VERSION").to_string();
-    OpenApiRouter::with_openapi(api_doc)
+    let (router, api_doc) = OpenApiRouter::with_openapi(api_doc)
         .nest("/management", management_router())
         .nest("/api/v1", api_router())
         .nest("/clusters", cluster_router())
-        .split_for_parts()
+        .split_for_parts();
+    // RFC 0014 §4.4: read by apiservers only, out of the OpenAPI document.
+    (router.merge(issuer::router()), api_doc)
 }
 
 #[must_use]

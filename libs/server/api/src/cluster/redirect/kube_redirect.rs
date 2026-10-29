@@ -16,7 +16,7 @@ use crate::cluster::redirect::status_response::{
     upstream_mode_unavailable,
 };
 use crate::cluster::redirect::throttle;
-use crate::cluster::redirect::upstream_identity::UpstreamIdentity;
+use crate::cluster::redirect::upstream_identity::{Asserted, UpstreamIdentity};
 use crate::helper::{extract_authorization_header, forwarded_for, peer_ip};
 use crate::model::user::User;
 
@@ -29,7 +29,7 @@ mod standard;
 mod tls;
 mod upgrade;
 mod upstream;
-pub(crate) use upstream::{probe_client, self_subject_review_through_agent};
+pub(crate) use upstream::{ca_only_client, probe_client, self_subject_review_through_agent};
 mod virtual_redirect;
 mod websocket;
 
@@ -211,6 +211,9 @@ pub async fn redirect(
         );
     }
 
+    // RFC 0014, decision 61: what is left of the caller's token, so an
+    // issued JWT never outlives it.
+    let mut source_ttl = None;
     let user = if proxy.need_token_validation() {
         let token = match extract_authorization_header(&req.headers) {
             Ok(token) => token,
@@ -220,6 +223,7 @@ pub async fn redirect(
                 audited!(audit, unauthorized("no usable bearer token was provided"));
             }
         };
+        source_ttl = common::oidc_cache::jwt_time_to_expiry(token);
         match User::get_user_info_with_proxy((*data).clone(), proxy.clone(), token.to_string())
             .await
         {
@@ -492,8 +496,13 @@ pub async fn redirect(
 
     // RFC 0014: the identity asserted upstream, computed after the last
     // gate, so a refused request never makes the proxy assert anything.
-    let upstream_identity = match (proxy.upstream_mode(), &proxy.spec.upstream_auth) {
-        (crd::upstream_auth::UpstreamAuthMode::FrontProxy, Some(upstream)) => {
+    let mode = proxy.upstream_mode();
+    let upstream_identity = match (mode, &proxy.spec.upstream_auth) {
+        (
+            crd::upstream_auth::UpstreamAuthMode::FrontProxy
+            | crd::upstream_auth::UpstreamAuthMode::Issuer,
+            Some(upstream),
+        ) => {
             let Some(user) = user.as_ref() else {
                 // Unreachable through admission (`validate` refuses the mode
                 // without validation); closed all the same.
@@ -508,7 +517,24 @@ pub async fn redirect(
                 Ok(identity) => {
                     audit.upstream_user = Some(identity.username.clone());
                     audit.upstream_groups.clone_from(&identity.groups);
-                    Some(identity)
+                    let token = if mode == crd::upstream_auth::UpstreamAuthMode::Issuer {
+                        match crate::issuer::sign(&data, &proxy, &identity, source_ttl).await {
+                            Ok(token) => Some(token),
+                            Err(reason) => {
+                                warn!(%reason, "cannot sign the Issuer JWT");
+                                audited!(
+                                    audit,
+                                    upstream_mode_unavailable(&format!(
+                                        "this cluster is not ready for upstream mode Issuer: {reason}; ask the proxy administrator (see the conditions of ProxyKubeApi {})",
+                                        proxy.to_path()
+                                    ))
+                                );
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    Some(Asserted { identity, token })
                 }
                 Err(refusal) => {
                     warn!(

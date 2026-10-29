@@ -1,9 +1,11 @@
 //! The trust probe (RFC 0014 §5.4, decisions 33, 41, 45): on the replica
-//! holding the leader Lease, a `SelfSubjectReview` per `FrontProxy` cluster
-//! (effective, or preparing the switch) with a probe identity in the
-//! `X-Remote-*` headers, on the connection presenting the cluster's
-//! certificate. The answer goes to [`common::upstream_trust`], where the
-//! controller of the same process reads it.
+//! holding the leader Lease, a `SelfSubjectReview` per trusted cluster
+//! (effective, or preparing the switch) with a probe identity — in the
+//! `X-Remote-*` headers on the connection presenting the `FrontProxy`
+//! certificate, or in a JWT the proxy signs for `Issuer`, followed by an
+//! unprefixed one the apiserver must refuse. The answer goes to
+//! [`common::upstream_trust`], where the controller of the same process
+//! reads it.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -17,7 +19,7 @@ use crd::upstream_auth::{UpstreamAuth, UpstreamAuthMode};
 use kube::ResourceExt as _;
 use tracing::{debug, warn};
 
-use crate::cluster::redirect::kube_redirect::probe_client;
+use crate::cluster::redirect::kube_redirect::{ca_only_client, probe_client};
 use crate::cluster::redirect::upstream_identity::{Upstream, UpstreamIdentity};
 
 /// Between two rounds. The RFC asks for 5 minutes and one probe per change;
@@ -28,8 +30,8 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// The `extra` key the probe asserts, for a header the apiserver must read.
 const PROBE_EXTRA: &str = "proxyauth.weebo.si.rs/probe";
 
-/// Whether `proxy` is probed: `FrontProxy`, or `Passthrough` with both
-/// prefixes and no `issuer_key` (preparing it).
+/// Whether `proxy` is probed: `FrontProxy` or `Issuer`, or `Passthrough`
+/// with both prefixes (preparing one of them; `issuer_key` says which).
 fn probed(proxy: &ProxyKubeApi) -> Option<&UpstreamAuth> {
     let upstream = proxy.spec.upstream_auth.as_ref()?;
     let prefixed = upstream
@@ -41,11 +43,9 @@ fn probed(proxy: &ProxyKubeApi) -> Option<&UpstreamAuth> {
             .as_deref()
             .is_some_and(|p| !p.is_empty());
     match upstream.mode {
-        UpstreamAuthMode::FrontProxy => Some(upstream),
-        UpstreamAuthMode::Passthrough if prefixed && upstream.issuer_key.is_none() => {
-            Some(upstream)
-        }
-        _ => None,
+        UpstreamAuthMode::FrontProxy | UpstreamAuthMode::Issuer => Some(upstream),
+        UpstreamAuthMode::Passthrough if prefixed => Some(upstream),
+        UpstreamAuthMode::Passthrough => None,
     }
 }
 
@@ -77,9 +77,12 @@ fn judge(status: u16, body: &serde_json::Value, asserted: &UpstreamIdentity) -> 
                         .iter()
                         .any(|g| g.as_str() == asserted.groups.first().map(String::as_str))
                 });
-            let has_extra = field("extra")
-                .and_then(|extra| extra.get(PROBE_EXTRA))
-                .is_some_and(serde_json::Value::is_array);
+            // Only what was asserted must come back: the `Issuer` probe
+            // asserts no `extra`, the apiserver maps it per key.
+            let has_extra = asserted.extra.is_empty()
+                || field("extra")
+                    .and_then(|extra| extra.get(PROBE_EXTRA))
+                    .is_some_and(serde_json::Value::is_array);
             if seen == asserted.username && has_group && has_extra {
                 Trust::Trusted
             } else {
@@ -102,10 +105,41 @@ fn judge(status: u16, body: &serde_json::Value, asserted: &UpstreamIdentity) -> 
     }
 }
 
+/// A `SelfSubjectReview` on `client` with `headers`: its status and body.
+async fn review(
+    client: &reqwest::Client,
+    base_url: &str,
+    headers: Vec<(String, String)>,
+) -> Result<(u16, serde_json::Value), String> {
+    let mut request = client
+        .post(format!(
+            "{base_url}/apis/authentication.k8s.io/v1/selfsubjectreviews"
+        ))
+        .timeout(PROBE_TIMEOUT)
+        .json(&serde_json::json!({
+            "apiVersion": "authentication.k8s.io/v1",
+            "kind": "SelfSubjectReview",
+        }));
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+    let response = request.send().await.map_err(|e| e.to_string())?;
+    let status = response.status().as_u16();
+    Ok((status, response.json().await.unwrap_or_default()))
+}
+
 /// One probe of `proxy`.
 async fn probe(state: &State, proxy: &ProxyKubeApi, upstream: &UpstreamAuth) -> Trust {
-    let identity = probe_identity(upstream);
-    let client = match probe_client(proxy, state).await {
+    let issuer = upstream.issuer_key.is_some();
+    let mut identity = probe_identity(upstream);
+    let client = if issuer {
+        // x509 passes before the JWT: never a client certificate here.
+        identity.extra.clear();
+        ca_only_client(proxy, state).await
+    } else {
+        probe_client(proxy, state).await
+    };
+    let client = match client {
         Ok(client) => client,
         Err(e) => return Trust::Unknown(e),
     };
@@ -118,25 +152,54 @@ async fn probe(state: &State, proxy: &ProxyKubeApi, upstream: &UpstreamAuth) -> 
         Ok(url) => url.trim_end_matches('/').to_string(),
         Err(e) => return Trust::Unknown(e.to_string()),
     };
-    let mut request = client
-        .post(format!(
-            "{base_url}/apis/authentication.k8s.io/v1/selfsubjectreviews"
-        ))
-        .timeout(PROBE_TIMEOUT)
-        .json(&serde_json::json!({
-            "apiVersion": "authentication.k8s.io/v1",
-            "kind": "SelfSubjectReview",
-        }));
-    for (name, value) in Upstream::Headers(&identity).headers() {
-        request = request.header(name, value);
+    if !issuer {
+        return match review(&client, &base_url, Upstream::Headers(&identity).headers()).await {
+            Ok((status, body)) => judge(status, &body, &identity),
+            Err(e) => Trust::Unknown(e),
+        };
     }
-    match request.send().await {
-        Ok(response) => {
-            let status = response.status().as_u16();
-            let body = response.json().await.unwrap_or_default();
-            judge(status, &body, &identity)
-        }
-        Err(e) => Trust::Unknown(e.to_string()),
+    let token = match crate::issuer::sign(state, proxy, &identity, None).await {
+        Ok(token) => token,
+        Err(e) => return Trust::Unknown(e),
+    };
+    let trust = match review(
+        &client,
+        &base_url,
+        Upstream::Bearer(&identity, &token).headers(),
+    )
+    .await
+    {
+        Ok((status, body)) => judge(status, &body, &identity),
+        Err(e) => return Trust::Unknown(e),
+    };
+    if trust != Trust::Trusted {
+        return trust;
+    }
+    // The apiserver must check the prefix itself (decision 28): an
+    // unprefixed identity from this issuer is refused, else the
+    // `userValidationRules` are missing.
+    let bare = UpstreamIdentity {
+        username: "proxyauth-probe".to_string(),
+        groups: vec!["proxyauth-probe".to_string()],
+        extra: BTreeMap::new(),
+    };
+    let token = match crate::issuer::sign(state, proxy, &bare, None).await {
+        Ok(token) => token,
+        Err(e) => return Trust::Unknown(e),
+    };
+    match review(
+        &client,
+        &base_url,
+        Upstream::Bearer(&bare, &token).headers(),
+    )
+    .await
+    {
+        Ok((401, _)) => Trust::Trusted,
+        Ok((200..=299, _)) => Trust::Unguarded,
+        Ok((other, _)) => Trust::Unknown(format!(
+            "the apiserver answered {other} to an unprefixed identity"
+        )),
+        Err(e) => Trust::Unknown(e),
     }
 }
 

@@ -255,9 +255,12 @@ pub(super) fn build_upgrade_request(
     }
     // Appended, never inserted: one `X-Remote-Group` per group.
     for (name, value) in upstream.headers() {
+        let mut value = HeaderValue::from_str(&value).map_err(|e| e.to_string())?;
+        // The `Issuer` JWT never shows in a debug print of the request (T10).
+        value.set_sensitive(name.eq_ignore_ascii_case("authorization"));
         upstream_headers.append(
             http::header::HeaderName::from_bytes(name.as_bytes()).map_err(|e| e.to_string())?,
-            HeaderValue::from_str(&value).map_err(|e| e.to_string())?,
+            value,
         );
     }
     Ok(request)

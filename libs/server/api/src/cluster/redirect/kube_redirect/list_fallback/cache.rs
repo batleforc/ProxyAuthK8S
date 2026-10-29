@@ -24,8 +24,12 @@ pub(super) fn identity_fingerprint(upstream: Upstream<'_>) -> String {
         // RFC 0014: the asserted identity, prefixes and `extra` included, is
         // what the apiserver reviews; it never shares an entry with a
         // Passthrough caller of the same name.
-        Upstream::Headers(identity) => {
-            hasher.update(b"front-proxy\0");
+        Upstream::Headers(identity) | Upstream::Bearer(identity, _) => {
+            hasher.update(if matches!(upstream, Upstream::Headers(_)) {
+                b"front-proxy\0".as_slice()
+            } else {
+                b"issuer\0".as_slice()
+            });
             hasher.update(identity.username.as_bytes());
             let mut groups: Vec<&str> = identity.groups.iter().map(String::as_str).collect();
             groups.sort_unstable();

@@ -52,7 +52,7 @@ pub(super) async fn upstream_client(
 /// never be conflated with the front-proxy mTLS identity used for impersonated
 /// calls, so it authenticates by the token alone. Deliberately kept out of the
 /// upstream client cache, whose key does not tell the two identities apart.
-pub(super) async fn ca_only_client(
+pub(crate) async fn ca_only_client(
     proxy: &ProxyKubeApi,
     data: &State,
 ) -> Result<reqwest::Client, String> {
@@ -176,6 +176,12 @@ pub(super) fn apply_forward_headers(
     }
 
     for (name, value) in upstream.headers() {
+        // Checked by `UpstreamIdentity::from_user`, or a JWT: always valid.
+        let Ok(mut value) = reqwest::header::HeaderValue::from_str(&value) else {
+            continue;
+        };
+        // The `Issuer` JWT never shows in a debug print of the request (T10).
+        value.set_sensitive(name.eq_ignore_ascii_case("authorization"));
         builder = builder.header(name, value);
     }
 
@@ -264,6 +270,26 @@ mod tests {
         let groups: Vec<_> = headers.get_all("x-remote-group").iter().collect();
         assert_eq!(groups, ["proxyauth:dev", "proxyauth:ops"]);
         assert_eq!(headers["accept"], "application/json");
+    }
+
+    /// T5, T10 in `Issuer`: the IdP token replaced by the proxy's JWT, marked
+    /// sensitive; no identity header, ours or the client's.
+    #[test]
+    fn issuer_replaces_the_token_with_the_proxy_jwt() {
+        let identity = UpstreamIdentity {
+            username: "proxyauth:alice".into(),
+            groups: vec!["proxyauth:dev".into()],
+            extra: std::collections::BTreeMap::new(),
+        };
+        let jwt = secrecy::SecretString::from("proxy.jwt.sig");
+        let request = sent(Upstream::Bearer(&identity, &jwt));
+        let headers = request.headers();
+        let authorization: Vec<_> = headers.get_all("authorization").iter().collect();
+        assert_eq!(authorization, ["Bearer proxy.jwt.sig"]);
+        assert!(headers["authorization"].is_sensitive());
+        assert!(!headers.contains_key("x-remote-user"));
+        assert!(!headers.contains_key("x-forwarded-user"));
+        assert!(!format!("{request:?}").contains("proxy.jwt.sig"));
     }
 
     #[test]
