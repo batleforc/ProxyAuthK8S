@@ -11,6 +11,37 @@
 use integration::{Bench, fixture, observe};
 use serde_json::{Value, json};
 
+/// A cluster the proxy closes: the request answers `503` with the proxy's
+/// `Status` naming `cause`, and kubectl fails with `ServiceUnavailable`.
+/// kubectl cannot print the message itself: the `503` comes during
+/// discovery, which client-go reads raw, without decoding the `Status`.
+async fn assert_closed(p: &fixture::Proxied, cause: &str) {
+    let ns = &p.ns.name;
+    let token = p.reader.cluster_token(ns, fixture::CLUSTER).await;
+    let response = Bench::get()
+        .proxied(
+            reqwest::Method::GET,
+            ns,
+            fixture::CLUSTER,
+            &format!("/api/v1/namespaces/{ns}/pods"),
+            &token,
+        )
+        .send()
+        .await
+        .expect("request");
+    assert_eq!(response.status(), 503);
+    let body: Value = response.json().await.expect("a Kubernetes Status");
+    assert!(
+        body["message"].as_str().unwrap_or_default().contains(cause),
+        "{body}"
+    );
+    let out = p.reader.kubectl(&["-n", ns, "get", "pods"]).await;
+    assert!(
+        !out.success() && out.stderr.contains("(ServiceUnavailable)"),
+        "kubectl must fail with the 503: {out:?}"
+    );
+}
+
 /// `kubectl patch --type merge` of a cluster, then wait for the controller
 /// to reconcile it: `ready_reason` is the reason `Ready` must end on.
 fn patch_cluster(ns: &str, cluster: &str, spec: &Value, ready_reason: &str) {
@@ -189,11 +220,11 @@ async fn p2_a_mode_outside_allowed_modes_answers_503_and_is_never_relayed() {
                 && line["upstream_mode"] == "Issuer"),
         "no audited 503 for the Issuer cluster"
     );
+    // kubectl reads discovery raw: it shows the code, not the message.
     let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
-    assert!(!out.success(), "kubectl must fail: {out:?}");
     assert!(
-        out.stderr.contains("upstreamAuth.allowedModes"),
-        "kubectl prints the proxy's message: {out:?}"
+        !out.success() && out.stderr.contains("(ServiceUnavailable)"),
+        "kubectl must fail with the 503: {out:?}"
     );
 }
 
@@ -413,13 +444,7 @@ async fn t29_a_certificate_bound_to_another_target_closes_the_cluster() {
             "--for=jsonpath={.status.conditions[?(@.type==\"Ready\")].reason}=ClientCertTargetMismatch",
         ],
     );
-    let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
-    assert!(!out.success(), "kubectl must fail: {out:?}");
-    assert!(
-        out.stderr
-            .contains("not ready for upstream mode FrontProxy"),
-        "kubectl prints the proxy's message: {out:?}"
-    );
+    assert_closed(&p, "not ready for upstream mode FrontProxy").await;
 }
 
 /// Point 11 (refusal): admission refuses a `client_cert` in FrontProxy.
@@ -553,12 +578,5 @@ async fn p9_a_certificate_of_an_untrusted_ca_closes_the_cluster() {
         tokio::time::sleep(std::time::Duration::from_secs(4)).await;
     }
     assert_eq!(reason, "FrontProxyNotTrusted");
-    let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
-    assert!(
-        !out.success()
-            && out
-                .stderr
-                .contains("not ready for upstream mode FrontProxy"),
-        "kubectl prints the proxy's message: {out:?}"
-    );
+    assert_closed(&p, "not ready for upstream mode FrontProxy").await;
 }

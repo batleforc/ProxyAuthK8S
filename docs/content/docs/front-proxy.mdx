@@ -226,6 +226,12 @@ qui doit encore connaître l'IdP.
 
 ## Diagnostiquer un 401, 403, 502 ou 503
 
+Quand tout le cluster répond `502` ou `503`, kubectl échoue dès la découverte d'API, qu'il lit
+sans décoder le `Status` : il n'affiche que le code (`the server is currently unable to handle
+the request (ServiceUnavailable)` pour un `503`). Le message ci-dessous se lit avec
+`kubectl -v=8` (corps de la réponse), dans les conditions du `ProxyKubeApi` ou dans l'audit du
+proxy.
+
 | Réponse | Mode | Cause et action |
 | ------- | ---- | --------------- |
 | `401` | `Passthrough` | jeton expiré ou refusé par l'apiserver : `kubectl proxyauth login` |
