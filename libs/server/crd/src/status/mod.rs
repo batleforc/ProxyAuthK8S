@@ -206,6 +206,16 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_upstream_auth_field_is_sent_as_null_so_the_merge_patch_drops_it() {
+        let mut status = ProxyKubeApiStatus::new(true, None, None);
+        status.upstream_auth = Some(crate::upstream_auth::UpstreamAuthStatus::default());
+        let upstream = &status.fields()["upstreamAuth"];
+        for key in ["clientCertSubject", "trust", "trustSince"] {
+            assert_eq!(upstream[key], Value::Null, "{key}");
+        }
+    }
+
+    #[test]
     fn warnings_are_sent_as_a_list() {
         let mut status = ProxyKubeApiStatus::new(true, None, None);
         status.warnings = vec!["rule 0 covers nodes/".into()];

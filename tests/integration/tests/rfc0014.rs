@@ -11,6 +11,28 @@
 use integration::{Bench, fixture, observe};
 use serde_json::{Value, json};
 
+/// Wait until `status.upstreamAuth.trust` reads `expected`: a probe round
+/// (60 s), then the controller's requeue (60 s).
+async fn wait_trust(ns: &str, expected: &str) {
+    let mut trust = String::new();
+    for _ in 0..90 {
+        let out = Bench::get().admin(&[
+            "-n",
+            ns,
+            "get",
+            &format!("proxykubeapi/{}", fixture::CLUSTER),
+            "-o",
+            "jsonpath={.status.upstreamAuth.trust}",
+        ]);
+        trust = String::from_utf8_lossy(&out.stdout).to_string();
+        if trust == expected {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    }
+    assert_eq!(trust, expected, "status.upstreamAuth.trust");
+}
+
 /// A cluster the proxy closes: the request answers `503` with the proxy's
 /// `Status` naming `cause`, and kubectl fails with `ServiceUnavailable`.
 /// kubectl cannot print the message itself: the `503` comes during
@@ -361,6 +383,8 @@ async fn p3_the_apiserver_sees_the_prefixed_identity() {
                 && line["upstream_user"] == "proxyauth:reader@it.local"),
         "no request audited with both identities"
     );
+    // The probe's success is visible, not only the absence of a failure.
+    wait_trust(&ns, "Trusted").await;
 }
 
 /// Point 4 (refusal): identity and impersonation headers a client adds
@@ -578,5 +602,6 @@ async fn p9_a_certificate_of_an_untrusted_ca_closes_the_cluster() {
         tokio::time::sleep(std::time::Duration::from_secs(4)).await;
     }
     assert_eq!(reason, "FrontProxyNotTrusted");
+    wait_trust(&ns, "Rejected").await;
     assert_closed(&p, "not ready for upstream mode FrontProxy").await;
 }

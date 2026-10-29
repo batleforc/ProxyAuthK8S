@@ -32,6 +32,10 @@ spec:
       name: Upstream
       priority: 1
       type: string
+    - jsonPath: .status.upstreamAuth.trust
+      name: Trust
+      priority: 1
+      type: string
     name: v1
     schema:
       openAPIV3Schema:
@@ -2256,6 +2260,19 @@ spec:
                     - Passthrough
                     - FrontProxy
                     - Issuer
+                    type: string
+                  trust:
+                    description: The trust probe's verdict (RFC 0014 §5.4), as `status.upstreamAuth.trust`.
+                    enum:
+                    - Trusted
+                    - NotHonoured
+                    - Rejected
+                    - Unknown
+                    nullable: true
+                    type: string
+                  trustSince:
+                    description: When `trust` took its current value, RFC 3339.
+                    nullable: true
                     type: string
                 required:
                 - mode

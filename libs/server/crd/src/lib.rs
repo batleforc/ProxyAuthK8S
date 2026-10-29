@@ -60,7 +60,8 @@ pub const REDIS_TRUSTED_PREFIX: &str = "proxyk8sauth-upstream-auth";
     printcolumn = r#"{"name":"Agents","type":"string","priority":1,"jsonPath":".status.agent.versions"}"#,
     // `-o wide` only: always set by the controller, empty means a controller
     // older than RFC 0014.
-    printcolumn = r#"{"name":"Upstream","type":"string","priority":1,"jsonPath":".status.upstreamAuth.mode"}"#
+    printcolumn = r#"{"name":"Upstream","type":"string","priority":1,"jsonPath":".status.upstreamAuth.mode"}"#,
+    printcolumn = r#"{"name":"Trust","type":"string","priority":1,"jsonPath":".status.upstreamAuth.trust"}"#
 )]
 #[schemars(extend("x-kubernetes-validations" = [
     serde_json::json!({

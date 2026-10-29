@@ -238,23 +238,45 @@ impl UpstreamAuth {
     }
 }
 
-/// `status.upstreamAuth` (RFC 0014 §4.5).
+/// The trust probe's verdict (RFC 0014 §5.4), as `status.upstreamAuth.trust`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, JsonSchema)]
+pub enum UpstreamTrust {
+    /// The apiserver saw the asserted identity, group and `extra` included.
+    Trusted,
+    /// It saw another identity.
+    NotHonoured,
+    /// It refused the proxy's certificate (`401`).
+    Rejected,
+    /// The probe reached no conclusion.
+    Unknown,
+}
+
+/// `status.upstreamAuth` (RFC 0014 §4.5). A `None` is serialised as `null`:
+/// the status is published by merge patch, which would otherwise keep a
+/// stale value.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpstreamAuthStatus {
     pub mode: UpstreamAuthMode,
     /// `FrontProxy`: the Secret to create, `<proxy namespace>/<name>`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub client_cert_secret: Option<String>,
     /// `FrontProxy`: the value its target annotation must hold.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub client_cert_target: Option<String>,
     /// `FrontProxy`: the certificate's `notAfter`, RFC 3339.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub client_cert_not_after: Option<String>,
     /// `FrontProxy`: the certificate's subject.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub client_cert_subject: Option<String>,
+    /// The trust probe's last verdict; absent until a probe concludes, or
+    /// when its last result is older than 15 minutes.
+    #[serde(default)]
+    pub trust: Option<UpstreamTrust>,
+    /// When `trust` took its current value, RFC 3339.
+    #[serde(default)]
+    pub trust_since: Option<String>,
 }
 
 #[cfg(test)]

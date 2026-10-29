@@ -63,6 +63,11 @@ Chaque avis devient une condition `True` à côté de `Ready`, de type égal à 
 | `FrontProxyNotTrusted` | bloquant | la sonde de confiance reçoit `401` : la CA du certificat n'est pas dans `--requestheader-client-ca-file`, ou son CN pas dans `--requestheader-allowed-names` |
 | `UpstreamTrustUnknown` | avis | la sonde de confiance n'a pas conclu (transport, `5xx`, agent absent) ; le cluster reste servi |
 
+Le verdict de la sonde de confiance se suit aussi hors des conditions, succès compris :
+`status.upstreamAuth.trust` (`Trusted`, `Rejected`, `NotHonoured`, `Unknown`) et
+`status.upstreamAuth.trustSince`, colonne `Trust` en `-o wide`
+([Apiserver en front-proxy](/docs/front-proxy#5-vérifier-puis-basculer)).
+
 ## Les Events
 
 - Un `Warning` à chaque reconcile qui finit sur `Ready: False`, et à chaque

@@ -191,17 +191,26 @@ Le leader du proxy sonde chaque minute tout cluster en `FrontProxy` ou en prépa
 `<group_prefix>proxyauth-probe` et une valeur `extra` `proxyauth.weebo.si.rs/probe`, qui
 doivent revenir tels quels.
 
+Son verdict est dans `status.upstreamAuth.trust`, la date de son dernier changement dans
+`status.upstreamAuth.trustSince` :
+
+| `trust` | Sens |
+| ------- | ---- |
+| `Trusted` | l'apiserver voit l'identité affirmée, groupe et `extra` compris |
+| `Rejected` | l'apiserver refuse le certificat (`401`) : raison `FrontProxyNotTrusted` en mode effectif |
+| `NotHonoured` | l'apiserver voit une autre identité : raison `UpstreamIdentityNotHonoured` en mode effectif |
+| `Unknown` | la sonde n'a pas conclu (transport, `5xx`, agent absent) : avis `UpstreamTrustUnknown` |
+| absent | pas encore sondé (Secret absent ou illisible), ou dernier résultat de plus de 15 min |
+
 ```bash
-kubectl -n team-a get proxykubeapi prod -o wide          # colonne Upstream
-kubectl -n team-a get proxykubeapi prod -o jsonpath='{.status.conditions}'
+kubectl -n team-a get proxykubeapi prod -o wide          # colonnes Upstream et Trust
+kubectl -n team-a get proxykubeapi prod -w -o wide       # suivre les changements
+kubectl -n team-a get proxykubeapi prod -o jsonpath='{.status.upstreamAuth}'
 ```
 
-En préparation, un problème de certificat ou de confiance devient l'avis `FrontProxyNotReady`,
-dont le message dit ce qui manque ; une sonde qui n'a pas conclu, l'avis
-`UpstreamTrustUnknown`. Une sonde réussie ne pose rien : basculez quand
-`status.upstreamAuth.clientCertSubject` est rempli (le Secret est lu) et qu'aucun de ces deux
-avis n'est apparu après deux tours de sonde. Passez alors `upstream_auth.mode` à
-`FrontProxy` : aucune fenêtre de `403`. Puis, côté utilisateur :
+En préparation, un problème de certificat ou de confiance devient en plus l'avis
+`FrontProxyNotReady`, dont le message dit ce qui manque. Quand `trust` vaut `Trusted`, passez
+`upstream_auth.mode` à `FrontProxy` : aucune fenêtre de `403`. Puis, côté utilisateur :
 
 ```bash
 kubectl auth whoami      # affiche proxyauth:alice
@@ -227,10 +236,11 @@ qui doit encore connaître l'IdP.
 ## Diagnostiquer un 401, 403, 502 ou 503
 
 Quand tout le cluster répond `502` ou `503`, kubectl échoue dès la découverte d'API, qu'il lit
-sans décoder le `Status` : il n'affiche que le code (`the server is currently unable to handle
-the request (ServiceUnavailable)` pour un `503`). Le message ci-dessous se lit avec
-`kubectl -v=8` (corps de la réponse), dans les conditions du `ProxyKubeApi` ou dans l'audit du
-proxy.
+sans décoder le `Status` : il n'affiche pas le message du proxy. Un `503` donne `the server is
+currently unable to handle the request (ServiceUnavailable)`, un `502`
+`an error on the server ("unknown") has prevented the request from succeeding (InternalError)`.
+Le message se lit avec `kubectl get --raw /api`, dans les conditions du `ProxyKubeApi` ou dans
+l'audit du proxy.
 
 | Réponse | Mode | Cause et action |
 | ------- | ---- | --------------- |

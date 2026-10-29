@@ -8,7 +8,7 @@
 use common::State;
 use common::token_audience::AudienceValidationMode;
 use crd::ProxyKubeApi;
-use crd::upstream_auth::{UpstreamAuthMode, UpstreamAuthStatus, front_proxy};
+use crd::upstream_auth::{UpstreamAuthMode, UpstreamAuthStatus, UpstreamTrust, front_proxy};
 use weebo_kit_domain::{Advisory, Failure};
 
 use super::reconcile::Evaluation;
@@ -189,13 +189,25 @@ pub async fn evaluate(proxy: &ProxyKubeApi, ctx: &State, evaluation: &mut Evalua
             message,
         ),
     }
+    let verdict = common::upstream_trust::get(&proxy.to_path());
+    if let Some((trust, since)) = &verdict {
+        status.trust = Some(match trust {
+            common::upstream_trust::Trust::Trusted => UpstreamTrust::Trusted,
+            common::upstream_trust::Trust::NotHonoured(_) => UpstreamTrust::NotHonoured,
+            common::upstream_trust::Trust::Rejected => UpstreamTrust::Rejected,
+            common::upstream_trust::Trust::Unknown(_) => UpstreamTrust::Unknown,
+        });
+        status.trust_since = k8s_openapi::jiff::Timestamp::try_from(*since)
+            .ok()
+            .map(|t| t.to_string());
+    }
     evaluation.status.upstream_auth = Some(status);
     // The trust probe's last word (RFC 0014 §5.4, decision 45), once the
     // certificate itself is sound.
     if effective && evaluation.ready.is_err() {
         return;
     }
-    match common::upstream_trust::get(&proxy.to_path()) {
+    match verdict.map(|(trust, _)| trust) {
         Some(common::upstream_trust::Trust::NotHonoured(seen)) => refuse(
             evaluation,
             effective,
