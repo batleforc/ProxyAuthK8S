@@ -151,8 +151,54 @@ spec:
 ```
 
 La clé privée de la CA vaut plus que tout certificat : gardez-la hors du namespace du proxy
-si votre émetteur le permet (Vault, step-ca). Vault Secrets Operator, External Secrets ou un
-pipeline conviennent aussi : le proxy ne lit que le Secret, il ne parle à aucune PKI.
+si votre émetteur le permet (Vault, step-ca). Le proxy ne lit que le Secret, il ne parle à
+aucune PKI : tout outil qui écrit un Secret `kubernetes.io/tls` avec le label et l'annotation
+convient.
+
+### Avec Vault Secrets Operator ou External Secrets
+
+Vault Secrets Operator émet le certificat depuis le moteur PKI de Vault ; `labels`,
+`annotations` et `type` ne s'appliquent qu'avec `create: true` :
+
+```yaml
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultPKISecret
+metadata: { name: proxyauth-frontproxy-team-a.prod, namespace: proxyauth }
+spec:
+  mount: pki-front-proxy-team-a-prod     # une CA (un montage PKI) par apiserver
+  role: proxyauth
+  commonName: proxyauth-team-a-prod
+  ttl: 24h
+  destination:
+    create: true
+    name: proxyauth-frontproxy-team-a.prod
+    type: kubernetes.io/tls              # remplit tls.crt et tls.key
+    labels: { app.kubernetes.io/managed-by: proxyauthk8s }
+    annotations:
+      proxyauth.weebo.si.rs/front-proxy-target: "external:https://10.0.0.10:6443"
+```
+
+External Secrets recopie un certificat qu'un autre outil émet et range dans un coffre ; le
+renouvellement reste l'affaire de cet outil :
+
+```yaml
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata: { name: proxyauth-frontproxy-team-a.prod, namespace: proxyauth }
+spec:
+  secretStoreRef: { kind: SecretStore, name: vault }
+  target:
+    name: proxyauth-frontproxy-team-a.prod
+    template:
+      type: kubernetes.io/tls
+      metadata:
+        labels: { app.kubernetes.io/managed-by: proxyauthk8s }
+        annotations:
+          proxyauth.weebo.si.rs/front-proxy-target: "external:https://10.0.0.10:6443"
+  data:
+    - { secretKey: tls.crt, remoteRef: { key: front-proxy/team-a-prod, property: crt } }
+    - { secretKey: tls.key, remoteRef: { key: front-proxy/team-a-prod, property: key } }
+```
 
 Un certificat renouvelé dans le même Secret sert aux nouvelles connexions en 300 s au plus
 (`PROXY_UPSTREAM_CLIENT_TTL`) ; une connexion déjà ouverte (un `exec`, un `watch`) garde

@@ -18,3 +18,11 @@ personas:
     hash: "$2b$10$rLSogHJP2PThtvG6Hb/e/OQghdwEhPDHSuCYS/LepPZWTI2uVm3Ru"
     userID: 00000000-0000-4000-8000-000000000002
     groups: []
+  # RFC 0014 §6.P point 5: Dex hands out system:masters; the proxy forwards
+  # it prefixed, so the apiserver sees proxyauth:system:masters, no admin.
+  masters:
+    email: masters@it.local
+    password: masters-it
+    hash: "$2b$10$clvMsMZRI74zT37l18KsT.bezEl2.SnnJWD5A9xoAgwjr6lwFon02"
+    userID: 00000000-0000-4000-8000-000000000003
+    groups: [it-readers, system:masters]

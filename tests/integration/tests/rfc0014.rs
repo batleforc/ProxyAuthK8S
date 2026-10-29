@@ -8,7 +8,7 @@
     reason = "test harness: a panic is a failed test, with its message"
 )]
 
-use integration::{Bench, fixture, observe};
+use integration::{Bench, Persona, Session, fixture, observe};
 use serde_json::{Value, json};
 
 /// Wait until `status.upstreamAuth.trust` reads `expected`: a probe round
@@ -334,8 +334,8 @@ async fn p15_a_mapping_from_one_cluster_never_serves_another() {
 
 /// What the apiserver says the caller is, through the proxy: `kubectl auth
 /// whoami -o json`, its username and groups.
-async fn whoami(p: &fixture::Proxied) -> (String, Vec<String>) {
-    let out = p.reader.kubectl(&["auth", "whoami", "-o", "json"]).await;
+async fn whoami(session: &Session) -> (String, Vec<String>) {
+    let out = session.kubectl(&["auth", "whoami", "-o", "json"]).await;
     assert!(out.success(), "kubectl auth whoami: {out:?}");
     let review: Value = serde_json::from_str(&out.stdout).expect("SelfSubjectReview JSON");
     let user = &review["status"]["userInfo"];
@@ -362,7 +362,7 @@ async fn whoami(p: &fixture::Proxied) -> (String, Vec<String>) {
 async fn p3_the_apiserver_sees_the_prefixed_identity() {
     let p = fixture::front_proxied("rfc0014-p3").await;
     let ns = p.ns.name.clone();
-    let (username, groups) = whoami(&p).await;
+    let (username, groups) = whoami(&p.reader).await;
     assert_eq!(username, "proxyauth:reader@it.local");
     assert!(
         groups.iter().any(|g| g == "proxyauth:it-readers"),
@@ -604,4 +604,163 @@ async fn p9_a_certificate_of_an_untrusted_ca_closes_the_cluster() {
     assert_eq!(reason, "FrontProxyNotTrusted");
     wait_trust(&ns, "Rejected").await;
     assert_closed(&p, "not ready for upstream mode FrontProxy").await;
+}
+
+/// Point 5: Dex hands out `system:masters`; the proxy forwards it prefixed,
+/// so the apiserver sees `proxyauth:system:masters`, which grants nothing.
+#[tokio::test]
+async fn p5_a_system_masters_group_is_forwarded_prefixed_and_grants_nothing() {
+    let p = fixture::front_proxied("rfc0014-p5").await;
+    let masters = Session::server_login(&Persona::named("masters")).await;
+    masters
+        .cluster_login(&p.ns.name, fixture::CLUSTER)
+        .await
+        .expect("cluster login of masters");
+    let (username, groups) = whoami(&masters).await;
+    assert_eq!(username, "proxyauth:masters@it.local");
+    assert!(
+        groups.iter().any(|g| g == "proxyauth:system:masters"),
+        "{groups:?}"
+    );
+    assert!(
+        !groups.iter().any(|g| g == "system:masters"),
+        "an unprefixed system:masters: {groups:?}"
+    );
+    let out = masters.kubectl(&["get", "nodes"]).await;
+    assert!(
+        !out.success() && out.stderr.contains("Forbidden"),
+        "proxyauth:system:masters must not be admin: {out:?}"
+    );
+}
+
+/// Point 5 (refusal): a username claim Dex does not send. The proxy refuses
+/// the caller itself (`401`, §17.2 deviation 4): an apiserver `401` would
+/// have become the `502` of decision 46, so nothing was asserted upstream.
+#[tokio::test]
+async fn p5_a_missing_username_claim_is_refused_by_the_proxy() {
+    let p = fixture::front_proxied("rfc0014-p5b").await;
+    let ns = p.ns.name.clone();
+    let token = p.reader.cluster_token(&ns, fixture::CLUSTER).await;
+    let patch = json!({ "spec": { "auth_config": { "oidc_provider": { "claim_mappings": {
+        "username": { "claim": "not_sent_by_dex", "prefix": "" } } } } } });
+    let out = Bench::get().admin(&[
+        "-n",
+        &ns,
+        "patch",
+        &format!("proxykubeapi/{}", fixture::CLUSTER),
+        "--type=merge",
+        "-p",
+        &patch.to_string(),
+    ]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    // `Ready` stays `Reconciled`: wait for the proxy to read the new mapping.
+    let mut status = 0;
+    for _ in 0..30 {
+        status = Bench::get()
+            .proxied(
+                reqwest::Method::GET,
+                &ns,
+                fixture::CLUSTER,
+                &format!("/api/v1/namespaces/{ns}/pods"),
+                &token,
+            )
+            .send()
+            .await
+            .expect("request")
+            .status()
+            .as_u16();
+        assert_ne!(status, 502, "the apiserver was asked");
+        if status == 401 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+    assert_eq!(status, 401);
+}
+
+/// Point 7: `FrontProxy` behind an agent (RFC 0012) — the certificate's TLS
+/// runs end to end through the tunnel, and the apiserver sees the prefixed
+/// identity; the probe, through the same tunnel, says `Trusted`.
+#[tokio::test]
+async fn p7_front_proxy_crosses_the_agent_tunnel() {
+    let p = fixture::agent_proxied("rfc0014-p7", Value::Null, 1).await;
+    let target = format!("agent:{}/{}", p.ns.name, fixture::CLUSTER);
+    fixture::use_front_proxy(&p, &target);
+    let (username, groups) = whoami(&p.reader).await;
+    assert_eq!(username, "proxyauth:reader@it.local");
+    assert!(
+        groups.iter().any(|g| g == "proxyauth:it-readers"),
+        "{groups:?}"
+    );
+    wait_trust(&p.ns.name, "Trusted").await;
+}
+
+/// Point 8 (refusal): straight to the apiserver, without the proxy's
+/// certificate, the `X-Remote-*` headers authenticate nobody: `401`.
+#[tokio::test]
+async fn p8_identity_headers_without_the_certificate_are_refused() {
+    let bench = Bench::get();
+    let server = bench.admin(&[
+        "config",
+        "view",
+        "--minify",
+        "-o",
+        "jsonpath={.clusters[0].cluster.server}",
+    ]);
+    let server = String::from_utf8_lossy(&server.stdout).trim().to_string();
+    let ca = bench.admin(&[
+        "-n",
+        "default",
+        "get",
+        "configmap",
+        "kube-root-ca.crt",
+        "-o",
+        "jsonpath={.data.ca\\.crt}",
+    ]);
+    let ca = reqwest::Certificate::from_pem(&ca.stdout).expect("the apiserver's CA");
+    let client = reqwest::Client::builder()
+        .add_root_certificate(ca)
+        .build()
+        .expect("client");
+    let response = client
+        .post(format!(
+            "{server}/apis/authentication.k8s.io/v1/selfsubjectreviews"
+        ))
+        .header("X-Remote-User", "proxyauth:reader@it.local")
+        .header("X-Remote-Group", "proxyauth:it-readers")
+        .json(&json!({ "apiVersion": "authentication.k8s.io/v1", "kind": "SelfSubjectReview" }))
+        .send()
+        .await
+        .expect("request to the apiserver");
+    assert_eq!(response.status(), 401);
+}
+
+/// Point 14: the caller's Dex token never reaches the proxy's logs, the
+/// audit lines included, after a request through `FrontProxy`.
+#[tokio::test]
+async fn p14_the_dex_token_never_reaches_the_logs() {
+    let p = fixture::front_proxied("rfc0014-p14").await;
+    let ns = p.ns.name.clone();
+    let token = p.reader.cluster_token(&ns, fixture::CLUSTER).await;
+    let out = p.reader.kubectl(&["-n", &ns, "get", "pods"]).await;
+    assert!(out.success(), "kubectl get pods: {out:?}");
+    // The signature alone is enough to recognise a logged token.
+    let signature = token.rsplit('.').next().unwrap_or_default();
+    assert!(signature.len() > 16, "not a JWT");
+    let logs = Bench::get().admin(&[
+        "-n",
+        integration::bench::STACK_NS,
+        "logs",
+        &format!("deployment/{}", integration::bench::BACK_SERVICE),
+        "--tail=-1",
+    ]);
+    assert!(logs.status.success(), "read the back's logs");
+    assert!(
+        !String::from_utf8_lossy(&logs.stdout).contains(signature),
+        "the Dex token is in the back's logs"
+    );
 }

@@ -290,9 +290,16 @@ pub fn wait(ns: &str, args: &[&str]) {
 /// in the apiserver.
 pub async fn front_proxied(test: &str) -> Proxied {
     let p = proxied(test, Value::Null).await;
+    use_front_proxy(&p, "service:default/kubernetes:443");
+    p
+}
+
+/// Switch the fixture's cluster to `FrontProxy`, as [`front_proxied`]
+/// describes, its certificate bound to `target` (`clientCertTarget`).
+pub fn use_front_proxy(p: &Proxied, target: &str) {
     let bench = Bench::get();
     let ns = p.ns.name.clone();
-    install_front_proxy_cert(&ns, CLUSTER, "service:default/kubernetes:443");
+    install_front_proxy_cert(&ns, CLUSTER, target);
     let rbac = json!({
         "apiVersion": "rbac.authorization.k8s.io/v1",
         "kind": "RoleBinding",
@@ -351,7 +358,6 @@ pub async fn front_proxied(test: &str) -> Proxied {
             "--for=jsonpath={.status.conditions[?(@.type==\"Ready\")].reason}=Reconciled",
         ],
     );
-    p
 }
 
 /// The bench's front-proxy certificate in `proxyauth-frontproxy-<ns>.<cluster>`
