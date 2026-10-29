@@ -17,3 +17,9 @@ fail-fast = false
 [[profile.it.overrides]]
 filter = "binary(rfc0013) and test(=p5_a_protocol_without_overlap_is_refused_then_recovers)"
 slow-timeout = { period = "60s", terminate-after = 12 }
+
+# RFC 0014 §6.P point 13 waits out the 5 min activation of a rotated Issuer
+# key and a requeue, then a revocation and the apiserver's JWKS reload.
+[[profile.it.overrides]]
+filter = "binary(rfc0014) and test(=p13_a_rotation_loses_no_request_and_a_revocation_replaces_the_key)"
+slow-timeout = { period = "60s", terminate-after = 15 }

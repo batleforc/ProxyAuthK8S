@@ -1786,7 +1786,91 @@ de l'`Issuer` attend la phase 3.
 
 ### 17.3 Phase 3 (`Issuer`)
 
-Non commencée.
+Codée sur la même branche, dans #323, commits `7e3ce96` à `7af6487`.
+
+**Construit**
+
+- Modèle commun (`crd::upstream_auth::issuer_key`) : `keys.json`, clé
+  courante choisie par chaque réplica, jeu publié, planificateur de rotation
+  (première clé active aussitôt, rotation après `rotation_days` ou sur une
+  valeur nouvelle de l'annotation, délai d'activation de 5 min, une clé en
+  attente à la fois, `revoke:<nonce>`, purge), propriété par labels (T18),
+  vérification du chemin d'`issuer_url`.
+- Contrôleur (`proxy_kube_api/issuer.rs`) : clé P-256 générée par `ring`
+  (déjà dépendance), `kid` en empreinte RFC 7638, point public rangé dans
+  `keys.json` pour que l'API n'ait jamais à lire une clé pour publier ;
+  écriture avec `resourceVersion` ; statut `issuerUrl`, `audience`,
+  `jwksUri`, `keyId`, `keyRotatedAt` ; raisons `IssuerKeyUnavailable`,
+  `IssuerUrlMismatch`, `IssuerNotTrusted` (bloquantes) et `IssuerNotReady`,
+  `IssuerKeyRotationOverdue`, `IssuerBehindAgent` (avis) ; balayage des
+  orphelins sur le leader, après une liste complète, en deux temps avec
+  `Preconditions`. Role du namespace du proxy : `get`, `list`, `create`,
+  `update`, `delete` sur les Secrets.
+- API (`api::issuer`) : routes `/issuer/{ns}/{cluster}/.well-known/openid-configuration`
+  et `/jwks` hors utoipa, `max-age=60`, magasin « dernier bon document »
+  borné par `retire_at` ; lecture des clés derrière un cache de 30 s, un
+  rafraîchissement par cluster, 2 s par lecture, reprise avec gigue ;
+  signature ES256 (`jsonwebtoken`), cache des JWT par empreinte canonique de
+  l'identité (T11, T12), `exp` borné par le jeton source (décision 61) ;
+  `Upstream::Bearer` sur tous les chemins, `Authorization` marqué sensible ;
+  `Issuer` dans `SERVED_MODES` ; la sonde signe un JWT préfixé puis un JWT
+  non préfixé que l'apiserver doit refuser (`Unguarded` sinon) ;
+  `proxyauth_issuer_tokens_total{result}`.
+- Chart : route `/issuer/` de l'Ingress vers le back.
+- Banc : trois issuers déclarés dans l'`AuthenticationConfiguration` de
+  k3s (deux avec les `userValidationRules`, un sans), `Issuer` dans les
+  `allowedModes` du banc.
+- Doc : `issuer.mdx`, raisons dans `status-and-events.mdx`, notes RBAC et
+  Ingress de la page de migration.
+
+**Écarts**
+
+1. **Rythme de la sonde** : pas de sonde juste après `activate_at` ni après
+   une révocation, un tour par minute comme en `FrontProxy` (§17.2, écart
+   2). La première requête signée par le nouveau `kid` fait recharger le
+   JWKS : le dernier rechargement de l'apiserver date d'avant la
+   publication, son cache (`max-age=60`) est donc expiré.
+2. **Préparation** : un avis `IssuerNotReady`, miroir de
+   `FrontProxyNotReady`, plutôt que les raisons bloquantes posées en avis ;
+   le kit ne sait pas donner deux sévérités à une même raison.
+   `IssuerUrlMismatch` est vérifié par le contrôleur, pas par `validate`.
+3. **Avis du Secret `FrontProxy` orphelin** (plus de 24 h, dans les logs du
+   leader) : non livré.
+4. **`jti`** : unique (instant et compteur), pas aléatoire : l'apiserver ne
+   s'en sert pas pour détecter un rejeu.
+5. **Banc, point 2** : retiré, les trois modes étant ouverts au banc ; le
+   test unitaire `a_trusted_mode_outside_allowed_modes_is_refused_with_who_can_act`
+   le garde.
+6. **Banc, point 12** : prouvé par le verdict `Unguarded` d'un issuer sans
+   `userValidationRules` ; les JWT forgés (clé de A et `aud` de B, clé de B
+   et `system:masters`) restent unitaires
+   (`a_signed_jwt_verifies_against_the_published_key`, T9).
+7. **Banc, point 13** : la révocation est prouvée par une clé neuve, l'ancienne
+   absente du JWKS et des requêtes qui reprennent ; pas par « une requête
+   perdue au plus par réplica ».
+8. **Ingress** : la route `/issuer/` n'était pas dans *Touches* ; sans elle,
+   les documents tombaient sur le front.
+9. **`secrecy`** passe en dépendance normale de l'`api` (déjà dans les deux
+   `Cargo.lock`), comme *Touches* le prévoyait.
+
+**Preuves**
+
+- Unitaires, verts en local : planificateur (première clé, rotation,
+  demande traitée une fois, révocation, purge, délai lié aux caches), T18
+  (`a_secret_without_the_expected_labels_is_never_adopted`), clé P-256 et
+  `kid`, orphelins, JWT vérifié par le JWK publié et refusé pour une autre
+  audience (T9), décision 61, T11, T12, T8 sur les documents, T5 et T10 sur
+  la couture (`issuer_replaces_the_token_with_the_proxy_jwt`).
+- §6.P contre le banc, **observés verts** le 2026-10-29 sur `7af6487`
+  (exécution `40919016223`) : point 10 (préparé en `Passthrough`, sonde
+  `Trusted`, basculé : l'apiserver voit `proxyauth:reader@it.local` par le
+  JWT du proxy, la découverte nomme l'issuer octet pour octet, le JWKS
+  publie le `keyId` du statut, dix requêtes réutilisent un JWT), point 11
+  (`client_cert` et `issuer_key` absent refusés à l'admission), point 12
+  (sans `userValidationRules` : `trust: Unguarded`, `IssuerNotTrusted`,
+  `503`). Le point 13 a dépassé le délai de 5 min de nextest, que la
+  rotation (5 min d'activation) dépasse par construction : sa dérogation
+  (15 min, `.config/nextest.toml`) est ajoutée, son résultat à reporter.
 
 ### 17.4 Pour reprendre (état au 2026-10-29)
 
