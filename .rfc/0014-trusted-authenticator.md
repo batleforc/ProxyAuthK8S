@@ -1755,10 +1755,26 @@ Codée sur la même branche, commits `d688b48` à `f47ae51`.
   cluster au certificat d'une CA inconnue (`FrontProxyNotTrusted`, point 9)
   ou lié à une autre cible (`ClientCertTargetMismatch`, T29) en deux tours
   au plus.
-- Non couverts par la suite : points 5 (persona `system:masters`), 7
-  (`FrontProxy` derrière un agent), 8 (en-têtes sans certificat, observé
-  par la sonde k3s, décision 58), 14 (absence du jeton dans les logs), 16
-  (écho amont absent du banc), 17 (binaire d'avant la phase 1).
+- Ajoutés ensuite, **observés verts** le 2026-10-29 sur `e9493b0`
+  (exécution `40900947199`, 98 tests, 98 passés) : point 5 (persona
+  `masters` dont Dex renvoie `system:masters` : l'apiserver voit
+  `proxyauth:system:masters`, `get nodes` refusé ; un claim de nom absent
+  est refusé par le proxy en `401`, jamais le `502` d'un refus de
+  l'apiserver), point 7 (`FrontProxy` derrière un agent : identité préfixée
+  et `trust: Trusted` à travers le tunnel), point 8 (en-têtes `X-Remote-*`
+  directs, sans certificat : l'apiserver du banc répond **`403` à
+  `system:anonymous`**, pas le `401` qu'annonçait la décision 58 ; les
+  en-têtes n'authentifient personne dans les deux cas), point 14 (la
+  signature du jeton Dex absente des logs du back, audit compris).
+- Non couverts par la suite : points 16 (écho amont absent du banc ; test
+  unitaire `bearer_subprotocol_entries_are_stripped_in_every_mode`) et 17
+  (binaire d'avant la phase 1 ; tests de la clé Redis). Candidats de la
+  suite *heavy* d'une RFC suivante.
+- Décision 57 vérifiée sur les références d'API : Vault Secrets Operator
+  (`VaultPKISecret.spec.destination` : `type: kubernetes.io/tls`, `labels`
+  et `annotations` avec `create: true`) et External Secrets
+  (`target.template.type`, `metadata.labels`, `metadata.annotations`)
+  posent ce que le proxy exige ; recettes dans `front-proxy.mdx`.
 
 **Reste à faire avant de fusionner** : ouvrir la PR ; la mise à jour du
 statut de la RFC. La documentation de §11 pour `FrontProxy` est écrite
@@ -1772,9 +1788,8 @@ Non commencée.
 ### 17.4 Pour reprendre (état au 2026-10-29)
 
 - **Branche** : `probe/rfc0014-front-proxy`, PR #323 vers `main`. RFC en `In review`.
-- **CI** : verte sur `9b79d7e` (Rust tests, envtest, intégration
-  `40874702974` : 93/93) ; la décision 60 (statut `trust`) est arrivée
-  après, sa suite est à relancer sur la tête. Clippy et l'intégration ne
+- **CI** : toute la CI de la PR verte sur `e9493b0` (intégration
+  `40900947199` : 98/98, CodeQL compris). Clippy et l'intégration ne
   partent que lancés à la main : `gh workflow run back-clippy.yaml --ref
   probe/rfc0014-front-proxy`, idem `integration.yaml`.
 - **Documentation** : `front-proxy.mdx` (guide, recette cert-manager, suivi
