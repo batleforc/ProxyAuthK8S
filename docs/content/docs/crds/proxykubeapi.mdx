@@ -42,6 +42,7 @@ spec:
 | `proxy_group` | `string` | no |  | The oidc group required to proxy requests to this cluster Set it to decouple proxy access from dashboard access Default: the dashboard group when `expose_via_dashboard` is true, otherwise no group is required |
 | [`security_config`](#spec.security_config) | `object` | no |  | Security configuration |
 | [`service`](#spec.service) | `object` | yes |  | Service to expose the proxy |
+| [`upstream_auth`](#spec.upstream_auth) | `object` | no |  | How the proxy presents the caller's identity to the apiserver (RFC 0014). Absent: `Passthrough`, the caller's token is relayed. |
 | [`virtual_apis`](#spec.virtual_apis) | `object[]` | no | `[]` | Virtual APIs to expose on top of this cluster A virtual API is an API the cluster does not serve, that the proxy synthesises by translating requests and responses |
 
 **Rules**
@@ -49,6 +50,10 @@ spec:
 - dashboard_group must not be empty when it is set — `!has(self.dashboard_group) || self.dashboard_group != ''`
 - proxy_group must not be empty when it is set — `!has(self.proxy_group) || self.proxy_group != ''`
 - service Agent needs the remote apiserver's CA in cert (ConfigMap, Secret or Cert), never SystemRoots — `!has(self.service.Agent) || has(self.cert.ConfigMap) || has(self.cert.Secret) || has(self.cert.Cert)`
+- client_cert is refused in FrontProxy and Issuer: FrontProxy reads its certificate from the proxy's namespace, and in Issuer it would win over the JWT — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.client_cert)`
+- FrontProxy and Issuer need a validated identity: set auth_config without disable_validation — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || (has(self.auth_config) && !(has(self.auth_config.disable_validation) && self.auth_config.disable_validation))`
+- FrontProxy and Issuer cannot validate against Kubernetes: the SelfSubjectReview needs the apiserver to know the IdP — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.auth_config) || (has(self.auth_config.validate_against) && self.auth_config.validate_against != 'Kubernetes')`
+- FrontProxy and Issuer require oidc_provider.claim_mappings: preferred_username must not become a trusted identity — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.auth_config) || !has(self.auth_config.validate_against) || self.auth_config.validate_against != 'OidcProvider' || has(self.auth_config.oidc_provider.claim_mappings)`
 
 ### `spec.auth_config` [#spec.auth_config]
 
@@ -182,6 +187,7 @@ spec:
 | --- | --- | --- | --- | --- |
 | `accept_authorized_party` | `boolean` | no | `false` | Accept a token whose `aud` does not name this service but whose `azp`/`client_id` does.<br /><br />Off by default: `azp`/`client_id` identify the client the token was issued to, not the resource, so accepting them weakens audience validation. Enable only for providers (e.g. Keycloak) that mint self-audience tokens carrying the client only in `azp`. |
 | `audience` | `string` | no | `""` | Audience the access token must carry (its `aud` claim) to be accepted.<br /><br />When empty, `client_id` is used — correct for providers that put the client id in `aud`. Set it explicitly when the provider mints tokens for a distinct resource audience, so `client_id` (who the token is for) and the expected audience (what the token is for) are configured independently. |
+| [`claim_mappings`](#spec.auth_config.oidc_provider.claim_mappings) | `object` | no |  | How the raw `/userinfo` claims become the user, the same shape as a `jwt` authenticator's (RFC 0014). Absent: `preferred_username` and `groups`, as before. Required in `FrontProxy` and `Issuer`. |
 | `client_id` | `string` | no | `""` | Ignored when the `config_from` Secret carries a `client_id` key. See `issuer_url` for why it is optional. |
 | `client_secret` | `string` | no |  | The OAuth client secret, inline.<br /><br />Prefer `config_from`: a value here is readable by anyone with `get` on this resource, shows up in `kubectl get -o yaml`, and is copied into every backup of it. |
 | [`config_from`](#spec.auth_config.oidc_provider.config_from) | `object` | no |  | Read the provider block from an external Secret instead of inlining it here.<br /><br />The Secret's keys are the snake_case field names of this struct — `issuer_url`, `client_id`, `client_secret`, `audience`, `extra_scope` — and any key it carries wins over the inline value; keys it does not carry fall back to the inline value, so a partial Secret (the common case: just `client_secret`) works. Keys outside that set are ignored, since a Secret managed by external-secrets is routinely shared with other consumers.<br /><br />The policy toggles (`enabled`, `accept_authorized_party`, `expose_oauth_authorization_server`) are deliberately *not* readable from the Secret: they decide how strictly tokens are validated and who may reach this cluster, so they must stay visible in the CR that admission and review look at. |
@@ -194,6 +200,65 @@ spec:
 
 - an enabled OIDC provider requires a non-empty issuer_url and client_id, or a config_from reference supplying them — `!self.enabled || has(self.config_from) || (self.issuer_url != '' && self.client_id != '')`
 - expose_oauth_authorization_server requires the OIDC provider to be enabled — `!self.expose_oauth_authorization_server || self.enabled`
+
+### `spec.auth_config.oidc_provider.claim_mappings` [#spec.auth_config.oidc_provider.claim_mappings]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| [`extra`](#spec.auth_config.oidc_provider.claim_mappings.extra) | `object[]` | no | `[]` |  |
+| [`groups`](#spec.auth_config.oidc_provider.claim_mappings.groups) | `object` | no |  | Either a claim (with an optional prefix) or a CEL expression, never both.<br /><br />`prefix` exists to keep an external identity provider from minting a username that collides with a local one; it applies only to the `claim` form, since an `expression` can prepend whatever it likes itself. |
+| [`uid`](#spec.auth_config.oidc_provider.claim_mappings.uid) | `object` | no |  | Either a claim or a CEL expression, never both. |
+| [`username`](#spec.auth_config.oidc_provider.claim_mappings.username) | `object` | no |  | Required — a token that validates but maps to no username authenticates nobody, so the apiserver requires it too. |
+
+**Rules**
+
+- claim_mappings.username is required: without it a validated token maps to no user — `has(self.username)`
+
+### `spec.auth_config.oidc_provider.claim_mappings.extra[]` [#spec.auth_config.oidc_provider.claim_mappings.extra]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `key` | `string` | yes |  |  |
+| `value_expression` | `string` | no | `""` | A CEL expression over `claims` producing the value(s) for `key`. |
+
+### `spec.auth_config.oidc_provider.claim_mappings.groups` [#spec.auth_config.oidc_provider.claim_mappings.groups]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `claim` | `string` | no |  | Constraints: `maxLength: 253` |
+| `expression` | `string` | no |  | Constraints: `maxLength: 4096` |
+| `prefix` | `string` | no |  | Prepended to the claim's value. Only valid with `claim`.<br /><br />Constraints: `maxLength: 253` |
+
+**Rules**
+
+- exactly one of claim or expression must be set — `has(self.claim) != has(self.expression)`
+- prefix may only be set together with claim — `!has(self.prefix) || has(self.claim)`
+- prefix is required with claim (use "" to opt out of prefixing deliberately) — `!has(self.claim) || has(self.prefix)`
+
+### `spec.auth_config.oidc_provider.claim_mappings.uid` [#spec.auth_config.oidc_provider.claim_mappings.uid]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `claim` | `string` | no |  | Constraints: `maxLength: 253` |
+| `expression` | `string` | no |  | Constraints: `maxLength: 4096` |
+
+**Rules**
+
+- exactly one of claim or expression must be set — `has(self.claim) != has(self.expression)`
+
+### `spec.auth_config.oidc_provider.claim_mappings.username` [#spec.auth_config.oidc_provider.claim_mappings.username]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `claim` | `string` | no |  | Constraints: `maxLength: 253` |
+| `expression` | `string` | no |  | Constraints: `maxLength: 4096` |
+| `prefix` | `string` | no |  | Prepended to the claim's value. Only valid with `claim`.<br /><br />Constraints: `maxLength: 253` |
+
+**Rules**
+
+- exactly one of claim or expression must be set — `has(self.claim) != has(self.expression)`
+- prefix may only be set together with claim — `!has(self.prefix) || has(self.claim)`
+- prefix is required with claim (use "" to opt out of prefixing deliberately) — `!has(self.claim) || has(self.prefix)`
 
 ### `spec.auth_config.oidc_provider.config_from` [#spec.auth_config.oidc_provider.config_from]
 
@@ -660,6 +725,36 @@ Exactly one of `ConfigMap`, `Secret`.
 | `namespace` | `string` | no |  | If not set, will use the resource namespace |
 | `port` | `integer` | no |  | Port of the service<br /><br />Constraints: `minimum: 0`, `maximum: 65535` |
 | `port_name` | `string` | no |  | Port name of the service |
+
+### `spec.upstream_auth` [#spec.upstream_auth]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `group_prefix` | `string` | no |  | Prepended to every group the apiserver sees.<br /><br />Constraints: `maxLength: 64` |
+| [`issuer_key`](#spec.upstream_auth.issuer_key) | `object` | no |  | The signing key of `Issuer`, also accepted in `Passthrough` so the apiserver can be prepared before the switch. |
+| `mode` | `string` | no | `"Passthrough"` | Default: `Passthrough`, the behaviour without this block.<br /><br />Values: `"Passthrough"`, `"FrontProxy"`, `"Issuer"` |
+| `user_prefix` | `string` | no |  | Prepended to the username the apiserver sees. No default: a prefix is a collision decision nobody else can take.<br /><br />Constraints: `maxLength: 64` |
+
+**Rules**
+
+- user_prefix and group_prefix are required and non-empty in FrontProxy and Issuer — `!has(self.mode) || self.mode == 'Passthrough' || (has(self.user_prefix) && self.user_prefix != '' && has(self.group_prefix) && self.group_prefix != '')`
+- issuer_key is for Issuer (or its preparation in Passthrough), not FrontProxy — `!has(self.issuer_key) || !has(self.mode) || self.mode != 'FrontProxy'`
+- mode Issuer requires issuer_key — `!has(self.mode) || self.mode != 'Issuer' || has(self.issuer_key)`
+- `group_prefix`: group_prefix must not start with system: nor carry a control character or an edge space — `self.matches('[\\x00-\\x1f\\x7f]|^\\s|\\s$') == false && !self.lowerAscii().startsWith('system:')`
+- `user_prefix`: user_prefix must not start with system: nor carry a control character or an edge space — `self.matches('[\\x00-\\x1f\\x7f]|^\\s|\\s$') == false && !self.lowerAscii().startsWith('system:')`
+
+### `spec.upstream_auth.issuer_key` [#spec.upstream_auth.issuer_key]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `issuer_url` | `string` | yes |  | The issuer the apiserver declares: `<public proxy URL>/issuer/<ns>/<name>`. Written here, never derived from the environment, so a redeploy or a restore cannot change it.<br /><br />Constraints: `maxLength: 2048` |
+| `rotation_days` | `integer` | no | `30` | Automatic key rotation, 1 to 365 days.<br /><br />Constraints: `minimum: 1`, `maximum: 365` |
+| `token_ttl_seconds` | `integer` | no | `300` | Lifetime of an issued JWT, 60 to 900 seconds.<br /><br />Constraints: `minimum: 60`, `maximum: 900` |
+
+**Rules**
+
+- `issuer_url`: issuer_url must be https — `self.startsWith('https://')`
+- `issuer_url`: issuer_url must be reachable by the apiserver, not a loopback address — `!self.matches('^https://(localhost|127\\.|\\[::1\\])')`
 
 ### `spec.virtual_apis[]` [#spec.virtual_apis]
 

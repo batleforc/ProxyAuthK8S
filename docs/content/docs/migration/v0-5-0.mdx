@@ -1,0 +1,64 @@
+---
+title: Vers la 0.5.0
+description: Mettre à jour depuis la 0.4.x, upstream_auth et claim_mappings (RFC 0014)
+icon: CircleArrowUp
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+La 0.5.0 ajoute `upstream_auth` (RFC 0014) : un cluster peut faire croire à son apiserver
+l'identité affirmée par le proxy ([Apiserver en front-proxy](/docs/front-proxy)) au lieu de
+lui relayer le jeton de l'IdP. Rien ne change sans action de l'admin du proxy :
+`upstreamAuth.allowedModes` vaut `[Passthrough]`.
+
+## Mettre à jour
+
+Comme toujours, `chart-crd` **avant** le chart, et toute l'installation à jour avant qu'un
+cluster quitte `Passthrough` :
+
+```bash
+helm upgrade proxyauthk8s-crd oci://ghcr.io/batleforc/proxyauthk8s/chart-crd:0.5.0 \
+  --namespace ${NAMESPACE}
+helm upgrade proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart:0.5.0 \
+  --namespace ${NAMESPACE} \
+  --values proxyauthk8s-values.yaml
+```
+
+Le contrôleur refuse de démarrer sur une CRD qui ne connaît pas `upstream_auth`, avec un
+message qui nomme la version de `chart-crd` attendue.
+
+Si vous gérez le RBAC vous-même et listez `rbac.referencedNamespaces`, le compte du serveur a
+besoin de `get` sur les `secrets` du namespace de la release (le certificat `FrontProxy`).
+
+## Ce qui change pour tous les clusters
+
+- **Cache des jetons** : sa clé inclut désormais le `claim_mappings` du cluster. Le cache est
+  vidé au déploiement : une revalidation par utilisateur.
+- **Sous-protocole WebSocket** : une entrée `base64url.bearer.authorization.k8s.io.*` de
+  `Sec-WebSocket-Protocol` n'est plus relayée à l'apiserver. kubectl envoie `Authorization`
+  et n'est pas touché ; un client qui ne s'authentifierait que par ce sous-protocole reçoit
+  `401`.
+- **`/userinfo`** : une réponse de plus de 64 Kio (`PROXY_JWKS_MAX_DOCUMENT_BYTES`) est
+  refusée.
+- **Colonne `Upstream`** dans `kubectl get proxykubeapi -o wide` (`status.upstreamAuth.mode`) ;
+  vide, elle signale un contrôleur trop ancien.
+
+## Ajouter `claim_mappings` à un cluster existant
+
+`oidc_provider.claim_mappings` est optionnel en `Passthrough`, requis en `FrontProxy`. L'ajouter
+**change le nom vu par le proxy** (par exemple de `preferred_username` à `sub`) : revoyez les
+allow-lists par nom, le rate limit par sujet et la continuité de l'audit, et, en `FrontProxy`,
+les `RoleBinding` du cluster cible, qui visent `user_prefix` + ce nom. `kubectl auth whoami`
+affiche le nom que l'apiserver voit.
+
+En `FrontProxy`, un utilisateur de plus de 64 groupes reçoit `403` : filtrez par
+`groups.expression` avant la bascule (fréquent avec Active Directory).
+
+## Revenir en arrière
+
+<Callout type="warn">
+Repassez chaque cluster en `Passthrough` **avant** de revenir à la 0.4.x ou de rétrograder
+`chart-crd`. Un binaire 0.4.x ne trouve pas les clusters hors `Passthrough` (il répond
+« cluster inconnu » plutôt que de relayer le jeton de l'IdP), et une CRD 0.4.x efface
+`upstream_auth` à la lecture, ce qui empêche le contrôleur 0.5.0 de démarrer.
+</Callout>

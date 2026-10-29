@@ -1,0 +1,259 @@
+---
+title: Apiserver en front-proxy
+description: Faire croire l'identité affirmée par le proxy à un apiserver (upstream_auth FrontProxy, RFC 0014), sans relayer le jeton de l'IdP
+icon: Handshake
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+Par défaut (`upstream_auth.mode: Passthrough`), le proxy relaie le jeton `Bearer` de
+l'utilisateur et l'apiserver cible doit connaître l'IdP. En `FrontProxy`, le proxy se présente
+à l'apiserver avec un **certificat client** que celui-ci reconnaît comme front-proxy
+(authentification *requestheader*), et affirme l'identité de l'utilisateur dans les en-têtes
+`X-Remote-User`, `X-Remote-Group` et `X-Remote-Extra-*`. Le jeton de l'IdP ne quitte plus le
+proxy, et l'apiserver n'a plus besoin de configuration OIDC.
+
+Trois rôles interviennent, nommés de la même façon sur toute la page :
+
+- l'**admin du proxy** : le chart, le namespace du proxy, le Secret du certificat ;
+- l'**auteur du cluster** : celui qui écrit le `ProxyKubeApi`, souvent un tenant ;
+- l'**opérateur de l'apiserver** : flags de l'apiserver et RBAC du cluster cible.
+
+## Ce que vous acceptez
+
+<Callout type="warn">
+- Le proxy devient la racine d'identité de ces clusters : sa compromission vaut
+  administrateur de chacun d'eux.
+- Un certificat front-proxy volé vaut n'importe quelle identité non `system:` sous le
+  préfixe, jusqu'à son expiration, sans révocation : 24 h avec la recette cert-manager
+  ci-dessous.
+- Qui peut écrire un `ProxyKubeApi` en `FrontProxy` choisit l'identité que l'apiserver cible
+  croit (sous le préfixe) : n'ouvrez le mode qu'aux auteurs à qui vous le confiez.
+</Callout>
+
+À ne jamais faire : partager une CA front-proxy entre apiservers, réutiliser la CA
+d'agrégation ou celle de `--client-ca-file`, laisser `--requestheader-allowed-names` vide.
+
+## 1. Ouvrir le mode (admin du proxy)
+
+```yaml
+# values du chart
+upstreamAuth:
+  allowedModes: [Passthrough, FrontProxy]
+```
+
+`Passthrough` reste obligatoire dans la liste. Un `ProxyKubeApi` qui demande un mode hors de
+la liste n'est pas refusé à l'admission, mais reçoit `Ready=False`
+(`UpstreamModeNotAllowed`) et le proxy répond `503` : jamais de repli sur `Passthrough`.
+
+`FrontProxy` exige aussi `OIDC_AUDIENCE_VALIDATION=enforce` (le défaut, voir
+[Configuration](/docs/configuration)) ; sinon `Ready=False` (`AudienceValidationRequired`).
+
+## 2. Préparer le `ProxyKubeApi` (auteur du cluster)
+
+On reste en `Passthrough` tant que la confiance n'est pas établie : le proxy sonde déjà la
+configuration et le statut dit ce qui manque.
+
+```yaml
+spec:
+  service:
+    ExternalService:
+      url: https://10.0.0.10:6443
+  auth_config:
+    validate_against: OidcProvider
+    oidc_provider:
+      enabled: true
+      issuer_url: https://auth.example.com
+      client_id: my-cluster
+      claim_mappings:                      # requis en FrontProxy
+        username: { claim: sub, prefix: "" }
+        groups: { claim: groups, prefix: "" }
+  upstream_auth:
+    mode: Passthrough                      # FrontProxy à l'étape 5
+    user_prefix: "proxyauth:"
+    group_prefix: "proxyauth:"
+```
+
+Règles vérifiées à l'admission en `FrontProxy` :
+
+- `user_prefix` et `group_prefix` requis, non vides, 64 caractères au plus, jamais en
+  `system:`, sans caractère de contrôle ni espace de bord ;
+- `validate_against: Kubernetes` refusé (la `SelfSubjectReview` suppose que l'apiserver
+  connaît déjà l'IdP), `disable_validation: true` refusé ;
+- avec `OidcProvider`, `oidc_provider.claim_mappings` requis : `preferred_username` est
+  modifiable par l'utilisateur chez beaucoup d'IdP. Préférez `sub`. Un `username` tiré
+  d'`email` exige `email_verified: true` ;
+- `client_cert` refusé : le certificat vit dans le namespace du proxy (étape 3).
+
+Les clés `claim_mappings.extra[].key` doivent être en minuscules, préfixées par un domaine et
+hors de `kubernetes.io` / `k8s.io` ; une clé fautive donne `Ready=False` (`InvalidSpec`).
+
+### Les deux préfixes
+
+L'*identité du proxy* (celle que voient `proxy_group`, l'allow-list, le rate limit et l'audit
+`user`) sort de `auth_config`, préfixe de `claim_mappings` compris. L'*identité transmise*,
+que seul l'apiserver voit, est `user_prefix` + ce nom et `group_prefix` + chaque groupe. Les
+deux préfixes s'empilent : mettez `prefix: ""` dans `claim_mappings` et le préfixe dans
+`upstream_auth` seulement.
+
+| `validate_against` | Identité du proxy | Identité transmise (`user_prefix: "p:"`) |
+| ------------------ | ----------------- | ---------------------------------------- |
+| `OidcProvider` | `claim_mappings` de `oidc_provider`, sur les claims de `/userinfo` : `alice` avec `prefix: ""`, `oidc:alice` avec `prefix: "oidc:"` | `p:alice`, ou `p:oidc:alice` |
+| `JwtAuthenticators` | `claim_mappings` de l'authenticator qui valide le jeton, même règle | idem |
+| `Kubernetes` | le nom que l'apiserver renvoie | refusé en `FrontProxy` |
+
+## 3. Le certificat (admin du proxy)
+
+Le proxy lit un Secret `kubernetes.io/tls` (clés `tls.crt`, `tls.key`) dans **son**
+namespace (celui de la release), nommé `proxyauth-frontproxy-<ns>.<nom>` d'après le
+`ProxyKubeApi` qu'il sert. Le nom se calcule avant que le `ProxyKubeApi` existe : le Secret se
+déclare dans Git à côté du cluster. Le proxy n'utilise le Secret que s'il porte :
+
+- le label `app.kubernetes.io/managed-by: proxyauthk8s` ;
+- l'annotation `proxyauth.weebo.si.rs/front-proxy-target`, égale à la cible du cluster sous sa
+  forme canonique : `external:<url sans / final>`, `service:<ns>/<nom>:<port>` ou
+  `agent:<ns>/<nom>`. `status.upstreamAuth.clientCertTarget` affiche la valeur attendue, et
+  `status.upstreamAuth.clientCertSecret` le nom exact du Secret.
+
+Un tenant ne peut donc ni nommer ce certificat, ni le repointer vers un autre apiserver.
+
+Le certificat est signé par une **CA dédiée à cet apiserver**, que l'apiserver ne connaît que
+par `--requestheader-client-ca-file`. Son CN figure dans `--requestheader-allowed-names` ;
+choisissez-le une fois et gardez-le. Ni le CN ni l'O ne commencent par `system:`
+(`ClientCertSubjectReserved`).
+
+### Recette cert-manager
+
+Une CA par apiserver cible, des certificats de 24 h renouvelés seuls :
+
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata: { name: proxyauth-front-proxy-ca-team-a-prod, namespace: proxyauth }
+spec:
+  ca: { secretName: front-proxy-ca-team-a-prod }   # la CA dédiée (ou Vault, step-ca)
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: { name: proxyauth-frontproxy-team-a.prod, namespace: proxyauth }
+spec:
+  secretName: proxyauth-frontproxy-team-a.prod
+  commonName: proxyauth-team-a-prod        # dans --requestheader-allowed-names
+  usages: [client auth]
+  duration: 24h
+  renewBefore: 8h
+  privateKey: { algorithm: ECDSA, size: 256, rotationPolicy: Always }
+  issuerRef: { kind: Issuer, name: proxyauth-front-proxy-ca-team-a-prod }
+  secretTemplate:
+    labels: { app.kubernetes.io/managed-by: proxyauthk8s }
+    annotations:
+      proxyauth.weebo.si.rs/front-proxy-target: "external:https://10.0.0.10:6443"
+```
+
+La clé privée de la CA vaut plus que tout certificat : gardez-la hors du namespace du proxy
+si votre émetteur le permet (Vault, step-ca). Vault Secrets Operator, External Secrets ou un
+pipeline conviennent aussi : le proxy ne lit que le Secret, il ne parle à aucune PKI.
+
+Un certificat renouvelé dans le même Secret sert aux nouvelles connexions en 300 s au plus
+(`PROXY_UPSTREAM_CLIENT_TTL`) ; une connexion déjà ouverte (un `exec`, un `watch`) garde
+l'ancien jusqu'à sa fermeture. `ClientCertExpiring` avertit quand il reste moins de
+`min(30 j, ⅓ de la durée de vie)`.
+
+## 4. L'apiserver (opérateur de l'apiserver)
+
+```text
+--requestheader-client-ca-file=/etc/kubernetes/requestheader-ca.crt
+--requestheader-allowed-names=front-proxy-client,proxyauth-team-a-prod
+--requestheader-username-headers=X-Remote-User
+--requestheader-group-headers=X-Remote-Group
+--requestheader-extra-headers-prefix=X-Remote-Extra-
+```
+
+- Ces flags servent déjà à l'agrégation d'API (kubeadm, k3s). **Concaténez** la CA dédiée à la
+  CA d'agrégation existante dans le fichier de `--requestheader-client-ca-file`, et ajoutez le
+  CN du proxy à `--requestheader-allowed-names` à côté du CN d'agrégation (`front-proxy-client`
+  chez kubeadm, `system:auth-proxy` chez k3s) : l'agrégation continue de fonctionner. L'apiserver
+  relit le fichier de CA sans redémarrage.
+- Gardez l'OIDC existant de l'apiserver pendant la migration : c'est ce qui rend le retour en
+  `Passthrough` possible.
+- Écrivez les `RoleBinding` pour les noms **préfixés** (`proxyauth:alice`,
+  `proxyauth:team-a`).
+- Restreignez l'accès réseau à l'apiserver (NetworkPolicy, pare-feu) : seul le proxy présente
+  ce certificat.
+
+Changer de CA : ancienne et nouvelle CA côte à côte dans le fichier, basculer l'émetteur,
+retirer l'ancienne. Changer de CN : l'ajouter à `allowed-names` **avant**.
+
+## 5. Vérifier, puis basculer
+
+Le leader du proxy sonde chaque minute tout cluster en `FrontProxy` ou en préparation : une
+`SelfSubjectReview` sous l'identité `<user_prefix>proxyauth-probe`, avec un groupe
+`<group_prefix>proxyauth-probe` et une valeur `extra` `proxyauth.weebo.si.rs/probe`, qui
+doivent revenir tels quels.
+
+```bash
+kubectl -n team-a get proxykubeapi prod -o wide          # colonne Upstream
+kubectl -n team-a get proxykubeapi prod -o jsonpath='{.status.conditions}'
+```
+
+En préparation, un problème de certificat ou de confiance devient l'avis `FrontProxyNotReady`,
+dont le message dit ce qui manque ; une sonde qui n'a pas conclu, l'avis
+`UpstreamTrustUnknown`. Une sonde réussie ne pose rien : basculez quand
+`status.upstreamAuth.clientCertSubject` est rempli (le Secret est lu) et qu'aucun de ces deux
+avis n'est apparu après deux tours de sonde. Passez alors `upstream_auth.mode` à
+`FrontProxy` : aucune fenêtre de `403`. Puis, côté utilisateur :
+
+```bash
+kubectl auth whoami      # affiche proxyauth:alice
+```
+
+Le plugin kubectl n'affiche lui-même aucun nom, et le résumé du cluster dans le dashboard
+montre l'identité du proxy, pas le nom préfixé que les `RoleBinding` doivent viser.
+
+Retour arrière : repasser en `Passthrough`. Le jeton de l'IdP repart alors vers l'apiserver,
+qui doit encore connaître l'IdP.
+
+## Ce que le proxy envoie
+
+- Toute valeur `Authorization` du client est retirée, sur tous les chemins (relais, API
+  virtuelles, `list_fallback`, exec / attach / port-forward).
+- `X-Remote-User`, **un** `X-Remote-Group` par groupe (une virgule dans un nom de groupe ne le
+  coupe pas), un `X-Remote-Extra-<clé>` par valeur `extra`, la clé encodée en pourcentage.
+- Ni `x-forwarded-user` ni `x-forwarded-groups`. Les en-têtes `X-Remote-*` et
+  `Impersonate-*` du client restent retirés, comme dans tous les modes.
+- Les noms non ASCII passent tels quels, en UTF-8 (`élodie` devient `proxyauth:élodie`).
+- L'audit du proxy ajoute `upstream_mode`, `upstream_user` et `upstream_groups`.
+
+## Diagnostiquer un 401, 403, 502 ou 503
+
+| Réponse | Mode | Cause et action |
+| ------- | ---- | --------------- |
+| `401` | `Passthrough` | jeton expiré ou refusé par l'apiserver : `kubectl proxyauth login` |
+| `401` | `FrontProxy` | le proxy n'a pas authentifié l'utilisateur : jeton expiré, `username` absent du claim mappé, ou e-mail non vérifié quand `username` lit `email` |
+| `403` `…has a reserved system: name or group…` | `FrontProxy` | nom ou groupe transmis en `system:` : revoir `claim_mappings` (`reason: system_prefix`) |
+| `403` `…has no username for the configured claim…` | `FrontProxy` | nom vide après mapping (`empty_username`) |
+| `403` `…has a value it cannot forward…` | `FrontProxy` | caractère de contrôle, espace de bord, groupe ou `extra` vide, clé `extra` réservée (`untransmittable`) |
+| `403` `…is too large to forward…` | `FrontProxy` | plus de 64 groupes ou 8 Kio : filtrer par `groups.expression` (`too_large`) ; fréquent avec Active Directory |
+| `403` `User "proxyauth:alice" cannot …` | `FrontProxy` | refus RBAC de l'apiserver : le `RoleBinding` vise le nom non préfixé |
+| `502` `the cluster does not trust this proxy…` | `FrontProxy` | l'apiserver a répondu `401` à l'identité affirmée : CA ou CN plus reconnus. Voir les conditions du `ProxyKubeApi` ; inutile de se reconnecter |
+| `503` `upstream mode … is not enabled on this proxy installation…` | tous | mode hors de `upstreamAuth.allowedModes` |
+| `503` `this proxy replica cannot serve upstream mode … yet…` | tous | mise à jour en cours : un réplica plus ancien ; réessayer quand elle est finie |
+| `503` `this cluster is not ready for upstream mode …: <raison>…` | `FrontProxy` | `Ready=False`, la raison est celle de la condition (tableau ci-dessous) |
+| `503` `…requires OIDC audience validation…` | `FrontProxy` | `OIDC_AUDIENCE_VALIDATION` n'est pas `enforce` |
+
+Les refus `403` du proxy sont émis avant tout appel en amont, comptés dans
+`proxyauth_upstream_identity_refused_total{reason}` et audités avec
+`reason: upstream_identity_refused` ; leur message ne contient jamais la valeur fautive. Les
+`502` sont comptés dans `proxyauth_upstream_rejected_total{mode}`.
+
+| Raison sur `Ready` | Ce qui ne va pas |
+| ------------------ | ---------------- |
+| `ClientCertMissing` | Secret absent, sans le label, ou certificat expiré ou illisible : créer `status.upstreamAuth.clientCertSecret` |
+| `ClientCertTargetMismatch` | annotation de cible différente de `status.upstreamAuth.clientCertTarget` |
+| `ClientCertNameTooLong` | `proxyauth-frontproxy-<ns>.<nom>` dépasse 253 caractères : raccourcir le nom du `ProxyKubeApi` |
+| `ClientCertSubjectReserved` | CN ou O en `system:` |
+| `FrontProxyNotTrusted` | la sonde reçoit `401` : CA absente de `--requestheader-client-ca-file`, ou CN absent de `--requestheader-allowed-names` |
+| `UpstreamIdentityNotHonoured` | la sonde voit une autre identité (le message la nomme) : certificat d'une CA `--client-ca-file`, ou `--requestheader-group-headers` / `--requestheader-extra-headers-prefix` absents |
+
+L'avis `UpstreamTrustUnknown` (transport, `5xx`, agent absent) ne ferme pas le cluster. Toutes
+les raisons : [Statut et Events](/docs/status-and-events).

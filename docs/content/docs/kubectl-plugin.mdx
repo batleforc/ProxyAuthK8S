@@ -351,3 +351,5 @@ l'appel, applique les règles de sécurité, puis relaie vers l'apiserver.
 | `ERR000020: Server certificate not trusted`     | Certificat auto-signé refusé à l'invite de confiance, ou certificat **renouvelé** depuis qu'il a été épinglé : relancer `kubectl proxyauth login` depuis un terminal et accepter après vérification de l'empreinte, ou passer `--certificate-authority` |
 | `x509: certificate signed by unknown authority` (kubectl) | Le certificat du serveur a changé : relancer `kubectl proxyauth login`, qui met à jour la CA des clusters du kubeconfig |
 | Le cluster n'apparaît pas dans `get`            | `expose_via_dashboard` est à `false` (défaut) ou le groupe dashboard ne correspond pas |
+| `502` `the cluster does not trust this proxy`   | Cluster en `FrontProxy` dont l'apiserver ne croit plus le proxy : se reconnecter n'y fait rien, prévenir l'opérateur ([diagnostic](/docs/front-proxy#diagnostiquer-un-401-403-502-ou-503)) |
+| `kubectl auth whoami` affiche `proxyauth:…`     | Normal en `FrontProxy` : l'apiserver voit le nom préfixé, c'est lui que les `RoleBinding` visent |
