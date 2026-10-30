@@ -67,6 +67,7 @@ jobs:
         timeout-minutes: 105
         run: |
           set +e
+          mkdir -p dist/mutants
           cargo mutants --shard ${{ matrix.shard }}/8 --output dist/mutants
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"

@@ -10,6 +10,7 @@ tasks:
     env:
       REQUIRE_TEST_REDIS: "1"
     cmds:
+      - mkdir -p dist/mutants
       - cargo mutants --output dist/mutants {{.CLI_ARGS}}
 
   diff:
