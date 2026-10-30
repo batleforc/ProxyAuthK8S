@@ -38,7 +38,13 @@ tokio = { workspace = true, features = ["time"] }
 ignored = ["k8s-openapi"]
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt", "macros", "time"] }
+tokio = { workspace = true, features = ["rt", "macros", "time", "test-util"] }
+
+# Runs against `Kv::Memory`, which only exists under `test-util`: the workspace
+# test run enables it through the dev-dependencies of `api` and `controller`.
+[[test]]
+name = "kv_contract"
+required-features = ["test-util"]
 
 [lints]
 workspace = true

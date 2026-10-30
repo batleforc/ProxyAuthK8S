@@ -2,12 +2,16 @@
 //!
 //! - [`config`]: every environment variable the server reads, parsed once.
 //! - [`state`]: the shared [`State`] (construction) and its Redis access methods.
+//! - [`kv`]: the store behind them, Redis or (under `test-util`) `kv_memory`.
 //! - [`server_config`]: the HTTP(S) listener and its rustls configuration.
 //! - [`error`]: boot-time error types.
 
 pub mod agent_gateway;
 pub mod config;
 pub mod error;
+pub mod kv;
+#[cfg(feature = "test-util")]
+pub mod kv_memory;
 pub mod oidc_cache;
 pub mod oidc_conf;
 pub mod oidc_config_cache;
