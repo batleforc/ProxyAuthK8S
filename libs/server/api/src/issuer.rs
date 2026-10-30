@@ -307,6 +307,15 @@ struct Documents {
     fresh_until: Instant,
 }
 
+impl Documents {
+    /// Whether these documents may answer at `at`: still fresh when
+    /// `fresh_only`, and in any case not past the retirement of their keys.
+    fn servable(&self, fresh_only: bool, at: i64) -> bool {
+        (!fresh_only || Instant::now() < self.fresh_until)
+            && self.serve_until.is_none_or(|until| until > at)
+    }
+}
+
 /// How long the documents are served without a lookup: below their
 /// `max-age`, so a rotation still reaches the apiserver in time.
 const DOCUMENTS_FRESH: Duration = Duration::from_secs(10);
@@ -357,8 +366,7 @@ async fn documents(state: &common::State, path: &str) -> Option<Documents> {
         let store = DOCUMENTS.lock().ok()?;
         store
             .get(path)
-            .filter(|documents| !fresh_only || Instant::now() < documents.fresh_until)
-            .filter(|documents| documents.serve_until.is_none_or(|until| until > at))
+            .filter(|documents| documents.servable(fresh_only, at))
             .cloned()
     };
     if let Some(documents) = last_good(true) {
@@ -633,6 +641,24 @@ mod tests {
         });
         assert_eq!(slot.servable(99).as_deref(), Some(&*keys));
         assert!(slot.servable(100).is_none());
+    }
+
+    /// Decision 44: past their 10 s the documents need a lookup, yet stay
+    /// the outage fallback until their keys retire.
+    #[tokio::test(start_paused = true)]
+    async fn stale_documents_answer_only_as_the_outage_fallback() {
+        let documents = Documents {
+            discovery: Value::Null,
+            jwks: Value::Null,
+            serve_until: Some(100),
+            fresh_until: later(DOCUMENTS_FRESH),
+        };
+        assert!(documents.servable(true, 0));
+        tokio::time::advance(DOCUMENTS_FRESH).await;
+        assert!(!documents.servable(true, 0));
+        assert!(documents.servable(false, 0));
+        assert!(documents.servable(false, 99));
+        assert!(!documents.servable(false, 100));
     }
 
     /// An unused slot read `SLOT_IDLE` ago goes; one read just inside it

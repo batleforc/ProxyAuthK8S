@@ -178,17 +178,9 @@ impl JwtValidator {
         Ok(client)
     }
 
-    /// Validate `token` against `authenticators` and return the identity it maps to.
-    pub async fn validate(
-        &self,
-        token: &str,
-        authenticators: &[JWTAuthenticator],
-    ) -> Result<MappedUser, JwtValidationError> {
-        self.validate_for(token, authenticators, false).await
-    }
-
-    /// [`Self::validate`], for a cluster whose mode is `trusted` (RFC 0014):
-    /// see [`map_user_for`].
+    /// Validate `token` against `authenticators` and return the identity it
+    /// maps to; `trusted` for a cluster whose mode makes the apiserver trust
+    /// the proxy's identity (RFC 0014): see [`map_user_for`].
     #[instrument(skip_all, fields(issuer))]
     pub async fn validate_for(
         &self,
@@ -633,6 +625,12 @@ mod tests {
             claims["email_verified"] = serde_json::json!(true);
             assert!(map_user_for(config, &claims, true).is_ok());
         }
+        // An expression that reads email but returns something else is
+        // refused too: only the name check catches it, the end check cannot.
+        let derived = by_expression("claims.email == '' ? claims.sub : claims.sub");
+        let mut unverified = claims();
+        unverified["email_verified"] = serde_json::json!(false);
+        assert!(map_user_for(&derived, &unverified, true).is_err());
         // A username that does not read email is not concerned.
         assert!(map_user_for(&mappings(claim_mapping("sub", Some(""))), &claims(), true).is_ok());
     }
@@ -754,6 +752,10 @@ mod tests {
         config.groups = Some(claim_mapping("absent", Some("oidc:")));
 
         assert!(map_user(&config, &claims()).unwrap().groups.is_empty());
+        // An explicit `null` is no group either.
+        let mut claims = claims();
+        claims["absent"] = serde_json::Value::Null;
+        assert!(map_user(&config, &claims).unwrap().groups.is_empty());
     }
 
     #[test]
@@ -857,6 +859,18 @@ mod tests {
         assert_eq!(
             pinned,
             client_cache_key(&authenticator(Some("-----BEGIN CERTIFICATE-----")))
+        );
+    }
+
+    #[test]
+    fn the_document_bound_is_the_one_configured() {
+        assert_eq!(
+            super::JwtValidator::new().max_document_bytes(),
+            crate::jwks::MAX_DOCUMENT_BYTES
+        );
+        assert_eq!(
+            super::JwtValidator::with_max_document_bytes(4_096).max_document_bytes(),
+            4_096
         );
     }
 

@@ -566,6 +566,33 @@ mod tests {
         ));
     }
 
+    /// A document of exactly the bound is read, one byte more refused,
+    /// whether its size is announced (`Content-Length`) or found while
+    /// reading.
+    #[tokio::test]
+    async fn a_document_of_exactly_the_bound_is_accepted() {
+        let body = serde_json::to_vec(&jwks(&["known"])).expect("jwks serializes");
+        let client = reqwest::Client::new();
+        for announced in [true, false] {
+            for (max, accepted) in [(body.len(), true), (body.len() - 1, false)] {
+                let url = if announced {
+                    counting_server(body.clone()).await.0
+                } else {
+                    serve_once(body.clone()).await
+                };
+                let cache = JwksCache::with_max_document_bytes(max);
+                let found = cache.key_at(&client, &url, Some("known")).await;
+                assert_eq!(found.is_ok(), accepted, "announced {announced}, max {max}");
+            }
+        }
+    }
+
+    /// The cache's `Debug` prints no key and no issuer.
+    #[test]
+    fn the_cache_debug_shows_nothing_of_its_content() {
+        assert_eq!(format!("{:?}", JwksCache::new()), "JwksCache");
+    }
+
     /// The cache bounds as RFC 0012 states them (T13): what a test of each
     /// bound would otherwise have to wait for.
     #[test]

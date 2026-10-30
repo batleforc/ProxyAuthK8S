@@ -27,8 +27,16 @@ exclude_re = [
   # `now < fresh_until` against `<=`: the same Instant twice is not
   # observable on a real clock, and either side is a fresh-enough cache.
   'replace < with <= in keys',
-  'replace < with <= in documents',
+  'replace < with <= in Documents::servable',
   # `serve_until > now` in seconds against `>=`: one second of serving more
   # through an outage, on a key that retires that second anyway.
-  'replace > with >= in documents',
+  'replace > with >= in Documents::servable',
+  # The same: `serve_until` only counts keys retiring after `now`, so it is
+  # never equal to it.
+  'replace > with >= in Slot::servable',
+  # The only difference a default client makes is the issuer's
+  # certificate_authority, and reqwest (rustls) ignores an unreadable PEM
+  # without an error: a test cannot tell them apart without a TLS issuer.
+  # Open question in RFC 0015 §17.
+  'replace JwtValidator::client_for -> Result<reqwest::Client, JwtValidationError> with Ok\(Default::default\(\)\)',
 ]
