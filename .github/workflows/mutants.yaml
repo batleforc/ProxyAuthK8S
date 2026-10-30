@@ -53,10 +53,12 @@ jobs:
           toolchain: stable
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
-      - name: Install mise
-        uses: ./.github/actions/setup-mise
+      # As back-cargo-test.yaml installs nextest: mise's cargo backend wants a
+      # mise-managed Rust, which this job does not install.
       - name: Install cargo-mutants and cargo-nextest
-        run: mise install cargo:cargo-mutants cargo:cargo-nextest
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: nextest,cargo-mutants
       # Below the job's timeout, so the report below still uploads. Exit
       # codes (cargo-mutants): 0 all caught, 2 survivors, 3 timeouts, 4 the
       # unmutated tree failed its tests, which must never read as a clean run.
@@ -65,7 +67,7 @@ jobs:
         timeout-minutes: 105
         run: |
           set +e
-          mise exec -- cargo mutants --shard ${{ matrix.shard }}/8 --output dist/mutants
+          cargo mutants --shard ${{ matrix.shard }}/8 --output dist/mutants
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           case "$code" in
