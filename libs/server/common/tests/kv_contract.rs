@@ -37,12 +37,7 @@ impl Backend {
         let pool = RedisPool::from_url_with_mode(&url, false).expect("redis pool should build");
         let backend = Self::with(pool.into(), true, case);
         if let Err(error) = backend.kv.ping().await {
-            let message = format!("test Redis at {url} is unreachable ({error})");
-            assert!(
-                std::env::var("REQUIRE_TEST_REDIS").is_err(),
-                "REQUIRE_TEST_REDIS is set but {message}"
-            );
-            eprintln!("SKIPPED: kv_contract::redis::{case} — {message}");
+            common::test_skip::redis_unavailable(&url, &error.to_string());
             return None;
         }
         Some(backend)

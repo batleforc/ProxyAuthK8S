@@ -3,7 +3,8 @@ version: "3"
 # Two tiers, run with cargo-nextest (one process per test):
 #   - unit tests, no external dependency;
 #   - a fast integration tier where the upstream Kubernetes API and the OIDC
-#     provider are wiremock stubs and Redis is a real server.
+#     provider are wiremock stubs, and the store is either the in-memory one
+#     (where Redis is only storage) or a real Redis server (RFC 0015).
 #
 # The Redis location comes from TEST_REDIS_URL (default redis://127.0.0.1:6379).
 # Without a reachable Redis the integration tests print "SKIPPED" and pass, so
@@ -55,11 +56,22 @@ tasks:
       - echo "Running the server-side Rust tests"
       - cargo nextest run -p common -p crd -p api -p controller -p server
   unit:
-    desc: "Run the unit tests only (no Redis, no network)"
+    desc: "Run the tests that need no Redis: lib tests, and the in-process tests on the in-memory store (RFC 0015); lists the Redis tests it skipped"
     silent: true
+    # REQUIRE_TEST_REDIS stays unset: the tests that test Redis itself skip,
+    # each one named in dist/test-unit-skips.txt (nextest hides a passing
+    # test's stderr, so the list is printed here).
+    env:
+      TEST_SKIP_LOG: "{{.ROOT_DIR}}/dist/test-unit-skips.txt"
     cmds:
-      - echo "Running unit tests"
-      - cargo nextest run -p crd -p api -p controller --lib
+      - echo "Running the tests that need no Redis"
+      - mkdir -p dist && rm -f dist/test-unit-skips.txt
+      - cargo nextest run -p common -p crd -p api -p controller -p jwt_validator --lib --tests
+      - |
+        if [ -s dist/test-unit-skips.txt ]; then
+          echo "$(wc -l < dist/test-unit-skips.txt) tests skipped for lack of Redis (run task test:all with Redis for them):"
+          sed 's/ — .*//' dist/test-unit-skips.txt | sort
+        fi
   integration:
     desc: "Run the fast integration tier and fail if the test Redis is unreachable"
     silent: true

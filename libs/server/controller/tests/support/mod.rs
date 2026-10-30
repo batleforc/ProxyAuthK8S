@@ -71,13 +71,7 @@ pub async fn try_redis_pool() -> Option<Pool> {
 }
 
 fn report_unavailable_redis(url: &str, error: &str) {
-    let message =
-        format!("test Redis at {url} is unreachable ({error}); set TEST_REDIS_URL to override");
-    assert!(
-        std::env::var("REQUIRE_TEST_REDIS").is_err(),
-        "REQUIRE_TEST_REDIS is set but {message}"
-    );
-    eprintln!("SKIPPED: {message}");
+    common::test_skip::redis_unavailable(url, error);
 }
 
 /// Building a kube client (and reqwest's rustls stack) reaches for the crypto
