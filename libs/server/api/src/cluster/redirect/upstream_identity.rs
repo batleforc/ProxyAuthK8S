@@ -386,4 +386,88 @@ mod tests {
         );
         assert!(Upstream::Passthrough(None).headers().is_empty());
     }
+
+    /// Invariants over generated users (RFC 0015 §6.4): what the fixed cases
+    /// above do not reach.
+    mod properties {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// Mostly printable text, with the edge whitespace, control bytes,
+        /// `system:` and non-ASCII the rules are about.
+        fn text() -> impl Strategy<Value = String> {
+            prop_oneof![
+                "[a-zA-Z0-9:@._-]{0,12}",
+                "\\PC{0,12}",
+                "[ \t\r\n\0a-z]{0,6}",
+                "(?i:system:)[a-z]{0,6}",
+            ]
+        }
+
+        fn arbitrary_user() -> impl Strategy<Value = User> {
+            (
+                text(),
+                prop::collection::vec(text(), 0..70),
+                prop::collection::btree_map(text(), prop::collection::vec(text(), 0..3), 0..3),
+            )
+                .prop_map(|(username, groups, extra)| User {
+                    username,
+                    groups,
+                    extra,
+                    ..User::default()
+                })
+        }
+
+        fn percent_decode(encoded: &str) -> String {
+            let mut parts = encoded.split('%');
+            let mut out = parts.next().unwrap_or_default().as_bytes().to_vec();
+            for part in parts {
+                let (hex, rest) = part.split_at(2);
+                out.push(u8::from_str_radix(hex, 16).unwrap());
+                out.extend_from_slice(rest.as_bytes());
+            }
+            String::from_utf8(out).unwrap()
+        }
+
+        proptest! {
+            /// Accepted, an identity reads back whole from the `X-Remote-*`
+            /// headers, every header is valid, and nothing says `system:`.
+            #[test]
+            fn an_accepted_identity_reads_back_whole_from_its_headers(user in arbitrary_user()) {
+                let Ok(identity) = UpstreamIdentity::from_user(&user, &upstream()) else {
+                    return Ok(());
+                };
+                let headers = Upstream::Headers(&identity).headers();
+                for (name, value) in &headers {
+                    prop_assert!(axum::http::HeaderName::from_bytes(name.as_bytes()).is_ok());
+                    prop_assert!(HeaderValue::from_str(value).is_ok());
+                }
+                let values = |wanted: &str| -> Vec<String> {
+                    headers
+                        .iter()
+                        .filter(|(name, _)| name == wanted)
+                        .map(|(_, value)| value.clone())
+                        .collect()
+                };
+                prop_assert_eq!(values("X-Remote-User"), vec![identity.username.clone()]);
+                prop_assert_eq!(values("X-Remote-Group"), identity.groups.clone());
+                for (key, expected) in &identity.extra {
+                    let name = format!("X-Remote-Extra-{}", percent_encode_key(key));
+                    prop_assert_eq!(percent_decode(&percent_encode_key(key)), key.clone());
+                    prop_assert_eq!(&values(&name), expected);
+                }
+                prop_assert!(!reserved(&identity.username));
+                prop_assert!(identity.groups.iter().all(|group| !reserved(group)));
+            }
+
+            /// `Passthrough` sanitizes instead of refusing: its forwarded
+            /// headers never carry a line break or a NUL.
+            #[test]
+            fn passthrough_never_forwards_a_line_break(user in arbitrary_user()) {
+                for (_, value) in Upstream::Passthrough(Some(&user)).headers() {
+                    prop_assert!(!value.contains(['\r', '\n', '\0']));
+                }
+            }
+        }
+    }
 }
