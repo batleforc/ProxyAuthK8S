@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Accepted                                                               |
+| Status      | Implemented                                                            |
 | Short       | Tests profonds (unitaires et en processus, Rust)                       |
 | Settles     | Ce qui doit casser quand une régression entre, avant la suite d'intégration |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -892,7 +892,8 @@ ne sont pas réécrits.
   (`cel_rules::type_name` remplacé par `Value::type_of` de `cel` ; un
   `JwtValidator::validate` sans appelant supprimé), ou est exclu avec sa
   raison dans `.cargo/mutants.toml` (sept entrées). Le run de contrôle après
-  ces commits est le run 41094498785, sur `a029a97`.
+  ces commits, le run 41094498785 sur `a029a97`, ne laisse **aucun
+  survivant** : 316 tués, 22 non compilables, aucun timeout.
 - **P3 sans test de plus.** Par crate, sur le run 41074191335 : l'agent
   80,17 %, `controller` 84,77 %, `common` 93,92 %, tous au-dessus du palier
   de 80. Le rapport informatif (décision 25) est `.cargo/mutants-wide.toml` :
@@ -932,4 +933,5 @@ ne sont pas réécrits.
 
 ### Ce qui reste
 
-1. Lire le run `mutants` de contrôle 41094498785 ; puis statut `Implemented`.
+Rien dans cette RFC. Le premier run du rapport informatif dira si 16 parts
+tiennent dans le délai d'un job.
