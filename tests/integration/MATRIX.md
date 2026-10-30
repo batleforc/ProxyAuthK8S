@@ -152,20 +152,20 @@ Statuts :
 | 0013 | 5     | suite       | `rfc0013::p5_a_protocol_without_overlap_is_refused_then_recovers` |
 | 0013 | 6     | suite       | `rfc0013::p6_a_forged_version_is_recorded_invalid` |
 | 0013 | 7     | suite       | `rfc0013::p7_the_publishable_image_has_no_announce_override` |
-| 0014 | 1     | à écrire    | `rfc0014::p1_…` |
-| 0014 | 2     | à écrire    | `rfc0014::p2_…` |
-| 0014 | 3     | à écrire    | `rfc0014::p3_…` |
-| 0014 | 4     | à écrire    | `rfc0014::p4_…` |
-| 0014 | 5     | à écrire    | `rfc0014::p5_…` |
-| 0014 | 6     | à écrire    | `rfc0014::p6_…` |
-| 0014 | 7     | à écrire    | `rfc0014::p7_…` |
-| 0014 | 8     | à écrire    | `rfc0014::p8_…` |
-| 0014 | 9     | à écrire    | `rfc0014::p9_…` |
-| 0014 | 10    | à écrire    | `rfc0014::p10_…` |
-| 0014 | 11    | à écrire    | `rfc0014::p11_…` |
-| 0014 | 12    | à écrire    | `rfc0014::p12_…` |
-| 0014 | 13    | à écrire    | `rfc0014::p13_…` |
-| 0014 | 14    | à écrire    | `rfc0014::p14_…` |
+| 0014 | 1     | suite       | `rfc0014::p1_claim_mappings_name_the_user_in_passthrough` |
+| 0014 | 2     | hors suite  | test unitaire `kube_redirect.rs::a_trusted_mode_outside_allowed_modes_is_refused_with_who_can_act` : le banc autorise tous les modes depuis le point 10 (971f723) |
+| 0014 | 3     | suite       | `rfc0014::p3_the_apiserver_sees_the_prefixed_identity` |
+| 0014 | 4     | suite       | `rfc0014::p4_client_identity_headers_never_reach_the_apiserver` |
+| 0014 | 5     | suite       | `rfc0014::p5_a_system_masters_group_is_forwarded_prefixed_and_grants_nothing` `rfc0014::p5_a_missing_username_claim_is_refused_by_the_proxy` |
+| 0014 | 6     | suite       | `rfc0014::p6_exec_goes_through_front_proxy` |
+| 0014 | 7     | suite       | `rfc0014::p7_front_proxy_crosses_the_agent_tunnel` |
+| 0014 | 8     | suite       | `rfc0014::p8_identity_headers_without_the_certificate_are_refused` |
+| 0014 | 9     | suite       | `rfc0014::p9_a_certificate_of_an_untrusted_ca_closes_the_cluster` |
+| 0014 | 10    | suite       | `rfc0014::p10_an_issuer_cluster_asserts_the_prefixed_identity` |
+| 0014 | 11    | suite       | `rfc0014::p11_admission_refuses_a_client_cert_in_front_proxy` `rfc0014::p11_admission_refuses_an_issuer_without_its_key_or_with_a_client_cert` |
+| 0014 | 12    | suite       | `rfc0014::p12_an_issuer_without_prefix_rules_is_closed` |
+| 0014 | 13    | suite       | `rfc0014::p13_a_rotation_loses_no_request_and_a_revocation_replaces_the_key` |
+| 0014 | 14    | suite       | `rfc0014::p14_the_dex_token_never_reaches_the_logs` |
 | 0014 | 15    | suite       | `rfc0014::p15_a_mapping_from_one_cluster_never_serves_another` |
 | 0014 | 16    | hors suite  | RFC 0016 : le banc n'a pas d'écho amont pour lire la poignée relayée |
 | 0014 | 17    | hors suite  | RFC 0016 : le banc ne lance pas l'image du tag précédent à côté |
