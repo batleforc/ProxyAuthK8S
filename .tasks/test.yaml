@@ -72,6 +72,12 @@ tasks:
       # package, so the controller's tier cannot share the line above.
       - cargo nextest run -p controller --test reconcile
 
+  release-features:
+    desc: "Fail if the release build enables common/test-util, the feature behind the in-memory store (RFC 0015 T1)"
+    cmds:
+      - python3 .github/scripts/release-features.py --self-test
+      - python3 .github/scripts/release-features.py
+
   coverage:
     desc: "Measure workspace line coverage and print a per-file summary"
     silent: true
