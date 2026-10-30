@@ -870,9 +870,8 @@ T1 (le faux en prod) est fermé en P1, dans la même phase que `Kv::Memory`.
 ## 17. Revision against the tree (2026-10-30)
 
 Tout est livré dans la PR #324, celle de la RFC (décision 4 et accord du
-propriétaire) : P1, P2 et la partie `controller` de P3. Restent `apps/agent`,
-`common` et le rapport `mutants` informatif de P3 (décision 25). Ce
-paragraphe est l'écart au texte ; §1 à §16 ne sont pas réécrits.
+propriétaire) : P1, P2 et P3. Ce paragraphe est l'écart au texte ; §1 à §16
+ne sont pas réécrits.
 
 ### Ce qui a été observé
 
@@ -893,7 +892,14 @@ paragraphe est l'écart au texte ; §1 à §16 ne sont pas réécrits.
   (`cel_rules::type_name` remplacé par `Value::type_of` de `cel` ; un
   `JwtValidator::validate` sans appelant supprimé), ou est exclu avec sa
   raison dans `.cargo/mutants.toml` (sept entrées). Le run de contrôle après
-  ces commits reste à lire.
+  ces commits est le run 41094498785, sur `a029a97`.
+- **P3 sans test de plus.** Par crate, sur le run 41074191335 : l'agent
+  80,17 %, `controller` 84,77 %, `common` 93,92 %, tous au-dessus du palier
+  de 80. Le rapport informatif (décision 25) est `.cargo/mutants-wide.toml` :
+  675 mutants, jugés par les suites de `agent`, `api`, `common` et
+  `controller`, `kv_memory.rs` exclu comme de la couverture ; le workflow
+  passe à 16 parts par périmètre et ne le lance qu'en hebdomadaire ou à la
+  main, jamais sur le label d'une PR.
 - **Trous réels trouvés par les mutants**, chacun avec son test :
   l'émetteur (`issuer.rs`) n'avait aucun test en processus du chemin réussi
   (documents, signature, réutilisation, une lecture du Secret par 30 s),
@@ -926,7 +932,4 @@ paragraphe est l'écart au texte ; §1 à §16 ne sont pas réécrits.
 
 ### Ce qui reste
 
-1. Lire le run `mutants` de contrôle sur la tête de la PR.
-2. P3 : `apps/agent` et `common` ; rapport `mutants` informatif sur
-   `common`, `controller`, `apps/agent`.
-3. `testing.mdx` avec les chiffres mesurés ; statut `Implemented`.
+1. Lire le run `mutants` de contrôle 41094498785 ; puis statut `Implemented`.

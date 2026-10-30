@@ -24,6 +24,14 @@ tasks:
       - git diff {{.BASE}}... > dist/mutants/branch.diff
       - cargo mutants --output dist/mutants --in-diff dist/mutants/branch.diff {{.CLI_ARGS}}
 
+  wide:
+    desc: "Informative: mutate common, controller and the agent (.cargo/mutants-wide.toml, RFC 0015 decision 25)"
+    env:
+      REQUIRE_TEST_REDIS: "1"
+    cmds:
+      - mkdir -p dist/mutants-wide
+      - cargo mutants --config .cargo/mutants-wide.toml --output dist/mutants-wide {{.CLI_ARGS}}
+
   list:
     desc: "List the mutants of the security crates without running them (how big a run is)"
     cmds:
