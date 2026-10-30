@@ -6,11 +6,13 @@
 //! fast path in front of all this is `virtual_api_rules_review.rs`.
 
 mod harness;
+
+use harness::{memory_state, memory_store};
 mod virtual_api_support;
 
 use axum::http::StatusCode;
 use harness::test;
-use harness::{delete_proxy, test_state, try_redis_pool, unique_cluster};
+use harness::{delete_proxy, unique_cluster};
 use serde_json::{Value, json};
 use virtual_api_support::{FALLBACK_TOKEN, seed_openshift_proxy_with_fallback};
 use wiremock::matchers::{bearer_token, body_partial_json, method, path, query_param};
@@ -22,21 +24,12 @@ macro_rules! proxy_app {
     };
 }
 
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
-
 /// With `list_fallback_token` configured, `LIST projects` is filtered
 /// unconditionally — the plain (impersonated) namespace list is never even
 /// attempted, only the privileged discovery call is.
 #[tokio::test]
 async fn list_fallback_filters_to_what_the_caller_can_get() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -80,7 +73,7 @@ async fn list_fallback_filters_to_what_the_caller_can_get() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy_with_fallback(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
@@ -123,7 +116,7 @@ async fn list_fallback_filters_to_what_the_caller_can_get() {
 /// a real, filtered empty list, not the raw 403 the unconfigured path returns.
 #[tokio::test]
 async fn list_fallback_returns_an_empty_list_when_nothing_is_allowed() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -151,7 +144,7 @@ async fn list_fallback_returns_an_empty_list_when_nothing_is_allowed() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy_with_fallback(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
@@ -172,7 +165,7 @@ async fn list_fallback_returns_an_empty_list_when_nothing_is_allowed() {
 /// surfaces as a `503`.
 #[tokio::test]
 async fn list_fallback_discovery_failure_is_a_503() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
     // No mock for /api/v1/namespaces at all: wiremock 404s, which the
     // discovery step treats as a hard failure.
@@ -180,7 +173,7 @@ async fn list_fallback_discovery_failure_is_a_503() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy_with_fallback(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
@@ -197,7 +190,7 @@ async fn list_fallback_discovery_failure_is_a_503() {
 /// just that namespace, fail-closed — the rest of the list still returns.
 #[tokio::test]
 async fn list_fallback_excludes_a_namespace_whose_check_errors() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -233,7 +226,7 @@ async fn list_fallback_excludes_a_namespace_whose_check_errors() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy_with_fallback(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
@@ -258,7 +251,7 @@ async fn list_fallback_excludes_a_namespace_whose_check_errors() {
 /// privileged discovery call.
 #[tokio::test]
 async fn list_fallback_forwards_the_query_string_to_the_privileged_call() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -287,7 +280,7 @@ async fn list_fallback_forwards_the_query_string_to_the_privileged_call() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy_with_fallback(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects?labelSelector=team%3Da"

@@ -11,11 +11,13 @@
 
 mod harness;
 
+use harness::{memory_state, memory_store};
+
 use axum::http::StatusCode;
 use harness::test;
 use harness::{
     delete_proxy, mount_oidc_provider, oidc_auth_config, proxy_fixture, security_config,
-    seed_proxy, test_state, try_redis_pool, unique_cluster,
+    seed_proxy, unique_cluster,
 };
 use wiremock::matchers::{header_exists, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -34,15 +36,6 @@ macro_rules! proxy_app {
     };
 }
 
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
-
 /// The proxy answers its own rejections with a Kubernetes `Status` object.
 async fn assert_kubernetes_status(resp: axum::response::Response, code: u64) {
     let body: serde_json::Value = test::read_body_json(resp).await;
@@ -54,7 +47,7 @@ async fn assert_kubernetes_status(resp: axum::response::Response, code: u64) {
 
 #[tokio::test]
 async fn allows_a_user_inside_the_proxy_group() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
     mount_oidc_provider(&upstream, "alice", &["operators"]).await;
 
@@ -70,7 +63,7 @@ async fn allows_a_user_inside_the_proxy_group() {
     proxy.spec.proxy_group = Some("operators".to_string());
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
         .insert_header(("authorization", format!("Bearer {VALID_TOKEN}")))
@@ -84,7 +77,7 @@ async fn allows_a_user_inside_the_proxy_group() {
 
 #[tokio::test]
 async fn rejects_a_user_outside_the_proxy_group() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
     mount_oidc_provider(&upstream, "alice", &["viewers"]).await;
 
@@ -100,7 +93,7 @@ async fn rejects_a_user_outside_the_proxy_group() {
     proxy.spec.proxy_group = Some("operators".to_string());
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
         .insert_header(("authorization", format!("Bearer {VALID_TOKEN}")))
@@ -124,7 +117,7 @@ async fn rejects_a_user_outside_the_proxy_group() {
 
 #[tokio::test]
 async fn refuses_a_group_restricted_cluster_when_validation_is_disabled() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     // A group is required but nothing resolves a user: the check can never run.
@@ -133,7 +126,7 @@ async fn refuses_a_group_restricted_cluster_when_validation_is_disabled() {
     proxy.spec.proxy_group = Some("operators".to_string());
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
         .to_request();
@@ -146,7 +139,7 @@ async fn refuses_a_group_restricted_cluster_when_validation_is_disabled() {
 
 #[tokio::test]
 async fn dashboard_exposure_restricts_the_proxy_too() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
     mount_oidc_provider(&upstream, "alice", &["unrelated"]).await;
 
@@ -156,7 +149,7 @@ async fn dashboard_exposure_restricts_the_proxy_too() {
     proxy.spec.expose_via_dashboard = true;
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
         .insert_header(("authorization", format!("Bearer {VALID_TOKEN}")))
@@ -170,7 +163,7 @@ async fn dashboard_exposure_restricts_the_proxy_too() {
 
 #[tokio::test]
 async fn rejects_a_path_outside_the_allow_list() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -186,7 +179,7 @@ async fn rejects_a_path_outside_the_allow_list() {
     )]));
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/api/v1/namespaces/kube-system/secrets"
@@ -209,7 +202,7 @@ async fn rejects_a_path_outside_the_allow_list() {
 
 #[tokio::test]
 async fn allows_a_path_inside_the_allow_list() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -226,7 +219,7 @@ async fn allows_a_path_inside_the_allow_list() {
     )]));
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/mypod/log"
@@ -242,7 +235,7 @@ async fn allows_a_path_inside_the_allow_list() {
 
 #[tokio::test]
 async fn the_allow_list_matches_on_the_path_not_the_query_string() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -259,7 +252,7 @@ async fn the_allow_list_matches_on_the_path_not_the_query_string() {
     )]));
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods?watch=true"
@@ -274,7 +267,7 @@ async fn the_allow_list_matches_on_the_path_not_the_query_string() {
 
 #[tokio::test]
 async fn forwards_the_caller_identity_and_appends_to_the_forwarded_chain() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
     mount_oidc_provider(&upstream, "alice", &["operators", "dev"]).await;
 
@@ -289,7 +282,7 @@ async fn forwards_the_caller_identity_and_appends_to_the_forwarded_chain() {
     proxy.spec.auth_config = Some(oidc_auth_config(&upstream.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
         .insert_header(("authorization", format!("Bearer {VALID_TOKEN}")))
@@ -332,7 +325,7 @@ async fn forwards_the_caller_identity_and_appends_to_the_forwarded_chain() {
 
 #[tokio::test]
 async fn drops_client_supplied_identity_headers() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     // No token validation, so no identity can be asserted: the forged headers
@@ -346,7 +339,7 @@ async fn drops_client_supplied_identity_headers() {
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream.uri())).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
         .insert_header(("x-forwarded-user", "cluster-admin"))
@@ -371,7 +364,7 @@ async fn drops_client_supplied_identity_headers() {
 
 #[tokio::test]
 async fn an_empty_allow_list_forwards_everything() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -385,7 +378,7 @@ async fn an_empty_allow_list_forwards_everything() {
     proxy.spec.security_config = Some(security_config(vec![]));
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/api/v1/namespaces/kube-system/secrets"
@@ -445,7 +438,7 @@ async fn get_through(
     config: crd::security::SecurityConfiguration,
     paths: &[&str],
 ) -> Option<(Vec<StatusCode>, usize)> {
-    let pool = try_redis_pool().await?;
+    let pool = memory_store();
     let upstream = MockServer::start().await;
     Mock::given(method("GET"))
         .respond_with(ResponseTemplate::new(200).set_body_string("upstream"))
@@ -457,7 +450,7 @@ async fn get_through(
     proxy.spec.security_config = Some(config);
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let mut statuses = Vec::new();
     for path in paths {
         let req = test::TestRequest::get()
@@ -638,7 +631,7 @@ async fn send_through(
     config: crd::security::SecurityConfiguration,
     requests: &[TestRequestSpec<'_>],
 ) -> Option<(Vec<StatusCode>, Vec<wiremock::Request>)> {
-    let pool = try_redis_pool().await?;
+    let pool = memory_store();
     let upstream = MockServer::start().await;
     Mock::given(wiremock::matchers::any())
         .respond_with(ResponseTemplate::new(200).set_body_string("upstream"))
@@ -650,7 +643,7 @@ async fn send_through(
     proxy.spec.security_config = Some(config);
     seed_proxy(&pool, &proxy).await;
 
-    let app = test::init_service(harness::app(test_state(upstream.uri()))).await;
+    let app = test::init_service(harness::app(memory_state(&pool, upstream.uri()))).await;
     let mut statuses = Vec::new();
     for (method, path, header) in requests {
         let mut req = test::TestRequest::default()

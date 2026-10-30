@@ -16,12 +16,13 @@
 
 mod harness;
 
+use harness::{memory_state, memory_store};
+
 use axum::http::StatusCode;
 use harness::test;
 use harness::{
     delete_proxy, mount_full_oidc_provider, mount_token_endpoint, oidc_auth_config,
-    oidc_auth_config_with_well_known, proxy_fixture, seed_proxy, sign_id_token, test_state,
-    try_redis_pool, unique_cluster,
+    oidc_auth_config_with_well_known, proxy_fixture, seed_proxy, sign_id_token, unique_cluster,
 };
 use reqwest::Url;
 use wiremock::MockServer;
@@ -31,15 +32,6 @@ const EXTERNAL_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 macro_rules! callback_app {
     ($state:expr_2021) => {
         test::init_service(harness::app($state)).await
-    };
-}
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
     };
 }
 
@@ -73,7 +65,7 @@ macro_rules! authorize_query {
 
 #[tokio::test]
 async fn rejects_an_unknown_state() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, "https://cluster.example.com:6443");
     proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(
@@ -81,7 +73,10 @@ async fn rejects_an_unknown_state() {
     ));
     seed_proxy(&pool, &proxy).await;
 
-    let app = callback_app!(test_state("https://issuer.example.com".to_string()));
+    let app = callback_app!(memory_state(
+        &pool,
+        "https://issuer.example.com".to_string()
+    ));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/oauth/callback?code=upstream-code&state=never-issued"
@@ -96,13 +91,16 @@ async fn rejects_an_unknown_state() {
 
 #[tokio::test]
 async fn returns_404_when_discovery_is_not_enabled() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, "https://cluster.example.com:6443");
     proxy.spec.auth_config = Some(oidc_auth_config("https://issuer.example.com"));
     seed_proxy(&pool, &proxy).await;
 
-    let app = callback_app!(test_state("https://issuer.example.com".to_string()));
+    let app = callback_app!(memory_state(
+        &pool,
+        "https://issuer.example.com".to_string()
+    ));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/oauth/callback?code=upstream-code&state=whatever"
@@ -117,7 +115,7 @@ async fn returns_404_when_discovery_is_not_enabled() {
 
 #[tokio::test]
 async fn redirects_with_access_denied_when_the_upstream_token_exchange_fails() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let idp = MockServer::start().await;
     mount_full_oidc_provider(&idp, "alice", &["dev"]).await;
     // Deliberately no `/token` mock: the upstream exchange itself must fail.
@@ -127,7 +125,7 @@ async fn redirects_with_access_denied_when_the_upstream_token_exchange_fails() {
     proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(&idp.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let app = callback_app!(test_state(idp.uri()));
+    let app = callback_app!(memory_state(&pool, idp.uri()));
     let authorize_req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/oauth/authorize{}",
@@ -160,7 +158,7 @@ async fn redirects_with_access_denied_when_the_upstream_token_exchange_fails() {
 
 #[tokio::test]
 async fn redirects_with_a_server_error_when_the_id_token_is_missing() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let idp = MockServer::start().await;
     mount_full_oidc_provider(&idp, "alice", &["dev"]).await;
     {
@@ -183,7 +181,7 @@ async fn redirects_with_a_server_error_when_the_id_token_is_missing() {
     proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(&idp.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let app = callback_app!(test_state(idp.uri()));
+    let app = callback_app!(memory_state(&pool, idp.uri()));
     let authorize_req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/oauth/authorize{}",
@@ -210,7 +208,7 @@ async fn redirects_with_a_server_error_when_the_id_token_is_missing() {
 
 #[tokio::test]
 async fn redirects_with_a_server_error_when_the_id_token_nonce_is_wrong() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let idp = MockServer::start().await;
     mount_full_oidc_provider(&idp, "alice", &["dev"]).await;
 
@@ -219,7 +217,7 @@ async fn redirects_with_a_server_error_when_the_id_token_nonce_is_wrong() {
     proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(&idp.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let app = callback_app!(test_state(idp.uri()));
+    let app = callback_app!(memory_state(&pool, idp.uri()));
     let authorize_req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/oauth/authorize{}",
@@ -252,7 +250,7 @@ async fn redirects_with_a_server_error_when_the_id_token_nonce_is_wrong() {
 
 #[tokio::test]
 async fn state_is_single_use_and_cannot_be_replayed() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let idp = MockServer::start().await;
     mount_full_oidc_provider(&idp, "alice", &["dev"]).await;
 
@@ -261,7 +259,7 @@ async fn state_is_single_use_and_cannot_be_replayed() {
     proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(&idp.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let app = callback_app!(test_state(idp.uri()));
+    let app = callback_app!(memory_state(&pool, idp.uri()));
     let authorize_req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/oauth/authorize{}",

@@ -21,7 +21,7 @@ use crate::harness::{proxy_fixture, seed_proxy, with_virtual_api};
 
 /// A proxy fixture with the OpenShift Project virtual API turned on.
 pub async fn seed_openshift_proxy(
-    pool: &deadpool_redis::Pool,
+    pool: &impl crate::harness::Store,
     ns: &str,
     cluster: &str,
     upstream_url: &str,
@@ -38,7 +38,7 @@ pub const FALLBACK_TOKEN: &str = "test-fallback-token";
 /// `list_fallback_token` configured, so `LIST projects` is unconditionally
 /// filtered per namespace instead of a plain forwarded `LIST namespaces`.
 pub async fn seed_openshift_proxy_with_fallback(
-    pool: &deadpool_redis::Pool,
+    pool: &impl crate::harness::Store,
     ns: &str,
     cluster: &str,
     upstream_url: &str,

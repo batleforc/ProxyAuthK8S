@@ -27,7 +27,7 @@ use common::{State, oidc_conf::OidcConf, redis_pool::RedisPool};
 use crd::{PROXY_KUBE_FINALIZER, ProxyKubeApi};
 use deadpool_redis::redis::AsyncTypedCommands;
 use envtest_support::{EnvTest, install_shipped_crd, wait_until};
-use harness::{REDIS_PREFIX, redis_url, try_redis_pool, unique_cluster};
+use harness::{REDIS_PREFIX, redis_url, unique_cluster};
 use k8s_openapi::api::coordination::v1::Lease;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
 use kube::api::{Api, DeleteParams, ObjectMeta, Patch, PatchParams, PostParams};
@@ -38,15 +38,6 @@ macro_rules! envtest_or_skip {
     () => {
         match EnvTest::try_start().await {
             Some(env_test) => env_test,
-            None => return,
-        }
-    };
-}
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
             None => return,
         }
     };

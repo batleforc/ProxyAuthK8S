@@ -17,6 +17,8 @@
 
 mod harness;
 
+use harness::{memory_state, memory_store};
+
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -25,9 +27,7 @@ use std::sync::{
 use axum::http::StatusCode;
 use crd::certificate::CertSource;
 use harness::test;
-use harness::{
-    delete_proxy, proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
-};
+use harness::{delete_proxy, proxy_fixture, seed_proxy, unique_cluster};
 use tokio::{
     io::{AsyncReadExt as _, AsyncWriteExt as _},
     net::TcpListener,
@@ -36,15 +36,6 @@ use tokio::{
 macro_rules! proxy_app {
     ($state:expr_2021) => {
         test::init_service(harness::app($state)).await
-    };
-}
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
     };
 }
 
@@ -100,12 +91,12 @@ macro_rules! get_ok {
 #[tokio::test]
 async fn consecutive_requests_reuse_one_upstream_connection() {
     common::upstream_cache::enable_for_tests();
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (upstream, connections) = counting_upstream().await;
 
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream)).await;
-    let app = proxy_app!(test_state(upstream.clone()));
+    let app = proxy_app!(memory_state(&pool, upstream.clone()));
 
     for _ in 0..3 {
         get_ok!(&app, &ns, &cluster);
@@ -122,13 +113,13 @@ async fn consecutive_requests_reuse_one_upstream_connection() {
 #[tokio::test]
 async fn a_tls_relevant_spec_change_builds_a_new_client() {
     common::upstream_cache::enable_for_tests();
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (upstream, connections) = counting_upstream().await;
 
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, &upstream);
     seed_proxy(&pool, &proxy).await;
-    let app = proxy_app!(test_state(upstream.clone()));
+    let app = proxy_app!(memory_state(&pool, upstream.clone()));
 
     get_ok!(&app, &ns, &cluster);
     assert_eq!(connections.load(Ordering::SeqCst), 1);

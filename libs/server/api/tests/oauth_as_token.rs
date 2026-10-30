@@ -19,7 +19,7 @@ use deadpool_redis::redis::AsyncTypedCommands;
 use harness::test;
 use harness::{
     delete_proxy, oidc_auth_config_with_well_known, proxy_fixture, seed_proxy, test_state,
-    try_redis_pool, unique_cluster,
+    unique_cluster,
 };
 use sha2::{Digest, Sha256};
 
@@ -32,15 +32,6 @@ fn s256_challenge(verifier: &str) -> String {
 macro_rules! token_app {
     ($state:expr_2021) => {
         test::init_service(harness::app($state)).await
-    };
-}
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
     };
 }
 

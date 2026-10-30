@@ -10,7 +10,7 @@ use axum::http::StatusCode;
 use harness::test;
 use harness::{
     delete_proxy, fail2login_config, mount_oidc_provider, oidc_auth_config, proxy_fixture,
-    rate_limited_config, seed_proxy, test_state, try_redis_pool, unique_cluster,
+    rate_limited_config, seed_proxy, test_state, unique_cluster,
 };
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -25,15 +25,6 @@ const VALID_TOKEN: &str = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJwcm94
 macro_rules! proxy_app {
     ($state:expr_2021) => {
         test::init_service(harness::app($state)).await
-    };
-}
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
     };
 }
 

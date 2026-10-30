@@ -15,22 +15,13 @@ use deadpool_redis::redis::AsyncTypedCommands;
 use harness::test;
 use harness::{
     delete_proxy, fail2login_config, oidc_auth_config, oidc_auth_config_with_well_known,
-    proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
+    proxy_fixture, seed_proxy, test_state, unique_cluster,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
 
 /// The captured lines of `ns/cluster`, `event` only.
 fn lines(ns: &str, cluster: &str, event: &str) -> Vec<Value> {

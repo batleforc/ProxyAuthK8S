@@ -11,6 +11,8 @@
 mod envtest_support;
 mod harness;
 
+use harness::{memory_state, memory_store};
+
 use axum::http::StatusCode;
 use crd::certificate::CertSource;
 use crd::service::{
@@ -18,18 +20,7 @@ use crd::service::{
     ServiceAccountTokenBootstrap,
 };
 use harness::test;
-use harness::{
-    delete_proxy, proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
-};
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
+use harness::{delete_proxy, proxy_fixture, seed_proxy, unique_cluster};
 
 /// The `ServiceAccountToken` of `bootstrap`, the one `agent_service` sets.
 fn service_account_token(
@@ -61,7 +52,7 @@ fn agent_service() -> Service {
 /// the proxy's pod would be its own cluster).
 #[tokio::test]
 async fn an_agent_cluster_without_a_tunnel_is_refused_and_never_dialled() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, "https://unused.example.com");
     proxy.spec.service = agent_service();
@@ -72,7 +63,8 @@ async fn an_agent_cluster_without_a_tunnel_is_refused_and_never_dialled() {
     };
     seed_proxy(&pool, &proxy).await;
 
-    let app = test::init_service(harness::app(test_state(
+    let app = test::init_service(harness::app(memory_state(
+        &pool,
         "https://idp.example.com".to_string(),
     )))
     .await;
@@ -221,7 +213,7 @@ fn fake_agent(upstream: std::net::SocketAddr) -> agent_proto::mux::MuxHandle {
 /// `Authorization` carried inside the end-to-end TLS.
 #[tokio::test]
 async fn a_request_crosses_the_gateway_and_the_tunnel_to_the_apiserver() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (state, ns, cluster, _tunnel) = agent_cluster(&pool).await;
 
     let app = test::init_service(harness::app(state)).await;
@@ -243,7 +235,7 @@ async fn a_request_crosses_the_gateway_and_the_tunnel_to_the_apiserver() {
 /// An `Agent` cluster behind a running gateway and agent, seeded in Redis;
 /// the returned state routes through that gateway.
 async fn agent_cluster(
-    pool: &deadpool_redis::Pool,
+    pool: &common::kv_memory::InMemoryKv,
 ) -> (
     common::State,
     String,
@@ -257,7 +249,7 @@ async fn agent_cluster(
 
 /// [`agent_cluster`], its agent relaying to `apiserver`, whose CA is `ca_pem`.
 async fn agent_cluster_to(
-    pool: &deadpool_redis::Pool,
+    pool: &common::kv_memory::InMemoryKv,
     apiserver: std::net::SocketAddr,
     ca_pem: &str,
 ) -> (
@@ -294,7 +286,7 @@ async fn agent_cluster_to(
         api::agent::connect::ConnectService::new(registry, Some("t0ken".to_string())),
     ));
 
-    let mut state = test_state("https://idp.example.com".to_string());
+    let mut state = memory_state(pool, "https://idp.example.com".to_string());
     let gateway = GatewayClient::with(Some("gw.test".to_string()), 0, Some("t0ken".to_string()));
     *gateway.fixed_address.lock().unwrap() = Some(gateway_addr.to_string());
     state.agent_gateway = std::sync::Arc::new(gateway);
@@ -318,7 +310,7 @@ async fn agent_cluster_to(
 async fn an_exec_upgrade_crosses_the_gateway_and_the_tunnel() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (state, ns, cluster, _tunnel) = agent_cluster(&pool).await;
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
     let addr = listener.local_addr().unwrap();
@@ -378,12 +370,14 @@ async fn an_exec_upgrade_crosses_the_gateway_and_the_tunnel() {
 }
 
 /// A gateway's agent listener on a loopback port, under a new agent CA.
-async fn agent_listener() -> (
+async fn agent_listener(
+    store: &common::kv_memory::InMemoryKv,
+) -> (
     std::net::SocketAddr,
     std::sync::Arc<api::agent::registry::TunnelRegistry>,
     std::sync::Arc<agent_pki::AgentCa>,
 ) {
-    let (addr, gateway) = agent_gateway().await;
+    let (addr, gateway) = agent_gateway(store).await;
     (
         addr,
         std::sync::Arc::clone(&gateway.registry),
@@ -392,27 +386,30 @@ async fn agent_listener() -> (
 }
 
 /// [`agent_listener`], the gateway itself returned.
-async fn agent_gateway() -> (
+async fn agent_gateway(
+    store: &common::kv_memory::InMemoryKv,
+) -> (
     std::net::SocketAddr,
     std::sync::Arc<api::agent::listener::Gateway>,
 ) {
-    agent_gateway_with(|_| ()).await
+    agent_gateway_with(store, |_| ()).await
 }
 
 /// [`agent_gateway`], its settings changed by `tweak`; the peer address is
 /// recorded, as `api::agent::run` does.
 async fn agent_gateway_with(
+    store: &common::kv_memory::InMemoryKv,
     tweak: impl FnOnce(&mut common::config::AgentGatewaySettings),
 ) -> (
     std::net::SocketAddr,
     std::sync::Arc<api::agent::listener::Gateway>,
 ) {
-    let state = test_state("https://idp.example.com".to_string());
+    let state = memory_state(store, "https://idp.example.com".to_string());
     let ca = std::sync::Arc::new(agent_pki::AgentCa::generate().unwrap());
     let registry = api::agent::registry::TunnelRegistry::new();
     let mut settings = common::config::Config::from_lookup(|_| None).agent_gateway;
     settings.handshake_timeout = std::time::Duration::from_secs(2);
-    // Every test enrols from the same address, in one shared Redis.
+    // Every test enrols from the same address; the limits stay out of the way.
     settings.enroll_per_minute = 10_000;
     settings.enroll_per_minute_total = 10_000;
     tweak(&mut settings);
@@ -522,13 +519,16 @@ fn agent_cert(
 }
 
 /// An `Agent` cluster seeded in Redis at `epoch`, and the identity naming it.
-async fn seeded_agent_cluster(pool: &deadpool_redis::Pool, epoch: u64) -> agent_pki::AgentIdentity {
+async fn seeded_agent_cluster(
+    pool: &common::kv_memory::InMemoryKv,
+    epoch: u64,
+) -> agent_pki::AgentIdentity {
     seeded_cluster_with_jwks(pool, epoch, None).await
 }
 
 /// [`seeded_agent_cluster`], its JWKS inline when `jwks` is given.
 async fn seeded_cluster_with_jwks(
-    pool: &deadpool_redis::Pool,
+    pool: &common::kv_memory::InMemoryKv,
     epoch: u64,
     jwks: Option<String>,
 ) -> agent_pki::AgentIdentity {
@@ -567,8 +567,8 @@ async fn an_agent_with_a_valid_certificate_opens_a_tunnel() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio_util::compat::FuturesAsyncReadCompatExt;
 
-    let pool = redis_or_skip!();
-    let (addr, registry, ca) = agent_listener().await;
+    let pool = memory_store();
+    let (addr, registry, ca) = agent_listener(&pool).await;
     let identity = seeded_agent_cluster(&pool, 0).await;
     let (cert, key) = agent_cert(&ca, &identity);
     let (mut control, mut inbound, hello) =
@@ -629,10 +629,10 @@ async fn an_agent_with_a_valid_certificate_opens_a_tunnel() {
 /// `Close "protocol"` naming the gateway's range, and a refusal record under the certificate's UID only.
 #[tokio::test]
 async fn a_protocol_range_without_overlap_is_refused_before_register() {
-    let pool = redis_or_skip!();
-    let (addr, gateway) = agent_gateway().await;
+    let pool = memory_store();
+    let (addr, gateway) = agent_gateway(&pool).await;
     // Epochs no other test seeds: the UID follows the epoch, and the refusal
-    // key lives in the shared Redis.
+    // key outlives the test in a shared store.
     let identity = seeded_agent_cluster(&pool, 13).await;
     let other = seeded_agent_cluster(&pool, 14).await;
     let (cert, key) = agent_cert(&gateway.ca, &identity);
@@ -694,8 +694,8 @@ async fn a_protocol_range_without_overlap_is_refused_before_register() {
 /// bounded shape only; the tunnel is served all the same.
 #[tokio::test]
 async fn an_invalid_announce_is_served_but_never_recorded_as_sent() {
-    let pool = redis_or_skip!();
-    let (addr, gateway) = agent_gateway().await;
+    let pool = memory_store();
+    let (addr, gateway) = agent_gateway(&pool).await;
     let identity = seeded_agent_cluster(&pool, 0).await;
     let (cert, key) = agent_cert(&gateway.ca, &identity);
     let info = agent_proto::control::AgentInfo {
@@ -720,8 +720,8 @@ async fn an_invalid_announce_is_served_but_never_recorded_as_sent() {
 /// no tunnel.
 #[tokio::test]
 async fn a_revoked_or_foreign_certificate_opens_no_tunnel() {
-    let pool = redis_or_skip!();
-    let (addr, registry, ca) = agent_listener().await;
+    let pool = memory_store();
+    let (addr, registry, ca) = agent_listener(&pool).await;
     let identity = seeded_agent_cluster(&pool, 1).await;
 
     let stale = agent_pki::AgentIdentity {
@@ -801,8 +801,8 @@ const SUBJECT: &str = "system:serviceaccount:proxyauth-agent:proxyauth-agent";
 async fn a_valid_service_account_token_enrols_the_agent() {
     use rustls::pki_types::pem::PemObject as _;
 
-    let pool = redis_or_skip!();
-    let (addr, _registry, ca) = agent_listener().await;
+    let pool = memory_store();
+    let (addr, _registry, ca) = agent_listener(&pool).await;
     let issuer = Issuer::new();
     let identity = seeded_cluster_with_jwks(&pool, 3, Some(issuer.jwks.clone())).await;
     let csr = rcgen::CertificateParams::default()
@@ -828,8 +828,8 @@ async fn a_valid_service_account_token_enrols_the_agent() {
 /// by another key, or for a cluster that is not `Agent`, gets a bare 401.
 #[tokio::test]
 async fn a_token_for_another_subject_or_audience_is_refused() {
-    let pool = redis_or_skip!();
-    let (addr, _registry, _ca) = agent_listener().await;
+    let pool = memory_store();
+    let (addr, _registry, _ca) = agent_listener(&pool).await;
     let issuer = Issuer::new();
     let identity = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
     let csr = rcgen::CertificateParams::default()
@@ -885,8 +885,8 @@ async fn presences_follow_the_cr_and_revoke_its_tunnels() {
     use api::agent::presence;
     use common::agent_gateway::presence_key;
 
-    let pool = redis_or_skip!();
-    let (addr, gateway) = agent_gateway().await;
+    let pool = memory_store();
+    let (addr, gateway) = agent_gateway(&pool).await;
     let identity = seeded_cluster_with_jwks(&pool, 4, None).await;
     let key = presence_key(&identity.uid);
     let (cert, agent_key) = agent_cert(&gateway.ca, &identity);
@@ -990,7 +990,7 @@ async fn presences_follow_the_cr_and_revoke_its_tunnels() {
 async fn the_gateway_role_needs_its_connect_token() {
     let settings = common::config::Config::from_lookup(|_| None).agent_gateway;
     let ended = api::agent::run(
-        test_state("https://idp.example.com".to_string()),
+        memory_state(&memory_store(), "https://idp.example.com".to_string()),
         settings,
         "gw-0".to_string(),
         std::future::pending(),
@@ -1003,8 +1003,8 @@ async fn the_gateway_role_needs_its_connect_token() {
 /// The gateway's probes: `/healthz` always, `/readyz` while Redis answers.
 #[tokio::test]
 async fn the_gateway_answers_its_probes() {
-    let _pool = redis_or_skip!();
-    let (addr, _gateway) = agent_gateway().await;
+    let pool = memory_store();
+    let (addr, _gateway) = agent_gateway(&pool).await;
     for probe in ["healthz", "readyz"] {
         let status = reqwest::get(format!("http://{addr}/{probe}"))
             .await
@@ -1021,7 +1021,7 @@ async fn the_gateway_answers_its_probes() {
 async fn a_self_subject_review_crosses_the_gateway_and_the_tunnel() {
     use api::model::user::User;
 
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (state, ns, cluster, _tunnel) = agent_cluster(&pool).await;
     let proxy: crd::ProxyKubeApi = state
         .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
@@ -1058,9 +1058,9 @@ async fn a_self_subject_review_crosses_the_gateway_and_the_tunnel() {
 async fn enrollment_and_tunnels_write_audit_events() {
     use api::cluster::redirect::audit::capture;
 
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     capture::start();
-    let (addr, gateway) = agent_gateway().await;
+    let (addr, gateway) = agent_gateway(&pool).await;
     let issuer = Issuer::new();
     let identity = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
     let key = rcgen::KeyPair::generate().unwrap();
@@ -1128,7 +1128,7 @@ async fn enrollment_and_tunnels_write_audit_events() {
 async fn a_relayed_request_is_audited_as_upstream_via_agent() {
     use api::cluster::redirect::audit::capture;
 
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     capture::start();
     let (state, ns, cluster, _tunnel) = agent_cluster(&pool).await;
     let app = test::init_service(harness::app(state)).await;
@@ -1159,10 +1159,10 @@ async fn the_real_agent_enrols_and_carries_a_relayed_request() {
     use common::agent_gateway::GatewayClient;
     use std::sync::atomic::Ordering;
 
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     harness::install_crypto_provider();
     let (apiserver, ca_pem) = fake_apiserver().await;
-    let (addr, gateway) = agent_gateway().await;
+    let (addr, gateway) = agent_gateway(&pool).await;
     let issuer = Issuer::new();
     let identity = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
     let mut proxy: crd::ProxyKubeApi = gateway
@@ -1205,7 +1205,7 @@ async fn the_real_agent_enrols_and_carries_a_relayed_request() {
     assert!(health.cert_not_after.load(Ordering::Relaxed) > 0);
     api::agent::presence::refresh(&gateway).await;
 
-    let mut state = test_state("https://idp.example.com".to_string());
+    let mut state = memory_state(&pool, "https://idp.example.com".to_string());
     let client = GatewayClient::with(Some("gw.test".to_string()), 0, Some("t0ken".to_string()));
     *client.fixed_address.lock().unwrap() = Some(connect_addr.to_string());
     state.agent_gateway = std::sync::Arc::new(client);
@@ -1265,7 +1265,7 @@ async fn tls_to(
 async fn the_real_agent_opens_a_passthrough_tunnel() {
     use std::sync::atomic::Ordering;
 
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     harness::install_crypto_provider();
     let dir = std::env::temp_dir().join(format!("agent-passthrough-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -1273,7 +1273,7 @@ async fn the_real_agent_opens_a_passthrough_tunnel() {
     let (cert_path, key_path) = (dir.join("tls.crt"), dir.join("tls.key"));
     std::fs::write(&cert_path, server.cert.pem()).unwrap();
     std::fs::write(&key_path, server.signing_key.serialize_pem()).unwrap();
-    let (addr, gateway) = agent_gateway_with(|settings| {
+    let (addr, gateway) = agent_gateway_with(&pool, |settings| {
         settings.tls_mode = common::config::AgentTlsMode::Passthrough {
             cert_path: cert_path.display().to_string(),
             key_path: key_path.display().to_string(),
@@ -1352,8 +1352,8 @@ async fn registered(gateway: &api::agent::listener::Gateway, count: usize) {
 /// identity it claims.
 #[tokio::test]
 async fn a_cert_from_another_ca_is_refused() {
-    let pool = redis_or_skip!();
-    let (addr, gateway) = agent_gateway().await;
+    let pool = memory_store();
+    let (addr, gateway) = agent_gateway(&pool).await;
     let identity = seeded_agent_cluster(&pool, 0).await;
     let foreign = agent_pki::AgentCa::generate().unwrap();
     let (cert, key) = agent_cert(&foreign, &identity);
@@ -1376,8 +1376,8 @@ async fn a_cert_from_another_ca_is_refused() {
 /// and an identity mixing B's name with A's UID is refused.
 #[tokio::test]
 async fn an_agent_cannot_serve_another_proxykubeapi() {
-    let pool = redis_or_skip!();
-    let (addr, gateway) = agent_gateway().await;
+    let pool = memory_store();
+    let (addr, gateway) = agent_gateway(&pool).await;
     let issuer = Issuer::new();
     let a = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
     let b = seeded_cluster_with_jwks(&pool, 1, Some(issuer.jwks.clone())).await;
@@ -1425,7 +1425,7 @@ async fn an_agent_cannot_serve_another_proxykubeapi() {
 async fn the_agent_only_sees_tls_records() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     harness::install_crypto_provider();
     let (apiserver, ca_pem) = fake_apiserver().await;
     // A tap between the agent and the apiserver, keeping what goes up.
@@ -1565,8 +1565,8 @@ async fn a_stream_open_carries_no_destination() {
 async fn an_epoch_bump_closes_tunnels_and_refuses_renewal() {
     use agent_proto::control::{self, Close, Kind, RenewRequest};
 
-    let pool = redis_or_skip!();
-    let (addr, gateway) = agent_gateway().await;
+    let pool = memory_store();
+    let (addr, gateway) = agent_gateway(&pool).await;
     let identity = seeded_agent_cluster(&pool, 2).await;
     let (cert, key) = agent_cert(&gateway.ca, &identity);
     let (mut control, _inbound, _) = dial_agent(addr, gateway.ca.cert_pem(), &cert, &key)
@@ -1618,8 +1618,8 @@ async fn an_epoch_bump_closes_tunnels_and_refuses_renewal() {
 /// T9: the enrolment answers a certificate and the CA, never a key.
 #[tokio::test]
 async fn enrollment_never_returns_the_private_key() {
-    let pool = redis_or_skip!();
-    let (addr, _gateway) = agent_gateway().await;
+    let pool = memory_store();
+    let (addr, _gateway) = agent_gateway(&pool).await;
     let issuer = Issuer::new();
     let identity = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
     let token = issuer.token(SUBJECT, DEFAULT_AUDIENCE, 600);
@@ -1635,8 +1635,8 @@ async fn enrollment_never_returns_the_private_key() {
 /// other proof, or a refused CSR burns nothing.
 #[tokio::test]
 async fn a_one_shot_token_is_accepted_once() {
-    let pool = redis_or_skip!();
-    let (addr, gateway) = agent_gateway().await;
+    let pool = memory_store();
+    let (addr, gateway) = agent_gateway(&pool).await;
     let identity = seeded_agent_cluster(&pool, 0).await;
     let mut proxy: crd::ProxyKubeApi = gateway
         .state
@@ -1749,9 +1749,9 @@ async fn identity_secret_apiserver() -> String {
 async fn one_shot_replicas_spend_one_token_and_share_the_identity() {
     use std::sync::atomic::Ordering;
 
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     harness::install_crypto_provider();
-    let (addr, gateway) = agent_gateway().await;
+    let (addr, gateway) = agent_gateway(&pool).await;
     let identity = seeded_agent_cluster(&pool, 0).await;
     let mut proxy: crd::ProxyKubeApi = gateway
         .state
@@ -1862,7 +1862,7 @@ impl ExternalIssuer {
 
 /// An `Agent` cluster whose bootstrap is `ExternalCA` with `ca` inline.
 async fn seeded_external_cluster(
-    pool: &deadpool_redis::Pool,
+    pool: &common::kv_memory::InMemoryKv,
     gateway: &api::agent::listener::Gateway,
     epoch: u64,
     ca: &str,
@@ -1891,9 +1891,9 @@ async fn seeded_external_cluster(
 /// an enrolment or a renewal are refused.
 #[tokio::test]
 async fn an_external_ca_certificate_serves_its_cluster_only() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     harness::install_crypto_provider();
-    let (addr, gateway) = agent_gateway().await;
+    let (addr, gateway) = agent_gateway(&pool).await;
     let issuer = ExternalIssuer::new();
     let day = std::time::Duration::from_secs(24 * 3600);
     let a = seeded_external_cluster(&pool, &gateway, 0, &issuer.pem).await;
@@ -1961,9 +1961,9 @@ async fn an_external_ca_certificate_serves_its_cluster_only() {
 /// Decision 29: an external certificate's tunnel closes when it expires.
 #[tokio::test]
 async fn an_external_tunnel_closes_when_its_certificate_expires() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     harness::install_crypto_provider();
-    let (addr, gateway) = agent_gateway().await;
+    let (addr, gateway) = agent_gateway(&pool).await;
     let issuer = ExternalIssuer::new();
     let id = seeded_external_cluster(&pool, &gateway, 3, &issuer.pem).await;
     let (cert, key) = issuer.leaf(
@@ -1991,9 +1991,9 @@ async fn an_external_tunnel_closes_when_its_certificate_expires() {
 async fn the_real_agent_uses_an_external_certificate_and_its_renewal() {
     use std::sync::atomic::Ordering;
 
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     harness::install_crypto_provider();
-    let (addr, gateway) = agent_gateway().await;
+    let (addr, gateway) = agent_gateway(&pool).await;
     let issuer = ExternalIssuer::new();
     let id = seeded_external_cluster(&pool, &gateway, 4, &issuer.pem).await;
     let uri = format!("proxyauth://{}/{}", id.namespace, id.name);
@@ -2062,9 +2062,10 @@ async fn the_real_agent_uses_an_external_certificate_and_its_renewal() {
 async fn the_enroll_route_is_rate_limited_before_any_write() {
     use api::cluster::redirect::audit::capture;
 
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     capture::start();
-    let (addr, _gateway) = agent_gateway_with(|settings| settings.enroll_per_minute = 2).await;
+    let (addr, _gateway) =
+        agent_gateway_with(&pool, |settings| settings.enroll_per_minute = 2).await;
     let issuer = Issuer::new();
     let identity = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
     let token = issuer.token(SUBJECT, DEFAULT_AUDIENCE, 600);
@@ -2114,8 +2115,9 @@ async fn the_enroll_route_is_rate_limited_before_any_write() {
 /// a tunnel (the CR's override included), are bounded.
 #[tokio::test]
 async fn stream_and_tunnel_limits_hold() {
-    let pool = redis_or_skip!();
-    let (addr, gateway) = agent_gateway_with(|settings| settings.tunnels_per_identity = 1).await;
+    let pool = memory_store();
+    let (addr, gateway) =
+        agent_gateway_with(&pool, |settings| settings.tunnels_per_identity = 1).await;
     let identity = seeded_agent_cluster(&pool, 0).await;
     let mut proxy: crd::ProxyKubeApi = gateway
         .state
@@ -2157,9 +2159,9 @@ async fn stream_and_tunnel_limits_hold() {
 async fn the_ca_key_never_reaches_a_log() {
     use api::cluster::redirect::audit::capture;
 
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     capture::start();
-    let (addr, gateway) = agent_gateway().await;
+    let (addr, gateway) = agent_gateway(&pool).await;
     let issuer = Issuer::new();
     let identity = seeded_cluster_with_jwks(&pool, 0, Some(issuer.jwks.clone())).await;
     let token = issuer.token(SUBJECT, DEFAULT_AUDIENCE, 600);
@@ -2185,7 +2187,7 @@ async fn the_ca_key_never_reaches_a_log() {
 /// is never fetched.
 #[tokio::test]
 async fn jwks_url_refuses_http_and_redirects() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let issuer = Issuer::new();
     let server = wiremock::MockServer::start().await;
     wiremock::Mock::given(wiremock::matchers::any())
@@ -2193,7 +2195,7 @@ async fn jwks_url_refuses_http_and_redirects() {
         .expect(0)
         .mount(&server)
         .await;
-    let (addr, gateway) = agent_gateway().await;
+    let (addr, gateway) = agent_gateway(&pool).await;
     let identity = seeded_agent_cluster(&pool, 0).await;
     let mut proxy: crd::ProxyKubeApi = gateway
         .state
@@ -2218,7 +2220,8 @@ async fn jwks_url_refuses_http_and_redirects() {
 /// the user API.
 #[tokio::test]
 async fn user_routes_are_not_served_on_the_agent_port() {
-    let (addr, _gateway) = agent_gateway().await;
+    let pool = memory_store();
+    let (addr, _gateway) = agent_gateway(&pool).await;
     for path in [
         "/clusters/default/prod/api/v1/pods",
         "/api/clusters",
@@ -2241,8 +2244,8 @@ async fn user_routes_are_not_served_on_the_agent_port() {
 async fn a_presence_names_a_gateway_pod_never_an_address() {
     use common::agent_gateway::{GatewayClient, presence_key};
 
-    let _pool = redis_or_skip!();
-    let state = test_state("https://idp.example.com".to_string());
+    let pool = memory_store();
+    let state = memory_state(&pool, "https://idp.example.com".to_string());
     let uid = format!("{:08x}-0000-4000-8000-0000000000f1", std::process::id());
     let key = presence_key(&uid);
     let members = ["attacker.example.com:443", "10.0.0.1", "gw-0.evil", "gw-1"];
@@ -2272,9 +2275,9 @@ async fn a_jwks_from_change_is_picked_up_and_an_empty_one_refuses() {
     let Some(env_test) = envtest_support::EnvTest::try_start().await else {
         return;
     };
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let client = env_test.client().unwrap();
-    let mut state = test_state("https://idp.example.com".to_string());
+    let mut state = memory_state(&pool, "https://idp.example.com".to_string());
     state.client = client.clone();
     let mut settings = common::config::Config::from_lookup(|_| None).agent_gateway;
     settings.enroll_per_minute = 10_000;
@@ -2310,7 +2313,7 @@ async fn a_jwks_from_change_is_picked_up_and_an_empty_one_refuses() {
         .await
         .unwrap();
     let identity = seeded_agent_cluster(&pool, 0).await;
-    let mut proxy: crd::ProxyKubeApi = test_state("https://idp.example.com".to_string())
+    let mut proxy: crd::ProxyKubeApi = memory_state(&pool, "https://idp.example.com".to_string())
         .get_object_from_redis(crd::REDIS_PREFIX, &identity.cluster())
         .await
         .unwrap()
@@ -2366,7 +2369,7 @@ async fn a_jwks_from_change_is_picked_up_and_an_empty_one_refuses() {
 /// it was not refused.
 #[tokio::test]
 async fn token_review_without_a_tunnel_is_agent_unavailable() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (ns, cluster) = unique_cluster();
     let mut proxy = proxy_fixture(&ns, &cluster, "https://unused.example.com");
     proxy.spec.service = agent_service();
@@ -2377,7 +2380,7 @@ async fn token_review_without_a_tunnel_is_agent_unavailable() {
     ));
     seed_proxy(&pool, &proxy).await;
 
-    let mut state = test_state("https://idp.example.com".to_string());
+    let mut state = memory_state(&pool, "https://idp.example.com".to_string());
     state.agent_gateway = std::sync::Arc::new(common::agent_gateway::GatewayClient::with(
         Some("gw.test".to_string()),
         0,

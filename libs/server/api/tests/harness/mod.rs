@@ -17,7 +17,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use common::{State, oidc_conf::OidcConf};
+use common::{State, kv::Kv, kv_memory::InMemoryKv, oidc_conf::OidcConf};
 use crd::{
     ProxyKubeApi, ProxyKubeApiSpec,
     authentication_configuration::{AuthenticationConfiguration, OidcProvider, ValidateAgainst},
@@ -89,6 +89,19 @@ pub fn unreachable_state(oidc_issuer_url: String) -> State {
 
 const UNREACHABLE_REDIS_URL: &str = "redis://127.0.0.1:1";
 
+/// Bind a test Redis, or bail out of the test (see [`try_redis_pool`]): the
+/// one copy for every binary that includes this harness. Exported so a binary
+/// that does not use it raises no unused-macro warning.
+#[macro_export]
+macro_rules! redis_or_skip {
+    () => {
+        match $crate::harness::try_redis_pool().await {
+            Some(pool) => pool,
+            None => return,
+        }
+    };
+}
+
 /// Connect to the test Redis, or explain why the caller should give up.
 ///
 /// Returns `None` when Redis is unreachable and `REQUIRE_TEST_REDIS` is unset.
@@ -143,12 +156,15 @@ pub fn install_crypto_provider() {
 /// Build a `State` whose Kubernetes client is never contacted: every fixture
 /// uses `Service::ExternalService` and `CertSource::SystemRoots`.
 pub fn test_state(oidc_issuer_url: String) -> State {
-    install_crypto_provider();
-
     // `State` owns its own pool abstraction; the raw deadpool pool the tests use
     // to seed and inspect keys stays separate.
     let redis = common::redis_pool::RedisPool::from_url(&redis_url())
         .expect("state redis pool should build");
+    state_on(redis, oidc_issuer_url)
+}
+
+fn state_on(kv: impl Into<Kv>, oidc_issuer_url: String) -> State {
+    install_crypto_provider();
 
     let kube_config = kube::Config::new(
         "http://127.0.0.1:1"
@@ -159,7 +175,7 @@ pub fn test_state(oidc_issuer_url: String) -> State {
 
     State::from_parts(
         client,
-        redis,
+        kv,
         OidcConf {
             client_id: "proxyauthk8s".to_string(),
             client_secret: Some("secret".to_string()),
@@ -172,6 +188,18 @@ pub fn test_state(oidc_issuer_url: String) -> State {
         "https://proxy.example.com".to_string(),
         "https://front.example.com".to_string(),
     )
+}
+
+/// An empty in-memory store, for the tests where Redis is only storage
+/// (RFC 0015 decision 21). Seed it with the helpers below and hand it to
+/// [`memory_state`]; both share the same data.
+pub fn memory_store() -> InMemoryKv {
+    InMemoryKv::new()
+}
+
+/// [`test_state`] on `store` instead of a real Redis.
+pub fn memory_state(store: &InMemoryKv, oidc_issuer_url: String) -> State {
+    state_on(store.clone(), oidc_issuer_url)
 }
 
 /// A proxy pointing at `upstream_url`, with token validation disabled.
@@ -358,18 +386,86 @@ pub async fn mount_oidc_provider(server: &wiremock::MockServer, username: &str, 
         .await;
 }
 
-/// Read a cached object straight out of Redis, by its `to_identifier()` key.
-pub async fn cached_value(pool: &Pool, id: &str) -> Option<String> {
-    pool.get()
-        .await
-        .expect("redis connection")
-        .get(id)
-        .await
-        .expect("GET should succeed")
+/// Where the tests seed and read the cache: the raw pool of a real Redis, or
+/// the in-memory store a [`memory_state`] shares (RFC 0015 §6.1). One set of
+/// helpers serves both, so a file migrates by swapping its constructors.
+pub trait Store {
+    async fn get(&self, key: &str) -> Option<String>;
+    async fn set_ex(&self, key: &str, value: &str, ttl_seconds: u64);
+    async fn sadd(&self, set: &str, member: &str);
+    async fn del(&self, key: &str);
+    async fn srem(&self, set: &str, member: &str);
+}
+
+impl Store for Pool {
+    async fn get(&self, key: &str) -> Option<String> {
+        let mut conn = self.get().await.expect("redis connection");
+        AsyncTypedCommands::get(&mut conn, key)
+            .await
+            .expect("GET should succeed")
+    }
+    async fn set_ex(&self, key: &str, value: &str, ttl_seconds: u64) {
+        let mut conn = self.get().await.expect("redis connection");
+        AsyncTypedCommands::set_ex(&mut conn, key, value, ttl_seconds)
+            .await
+            .expect("SETEX should succeed");
+    }
+    async fn sadd(&self, set: &str, member: &str) {
+        let mut conn = self.get().await.expect("redis connection");
+        AsyncTypedCommands::sadd(&mut conn, set, member)
+            .await
+            .expect("SADD should succeed");
+    }
+    async fn del(&self, key: &str) {
+        let mut conn = self.get().await.expect("redis connection");
+        let _cleanup = AsyncTypedCommands::del(&mut conn, key).await;
+    }
+    async fn srem(&self, set: &str, member: &str) {
+        let mut conn = self.get().await.expect("redis connection");
+        let _cleanup = AsyncTypedCommands::srem(&mut conn, set, member).await;
+    }
+}
+
+impl Store for InMemoryKv {
+    async fn get(&self, key: &str) -> Option<String> {
+        Kv::from(self.clone())
+            .get(key)
+            .await
+            .expect("GET should succeed")
+    }
+    async fn set_ex(&self, key: &str, value: &str, ttl_seconds: u64) {
+        Kv::from(self.clone())
+            .set(key, value, Some(ttl_seconds))
+            .await
+            .expect("SETEX should succeed");
+    }
+    async fn sadd(&self, set: &str, member: &str) {
+        Kv::from(self.clone())
+            .set_add(set, member)
+            .await
+            .expect("SADD should succeed");
+    }
+    async fn del(&self, key: &str) {
+        Kv::from(self.clone())
+            .del(key)
+            .await
+            .expect("DEL should succeed");
+    }
+    async fn srem(&self, set: &str, member: &str) {
+        Kv::from(self.clone())
+            .set_remove(set, member)
+            .await
+            .expect("SREM should succeed");
+    }
+}
+
+/// Read a cached object straight out of the store, by its `to_identifier()` key.
+pub async fn cached_value(store: &impl Store, id: &str) -> Option<String> {
+    store.get(id).await
 }
 
 /// Cache a proxy the way the controller does, so `redirect()` can find it.
-pub async fn seed_proxy(pool: &Pool, proxy: &ProxyKubeApi) {
+pub async fn seed_proxy(store: &impl Store, proxy: &ProxyKubeApi) {
     use common::traits::ObjectRedis;
 
     let key = format!(
@@ -379,22 +475,16 @@ pub async fn seed_proxy(pool: &Pool, proxy: &ProxyKubeApi) {
         proxy.metadata.name.as_deref().unwrap_or_default()
     );
 
-    let mut conn = pool.get().await.expect("redis connection");
-    conn.set_ex(&key, proxy.to_json(), 300)
-        .await
-        .expect("proxy should be cached");
+    store.set_ex(&key, &proxy.to_json(), 300).await;
     // The controller keeps this index in sync in production; the dashboard
     // listing reads through it instead of scanning with `KEYS`.
-    conn.sadd(format!("{}:index", REDIS_PREFIX), &key)
-        .await
-        .expect("proxy should be indexed");
+    store.sadd(&format!("{}:index", REDIS_PREFIX), &key).await;
 }
 
-pub async fn delete_proxy(pool: &Pool, ns: &str, cluster: &str) {
+pub async fn delete_proxy(store: &impl Store, ns: &str, cluster: &str) {
     let key = format!("{}:{}/{}", REDIS_PREFIX, ns, cluster);
-    let mut conn = pool.get().await.expect("redis connection");
-    let _cleanup = conn.del(&key).await;
-    let _cleanup = conn.srem(format!("{}:index", REDIS_PREFIX), &key).await;
+    store.del(&key).await;
+    store.srem(&format!("{}:index", REDIS_PREFIX), &key).await;
 }
 
 /// A fixed RSA-2048 test keypair, generated once with `openssl genrsa` purely

@@ -9,11 +9,13 @@
 //! allow-list interaction is `virtual_api_security.rs`.
 
 mod harness;
+
+use harness::{memory_state, memory_store};
 mod virtual_api_support;
 
 use axum::http::StatusCode;
 use harness::test;
-use harness::{delete_proxy, test_state, try_redis_pool, unique_cluster};
+use harness::{delete_proxy, unique_cluster};
 use serde_json::{Value, json};
 use virtual_api_support::seed_openshift_proxy;
 use wiremock::matchers::{body_json, method, path, query_param};
@@ -25,24 +27,15 @@ macro_rules! proxy_app {
     };
 }
 
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
-
 #[tokio::test]
 async fn serves_group_discovery_without_touching_the_cluster() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io"
@@ -72,13 +65,13 @@ async fn serves_group_discovery_without_touching_the_cluster() {
 
 #[tokio::test]
 async fn serves_version_discovery_without_touching_the_cluster() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1"
@@ -97,7 +90,7 @@ async fn serves_version_discovery_without_touching_the_cluster() {
 
 #[tokio::test]
 async fn merges_the_virtual_group_into_the_cluster_group_list() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -115,7 +108,7 @@ async fn merges_the_virtual_group_into_the_cluster_group_list() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/apis"))
         .to_request();
@@ -139,7 +132,7 @@ async fn merges_the_virtual_group_into_the_cluster_group_list() {
 #[tokio::test]
 async fn merges_the_virtual_group_into_aggregated_discovery() {
     const AGGREGATED: &str = "application/json;g=apidiscovery.k8s.io;v=v2;as=APIGroupDiscoveryList";
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -163,7 +156,7 @@ async fn merges_the_virtual_group_into_aggregated_discovery() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/apis"))
         .insert_header(("accept", AGGREGATED))
@@ -186,7 +179,7 @@ async fn merges_the_virtual_group_into_aggregated_discovery() {
 
 #[tokio::test]
 async fn lists_namespaces_as_projects() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -212,7 +205,7 @@ async fn lists_namespaces_as_projects() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
@@ -238,7 +231,7 @@ async fn lists_namespaces_as_projects() {
 
 #[tokio::test]
 async fn reads_a_single_namespace_as_a_project() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -255,7 +248,7 @@ async fn reads_a_single_namespace_as_a_project() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects/dev"
@@ -276,7 +269,7 @@ async fn reads_a_single_namespace_as_a_project() {
 
 #[tokio::test]
 async fn a_project_request_creates_a_namespace() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     // The cluster must receive a Namespace, never a ProjectRequest.
@@ -304,7 +297,7 @@ async fn a_project_request_creates_a_namespace() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::post()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projectrequests"
@@ -333,7 +326,7 @@ async fn a_project_request_creates_a_namespace() {
 
 #[tokio::test]
 async fn deleting_a_project_deletes_the_namespace() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("DELETE"))
@@ -350,7 +343,7 @@ async fn deleting_a_project_deletes_the_namespace() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::delete()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects/dev"
@@ -368,7 +361,7 @@ async fn deleting_a_project_deletes_the_namespace() {
 
 #[tokio::test]
 async fn translates_each_event_of_a_watch_stream() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     let events = concat!(
@@ -388,7 +381,7 @@ async fn translates_each_event_of_a_watch_stream() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects?watch=true"
@@ -418,7 +411,7 @@ async fn translates_each_event_of_a_watch_stream() {
 
 #[tokio::test]
 async fn an_upstream_error_reaches_the_client_untranslated() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     // The documented limitation: a user without cluster-wide list rights gets
@@ -438,7 +431,7 @@ async fn an_upstream_error_reaches_the_client_untranslated() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"

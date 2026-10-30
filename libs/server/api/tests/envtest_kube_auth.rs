@@ -33,9 +33,7 @@ use crd::{
 };
 use envtest_support::EnvTest;
 use harness::test;
-use harness::{
-    delete_proxy, proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
-};
+use harness::{delete_proxy, proxy_fixture, seed_proxy, test_state, unique_cluster};
 use k8s_openapi::api::authentication::v1::{TokenRequest, TokenRequestSpec};
 use k8s_openapi::api::core::v1::ServiceAccount;
 use kube::api::{Api, ObjectMeta, PostParams};
@@ -44,15 +42,6 @@ macro_rules! envtest_or_skip {
     () => {
         match EnvTest::try_start().await {
             Some(env_test) => env_test,
-            None => return,
-        }
-    };
-}
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
             None => return,
         }
     };

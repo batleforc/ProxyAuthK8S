@@ -21,11 +21,13 @@
 
 mod harness;
 
+use harness::{memory_state, memory_store};
+
 use axum::http::StatusCode;
 use harness::test;
 use harness::{
     delete_proxy, mount_full_oidc_provider, mount_token_endpoint, oidc_auth_config, proxy_fixture,
-    seed_proxy, sign_id_token, test_state, try_redis_pool, unique_cluster,
+    seed_proxy, sign_id_token, unique_cluster,
 };
 use reqwest::Url;
 use wiremock::matchers::{method, path};
@@ -42,15 +44,6 @@ macro_rules! full_app {
     };
 }
 
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
-
 fn query_param(url: &Url, key: &str) -> String {
     url.query_pairs()
         .find(|(k, _)| k == key)
@@ -61,7 +54,7 @@ fn query_param(url: &Url, key: &str) -> String {
 
 #[tokio::test]
 async fn a_user_logs_in_through_the_extension_flow_and_reads_a_secret() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     // The same wiremock server plays both the OIDC provider and the upstream
@@ -87,7 +80,7 @@ async fn a_user_logs_in_through_the_extension_flow_and_reads_a_secret() {
     proxy.spec.auth_config = Some(oidc_auth_config(&upstream.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let app = full_app!(test_state(upstream.uri()));
+    let app = full_app!(memory_state(&pool, upstream.uri()));
 
     // Step 1 (extension): start the login the same way `kubectl-proxyauth
     // login --cluster-name` does — `sso_cluster_login` calls `/auth/login`

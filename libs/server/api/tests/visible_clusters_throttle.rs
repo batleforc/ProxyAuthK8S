@@ -21,7 +21,7 @@ mod harness;
 use axum::http::StatusCode;
 use deadpool_redis::redis::AsyncTypedCommands;
 use harness::test;
-use harness::{test_state, try_redis_pool};
+use harness::test_state;
 use tokio::sync::{Mutex, MutexGuard};
 use wiremock::MockServer;
 
@@ -87,15 +87,6 @@ impl Drop for EnvGuard {
 macro_rules! clusters_app {
     ($state:expr_2021) => {
         test::init_service(harness::app($state)).await
-    };
-}
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
     };
 }
 
