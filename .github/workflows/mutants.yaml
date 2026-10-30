@@ -73,7 +73,8 @@ jobs:
           echo "code=$code" >> "$GITHUB_OUTPUT"
           case "$code" in
             0 | 2 | 3) exit 0 ;;
-            *) echo "::error::cargo mutants exited $code (4: the baseline failed)"; exit "$code" ;;
+            4) echo "::error::the unmutated tree failed its tests: no mutant was judged"; exit 4 ;;
+            *) echo "::error::cargo mutants exited $code"; exit "$code" ;;
           esac
       - name: Upload the shard report
         if: always()

@@ -13,7 +13,6 @@
 //! with `required-features` would say so in Cargo.toml, but the image build
 //! leaves `tests/` out and then cannot parse the manifest.)
 #![cfg(feature = "test-util")]
-
 #![expect(
     clippy::expect_used,
     reason = "test helpers: a panic is a failed test, with its message"
