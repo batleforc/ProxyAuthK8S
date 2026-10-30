@@ -161,12 +161,22 @@ impl JwtValidator {
 
         let mut builder = reqwest::Client::builder();
         if let Some(ca) = &authenticator.issuer.certificate_authority {
-            let cert = reqwest::Certificate::from_pem(ca.as_bytes()).map_err(|e| {
+            // Under rustls, text without a PEM block parses to no certificate
+            // and the client would trust the system roots alone: refuse it.
+            // The bundle is added to the system roots, never replaces them.
+            let certs = reqwest::Certificate::from_pem_bundle(ca.as_bytes()).map_err(|e| {
                 JwtValidationError::Configuration(format!(
-                    "issuer.certificate_authority is not a valid PEM certificate: {e}"
+                    "issuer.certificate_authority is not a valid PEM bundle: {e}"
                 ))
             })?;
-            builder = builder.add_root_certificate(cert);
+            if certs.is_empty() {
+                return Err(JwtValidationError::Configuration(
+                    "issuer.certificate_authority holds no PEM certificate".to_string(),
+                ));
+            }
+            for cert in certs {
+                builder = builder.add_root_certificate(cert);
+            }
         }
         let client = builder.build().map_err(|e| {
             JwtValidationError::Configuration(format!(
@@ -860,6 +870,58 @@ mod tests {
             pinned,
             client_cache_key(&authenticator(Some("-----BEGIN CERTIFICATE-----")))
         );
+    }
+
+    fn authenticator_with_ca(ca: &str) -> crd::authentication_configuration::JWTAuthenticator {
+        use crd::authentication_configuration::{ClaimMappings, Issuer, JWTAuthenticator};
+        JWTAuthenticator {
+            issuer: Issuer {
+                url: "https://issuer.example.com".to_string(),
+                discovery_url: None,
+                certificate_authority: Some(ca.to_string()),
+                audiences: vec!["proxyauthk8s".to_string()],
+                audience_match_policy:
+                    crd::authentication_configuration::AudienceMatchPolicyType::MatchAny,
+                egress_selector:
+                    crd::authentication_configuration::EgressSelectorType::ControlPlane,
+            },
+            claim_validation_rules: Vec::new(),
+            claim_mappings: ClaimMappings::default(),
+            user_validation_rules: Vec::new(),
+        }
+    }
+
+    /// A pinned CA that holds no certificate would leave the system roots
+    /// alone in charge: the client is refused instead.
+    #[tokio::test]
+    async fn a_certificate_authority_without_a_certificate_is_refused() {
+        let validator = super::JwtValidator::new();
+        for ca in ["not a certificate", ""] {
+            let err = validator
+                .client_for(&authenticator_with_ca(ca))
+                .await
+                .expect_err("a CA without a certificate must be refused");
+            assert!(
+                err.to_string().contains("no PEM certificate"),
+                "{ca:?}: {err}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_pem_bundle_builds_the_client() {
+        let one = rcgen::generate_simple_self_signed(vec!["a.example".to_string()])
+            .expect("self-signed")
+            .cert
+            .pem();
+        let two = rcgen::generate_simple_self_signed(vec!["b.example".to_string()])
+            .expect("self-signed")
+            .cert
+            .pem();
+        super::JwtValidator::new()
+            .client_for(&authenticator_with_ca(&format!("{one}{two}")))
+            .await
+            .expect("a bundle of two certificates is accepted");
     }
 
     #[test]

@@ -34,9 +34,4 @@ exclude_re = [
   # The same: `serve_until` only counts keys retiring after `now`, so it is
   # never equal to it.
   'replace > with >= in Slot::servable',
-  # The only difference a default client makes is the issuer's
-  # certificate_authority, and reqwest (rustls) ignores an unreadable PEM
-  # without an error: a test cannot tell them apart without a TLS issuer.
-  # Open question in RFC 0015 §17.
-  'replace JwtValidator::client_for -> Result<reqwest::Client, JwtValidationError> with Ok\(Default::default\(\)\)',
 ]

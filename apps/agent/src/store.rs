@@ -58,10 +58,16 @@ impl ApiClient {
         if let Some(path) = var("AGENT_KUBE_CA_PATH") {
             let pem =
                 std::fs::read(&path).map_err(|err| format!("AGENT_KUBE_CA_PATH {path}: {err}"))?;
-            http = http.add_root_certificate(
-                reqwest::Certificate::from_pem(&pem)
-                    .map_err(|err| format!("AGENT_KUBE_CA_PATH {path}: {err}"))?,
-            );
+            // Without a certificate in the file, rustls would trust the system
+            // roots alone: refuse to start. Added to them, never replacing them.
+            let certs = reqwest::Certificate::from_pem_bundle(&pem)
+                .map_err(|err| format!("AGENT_KUBE_CA_PATH {path}: {err}"))?;
+            if certs.is_empty() {
+                return Err(format!("AGENT_KUBE_CA_PATH {path}: no PEM certificate"));
+            }
+            for cert in certs {
+                http = http.add_root_certificate(cert);
+            }
         }
         Ok(Self {
             base,
@@ -313,5 +319,23 @@ mod tests {
         assert!(store.load().await.unwrap().1.is_none());
         assert_eq!(stored.lock().unwrap()["metadata"]["resourceVersion"], "3");
         drop(std::fs::remove_file(&token));
+    }
+
+    /// A CA file without a certificate would leave the system roots alone in
+    /// charge of the apiserver's certificate: the agent refuses to start.
+    #[test]
+    fn a_kube_ca_without_a_certificate_is_refused() {
+        let ca = std::env::temp_dir().join(format!("agent-ca-{}.pem", std::process::id()));
+        std::fs::write(&ca, "not a certificate").unwrap();
+        let path = ca.display().to_string();
+        let Err(err) = ApiClient::from_lookup(|name| match name {
+            "AGENT_API_URL" => Some("https://127.0.0.1:6443".to_string()),
+            "AGENT_KUBE_CA_PATH" => Some(path.clone()),
+            _ => None,
+        }) else {
+            panic!("a CA without a certificate must be refused");
+        };
+        drop(std::fs::remove_file(&ca));
+        assert!(err.contains("no PEM certificate"), "{err}");
     }
 }
