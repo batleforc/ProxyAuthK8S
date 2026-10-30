@@ -68,7 +68,7 @@ jobs:
         run: |
           set +e
           mkdir -p dist/mutants
-          cargo mutants --shard ${{ matrix.shard }}/8 --output dist/mutants
+          cargo mutants --shard ${{ matrix.shard }}/8 --sharding round-robin --output dist/mutants
           code=$?
           echo "code=$code" >> "$GITHUB_OUTPUT"
           case "$code" in

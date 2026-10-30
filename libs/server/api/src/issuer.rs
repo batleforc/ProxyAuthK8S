@@ -593,4 +593,65 @@ mod tests {
         // T8: the private key never reaches a document.
         assert!(!documents.jwks.to_string().contains("secret"));
     }
+
+    /// §5.2: a tenth of the lifetime, never under a minute.
+    #[test]
+    fn the_reuse_margin_is_a_tenth_of_the_ttl_and_at_least_a_minute() {
+        assert_eq!(reuse_margin(60), 60);
+        assert_eq!(reuse_margin(600), 60);
+        assert_eq!(reuse_margin(900), 90);
+        assert_eq!(reuse_margin(1_200), 120);
+    }
+
+    #[test]
+    fn a_retry_waits_at_most_as_long_again() {
+        for _ in 0..100 {
+            assert!(jitter() < RETRY_AFTER);
+        }
+    }
+
+    /// Decision 44: the set in hand is served until its last key retires,
+    /// not at that second.
+    #[test]
+    fn a_held_set_is_servable_until_its_keys_retire() {
+        let keys = Arc::new(IssuerKeySet {
+            keys: vec![issuer_key::IssuerKey {
+                kid: "k".into(),
+                pkcs8: String::new(),
+                x: String::new(),
+                y: String::new(),
+                created_at: 0,
+                activate_at: 0,
+                retire_at: Some(100),
+            }],
+        });
+        let slot = Slot::default();
+        assert!(slot.servable(0).is_none());
+        slot.set(Held {
+            keys: Arc::clone(&keys),
+            fresh_until: Instant::now(),
+        });
+        assert_eq!(slot.servable(99).as_deref(), Some(&*keys));
+        assert!(slot.servable(100).is_none());
+    }
+
+    /// An unused slot read `SLOT_IDLE` ago goes; one read just inside it
+    /// stays, keys included.
+    #[tokio::test(start_paused = true)]
+    async fn an_unused_slot_keeps_its_keys_for_a_day_and_no_longer() {
+        let held = |name: &str| {
+            slot(name).unwrap().set(Held {
+                keys: Arc::new(IssuerKeySet::default()),
+                fresh_until: Instant::now(),
+            });
+        };
+        held("test-day-old");
+        tokio::time::advance(Duration::from_secs(1)).await;
+        held("test-recent");
+        tokio::time::advance(SLOT_IDLE.saturating_sub(Duration::from_secs(1))).await;
+        drop(slot("test-trigger"));
+        let slots = SLOTS.lock().unwrap();
+        assert!(!slots.contains_key("test-day-old"));
+        assert!(slots.contains_key("test-recent"));
+    }
 }

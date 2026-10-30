@@ -158,13 +158,19 @@ pub fn test_state(oidc_issuer_url: String) -> State {
 }
 
 fn state_on(kv: impl Into<Kv>, oidc_issuer_url: String) -> State {
+    state_on_kube(kv, oidc_issuer_url, "http://127.0.0.1:1")
+}
+
+/// [`memory_state`] whose Kubernetes client calls `kube_url`, a wiremock
+/// standing in for the proxy's own apiserver.
+pub fn memory_state_on_kube(store: &InMemoryKv, oidc_issuer_url: String, kube_url: &str) -> State {
+    state_on_kube(store.clone(), oidc_issuer_url, kube_url)
+}
+
+fn state_on_kube(kv: impl Into<Kv>, oidc_issuer_url: String, kube_url: &str) -> State {
     install_crypto_provider();
 
-    let kube_config = kube::Config::new(
-        "http://127.0.0.1:1"
-            .parse()
-            .expect("static uri should parse"),
-    );
+    let kube_config = kube::Config::new(kube_url.parse().expect("kube url should parse"));
     let client = kube::Client::try_from(kube_config).expect("kube client should build");
 
     State::from_parts(

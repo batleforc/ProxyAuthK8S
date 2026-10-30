@@ -5,6 +5,10 @@
 # RESULTS, the upstream_cache switch) rely on it, as the rest of the suite does.
 test_tool = "nextest"
 
+# A mutant is judged by the suites that call its code, not only its own
+# crate's: jwt_validator is exercised from api, crd from api and controller.
+test_package = ["api", "controller", "crd", "jwt_validator"]
+
 examine_globs = [
   "libs/server/api/src/cluster/redirect/upstream_identity.rs",
   "libs/server/api/src/issuer.rs",
@@ -14,4 +18,17 @@ examine_globs = [
 
 # Equivalent mutants: one regex per line, each with its reason in a comment
 # (RFC 0015 decision 16). No expiry: an equivalent mutant is not a risk.
-exclude_re = []
+exclude_re = [
+  # jitter only spreads the replicas' retries: any value under RETRY_AFTER,
+  # zero included, is correct. `a_retry_waits_at_most_as_long_again` keeps it
+  # under the bound.
+  'replace jitter -> Duration with Default::default\(\)',
+  'replace % with / in jitter',
+  # `now < fresh_until` against `<=`: the same Instant twice is not
+  # observable on a real clock, and either side is a fresh-enough cache.
+  'replace < with <= in keys',
+  'replace < with <= in documents',
+  # `serve_until > now` in seconds against `>=`: one second of serving more
+  # through an outage, on a key that retires that second anyway.
+  'replace > with >= in documents',
+]

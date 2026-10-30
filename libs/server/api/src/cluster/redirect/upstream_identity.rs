@@ -345,6 +345,45 @@ mod tests {
         );
     }
 
+    /// The limits themselves are accepted, one past them refused (RFC 0015
+    /// §6.2): 64 groups, and 8 KiB of name and groups together.
+    #[test]
+    fn an_identity_at_the_limits_is_accepted_one_past_them_refused() {
+        let groups: Vec<String> = (0..MAX_GROUPS).map(|i| format!("g{i}")).collect();
+        let groups: Vec<&str> = groups.iter().map(String::as_str).collect();
+        assert!(UpstreamIdentity::from_user(&user("alice", &groups), &upstream()).is_ok());
+
+        // "proxyauth:" + name: the name fills the rest of the 8 KiB.
+        let fill = MAX_IDENTITY_BYTES - "proxyauth:".len();
+        assert_eq!(MAX_IDENTITY_BYTES, 8_192);
+        assert!(UpstreamIdentity::from_user(&user(&"a".repeat(fill), &[]), &upstream()).is_ok());
+        assert_eq!(
+            UpstreamIdentity::from_user(&user(&"a".repeat(fill + 1), &[]), &upstream()),
+            Err(IdentityRefusal::TooLarge)
+        );
+    }
+
+    /// The `reason` of the audit line and the metric label are a contract
+    /// with the dashboards; the message names the cluster to act on.
+    #[test]
+    fn each_refusal_has_its_label_and_names_its_cluster() {
+        let all = [
+            (IdentityRefusal::SystemPrefix, "system_prefix"),
+            (IdentityRefusal::EmptyUsername, "empty_username"),
+            (IdentityRefusal::Untransmittable, "untransmittable"),
+            (IdentityRefusal::TooLarge, "too_large"),
+        ];
+        for (refusal, label) in all {
+            assert_eq!(refusal.as_str(), label);
+            assert!(
+                refusal
+                    .message("team-a", "prod")
+                    .contains("ProxyKubeApi team-a/prod"),
+                "{label}"
+            );
+        }
+    }
+
     /// Decision 23: one header per group, a comma kept inside its group.
     #[test]
     fn front_proxy_sends_one_group_header_per_group_and_encoded_extra_keys() {
