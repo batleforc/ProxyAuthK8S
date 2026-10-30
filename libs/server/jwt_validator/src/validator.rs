@@ -46,6 +46,11 @@ const ALLOWED_ALGORITHMS: &[Algorithm] = &[
     Algorithm::EdDSA,
 ];
 
+/// How far past `exp`, or before `nbf`, a token is still accepted. Set here
+/// rather than left to jsonwebtoken's default, which has the same value, so a
+/// library upgrade cannot move it (RFC 0015 decision 18).
+const LEEWAY_SECONDS: u64 = 60;
+
 /// The algorithm and key `jwk` verifies with, `header_alg` used only when the
 /// key declares none.
 fn decoding_key(
@@ -94,6 +99,7 @@ pub fn verify_with_key(
     let mut validation = Validation::new(algorithm);
     validation.validate_exp = true;
     validation.validate_nbf = true;
+    validation.leeway = LEEWAY_SECONDS;
     validation.set_audience(&[audience]);
     decode::<serde_json::Value>(token, &key, &validation)
         .map(|data| data.claims)
@@ -229,6 +235,7 @@ impl JwtValidator {
         let mut validation = Validation::new(algorithm);
         validation.validate_exp = true;
         validation.validate_nbf = true;
+        validation.leeway = LEEWAY_SECONDS;
         validation.set_issuer(&[&authenticator.issuer.url]);
         // `MatchAny` — the only policy the apiserver defines — is exactly
         // jsonwebtoken's "any of these audiences" semantics.
@@ -524,7 +531,10 @@ pub type SharedJwtValidator = Arc<JwtValidator>;
 
 #[cfg(test)]
 mod tests {
-    use super::{ALLOWED_ALGORITHMS, apply_claim_rule, map_user, map_user_for, unverified_issuer};
+    use super::{
+        ALLOWED_ALGORITHMS, LEEWAY_SECONDS, apply_claim_rule, map_user, map_user_for,
+        unverified_issuer, verify_with_key,
+    };
     use crate::error::JwtValidationError;
     use crd::authentication_configuration::{
         ClaimMappings, ClaimOrExpression, ClaimValidationRule, ExtraMapping,
@@ -869,6 +879,75 @@ mod tests {
         assert!(matches!(
             unverified_issuer("not-a-jwt").unwrap_err(),
             JwtValidationError::Malformed(_)
+        ));
+    }
+
+    /// A token signed now with `claims` merged in, and the key that verifies
+    /// it: `exp` and `nbf` stay with jsonwebtoken, which reads the system
+    /// clock, so the tests sign around it with a margin (RFC 0015 decision 18).
+    fn signed_now(claims: &serde_json::Value) -> (String, jsonwebtoken::jwk::Jwk) {
+        let pem = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
+            .unwrap()
+            .serialize_pem();
+        let key = jsonwebtoken::EncodingKey::from_ec_pem(pem.as_bytes()).unwrap();
+        let jwk = jsonwebtoken::jwk::Jwk::from_encoding_key(&key, Algorithm::ES256).unwrap();
+        let mut body = json!({"aud": "proxy", "sub": "alice"});
+        for (name, value) in claims.as_object().unwrap() {
+            body[name] = value.clone();
+        }
+        let token = jsonwebtoken::encode(&jsonwebtoken::Header::new(Algorithm::ES256), &body, &key)
+            .unwrap();
+        (token, jwk)
+    }
+
+    fn now() -> i64 {
+        i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        )
+        .unwrap()
+    }
+
+    const LEEWAY: i64 = LEEWAY_SECONDS.cast_signed();
+
+    #[test]
+    fn a_token_expired_within_the_leeway_is_accepted() {
+        let (token, jwk) = signed_now(&json!({"exp": now() - LEEWAY + 5}));
+        assert!(verify_with_key(&token, &jwk, "proxy").is_ok());
+    }
+
+    #[test]
+    fn a_token_expired_past_the_leeway_is_refused() {
+        let (token, jwk) = signed_now(&json!({"exp": now() - LEEWAY - 5}));
+        assert!(matches!(
+            verify_with_key(&token, &jwk, "proxy"),
+            Err(JwtValidationError::Rejected(_))
+        ));
+    }
+
+    #[test]
+    fn a_token_not_yet_valid_within_the_leeway_is_accepted() {
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600, "nbf": now() + LEEWAY - 5}));
+        assert!(verify_with_key(&token, &jwk, "proxy").is_ok());
+    }
+
+    #[test]
+    fn a_token_not_yet_valid_past_the_leeway_is_refused() {
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600, "nbf": now() + LEEWAY + 5}));
+        assert!(matches!(
+            verify_with_key(&token, &jwk, "proxy"),
+            Err(JwtValidationError::Rejected(_))
+        ));
+    }
+
+    #[test]
+    fn a_token_for_another_audience_is_refused() {
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600}));
+        assert!(matches!(
+            verify_with_key(&token, &jwk, "another-proxy"),
+            Err(JwtValidationError::Rejected(_))
         ));
     }
 }

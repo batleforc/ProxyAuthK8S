@@ -14,7 +14,10 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+// tokio's clock, the system clock outside a paused test (RFC 0015 §5.2).
+use tokio::time::Instant;
 
 use jsonwebtoken::jwk::{Jwk, JwkSet};
 use tokio::sync::RwLock;
@@ -355,7 +358,7 @@ pub fn select_key<'a>(set: &'a JwkSet, kid: Option<&str>) -> Option<&'a Jwk> {
 
 #[cfg(test)]
 mod tests {
-    use super::{JwksCache, select_key};
+    use super::{Cached, Duration, Instant, JwksCache, MIN_REFRESH_INTERVAL, select_key};
     use jsonwebtoken::jwk::JwkSet;
 
     fn jwks(kids: &[&str]) -> JwkSet {
@@ -452,5 +455,31 @@ mod tests {
         assert!(!cache.may_force_refresh("https://a.example.com/jwks").await);
         // …but a different issuer is unaffected.
         assert!(cache.may_force_refresh("https://b.example.com/jwks").await);
+    }
+
+    /// The floor holds for `MIN_REFRESH_INTERVAL`, then lets one refetch
+    /// through (RFC 0015 §6.2).
+    #[tokio::test(start_paused = true)]
+    async fn a_forced_refresh_is_allowed_again_once_the_floor_has_passed() {
+        let cache = JwksCache::new();
+        let uri = "https://a.example.com/jwks";
+        assert!(cache.may_force_refresh(uri).await);
+        tokio::time::advance(MIN_REFRESH_INTERVAL.saturating_sub(Duration::from_secs(1))).await;
+        assert!(!cache.may_force_refresh(uri).await);
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(cache.may_force_refresh(uri).await);
+        assert!(!cache.may_force_refresh(uri).await);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_cached_document_is_fresh_until_its_ttl_and_not_at_it() {
+        let cached = Cached {
+            value: (),
+            fetched_at: Instant::now(),
+        };
+        tokio::time::advance(Duration::from_secs(59)).await;
+        assert!(cached.is_fresh(Duration::from_secs(60)));
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(!cached.is_fresh(Duration::from_secs(60)));
     }
 }

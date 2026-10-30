@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::{
     Json, Router,
@@ -31,6 +31,7 @@ use kube::ResourceExt as _;
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
+use tokio::time::Instant;
 use tracing::warn;
 
 use crate::SharedState;
@@ -219,6 +220,13 @@ fn reuse_margin(ttl_seconds: u32) -> i64 {
     (i64::from(ttl_seconds) / 10).max(60)
 }
 
+/// Whether a cached JWT ending at `cached_exp` may answer a request at `iat`
+/// whose own JWT would end at `exp`: never past that bound (decision 61), and
+/// not within `margin` of its own end.
+fn reusable(cached_exp: i64, exp: i64, iat: i64, margin: i64) -> bool {
+    cached_exp <= exp && iat < cached_exp.saturating_sub(margin)
+}
+
 /// `claims` signed ES256 by `key`, its `kid` in the header.
 fn encode(key: &issuer_key::IssuerKey, claims: &Value) -> Result<String, &'static str> {
     let mut header = Header::new(Algorithm::ES256);
@@ -256,8 +264,7 @@ pub async fn sign(
     let margin = reuse_margin(settings.token_ttl_seconds);
     let cache_key = cache_key(identity, &uid, &settings.issuer_url, &key.kid);
     if let Some((jwt, cached_exp)) = JWTS.get(&cache_key)
-        && cached_exp <= exp
-        && iat < cached_exp.saturating_sub(margin)
+        && reusable(cached_exp, exp, iat, margin)
     {
         crate::metrics::record_issuer_token("cache_hit");
         return Ok((*jwt).clone());
@@ -466,6 +473,19 @@ mod tests {
         assert_eq!(expiry(1_000, 300, None), 1_300);
         assert_eq!(expiry(1_000, 300, Some(Duration::from_secs(120))), 1_120);
         assert_eq!(expiry(1_000, 300, Some(Duration::from_secs(3_600))), 1_300);
+    }
+
+    /// Decision 61 and the §5.2 margin, at each bound (RFC 0015 §6.2).
+    #[test]
+    fn a_cached_jwt_is_reused_only_inside_both_bounds() {
+        let (exp, margin) = (2_000, 60);
+        // Ending at the new bound is fine, one second past it is not: the
+        // source token may have less time left than when it was cached.
+        assert!(reusable(exp, exp, 1_000, margin));
+        assert!(!reusable(exp + 1, exp, 1_000, margin));
+        // Reused until `margin` before its end, not at it.
+        assert!(reusable(exp, exp, exp - margin - 1, margin));
+        assert!(!reusable(exp, exp, exp - margin, margin));
     }
 
     /// T11: a group change never reuses a cached JWT.
