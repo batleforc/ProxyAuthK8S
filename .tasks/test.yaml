@@ -26,9 +26,9 @@ version: "3"
 vars:
   # Line-coverage floor enforced by `coverage:ci` and by the CI gate.
   # A ratchet: raise it as the real figure climbs, never lower it to turn a red
-  # build green. Last measured 84.63% (2026-10-30, workspace, fast tiers, CI run
-  # 41050492433, before COVERAGE_EXCLUDE), RFC 0015 phase 1.
-  COVERAGE_MIN: '{{ .COVERAGE_MIN | default "84" }}'
+  # build green. Last measured 88.14% (2026-10-30, workspace, fast tiers,
+  # COVERAGE_EXCLUDE applied, CI run 41072375920); 85 is RFC 0015's target.
+  COVERAGE_MIN: '{{ .COVERAGE_MIN | default "85" }}'
   # Files out of the measure, each with its reason. Exclude with a reason,
   # never lower the floor (RFC 0015 §4.2):
   # - libs/cli/client_api: generated from swagger.json (task gen:back-api-client);
