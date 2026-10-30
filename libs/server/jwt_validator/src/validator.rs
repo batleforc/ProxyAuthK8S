@@ -531,6 +531,8 @@ pub type SharedJwtValidator = Arc<JwtValidator>;
 
 #[cfg(test)]
 mod tests {
+    use base64::Engine as _;
+
     use super::{
         ALLOWED_ALGORITHMS, LEEWAY_SECONDS, apply_claim_rule, map_user, map_user_for,
         unverified_issuer, verify_with_key,
@@ -949,5 +951,56 @@ mod tests {
             verify_with_key(&token, &jwk, "another-proxy"),
             Err(JwtValidationError::Rejected(_))
         ));
+    }
+
+    /// An HMAC token: the key is public, so a symmetric signature would be
+    /// forgeable by anyone who read the JWKS (RFC 0015 §6.4).
+    #[test]
+    fn a_token_signed_with_an_algorithm_outside_the_list_is_refused() {
+        let (_, jwk) = signed_now(&json!({"exp": now() + 600}));
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::new(Algorithm::HS256),
+            &json!({"aud": "proxy", "sub": "alice", "exp": now() + 600}),
+            &jsonwebtoken::EncodingKey::from_secret(b"anything"),
+        )
+        .unwrap();
+        assert!(matches!(
+            verify_with_key(&token, &jwk, "proxy"),
+            Err(JwtValidationError::UnsupportedAlgorithm { .. })
+        ));
+    }
+
+    /// The header names another allowed algorithm than the key's: the key's
+    /// own algorithm decides, so the token does not verify.
+    #[test]
+    fn a_header_algorithm_other_than_the_keys_is_refused() {
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600}));
+        let mut parts = token.split('.');
+        let (_, payload, signature) = (parts.next(), parts.next().unwrap(), parts.next().unwrap());
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"alg":"ES384","typ":"JWT"}"#);
+        let forged = format!("{header}.{payload}.{signature}");
+        assert!(verify_with_key(&forged, &jwk, "proxy").is_err());
+    }
+
+    #[test]
+    fn a_token_signed_by_another_key_is_refused() {
+        let (token, _) = signed_now(&json!({"exp": now() + 600}));
+        let (_, other) = signed_now(&json!({"exp": now() + 600}));
+        assert!(matches!(
+            verify_with_key(&token, &other, "proxy"),
+            Err(JwtValidationError::Rejected(_))
+        ));
+    }
+
+    #[test]
+    fn an_audience_list_without_ours_is_refused() {
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600, "aud": ["a", "b"]}));
+        assert!(matches!(
+            verify_with_key(&token, &jwk, "proxy"),
+            Err(JwtValidationError::Rejected(_))
+        ));
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600, "aud": ["a", "proxy"]}));
+        assert!(verify_with_key(&token, &jwk, "proxy").is_ok());
     }
 }

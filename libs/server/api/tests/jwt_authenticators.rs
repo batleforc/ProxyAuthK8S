@@ -244,6 +244,36 @@ async fn a_token_from_an_unconfigured_issuer_is_refused() {
     );
 }
 
+/// The issuer is matched byte for byte: one trailing slash more is another
+/// issuer, refused before any key is fetched (RFC 0015 §6.4).
+#[tokio::test]
+async fn an_issuer_one_slash_away_is_refused() {
+    let server = issuer_server().await;
+    let (ns, cluster) = unique_cluster();
+    let proxy = jwt_proxy(
+        &ns,
+        &cluster,
+        vec![authenticator(&server.uri(), "proxyauthk8s")],
+    );
+
+    let token = sign_claims(&json!({
+        "iss": format!("{}/", server.uri()),
+        "sub": "1234",
+        "aud": "proxyauthk8s",
+        "iat": now(),
+        "exp": now() + 300,
+    }));
+
+    let err = resolve(&proxy, &token).await.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            UserAuthError::JwtValidation(jwt_validator::JwtValidationError::UnknownIssuer { .. })
+        ),
+        "unexpected error: {err}"
+    );
+}
+
 /// Signed with a key the issuer does not publish. This is the check everything
 /// else rests on: without it, every rule below is decoration.
 #[tokio::test]

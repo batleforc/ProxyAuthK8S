@@ -482,4 +482,58 @@ mod tests {
         tokio::time::advance(Duration::from_secs(1)).await;
         assert!(!cached.is_fresh(Duration::from_secs(60)));
     }
+
+    /// A JWKS server that counts its fetches and always serves `body`.
+    async fn counting_server(
+        body: Vec<u8>,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let url = format!("http://{}/keys", listener.local_addr().expect("addr"));
+        let fetches = std::sync::Arc::new(AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&fetches);
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut tcp, _)) = listener.accept().await else {
+                    return;
+                };
+                counter.fetch_add(1, Ordering::SeqCst);
+                let mut request = [0u8; 1024];
+                let _read = tcp.read(&mut request).await;
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _sent = tcp.write_all(head.as_bytes()).await;
+                let _sent = tcp.write_all(&body).await;
+            }
+        });
+        (url, fetches)
+    }
+
+    /// An unknown `kid` drives one refetch, then the floor holds: a stream of
+    /// tokens with made-up `kid`s cannot make the proxy hammer the provider
+    /// (RFC 0015 §6.4).
+    #[tokio::test]
+    async fn an_unknown_kid_is_refused_after_a_single_refetch() {
+        use std::sync::atomic::Ordering;
+        let body = serde_json::to_vec(&jwks(&["known"])).expect("jwks serializes");
+        let (url, fetches) = counting_server(body).await;
+        let cache = JwksCache::new();
+        let client = reqwest::Client::new();
+
+        for _ in 0..3 {
+            assert!(matches!(
+                cache.key_at(&client, &url, Some("made-up")).await,
+                Err(crate::error::JwtValidationError::UnknownKey { .. })
+            ));
+        }
+        // The first fetch, then one forced refetch; never a third.
+        assert_eq!(fetches.load(Ordering::SeqCst), 2);
+        assert!(cache.key_at(&client, &url, Some("known")).await.is_ok());
+        assert_eq!(fetches.load(Ordering::SeqCst), 2);
+    }
 }
