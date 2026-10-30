@@ -11,7 +11,7 @@
     "lint": "oxlint -c ../../../.oxlintrc.json . && eslint ."
   },
   "dependencies": {
-    "axios": "^1.20.0"
+    "axios": "^1.21.0"
   },
   "devDependencies": {
     "@hey-api/openapi-ts": "0.99.0",
