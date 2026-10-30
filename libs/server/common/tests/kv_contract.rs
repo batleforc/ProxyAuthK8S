@@ -6,6 +6,13 @@
 //! unless `REQUIRE_TEST_REDIS` is set, which turns that into a failure. Every
 //! key carries a per-run prefix and is deleted at the end; nothing here flushes
 //! the database.
+//!
+//! `Kv::Memory` exists only under `test-util`, which the workspace test run
+//! enables through the dev-dependencies of `api` and `controller`; alone,
+//! `cargo test -p common` compiles this file to nothing. (A `[[test]]` entry
+//! with `required-features` would say so in Cargo.toml, but the image build
+//! leaves `tests/` out and then cannot parse the manifest.)
+#![cfg(feature = "test-util")]
 
 #![expect(
     clippy::expect_used,
