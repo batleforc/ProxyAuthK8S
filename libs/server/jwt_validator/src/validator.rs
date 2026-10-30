@@ -348,14 +348,16 @@ pub(crate) fn map_user(
     map_user_for(mappings, claims, false)
 }
 
-/// Whether the username is read from the `email` claim, by name or by an
-/// expression that mentions it.
+/// Whether the username may be read from the `email` claim: by name, or by
+/// an expression that mentions `email` in any form (`claims.email`,
+/// `claims["email"]`, `has(claims.email) ? …`). Stricter than parsing the CEL on
+/// purpose: a false positive only asks for `email_verified`.
 fn username_reads_email(mapping: &PrefixedClaimOrExpression) -> bool {
     mapping.claim.as_deref() == Some("email")
         || mapping
             .expression
             .as_deref()
-            .is_some_and(|expression| expression.contains("claims.email"))
+            .is_some_and(|expression| expression.contains("email"))
 }
 
 /// [`map_user`], for a cluster whose mode makes the apiserver trust the
@@ -381,6 +383,18 @@ pub fn map_user_for(
     }
 
     let username = map_prefixed_string(username_mapping, claims, "username")?;
+    // Whatever the expression's form, a username that is the email is one.
+    if trusted
+        && claims
+            .get("email")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|email| !email.is_empty() && username.ends_with(email))
+        && claims.get("email_verified") != Some(&serde_json::Value::Bool(true))
+    {
+        return Err(JwtValidationError::Rejected(
+            "the username is the email, which is not verified".to_string(),
+        ));
+    }
     // An empty username is an anonymous identity, not a user: the proxy would go
     // on to authorize it, rate-limit every such caller under one empty subject
     // and forward `x-forwarded-user: ""` upstream. The apiserver refuses it for
@@ -572,19 +586,25 @@ mod tests {
         }
     }
 
-    /// A JWKS publishes public keys, so accepting an HMAC algorithm would let
-    /// anyone who can read it mint a token that verifies — the classic
-    /// algorithm-confusion forgery.
     #[test]
     fn a_trusted_mode_refuses_an_unverified_email_as_username() {
-        let by_claim = mappings(claim_mapping("email", Some("")));
-        let mut by_expression = mappings(claim_mapping("sub", Some("")));
-        by_expression.username = Some(PrefixedClaimOrExpression {
-            prefix: None,
-            claim: None,
-            expression: Some("claims.email".to_string()),
-        });
-        for config in [&by_claim, &by_expression] {
+        let by_expression = |expression: &str| {
+            let mut config = mappings(claim_mapping("sub", Some("")));
+            config.username = Some(PrefixedClaimOrExpression {
+                prefix: None,
+                claim: None,
+                expression: Some(expression.to_string()),
+            });
+            config
+        };
+        let configs = [
+            mappings(claim_mapping("email", Some(""))),
+            by_expression("claims.email"),
+            by_expression("claims[\"email\"]"),
+            by_expression("has(claims.email) ? claims.email : claims.sub"),
+            by_expression("claims[\"em\" + \"ail\"]"),
+        ];
+        for config in &configs {
             for verified in [None, Some(false)] {
                 let mut claims = claims();
                 match verified {
@@ -605,6 +625,9 @@ mod tests {
         assert!(map_user_for(&mappings(claim_mapping("sub", Some(""))), &claims(), true).is_ok());
     }
 
+    /// A JWKS publishes public keys, so accepting an HMAC algorithm would let
+    /// anyone who can read it mint a token that verifies — the classic
+    /// algorithm-confusion forgery.
     #[test]
     fn no_symmetric_algorithm_is_ever_accepted() {
         for symmetric in [Algorithm::HS256, Algorithm::HS384, Algorithm::HS512] {

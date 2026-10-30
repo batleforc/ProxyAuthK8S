@@ -230,17 +230,6 @@ impl State {
         Ok(objects)
     }
 
-    /// Fetch and deserialize a single cached object by prefix and key.
-    ///
-    /// `Ok(None)` means the key is absent. A value that exists but cannot be
-    /// deserialized is a distinct failure ([`RedisPoolError::Deserialize`]), not
-    /// silently treated as absent, so a corrupt cache entry cannot masquerade as
-    /// a missing object.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RedisPoolError`] when the Redis command fails, or
-    /// [`RedisPoolError::Deserialize`] when a stored value cannot be decoded.
     /// A cached `ProxyKubeApi` by `ns/name`, whichever prefix it is under
     /// (RFC 0014, decision 42): the trusted-mode key first, then the legacy one.
     ///
@@ -280,6 +269,17 @@ impl State {
         Ok(proxies)
     }
 
+    /// Fetch and deserialize a single cached object by prefix and key.
+    ///
+    /// `Ok(None)` means the key is absent. A value that exists but cannot be
+    /// deserialized is a distinct failure ([`RedisPoolError::Deserialize`]), not
+    /// silently treated as absent, so a corrupt cache entry cannot masquerade as
+    /// a missing object.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RedisPoolError`] when the Redis command fails, or
+    /// [`RedisPoolError::Deserialize`] when a stored value cannot be decoded.
     #[instrument(skip(self))]
     pub async fn get_object_from_redis<T: ObjectRedis>(
         &self,

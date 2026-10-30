@@ -151,7 +151,11 @@ pub fn plan<E>(
 
     if let Some(value) = fresh.filter(|value| value.starts_with("revoke:")) {
         let active = keys.current(now).map(|key| key.kid.clone());
-        keys.keys.retain(|key| Some(&key.kid) != active.as_ref());
+        // A pending key goes too: it lives in the same Secret as the revoked
+        // one, and would otherwise outlive the replacement, which then never
+        // gets a `retire_at`.
+        keys.keys
+            .retain(|key| Some(&key.kid) != active.as_ref() && key.activate_at <= now);
         keys.keys.push(new_key(now, now)?);
         return Ok(Plan::Write {
             keys,
@@ -159,6 +163,9 @@ pub fn plan<E>(
         });
     }
     let pending = keys.keys.iter().any(|key| key.activate_at > now);
+    // One pending key at a time: a request made meanwhile stays unprocessed,
+    // and rotates once the pending key is active.
+    let fresh = fresh.filter(|_| !pending);
     let due = keys.current(now).is_some_and(|key| {
         now >= key
             .activate_at
@@ -342,7 +349,8 @@ mod tests {
         let retire = active + 300 + ACTIVATION_DELAY_SECONDS;
         assert_eq!(rotated.published(retire - 1).count(), 2);
         assert_eq!(rotated.published(retire).count(), 1);
-        // One pending key at a time: a second request waits.
+        // One pending key at a time: a second request waits, unprocessed,
+        // then rotates once the pending key is active.
         let wait = plan(
             &rotated,
             due + 1,
@@ -351,8 +359,16 @@ mod tests {
             None,
             &mut new_key,
         );
-        let (waiting, processed) = written(wait);
-        assert_eq!(waiting.keys.len(), 2);
+        assert_eq!(wait, Ok(Plan::Keep));
+        let (again, processed) = written(plan(
+            &rotated,
+            active,
+            ROTATION,
+            Some("again"),
+            None,
+            &mut new_key,
+        ));
+        assert_eq!(again.keys.len(), 3);
         assert_eq!(processed.as_deref(), Some("again"));
         // Purged once retired: a restored backup brings nothing back.
         let (purged, _) = written(plan(&rotated, retire, ROTATION, None, None, &mut new_key));
@@ -435,6 +451,33 @@ mod tests {
             &mut new_key,
         );
         assert_eq!(replay, Ok(Plan::Keep));
+    }
+
+    /// A revocation during a rotation drops the pending key too, so the
+    /// replacement is the only one left to sign and is rotated normally.
+    #[test]
+    fn a_revocation_during_a_rotation_leaves_one_key() {
+        let mut new_key = maker();
+        let (first, _) = written(plan(
+            &IssuerKeySet::default(),
+            0,
+            ROTATION,
+            None,
+            None,
+            &mut new_key,
+        ));
+        let (rotating, _) = written(plan(&first, 10, ROTATION, Some("r1"), None, &mut new_key));
+        let (revoked, _) = written(plan(
+            &rotating,
+            20,
+            ROTATION,
+            Some("revoke:a1"),
+            Some("r1"),
+            &mut new_key,
+        ));
+        let kids: Vec<_> = revoked.keys.iter().map(|k| k.kid.as_str()).collect();
+        assert_eq!(kids, ["k3"]);
+        assert_eq!(revoked.current(20).map(|k| k.kid.as_str()), Some("k3"));
     }
 
     #[test]

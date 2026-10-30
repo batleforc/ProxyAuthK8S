@@ -71,15 +71,6 @@ pub async fn run_leader_election(
     }
 }
 
-/// Run the `ProxyKubeApi` controller and the leader election loop.
-///
-/// # Errors
-///
-/// Returns [`ControllerError::CrdUnavailable`] when the `ProxyKubeApi`
-/// resources cannot be listed at startup (CRD not installed, missing RBAC,
-/// apiserver unreachable). The caller is expected to stop the process so the
-/// pod restarts (and surfaces as `CrashLoopBackOff`) rather than serving with
-/// a controller that will never fill Redis.
 /// The `ProxyKubeApi` CRD's name.
 const PROXY_KUBE_API_CRD: &str = "proxykubeapis.weebo.si.rs";
 
@@ -97,6 +88,15 @@ fn crd_has_upstream_auth(crd: &CustomResourceDefinition) -> bool {
     })
 }
 
+/// Run the `ProxyKubeApi` controller and the leader election loop.
+///
+/// # Errors
+///
+/// Returns [`ControllerError::CrdUnavailable`] when the `ProxyKubeApi`
+/// resources cannot be listed at startup (CRD not installed, missing RBAC,
+/// apiserver unreachable). The caller is expected to stop the process so the
+/// pod restarts (and surfaces as `CrashLoopBackOff`) rather than serving with
+/// a controller that will never fill Redis.
 pub async fn run(state: State) -> Result<()> {
     let client = state.client.clone();
     let proxy_kube_apis = Api::<ProxyKubeApi>::all(client.clone());

@@ -16,6 +16,7 @@ use common::State;
 use common::upstream_trust::{self, Trust};
 use crd::ProxyKubeApi;
 use crd::upstream_auth::{UpstreamAuth, UpstreamAuthMode};
+use futures_util::StreamExt;
 use kube::ResourceExt as _;
 use tracing::{debug, warn};
 
@@ -203,6 +204,9 @@ async fn probe(state: &State, proxy: &ProxyKubeApi, upstream: &UpstreamAuth) -> 
     }
 }
 
+/// Clusters probed at once in a round.
+const PROBE_CONCURRENCY: usize = 16;
+
 /// The probe loop: a round per [`ROUND`], on the leader only.
 pub async fn run(state: State) {
     let state = Arc::new(state);
@@ -210,14 +214,22 @@ pub async fn run(state: State) {
         if state.is_leader.load(Ordering::Relaxed) {
             match state.list_proxies().await {
                 Ok(proxies) => {
-                    for proxy in &proxies {
-                        let Some(upstream) = probed(proxy) else {
-                            continue;
-                        };
-                        let trust = probe(&state, proxy, upstream).await;
-                        debug!(cluster = %proxy.to_path(), ?trust, "upstream trust probed");
-                        upstream_trust::record(&proxy.to_path(), trust);
-                    }
+                    // Concurrent, so an unreachable apiserver does not delay
+                    // the others past `upstream_trust::MAX_AGE`.
+                    futures_util::stream::iter(
+                        proxies
+                            .iter()
+                            .filter_map(|proxy| probed(proxy).map(|up| (proxy, up))),
+                    )
+                    .for_each_concurrent(PROBE_CONCURRENCY, |(proxy, upstream)| {
+                        let state = &state;
+                        async move {
+                            let trust = probe(state, proxy, upstream).await;
+                            debug!(cluster = %proxy.to_path(), ?trust, "upstream trust probed");
+                            upstream_trust::record(&proxy.to_path(), trust);
+                        }
+                    })
+                    .await;
                 }
                 Err(error) => warn!(%error, "the trust probe could not list the clusters"),
             }

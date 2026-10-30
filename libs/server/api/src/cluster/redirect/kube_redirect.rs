@@ -518,6 +518,15 @@ pub async fn redirect(
                     audit.upstream_user = Some(identity.username.clone());
                     audit.upstream_groups.clone_from(&identity.groups);
                     let token = if mode == crd::upstream_auth::UpstreamAuthMode::Issuer {
+                        // The validator's leeway lets a token a few seconds
+                        // past its `exp` through; signed, it would be a JWT
+                        // the apiserver refuses, read as a broken trust (502).
+                        if source_ttl.is_some_and(|left| left < crate::issuer::MIN_SOURCE_TTL) {
+                            audited!(
+                                audit,
+                                unauthorized("the token has expired or is about to; refresh it")
+                            );
+                        }
                         match crate::issuer::sign(&data, &proxy, &identity, source_ttl).await {
                             Ok(token) => Some(token),
                             Err(reason) => {

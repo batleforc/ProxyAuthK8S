@@ -87,8 +87,23 @@ static SLOTS: LazyLock<Mutex<HashMap<String, Arc<Slot>>>> =
 
 fn slot(name: &str) -> Option<Arc<Slot>> {
     let mut slots = SLOTS.lock().ok()?;
+    if !slots.contains_key(name) {
+        // A deleted or recreated cluster (new UID, new name) leaves its slot,
+        // keys included: dropped once unused and unread for `SLOT_IDLE`, long
+        // enough to keep serving an idle cluster through an outage (decision 44).
+        let now = Instant::now();
+        slots.retain(|_, slot| {
+            Arc::strong_count(slot) > 1
+                || slot.held().is_some_and(|held| {
+                    now < held.fresh_until.checked_add(SLOT_IDLE).unwrap_or(now)
+                })
+        });
+    }
     Some(Arc::clone(slots.entry(name.to_string()).or_default()))
 }
+
+/// How long a slot nobody reads keeps its keys.
+const SLOT_IDLE: Duration = Duration::from_secs(86_400);
 
 /// A cheap spread for retries: the replicas need not agree, only differ.
 fn jitter() -> Duration {
@@ -185,6 +200,10 @@ fn cache_key(identity: &UpstreamIdentity, uid: &str, issuer: &str, kid: &str) ->
         .collect()
 }
 
+/// The least a caller's token must have left for the proxy to sign a JWT
+/// bounded by it (decision 61).
+pub const MIN_SOURCE_TTL: Duration = Duration::from_secs(5);
+
 /// The `exp` of a JWT signed at `iat`: `token_ttl_seconds`, never past the
 /// caller's own token (decision 61).
 fn expiry(iat: i64, ttl_seconds: u32, source_ttl: Option<Duration>) -> i64 {
@@ -277,7 +296,20 @@ struct Documents {
     jwks: Value,
     /// Served no longer than this through an outage.
     serve_until: Option<i64>,
+    /// Served without a lookup until then.
+    fresh_until: Instant,
 }
+
+/// How long the documents are served without a lookup: below their
+/// `max-age`, so a rotation still reaches the apiserver in time.
+const DOCUMENTS_FRESH: Duration = Duration::from_secs(10);
+
+/// Lookups (Redis, then the key Secret) the public routes run at once:
+/// they are never rate limited (T15), so an invented `{ns}/{cluster}` loop
+/// must not reach Redis without bound. Requests queue (first in, first
+/// served) up to [`LOOKUP_WAIT`], then get the last good documents.
+static LOOKUPS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
+const LOOKUP_WAIT: Duration = Duration::from_secs(2);
 
 /// The last good documents of each cluster, for an outage of Redis or the
 /// API (decision 44). Positive entries only: an invented `{ns}/{cluster}`
@@ -306,12 +338,28 @@ fn documents_for(issuer_url: &str, keys: &IssuerKeySet, at: i64) -> Documents {
         }),
         jwks: json!({ "keys": published }),
         serve_until: keys.serve_until(at),
+        fresh_until: later(DOCUMENTS_FRESH),
     }
 }
 
 /// The documents of `ns/cluster`: fresh when the cluster and its keys can be
 /// read, else the last good ones while their keys have not retired.
 async fn documents(state: &common::State, path: &str) -> Option<Documents> {
+    let last_good = |fresh_only: bool| {
+        let at = now();
+        let store = DOCUMENTS.lock().ok()?;
+        store
+            .get(path)
+            .filter(|documents| !fresh_only || Instant::now() < documents.fresh_until)
+            .filter(|documents| documents.serve_until.is_none_or(|until| until > at))
+            .cloned()
+    };
+    if let Some(documents) = last_good(true) {
+        return Some(documents);
+    }
+    let Ok(Ok(_lookup)) = tokio::time::timeout(LOOKUP_WAIT, LOOKUPS.acquire()).await else {
+        return last_good(false);
+    };
     let fresh = async {
         let proxy = state.get_proxy_from_redis(path).await.map_err(|_| ())?;
         let Some(proxy) = proxy else {
@@ -342,14 +390,7 @@ async fn documents(state: &common::State, path: &str) -> Option<Documents> {
             }
             None
         }
-        Err(()) => {
-            let at = now();
-            let store = DOCUMENTS.lock().ok()?;
-            store
-                .get(path)
-                .filter(|documents| documents.serve_until.is_none_or(|until| until > at))
-                .cloned()
-        }
+        Err(()) => last_good(false),
     }
 }
 
@@ -403,6 +444,19 @@ mod tests {
             groups: groups.iter().map(ToString::to_string).collect(),
             extra: BTreeMap::new(),
         }
+    }
+
+    /// A slot nobody holds and nobody read lately goes when another is
+    /// made; one in use stays.
+    #[test]
+    fn an_idle_slot_is_dropped_when_a_new_one_is_made() {
+        let held = slot("test-held").unwrap();
+        drop(slot("test-idle"));
+        let _new = slot("test-new").unwrap();
+        let slots = SLOTS.lock().unwrap();
+        assert!(!slots.contains_key("test-idle"));
+        assert!(slots.contains_key("test-held"));
+        drop(held);
     }
 
     /// Decision 61: never past the caller's token, `token_ttl_seconds`
