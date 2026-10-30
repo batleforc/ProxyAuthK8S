@@ -90,6 +90,9 @@ async fn main() -> anyhow::Result<()> {
     // controller must still get to release the leader Lease (RFC 0011,
     // decision 36) instead of being dropped mid-shutdown.
     let mut controller = tokio::spawn(controller::run(state.clone()));
+    // RFC 0014 §5.4: the trust probe of the FrontProxy clusters, on the
+    // leader; dropped with the process, it holds nothing to release.
+    let _upstream_probe = tokio::spawn(api::upstream_probe::run(state.clone()));
     let shutdown_timeout = config.server.shutdown_timeout_secs;
     tracing::info!(seconds = shutdown_timeout, "Graceful shutdown timeout");
     // CORS: same-origin only unless `CORS_ALLOWED_ORIGINS` lists the origins

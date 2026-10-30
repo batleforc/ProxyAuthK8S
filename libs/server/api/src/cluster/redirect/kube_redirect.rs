@@ -13,8 +13,10 @@ use tracing::{debug, error, info, instrument, warn};
 use crate::cluster::redirect::audit::{AuditContext, PortDecision};
 use crate::cluster::redirect::status_response::{
     agent_unavailable, bad_request, forbidden, too_many_requests, unauthorized,
+    upstream_mode_unavailable,
 };
 use crate::cluster::redirect::throttle;
+use crate::cluster::redirect::upstream_identity::{Asserted, UpstreamIdentity};
 use crate::helper::{extract_authorization_header, forwarded_for, peer_ip};
 use crate::model::user::User;
 
@@ -27,7 +29,7 @@ mod standard;
 mod tls;
 mod upgrade;
 mod upstream;
-pub(crate) use upstream::self_subject_review_through_agent;
+pub(crate) use upstream::{ca_only_client, probe_client, self_subject_review_through_agent};
 mod virtual_redirect;
 mod websocket;
 
@@ -49,6 +51,56 @@ macro_rules! audited {
     }};
 }
 
+/// Why this replica refuses the cluster's upstream mode, if it does (RFC 0014
+/// §4.2): outside `upstreamAuth.allowedModes`, or not served by this version.
+/// The message names who can act and never carries a token or a name.
+fn upstream_mode_refusal(proxy: &ProxyKubeApi) -> Option<String> {
+    let mode = proxy.upstream_mode();
+    if !common::config::get()
+        .proxy
+        .upstream_allowed_modes
+        .contains(&mode)
+    {
+        return Some(format!(
+            "upstream mode {} is not enabled on this proxy installation; ask the proxy administrator (upstreamAuth.allowedModes)",
+            mode.as_str()
+        ));
+    }
+    if !crd::upstream_auth::SERVED_MODES.contains(&mode) {
+        return Some(format!(
+            "this proxy replica cannot serve upstream mode {} yet; retry once the upgrade completes",
+            mode.as_str()
+        ));
+    }
+    if !mode.is_trusted() {
+        return None;
+    }
+    // Decision 50: in a trusted mode the proxy is the only one to check the
+    // audience.
+    if common::token_audience::AudienceValidationMode::from_env()
+        != common::token_audience::AudienceValidationMode::Enforce
+    {
+        return Some(format!(
+            "upstream mode {} requires OIDC audience validation; ask the proxy administrator (OIDC_AUDIENCE_VALIDATION=enforce)",
+            mode.as_str()
+        ));
+    }
+    // Decision 45: a trusted cluster the controller found not ready (its
+    // certificate, its target) is closed, with the controller's reason.
+    let status = proxy.status.as_ref();
+    if !status.is_some_and(|status| status.exposed) {
+        let reason = status
+            .and_then(|status| status.error.as_deref())
+            .unwrap_or("not reconciled yet");
+        return Some(format!(
+            "this cluster is not ready for upstream mode {}: {reason}; ask the proxy administrator (see the conditions of ProxyKubeApi {})",
+            mode.as_str(),
+            proxy.to_path()
+        ));
+    }
+    None
+}
+
 /// The proxy route: `ns` and `cluster` come from the router, the upstream
 /// path from the raw URI (never percent-decoded, see RFC 0007 T3).
 #[instrument(name = "main_redirect", fields(http.method = ?req.method(), http.response.status_code), skip(req, data))]
@@ -66,10 +118,7 @@ pub async fn redirect(
     }
     let method = req.method.clone();
 
-    let proxy: ProxyKubeApi = match data
-        .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
-        .await
-    {
+    let proxy: ProxyKubeApi = match data.get_proxy_from_redis(&format!("{ns}/{cluster}")).await {
         Ok(Some(proxy)) => proxy,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
@@ -95,6 +144,13 @@ pub async fn redirect(
     let mut audit = AuditContext::new(&ns, &cluster, method.as_str(), &upstream_path);
     if matches!(proxy.spec.service, Service::Agent(_)) {
         audit.upstream_via = "agent";
+    }
+    audit.upstream_mode = proxy.upstream_mode().as_str();
+    // RFC 0014, before gate 1: a mode the installation does not allow, or
+    // this replica does not serve, is refused, never relayed as Passthrough.
+    if let Some(message) = upstream_mode_refusal(&proxy) {
+        warn!(ns, cluster, %message, "upstream mode refused");
+        audited!(audit, upstream_mode_unavailable(&message));
     }
     // The Kubernetes verb, computed as the apiserver does (RFC 0006): every
     // audit line of this request carries it, refusals included.
@@ -155,6 +211,9 @@ pub async fn redirect(
         );
     }
 
+    // RFC 0014, decision 61: what is left of the caller's token, so an
+    // issued JWT never outlives it.
+    let mut source_ttl = None;
     let user = if proxy.need_token_validation() {
         let token = match extract_authorization_header(&req.headers) {
             Ok(token) => token,
@@ -164,6 +223,7 @@ pub async fn redirect(
                 audited!(audit, unauthorized("no usable bearer token was provided"));
             }
         };
+        source_ttl = common::oidc_cache::jwt_time_to_expiry(token);
         match User::get_user_info_with_proxy((*data).clone(), proxy.clone(), token.to_string())
             .await
         {
@@ -434,6 +494,71 @@ pub async fn redirect(
         }
     };
 
+    // RFC 0014: the identity asserted upstream, computed after the last
+    // gate, so a refused request never makes the proxy assert anything.
+    let mode = proxy.upstream_mode();
+    let upstream_identity = match (mode, &proxy.spec.upstream_auth) {
+        (
+            crd::upstream_auth::UpstreamAuthMode::FrontProxy
+            | crd::upstream_auth::UpstreamAuthMode::Issuer,
+            Some(upstream),
+        ) => {
+            let Some(user) = user.as_ref() else {
+                // Unreachable through admission (`validate` refuses the mode
+                // without validation); closed all the same.
+                audited!(
+                    audit,
+                    forbidden(
+                        "this cluster asserts the caller's identity upstream, which needs a validated user"
+                    )
+                );
+            };
+            match UpstreamIdentity::from_user(user, upstream) {
+                Ok(identity) => {
+                    audit.upstream_user = Some(identity.username.clone());
+                    audit.upstream_groups.clone_from(&identity.groups);
+                    let token = if mode == crd::upstream_auth::UpstreamAuthMode::Issuer {
+                        // The validator's leeway lets a token a few seconds
+                        // past its `exp` through; signed, it would be a JWT
+                        // the apiserver refuses, read as a broken trust (502).
+                        if source_ttl.is_some_and(|left| left < crate::issuer::MIN_SOURCE_TTL) {
+                            audited!(
+                                audit,
+                                unauthorized("the token has expired or is about to; refresh it")
+                            );
+                        }
+                        match crate::issuer::sign(&data, &proxy, &identity, source_ttl).await {
+                            Ok(token) => Some(token),
+                            Err(reason) => {
+                                warn!(%reason, "cannot sign the Issuer JWT");
+                                audited!(
+                                    audit,
+                                    upstream_mode_unavailable(&format!(
+                                        "this cluster is not ready for upstream mode Issuer: {reason}; ask the proxy administrator (see the conditions of ProxyKubeApi {})",
+                                        proxy.to_path()
+                                    ))
+                                );
+                            }
+                        }
+                    } else {
+                        None
+                    };
+                    Some(Asserted { identity, token })
+                }
+                Err(refusal) => {
+                    warn!(
+                        reason = refusal.as_str(),
+                        "refusing an identity that cannot be asserted upstream"
+                    );
+                    crate::metrics::record_upstream_identity_refused(refusal.as_str());
+                    audit.reason = Some("upstream_identity_refused");
+                    audited!(audit, forbidden(&refusal.message(&ns, &cluster)));
+                }
+            }
+        }
+        _ => None,
+    };
+
     let ctx = RedirectContext {
         req,
         body: payload,
@@ -442,6 +567,7 @@ pub async fn redirect(
         peer_ip,
         proxy,
         user,
+        upstream_identity,
         audit,
         base_url,
         upstream_path,
@@ -466,4 +592,43 @@ pub async fn redirect(
     }
 
     standard_redirect(ctx).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crd::upstream_auth::{UpstreamAuth, UpstreamAuthMode};
+
+    fn proxy(mode: Option<UpstreamAuthMode>) -> ProxyKubeApi {
+        let mut spec: crd::ProxyKubeApiSpec = serde_json::from_value(serde_json::json!({
+            "cert": { "SystemRoots": true },
+            "service": { "ExternalService": { "url": "https://cluster.example.com:6443" } }
+        }))
+        .expect("spec");
+        spec.upstream_auth = mode.map(|mode| UpstreamAuth {
+            mode,
+            ..UpstreamAuth::default()
+        });
+        ProxyKubeApi::new("c", spec)
+    }
+
+    #[test]
+    fn passthrough_and_an_absent_block_are_served() {
+        assert_eq!(upstream_mode_refusal(&proxy(None)), None);
+        assert_eq!(
+            upstream_mode_refusal(&proxy(Some(UpstreamAuthMode::Passthrough))),
+            None
+        );
+    }
+
+    /// Default installation: `allowedModes` is `Passthrough` alone, so a
+    /// trusted mode is refused, naming the chart value, never relayed.
+    #[test]
+    fn a_trusted_mode_outside_allowed_modes_is_refused_with_who_can_act() {
+        for mode in [UpstreamAuthMode::FrontProxy, UpstreamAuthMode::Issuer] {
+            let message = upstream_mode_refusal(&proxy(Some(mode))).expect("refused");
+            assert!(message.contains(mode.as_str()), "{message}");
+            assert!(message.contains("upstreamAuth.allowedModes"), "{message}");
+        }
+    }
 }

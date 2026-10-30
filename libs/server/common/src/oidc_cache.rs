@@ -136,14 +136,37 @@ pub fn token_cache_ttl() -> Duration {
 }
 
 /// Cache key for a validated token: never the raw token, and scoped to the
-/// provider/client/audience it was validated against.
+/// provider/client/audience it was validated against, and to the mapping that
+/// turned its claims into a user (RFC 0014, decision 38): `mapping` is
+/// [`LEGACY_MAPPING`] without `claim_mappings`, else its fingerprint, so two
+/// clusters on one OIDC client never serve each other's user.
 #[must_use]
-pub fn token_cache_key(token: &str, issuer_url: &str, client_id: &str, audience: &str) -> String {
+pub fn token_cache_key(
+    token: &str,
+    issuer_url: &str,
+    client_id: &str,
+    audience: &str,
+    mapping: &str,
+) -> String {
     let mut hasher = Sha256::new();
-    for part in [token, issuer_url, client_id, audience] {
+    for part in [token, issuer_url, client_id, audience, mapping] {
         hasher.update((part.len() as u64).to_be_bytes());
         hasher.update(part.as_bytes());
     }
+    URL_SAFE_NO_PAD.encode(hasher.finalize())
+}
+
+/// The `mapping` part of [`token_cache_key`] for the built-in mapping
+/// (`preferred_username`, `groups`).
+pub const LEGACY_MAPPING: &str = "legacy";
+
+/// The `mapping` part of [`token_cache_key`] for a cluster's `claim_mappings`,
+/// and whether its mode is trusted (which changes the `email_verified` rule).
+#[must_use]
+pub fn mapping_fingerprint(mappings: &impl serde::Serialize, trusted: bool) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(serde_json::to_vec(mappings).unwrap_or_default());
+    hasher.update([u8::from(trusted)]);
     URL_SAFE_NO_PAD.encode(hasher.finalize())
 }
 
@@ -232,24 +255,42 @@ mod tests {
 
     #[test]
     fn key_is_scoped_to_provider_client_and_audience() {
-        let base = token_cache_key("tok", "https://idp", "client", "aud");
+        let base = token_cache_key("tok", "https://idp", "client", "aud", LEGACY_MAPPING);
+        // RFC 0014, decision 38: another mapping is another entry.
         assert_ne!(
             base,
-            token_cache_key("tok", "https://other-idp", "client", "aud")
+            token_cache_key(
+                "tok",
+                "https://idp",
+                "client",
+                "aud",
+                &mapping_fingerprint(&"m", false)
+            )
         );
-        assert_ne!(base, token_cache_key("tok", "https://idp", "other", "aud"));
         assert_ne!(
-            base,
-            token_cache_key("tok", "https://idp", "client", "other")
+            mapping_fingerprint(&"m", false),
+            mapping_fingerprint(&"m", true)
         );
         assert_ne!(
             base,
-            token_cache_key("tok2", "https://idp", "client", "aud")
+            token_cache_key("tok", "https://other-idp", "client", "aud", LEGACY_MAPPING)
+        );
+        assert_ne!(
+            base,
+            token_cache_key("tok", "https://idp", "other", "aud", LEGACY_MAPPING)
+        );
+        assert_ne!(
+            base,
+            token_cache_key("tok", "https://idp", "client", "other", LEGACY_MAPPING)
+        );
+        assert_ne!(
+            base,
+            token_cache_key("tok2", "https://idp", "client", "aud", LEGACY_MAPPING)
         );
         // Length-prefixing prevents boundary-shifting collisions.
         assert_ne!(
-            token_cache_key("ab", "c", "client", "aud"),
-            token_cache_key("a", "bc", "client", "aud")
+            token_cache_key("ab", "c", "client", "aud", LEGACY_MAPPING),
+            token_cache_key("a", "bc", "client", "aud", LEGACY_MAPPING)
         );
         assert!(!base.contains("tok"));
     }

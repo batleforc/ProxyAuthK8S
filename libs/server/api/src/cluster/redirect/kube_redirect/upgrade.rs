@@ -25,6 +25,7 @@ use tracing::{error, instrument, warn};
 use super::port_forward::{self, PortForwardFilter};
 use crate::cluster::redirect::audit::{AuditContext, PortDecision};
 use crate::cluster::redirect::status_response::{bad_request, forbidden};
+use crate::cluster::redirect::upstream_identity::Upstream;
 
 mod connect;
 mod tunnel;
@@ -368,6 +369,7 @@ pub(super) async fn upgrade_redirect(
         peer_ip,
         proxy,
         user,
+        upstream_identity,
         audit,
         ..
     } = ctx;
@@ -376,9 +378,14 @@ pub(super) async fn upgrade_redirect(
         let (is_restricted_port_forward, query_ports) = check_handshake(&req, &port_policy)?;
         let upstream_url = reqwest::Url::parse(&url_to_call)
             .map_err(|err| UpgradeRefusal::InvalidUpstreamUrl(err.to_string()))?;
-        let request =
-            build_upgrade_request(&req.headers, &method, &upstream_url, peer_ip, user.as_ref())
-                .map_err(UpgradeRefusal::InvalidUpstreamUrl)?;
+        let request = build_upgrade_request(
+            &req.headers,
+            &method,
+            &upstream_url,
+            peer_ip,
+            Upstream::new(user.as_ref(), upstream_identity.as_ref()),
+        )
+        .map_err(UpgradeRefusal::InvalidUpstreamUrl)?;
         let client_upgrade = req
             .extensions
             .remove::<OnUpgrade>()
@@ -392,6 +399,15 @@ pub(super) async fn upgrade_redirect(
         // allow-list and identity stamping. Answer with the refusal and drop
         // both connections.
         let Some(upgrade_protocol) = switched_protocol(&response) else {
+            if upstream_identity.is_some() && response.status() == StatusCode::UNAUTHORIZED {
+                audit.emit_refusal(502);
+                return Ok(
+                    crate::cluster::redirect::status_response::untrusted_upstream(
+                        &proxy.to_path(),
+                        proxy.upstream_mode().as_str(),
+                    ),
+                );
+            }
             return Ok(refused_upgrade_response(response, &audit).await);
         };
 
@@ -651,6 +667,7 @@ mod security_contract_tests {
             username: "alice".to_string(),
             email: "alice@example.com".to_string(),
             groups: vec!["dev".to_string(), "platform".to_string()],
+            ..User::default()
         }
     }
 
@@ -663,7 +680,7 @@ mod security_contract_tests {
             &http::Method::GET,
             &url,
             Some("10.1.2.3".parse().expect("ip should parse")),
-            user,
+            crate::cluster::redirect::upstream_identity::Upstream::Passthrough(user),
         )
         .expect("the handshake builds");
         let mut wire = format!("{} {} HTTP/1.1\r\n", built.method(), built.uri());

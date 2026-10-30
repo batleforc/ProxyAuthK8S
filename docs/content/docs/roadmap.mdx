@@ -442,7 +442,9 @@ ce que le **credential du proxy se substitue à celui de l'utilisateur** :
   chemin ni en-têtes — plus de routage par cluster, plus de politique, de bannissement ni
   d'audit.
 
-Aucune n'est acceptable : le proxy ne doit jamais pouvoir fabriquer ou endosser une identité.
-Les admins utilisent leur `admin.conf` directement contre l'apiserver, ou se connectent via le
+Aucune n'est acceptable pour un certificat client : le proxy n'en a pas la clé et
+n'endosserait qu'un nom. Le front-proxy existe depuis, en option par cluster
+(`upstream_auth.mode: FrontProxy`, RFC 0014, [guide](/docs/front-proxy)), mais seulement pour
+un utilisateur que le proxy a authentifié par OIDC ou JWT, sous un préfixe. Les admins utilisent leur `admin.conf` directement contre l'apiserver, ou se connectent via le
 proxy avec OIDC. Les en-têtes `Impersonate-*` et `X-Remote-*` envoyés par un client restent
 systématiquement retirés (voir « En-têtes transmis » dans la page Sécurité).

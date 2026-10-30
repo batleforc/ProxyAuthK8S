@@ -18,6 +18,8 @@ use crate::error::Result;
 
 pub mod bootstrap;
 pub mod cleanup;
+pub mod front_proxy;
+pub mod issuer;
 pub mod reconcile;
 
 /// Redis key prefix under which cluster configurations are cached.
@@ -182,6 +184,7 @@ mod tests {
                 dashboard_group: None,
                 proxy_group: None,
                 virtual_apis: Vec::new(),
+                upstream_auth: None,
             },
         );
         proxy.metadata.namespace = namespace.map(str::to_string);

@@ -538,6 +538,15 @@ pub struct AuditContext {
     /// `direct`, or `agent` for a cluster reached through its agent tunnel
     /// (RFC 0012, T14).
     pub upstream_via: &'static str,
+    /// How the identity is presented upstream (RFC 0014): `Passthrough`,
+    /// `FrontProxy` or `Issuer`.
+    pub upstream_mode: &'static str,
+    /// The identity asserted to the apiserver (RFC 0014 §10.1), outside
+    /// `Passthrough`.
+    pub upstream_user: Option<String>,
+    pub upstream_groups: Vec<String>,
+    /// Why the request was refused, when a refusal has a closed reason.
+    pub reason: Option<&'static str>,
     started_at: Instant,
 }
 
@@ -555,6 +564,10 @@ impl AuditContext {
             user: None,
             groups: Vec::new(),
             upstream_via: "direct",
+            upstream_mode: "Passthrough",
+            upstream_user: None,
+            upstream_groups: Vec::new(),
+            reason: None,
             started_at: Instant::now(),
         }
     }
@@ -579,7 +592,18 @@ impl AuditContext {
             .user(self.user.as_deref(), &self.groups)
             .cluster(&self.ns, &self.cluster)
             .http(&self.method, self.k8s_verb.as_deref(), &self.path)
-            .set("upstream_via", json!(self.upstream_via));
+            .set("upstream_via", json!(self.upstream_via))
+            .set("upstream_mode", json!(self.upstream_mode));
+        let line = match &self.upstream_user {
+            Some(user) => line
+                .set("upstream_user", json!(user))
+                .set("upstream_groups", json!(self.upstream_groups)),
+            None => line,
+        };
+        let line = match self.reason {
+            Some(reason) => line.set("reason", json!(reason)),
+            None => line,
+        };
         let line = match &self.upstream {
             Some((path, verb)) => line.upstream(path, verb.as_deref()),
             None => line,

@@ -28,6 +28,7 @@
 //!   (it drives both stdout and the OTLP export; default `info`), and
 //!   `OTEL_EXPORTER_OTLP_*` by the OpenTelemetry SDK itself.
 
+use crd::upstream_auth::UpstreamAuthMode;
 use std::{fmt, sync::OnceLock, time::Duration};
 
 use tracing::warn;
@@ -225,6 +226,12 @@ pub struct ProxySettings {
     /// Informational: the `crd` crate reads the variable itself (it cannot
     /// depend on `common`) with the same parsing rule.
     pub allow_cross_namespace_cert: bool,
+    /// `UPSTREAM_AUTH_ALLOWED_MODES` (RFC 0014, decision 47): the upstream
+    /// modes a `ProxyKubeApi` may ask for, comma-separated. `Passthrough` is
+    /// always in; unset means `Passthrough` alone. A value naming an unknown
+    /// mode falls back to `Passthrough` alone, with a warning: closed, never
+    /// a guess at what was meant.
+    pub upstream_allowed_modes: Vec<UpstreamAuthMode>,
 }
 
 /// What this process runs (`PROXYAUTH_ROLE`, RFC 0012 decision 26).
@@ -473,6 +480,11 @@ impl Config {
             ),
             throttle_fail_closed: loader.flag("THROTTLE_FAIL_CLOSED"),
             allow_cross_namespace_cert: loader.flag(crd::certificate::ALLOW_CROSS_NS_CERT_ENV),
+            upstream_allowed_modes: loader.parsed(
+                "UPSTREAM_AUTH_ALLOWED_MODES",
+                vec![UpstreamAuthMode::Passthrough],
+                parse_allowed_modes,
+            ),
         };
 
         let observability = ObservabilitySettings {
@@ -712,6 +724,24 @@ impl<F: Fn(&str) -> Option<String>> Loader<'_, F> {
     }
 }
 
+/// `UPSTREAM_AUTH_ALLOWED_MODES`: comma-separated CRD mode names, blanks
+/// ignored, `Passthrough` added. `None` (the default, with a warning) as soon
+/// as one name is unknown.
+fn parse_allowed_modes(raw: &str) -> Option<Vec<UpstreamAuthMode>> {
+    let mut modes = vec![UpstreamAuthMode::Passthrough];
+    for name in raw
+        .split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        let mode = UpstreamAuthMode::parse(name)?;
+        if !modes.contains(&mode) {
+            modes.push(mode);
+        }
+    }
+    Some(modes)
+}
+
 /// Whether a switch value turns the switch on.
 fn is_truthy(raw: &str) -> bool {
     matches!(
@@ -803,6 +833,7 @@ mod tests {
                 upstream_client_ttl: Duration::from_secs(300),
                 throttle_fail_closed: false,
                 allow_cross_namespace_cert: false,
+                upstream_allowed_modes: vec![UpstreamAuthMode::Passthrough],
             }
         );
         assert_eq!(
@@ -989,6 +1020,7 @@ mod tests {
                 upstream_client_ttl: Duration::from_secs(60),
                 throttle_fail_closed: true,
                 allow_cross_namespace_cert: true,
+                upstream_allowed_modes: vec![UpstreamAuthMode::Passthrough],
             }
         );
         assert_eq!(
@@ -1141,6 +1173,32 @@ mod tests {
                 "LOG_FORMAT",
                 "METRICS_PROMETHEUS_ENABLED",
             ]
+        );
+    }
+
+    #[test]
+    fn upstream_allowed_modes_parsing() {
+        use UpstreamAuthMode::{FrontProxy, Issuer, Passthrough};
+        let modes = |raw: &str| {
+            load(&[("UPSTREAM_AUTH_ALLOWED_MODES", raw)])
+                .proxy
+                .upstream_allowed_modes
+        };
+        assert_eq!(load(&[]).proxy.upstream_allowed_modes, vec![Passthrough]);
+        assert_eq!(modes("FrontProxy"), vec![Passthrough, FrontProxy]);
+        assert_eq!(
+            modes(" Passthrough , Issuer,FrontProxy,"),
+            vec![Passthrough, Issuer, FrontProxy]
+        );
+        assert_eq!(modes(""), vec![Passthrough]);
+        // One unknown name closes everything, with a warning.
+        let config = load(&[("UPSTREAM_AUTH_ALLOWED_MODES", "FrontProxy,Frontproxy")]);
+        assert_eq!(config.proxy.upstream_allowed_modes, vec![Passthrough]);
+        assert!(
+            config
+                .warnings
+                .iter()
+                .any(|w| w.contains("UPSTREAM_AUTH_ALLOWED_MODES"))
         );
     }
 

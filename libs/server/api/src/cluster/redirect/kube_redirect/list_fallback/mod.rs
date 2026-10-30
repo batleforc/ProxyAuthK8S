@@ -42,7 +42,7 @@ use crd::virtual_api::VirtualApiKind;
 use serde_json::Value;
 use tracing::debug;
 
-use crate::model::user::User;
+use crate::cluster::redirect::upstream_identity::Upstream;
 use cache::load_cached_outcome;
 use resolve::{privileged_namespaces, resolve_outcome_for};
 
@@ -87,7 +87,9 @@ pub(super) struct ListFallbackArgs<'a> {
     /// The client's request headers, forwarded to the access reviews.
     pub(super) headers: &'a HeaderMap,
     pub(super) peer_ip: Option<IpAddr>,
-    pub(super) user: Option<&'a User>,
+    /// What the access reviews present upstream (RFC 0014): the caller's
+    /// token, or the identity the proxy asserts.
+    pub(super) upstream: Upstream<'a>,
     /// Upstream origin, trailing slash already trimmed.
     pub(super) base_url: &'a str,
     /// Upstream path of the candidate collection, e.g. `/api/v1/namespaces`.
@@ -120,7 +122,7 @@ pub(super) async fn list_projects_filtered(
             args.namespaces_path,
             args.query_string
         ),
-        load_cached_outcome(args.state, args.proxy, args.user, args.probe)
+        load_cached_outcome(args.state, args.proxy, args.upstream, args.probe)
     );
     let mut candidates = candidates_result.map_err(DiscoveryError)?;
 

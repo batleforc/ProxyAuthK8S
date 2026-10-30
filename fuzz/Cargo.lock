@@ -2850,6 +2850,7 @@ dependencies = [
  "api",
  "arbitrary",
  "crd",
+ "http",
  "libfuzzer-sys",
  "rustls-pki-types",
 ]

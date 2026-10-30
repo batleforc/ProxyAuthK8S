@@ -506,6 +506,7 @@ mod tests {
                 dashboard_group: None,
                 proxy_group: None,
                 virtual_apis: Vec::new(),
+                upstream_auth: None,
             },
         );
         proxy.metadata.namespace = Some(NS.to_string());
@@ -525,6 +526,7 @@ mod tests {
                 accept_authorized_party: true,
                 expose_oauth_authorization_server: false,
                 config_from: None,
+                claim_mappings: None,
             },
             disable_validation: false,
             validate_against: ValidateAgainst::OidcProvider,

@@ -18,6 +18,7 @@ libfuzzer-sys = "0.4.13"
 arbitrary = { version = "1.5.0", features = ["derive"] }
 api = { path = "../libs/server/api", default-features = false }
 crd = { path = "../libs/server/crd" }
+http = "1"
 agent_proto = { path = "../libs/agent/proto" }
 agent_pki = { path = "../libs/agent/pki" }
 rustls-pki-types = "1"
@@ -60,6 +61,13 @@ bench = false
 [[bin]]
 name = "fuzz_agent_enroll"
 path = "fuzz_targets/fuzz_agent_enroll.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_upstream_identity"
+path = "fuzz_targets/fuzz_upstream_identity.rs"
 test = false
 doc = false
 bench = false

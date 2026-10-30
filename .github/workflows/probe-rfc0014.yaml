@@ -1,0 +1,39 @@
+name: 🔬 RFC 0014 probe
+
+# Still open 1 of RFC 0014: k3s front-proxy CA concatenation and reload, on a
+# throwaway k3d cluster (.it/probes/rfc0014-front-proxy.sh). Not part of the
+# required checks: it runs when the probe changes, or by hand.
+on:
+  push:
+    branches: ["probe/rfc0014-*"]
+    paths:
+      - ".it/probes/rfc0014-front-proxy.sh"
+      - ".it/images.lock"
+      - ".github/workflows/probe-rfc0014.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: probe-rfc0014-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  front-proxy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install mise
+        uses: ./.github/actions/setup-mise
+      - name: Install the tools
+        run: mise install k3d kubectl
+      - name: Run the probe
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+          SUMMARY: ${{ github.step_summary }}
+        run: |
+          K3S_IMAGE=$(awk '$1 == "k3s" { print $2 }' .it/images.lock)
+          export K3S_IMAGE
+          mise exec -- bash .it/probes/rfc0014-front-proxy.sh

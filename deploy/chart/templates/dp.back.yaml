@@ -51,6 +51,9 @@ spec:
               value: "{{ .Values.back.logFormat }}"
             - name: METRICS_PROMETHEUS_ENABLED
               value: "{{ .Values.metrics.prometheus.enabled }}"
+            # RFC 0014: the upstream modes a ProxyKubeApi may ask for.
+            - name: UPSTREAM_AUTH_ALLOWED_MODES
+              value: '{{ join "," .Values.upstreamAuth.allowedModes }}'
             # Leader-election lease lives next to the pod (see rbac.operator.yaml).
             - name: LEASE_NAMESPACE
               valueFrom:

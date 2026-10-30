@@ -1,0 +1,212 @@
+---
+title: Le proxy comme émetteur
+description: Faire croire à un apiserver un JWT signé par le proxy (upstream_auth Issuer, RFC 0014), sans lui déclarer l'IdP des utilisateurs
+icon: KeyRound
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+En `Issuer`, le proxy signe, pour chaque utilisateur qu'il a authentifié, un JWT court
+(ES256) qui porte son identité préfixée, et le présente à l'apiserver à la place du jeton
+de l'IdP. L'apiserver déclare le proxy comme un issuer OIDC de plus, dans son
+`AuthenticationConfiguration` : il lit la découverte et les clés publiques que le proxy
+publie sous `/issuer/<ns>/<nom>`. Il n'a besoin ni de l'IdP des utilisateurs, ni d'un
+certificat client, ni des flags `--requestheader-*` : c'est le mode des clusters où seule
+l'`AuthenticationConfiguration` est accessible.
+
+Les rôles sont ceux du [guide front-proxy](/docs/front-proxy) : l'**admin du proxy** (le
+chart), l'**auteur du cluster** (le `ProxyKubeApi`) et l'**opérateur de l'apiserver**.
+
+## Ce que vous acceptez
+
+<Callout type="warn">
+- Le proxy devient la racine d'identité de ces clusters : sa compromission vaut
+  l'identité de n'importe quel utilisateur non `system:` sous le préfixe.
+- Une clé de signature volée signe n'importe quelle identité **préfixée** jusqu'à sa
+  révocation. L'apiserver refuse lui-même tout autre nom (`userValidationRules`), et
+  chaque cluster a sa clé et son audience : une clé ne vaut que pour son cluster.
+- Tant que le proxy ne répond pas, l'apiserver refuse de recharger son
+  `AuthenticationConfiguration` : le rechargement est tout ou rien, et attend chaque
+  issuer une minute. Toute autre modification de ce fichier attend le retour du proxy.
+</Callout>
+
+À ne jamais faire : déclarer l'issuer sans `userValidationRules`, partager une clé ou une
+audience entre clusters, mettre le cluster qui héberge le proxy en `Issuer` vers lui-même.
+
+Un JWT émis vit `token_ttl_seconds` (60 à 900 s, 300 par défaut), jamais plus longtemps
+que le jeton de l'utilisateur qu'il remplace. Il ne quitte jamais le proxy : ni dans une
+réponse, ni dans un log. Comme en `FrontProxy`, l'utilisateur ne garde que son jeton d'IdP.
+
+## 1. Ouvrir le mode (admin du proxy)
+
+```yaml
+upstreamAuth:
+  allowedModes: [Passthrough, Issuer]
+```
+
+`OIDC_AUDIENCE_VALIDATION=enforce` (le défaut) est exigé, sinon `Ready=False`
+(`AudienceValidationRequired`). L'apiserver doit joindre l'URL publique du proxy : l'Ingress
+du chart route `/issuer/` vers le back.
+
+## 2. Préparer le `ProxyKubeApi` (auteur du cluster)
+
+On reste en `Passthrough` : le contrôleur crée déjà la clé et le proxy publie ses
+documents.
+
+```yaml
+spec:
+  auth_config:
+    validate_against: OidcProvider
+    oidc_provider:
+      enabled: true
+      issuer_url: https://auth.example.com
+      client_id: my-cluster
+      claim_mappings:                      # requis en Issuer
+        username: { claim: sub, prefix: "" }
+        groups: { claim: groups, prefix: "" }
+  upstream_auth:
+    mode: Passthrough                      # Issuer à l'étape 5
+    user_prefix: "proxyauth:"
+    group_prefix: "proxyauth:"
+    issuer_key:
+      # <URL publique du proxy>/issuer/<namespace>/<nom> : la route que le proxy sert
+      issuer_url: https://proxyauth.example.com/issuer/team-a/prod
+      token_ttl_seconds: 300
+      rotation_days: 30
+```
+
+- `issuer_url` est écrite dans la spec, donc dans Git : un redéploiement ou une
+  restauration ne la change pas. Son chemin doit finir par `/issuer/<ns>/<nom>`, sinon
+  `IssuerUrlMismatch`.
+- Les règles du [guide front-proxy](/docs/front-proxy#2-préparer-le-proxykubeapi-auteur-du-cluster)
+  valent ici aussi (préfixes, `claim_mappings`, pas de `validate_against: Kubernetes`), et
+  `client_cert` est refusé : un certificat client passerait avant le JWT.
+
+Le statut donne ce que l'opérateur de l'apiserver doit recopier :
+
+```bash
+kubectl -n team-a get proxykubeapi prod -o jsonpath='{.status.upstreamAuth}'
+```
+
+```yaml
+issuerUrl: https://proxyauth.example.com/issuer/team-a/prod
+audience: proxyk8sauth:team-a/prod
+jwksUri: https://proxyauth.example.com/issuer/team-a/prod/jwks
+keyId: 3f1c…
+keyRotatedAt: 2026-10-27T10:00:00Z
+```
+
+## 3. L'apiserver (opérateur de l'apiserver)
+
+Une entrée de plus dans l'`AuthenticationConfiguration`
+(`--authentication-config`, Kubernetes 1.30 et plus, rechargée à chaud) :
+
+```yaml
+jwt:
+  - issuer:
+      url: https://proxyauth.example.com/issuer/team-a/prod   # issuerUrl, octet pour octet
+      audiences: [proxyk8sauth:team-a/prod]                    # audience
+      certificateAuthority: |   # si le certificat du proxy n'est pas dans les racines du nœud
+        …
+    claimMappings:
+      username: { claim: sub, prefix: "" }      # déjà préfixé par le proxy
+      groups: { claim: groups, prefix: "" }
+      extra:
+        - key: example.com/team                  # une entrée par clé extra mappée
+          valueExpression: "claims.?extra['example.com/team'].orValue([])"
+    userValidationRules:
+      - expression: "user.username.startsWith('proxyauth:')"
+        message: "the proxy asserts prefixed users only"
+      - expression: "user.groups.all(g, g.startsWith('proxyauth:'))"
+        message: "the proxy asserts prefixed groups only"
+```
+
+- Les `userValidationRules` sont ce qui rend une clé volée inoffensive hors du préfixe :
+  sans elles, la sonde le voit et le cluster reste fermé (`IssuerNotTrusted`).
+- Gardez l'issuer de l'IdP pendant la migration, pour pouvoir revenir en `Passthrough`.
+- Écrivez les `RoleBinding` pour les noms **préfixés**.
+- Proxy et apiserver à l'heure (NTP) : `exp` n'a aucune tolérance côté apiserver.
+
+## 4. Vérifier, puis basculer
+
+Le leader du proxy sonde chaque minute tout cluster qui a un `issuer_key` : une
+`SelfSubjectReview` avec un JWT pour `<user_prefix>proxyauth-probe`, qui doit revenir tel
+quel, puis une autre avec un JWT **non préfixé**, que l'apiserver doit refuser.
+
+| `status.upstreamAuth.trust` | Sens |
+| --------------------------- | ---- |
+| `Trusted` | l'apiserver croit le JWT et refuse une identité non préfixée |
+| `Rejected` | `401` : issuer ou audience non déclarés, ou proxy injoignable depuis l'apiserver |
+| `Unguarded` | l'apiserver accepte aussi une identité non préfixée : `userValidationRules` absentes |
+| `NotHonoured` | l'apiserver voit une autre identité : revoir `claimMappings` |
+| `Unknown` | la sonde n'a pas conclu |
+
+Quand `trust` vaut `Trusted`, passez `upstream_auth.mode` à `Issuer`. Puis :
+
+```bash
+kubectl auth whoami      # proxyauth:alice
+```
+
+## Les clés
+
+Le contrôleur tient les clés dans le Secret `proxyauth-issuer-<UID du ProxyKubeApi>` du
+namespace du proxy, labellisé `app.kubernetes.io/managed-by: proxyauthk8s` et
+`proxyauth.weebo.si.rs/cluster-uid`. Un tenant ne peut ni le lire, ni le remplacer ; un
+Secret de ce nom sans ces labels n'est jamais utilisé (`IssuerKeyUnavailable` : le
+supprimer).
+
+- **Rotation** tous les `rotation_days` : la nouvelle clé est publiée tout de suite et
+  signe 5 minutes plus tard ; l'ancienne reste publiée `token_ttl_seconds` + 5 minutes de
+  plus, puis disparaît du Secret. Rien à faire côté apiserver : il recharge le JWKS au
+  premier `kid` inconnu.
+- **Rotation forcée** : une valeur nouvelle de l'annotation
+  `proxyauth.weebo.si.rs/rotate-issuer-key` sur le `ProxyKubeApi`.
+- **Révocation d'urgence** : la valeur `revoke:<nonce>` (un nonce neuf à chaque fois). La
+  clé active quitte le Secret et le JWKS aussitôt, une clé neuve signe aussitôt ; l'apiserver
+  oublie l'ancienne à son prochain rechargement du JWKS, en général dans la minute. Les
+  requêtes en vol pendant ce temps peuvent recevoir un `502` une fois.
+
+  ```bash
+  kubectl -n team-a annotate proxykubeapi prod --overwrite \
+    proxyauth.weebo.si.rs/rotate-issuer-key="revoke:$(date +%s)"
+  ```
+
+- **Sauvegarde** : inutile. Perdre le Secret ne coûte qu'une clé neuve (les JWT en cours
+  échouent une fois) ; une restauration ne ressuscite pas une clé retirée.
+- **Suppression du cluster** : le Secret est marqué orphelin, puis supprimé 24 h plus
+  tard. Un cluster recréé sous le même nom reçoit une clé neuve, avec la même URL d'issuer
+  et la même audience.
+
+## Changer l'URL publique
+
+1. Déclarer la nouvelle URL comme seconde entrée `jwt` de l'apiserver.
+2. Changer `issuer_key.issuer_url`.
+3. Retirer l'ancienne entrée quand `trust` est revenu à `Trusted`.
+
+Retour arrière : repasser en `Passthrough`. La clé et le JWKS restent publiés tant
+qu'`issuer_key` est présent ; repasser en `Issuer` ne change pas de clé.
+
+## Ce que le proxy envoie
+
+- Toute valeur `Authorization` du client remplacée par `Authorization: Bearer <JWT>`, sur
+  tous les chemins (relais, API virtuelles, `list_fallback`, exec / attach / port-forward).
+- Le JWT : `iss` (l'`issuer_url`), `aud` (l'audience du statut), `sub` (le nom préfixé),
+  `groups`, `extra` s'il est mappé, `iat`, `nbf`, `exp`, `jti`. Un même utilisateur
+  réutilise son JWT jusqu'à une minute avant `exp`
+  (`proxyauth_issuer_tokens_total{result="signed"|"cache_hit"}`).
+- Ni `X-Remote-*`, ni `x-forwarded-*`, et aucun certificat client.
+
+## Diagnostiquer
+
+Les `401` et `403` sont ceux du [guide front-proxy](/docs/front-proxy#diagnostiquer-un-401-403-502-ou-503),
+où kubectl ne montre pas non plus le message d'un cluster entièrement fermé
+(`kubectl get --raw /api` l'affiche).
+
+| Réponse | Cause et action |
+| ------- | --------------- |
+| `502` `the cluster does not trust this proxy…` | l'apiserver a refusé le JWT (`401`) : issuer pas encore chargé, audience absente, horloge décalée |
+| `503` `…not ready for upstream mode Issuer: no Issuer key is active yet…` | la première clé n'est pas encore écrite : quelques secondes après la création |
+| `503` `…not ready for upstream mode Issuer: …` avec une raison | `Ready=False` : `IssuerKeyUnavailable`, `IssuerUrlMismatch` ou `IssuerNotTrusted`, voir les conditions |
+| `404` sur `/issuer/<ns>/<nom>/jwks` | cluster inconnu du proxy, ou sans `issuer_key` |
+
+Toutes les raisons : [Statut et Events](/docs/status-and-events).

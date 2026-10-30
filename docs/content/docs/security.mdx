@@ -755,7 +755,12 @@ Kubernetes) et `X-Remote-*` (noms conventionnels de l'authentification *requesth
 si l'apiserver est câblé sur ces noms, un client pourrait envoyer `X-Remote-User: system:admin` ou
 `Impersonate-User: …` et usurper une identité à travers le certificat front-proxy de confiance. Le
 header `Authorization` du client, lui, **reste transmis** : c'est le seul credential amont en mode
-`validate_against: Kubernetes` sans mTLS.
+`validate_against: Kubernetes` sans mTLS. Exception : en `upstream_auth.mode: FrontProxy`
+(RFC 0014), `Authorization` et `x-forwarded-*` sont retirés et le proxy affirme lui-même
+l'identité, préfixée, en `X-Remote-*` sur son certificat front-proxy ; en `Issuer`,
+`Authorization` est remplacé par un JWT que le proxy signe. Modèles de confiance et risques
+acceptés dans [Apiserver en front-proxy](/docs/front-proxy#ce-que-vous-acceptez) et
+[Le proxy comme émetteur](/docs/issuer#ce-que-vous-acceptez).
 
 ## Journal d'audit
 
@@ -794,7 +799,8 @@ Champs communs à chaque ligne :
 
 `request` et `policy_decision` ajoutent `http_method`, `k8s_verb` (le verbe Kubernetes, calculé
 comme l'apiserver), `path` (sans la query string), `status`, `latency_ms` et `upstream_via`
-(`direct`, ou `agent` pour un cluster joint par son tunnel). Pour une API
+(`direct`, ou `agent` pour un cluster joint par son tunnel), et `upstream_mode` (`Passthrough`,
+`FrontProxy` ou `Issuer`, RFC 0014 : comment l'identité est présentée à l'apiserver). Pour une API
 virtuelle, `upstream_path` et `upstream_k8s_verb` décrivent la requête réécrite. Quand
 l'apiserver refuse un upgrade (exec, attach, port-forward), `upstream_reason` reprend le
 `message` de son `Status` (256 caractères au plus).
@@ -932,6 +938,6 @@ Chacun est un choix conscient, avec sa mitigation ; réévaluez-les selon votre 
 | **Allow-list vide = fail-open (tout est autorisé)** | **Accepté (défaut)** | Le proxy est d'abord une passerelle d'authentification ; l'autorisation fine par ressource est **opt-in** pour ne pas casser les déploiements existants au premier upgrade. Mitigation : définir au moins une règle dans `allowed_resources` fait basculer le cluster en default-deny (toute requête doit alors matcher une règle, sinon `403`). |
 | **NetworkPolicy désactivée par défaut dans le chart** | **Accepté** | Toutes les installations ne disposent pas d'un CNI appliquant les NetworkPolicy, et une policy d'egress par défaut casserait le trafic sur ces clusters. Mitigation : activer `networkPolicy.enabled` dans les values du chart — les exclusions egress (endpoint metadata `169.254.0.0/16`, CGNAT `100.64.0.0/10`) sont alors câblées automatiquement (cf. [Cible upstream (SSRF)](#cible-upstream-ssrf)). |
 | **`state` OIDC non lié à un cookie de session** | **Fermé — ne sera pas implémenté** | L'application est volontairement **sans cookie de session** (authentification par `Bearer`/token). Le `state` est **à usage unique** (supprimé de Redis après consommation) et le flux utilise **PKCE** ; le mainteneur juge cette combinaison suffisante. Résidu accepté : une fenêtre de login-CSRF résiduelle minime, sans élévation de privilège possible (le jeton obtenu reste celui de l'utilisateur qui termine le flux). |
-| **Authentification par certificat client (`admin.conf` kubeadm)** | **Fermé — ne sera pas implémenté** | Le proxy termine le TLS et n'a pas la clé privée de l'appelant : transmettre l'identité en amont exigerait que le credential du proxy se substitue à celui de l'utilisateur (impersonation, front-proxy ou `SubjectAccessReview` + credential du proxy). Le proxy ne doit jamais pouvoir fabriquer ni endosser une identité. Voir la [roadmap](/docs/roadmap), section « Hors périmètre ». |
+| **Authentification par certificat client (`admin.conf` kubeadm)** | **Fermé — ne sera pas implémenté** | Le proxy termine le TLS et n'a pas la clé privée de l'appelant : transmettre l'identité en amont exigerait que le credential du proxy se substitue à celui de l'utilisateur (impersonation, front-proxy ou `SubjectAccessReview` + credential du proxy). Le proxy n'endosse une identité que là où l'admin du proxy et l'auteur du cluster l'ont choisi (`FrontProxy`, RFC 0014, [guide](/docs/front-proxy)), et seulement celle d'un utilisateur qu'il a authentifié par OIDC ou JWT, jamais d'un certificat client. Voir la [roadmap](/docs/roadmap), section « Hors périmètre ». |
 | **[RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) (`rsa` crate, Marvin Attack)** | **Accepté (aucun correctif disponible)** | Dépendance transitive via `openidconnect`, sans version corrigée à ce jour. Le canal de fuite temporelle touche les opérations **clé privée** (déchiffrement/signature) ; `openidconnect` ne l'utilise ici que pour **vérifier** la signature des ID tokens émis par l'IdP (opération clé publique), et l'application ne réalise aucune signature/déchiffrement RSA côté serveur. Ignoré explicitement dans `deny.toml` (`task rust:audit`, `back-dep-audit.yaml`) et `dependency-review` (`allow-ghsas`) ; à ré-auditer si un usage de clé privée RSA est introduit. |
 | **[RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html) (`crypto-bigint` 0.5.5, opérations non constantes en temps)** | **Accepté (correctif hors d'atteinte), depuis le 2026-10-24** | Dépendance transitive via `openidconnect` 4.0.1 → `p256`/`p384` → `elliptic-curve` 0.13 ; le correctif (0.7.6) n'est pris que par une ligne d'`elliptic-curve` qu'`openidconnect` n'utilise pas encore. Une fuite temporelle n'a de valeur que sur un entier secret ; ici, `crypto-bigint` ne sert qu'à **vérifier** la signature ECDSA (ES256/ES384) des ID tokens de l'IdP, dont toutes les entrées (clé publique, signature, jeton) sont publiques, et l'application ne signe rien en ECDSA. Ignoré dans `deny.toml` ; à retirer quand `openidconnect` passera à `elliptic-curve` 0.14, et à ré-auditer si une signature ECDSA est introduite côté serveur. |

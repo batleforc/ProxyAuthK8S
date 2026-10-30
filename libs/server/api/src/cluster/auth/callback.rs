@@ -72,10 +72,7 @@ async fn callback_login_inner(
     callback: Query<CallbackQuery>,
     audit: &mut HandlerAudit,
 ) -> Response {
-    let proxy: ProxyKubeApi = match data
-        .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
-        .await
-    {
+    let proxy: ProxyKubeApi = match data.get_proxy_from_redis(&format!("{ns}/{cluster}")).await {
         Ok(Some(proxy)) => proxy,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(e) => {

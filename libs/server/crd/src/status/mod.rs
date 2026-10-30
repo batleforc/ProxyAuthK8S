@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use weebo_kit_api::Condition;
 
+use crate::upstream_auth::UpstreamAuthStatus;
+
 #[derive(Serialize, Deserialize, Clone, JsonSchema, Default, Debug)]
 pub struct ProxyKubeApiStatus {
     pub exposed: bool,
@@ -27,6 +29,14 @@ pub struct ProxyKubeApiStatus {
         skip_serializing_if = "Option::is_none"
     )]
     pub observed_generation: Option<i64>,
+    /// How the proxy presents the identity upstream (RFC 0014 §4.5), always
+    /// set by an RFC 0014 controller.
+    #[serde(
+        default,
+        rename = "upstreamAuth",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub upstream_auth: Option<UpstreamAuthStatus>,
 }
 
 /// What the gateway pods report about one cluster's agent. Only values that
@@ -119,6 +129,12 @@ impl ProxyKubeApiStatus {
                 "agent".to_string(),
                 self.agent.as_ref().map_or(Value::Null, agent_fields),
             ),
+            (
+                "upstreamAuth".to_string(),
+                self.upstream_auth
+                    .as_ref()
+                    .map_or(Value::Null, |upstream| json!(upstream)),
+            ),
         ])
     }
 }
@@ -187,6 +203,16 @@ mod tests {
         assert_eq!(fields["error"], Value::Null);
         assert_eq!(fields["exposed"], true);
         assert_eq!(fields["path"], "/clusters/a/b");
+    }
+
+    #[test]
+    fn an_unknown_upstream_auth_field_is_sent_as_null_so_the_merge_patch_drops_it() {
+        let mut status = ProxyKubeApiStatus::new(true, None, None);
+        status.upstream_auth = Some(crate::upstream_auth::UpstreamAuthStatus::default());
+        let upstream = &status.fields()["upstreamAuth"];
+        for key in ["clientCertSubject", "trust", "trustSince"] {
+            assert_eq!(upstream[key], Value::Null, "{key}");
+        }
     }
 
     #[test]

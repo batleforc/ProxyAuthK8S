@@ -9,6 +9,8 @@
     "roadmap.mdx",
     "architecture.mdx",
     "expose-cluster.mdx",
+    "front-proxy.mdx",
+    "issuer.mdx",
     "agent.mdx",
     "status-and-events.mdx",
     "crds",

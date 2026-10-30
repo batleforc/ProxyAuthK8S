@@ -50,6 +50,29 @@ Chaque avis devient une condition `True` à côté de `Ready`, de type égal à 
 | `AgentBootstrapNeeded` | avis | `OneShotToken` : aucun agent connecté et le jeton est consommé ou expiré (annoter `proxyauth.weebo.si.rs/regenerate-bootstrap`), ou il n'a pas pu être écrit |
 | `AgentVersionSkew` | avis | un agent a plus d'une mineure de retard sur le proxy, est plus récent que lui, ou annonce une version qui n'est pas un SemVer ; ou la passerelle a refusé le protocole d'un agent alors que d'autres tunnels servent (RFC 0013) |
 | `AgentProtocolUnsupported` | bloquant | aucun tunnel, et la passerelle a refusé le protocole de l'agent dans les 5 dernières minutes : la cause de `AgentNoTunnel` ; le détail est dans `status.agent.refused` |
+| `UpstreamModeNotAllowed` | bloquant | `upstream_auth.mode` hors de `upstreamAuth.allowedModes` du chart (RFC 0014) ; le proxy répond `503` à ce cluster, jamais en `Passthrough` |
+| `UpstreamModeUnsupported` | bloquant | `upstream_auth.mode` que cette version ne sert pas encore (RFC 0014, décision 34) ; `503`, jamais en `Passthrough` |
+| `ClientCertMissing` | bloquant | `FrontProxy` : le Secret `proxyauth-frontproxy-<ns>.<nom>` du namespace du proxy est absent, illisible, sans le label `app.kubernetes.io/managed-by=proxyauthk8s`, ou son certificat est expiré ou illisible ; `status.upstreamAuth.clientCertSecret` donne le nom |
+| `ClientCertTargetMismatch` | bloquant | `FrontProxy` : l'annotation `proxyauth.weebo.si.rs/front-proxy-target` du Secret ne vaut pas `status.upstreamAuth.clientCertTarget` (certificat posé pour une autre cible) |
+| `ClientCertNameTooLong` | bloquant | `FrontProxy` : `proxyauth-frontproxy-<ns>.<nom>` dépasse 253 caractères |
+| `ClientCertSubjectReserved` | bloquant | `FrontProxy` : le CN ou l'O du certificat commence par `system:` ; utiliser un certificat dédié |
+| `AudienceValidationRequired` | bloquant | un mode de confiance alors que `OIDC_AUDIENCE_VALIDATION` n'est pas `enforce` |
+| `ClientCertExpiring` | avis | le certificat `FrontProxy` expire dans moins de `min(30 j, ⅓ de sa durée de vie)` |
+| `FrontProxyNotReady` | avis | un cluster encore en `Passthrough` qui prépare `FrontProxy` (préfixes posés) ne serait pas servi une fois basculé ; le message dit pourquoi |
+| `UpstreamIdentityNotHonoured` | bloquant | la sonde de confiance (`SelfSubjectReview` par le leader, chaque minute) voit une autre identité que celle affirmée : certificat d'une CA `--client-ca-file`, ou en-tête de groupe ou d'`extra` non lu ; le message nomme l'identité vue |
+| `FrontProxyNotTrusted` | bloquant | la sonde de confiance reçoit `401` : la CA du certificat n'est pas dans `--requestheader-client-ca-file`, ou son CN pas dans `--requestheader-allowed-names` |
+| `UpstreamTrustUnknown` | avis | la sonde de confiance n'a pas conclu (transport, `5xx`, agent absent) ; le cluster reste servi |
+| `IssuerKeyUnavailable` | bloquant | `Issuer` : le Secret `proxyauth-issuer-<UID>` du namespace du proxy est illisible, ne porte pas les labels du proxy (jamais adopté ni écrasé : le supprimer), ou ne peut pas être écrit ; le message le nomme |
+| `IssuerUrlMismatch` | bloquant | `Issuer` : le chemin de `issuer_key.issuer_url` n'est pas `/issuer/<ns>/<nom>`, la route que le proxy sert |
+| `IssuerNotTrusted` | bloquant | `Issuer` : la sonde reçoit `401` (issuer ou audience non déclarés dans l'`AuthenticationConfiguration`), ou l'apiserver accepte aussi une identité non préfixée (`userValidationRules` absentes) |
+| `IssuerNotReady` | avis | un cluster encore en `Passthrough` avec `issuer_key` ne serait pas servi une fois basculé en `Issuer` ; le message dit pourquoi |
+| `IssuerKeyRotationOverdue` | avis | la clé `Issuer` n'a pas tourné depuis plus de `rotation_days` + 1 jours |
+| `IssuerBehindAgent` | avis | `Issuer` derrière un agent : l'apiserver doit quand même joindre l'URL publique du proxy pour le JWKS |
+
+Le verdict de la sonde de confiance se suit aussi hors des conditions, succès compris :
+`status.upstreamAuth.trust` (`Trusted`, `Rejected`, `NotHonoured`, `Unknown`, `Unguarded`) et
+`status.upstreamAuth.trustSince`, colonne `Trust` en `-o wide`
+([Apiserver en front-proxy](/docs/front-proxy#5-vérifier-puis-basculer), [Le proxy comme émetteur](/docs/issuer)).
 
 ## Les Events
 

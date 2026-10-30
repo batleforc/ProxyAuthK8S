@@ -28,6 +28,14 @@ spec:
       name: Agents
       priority: 1
       type: string
+    - jsonPath: .status.upstreamAuth.mode
+      name: Upstream
+      priority: 1
+      type: string
+    - jsonPath: .status.upstreamAuth.trust
+      name: Trust
+      priority: 1
+      type: string
     name: v1
     schema:
       openAPIV3Schema:
@@ -319,6 +327,105 @@ spec:
                           distinct resource audience, so `client_id` (who the token is for) and the
                           expected audience (what the token is for) are configured independently.
                         type: string
+                      claim_mappings:
+                        description: |-
+                          How the raw `/userinfo` claims become the user, the same shape as a
+                          `jwt` authenticator's (RFC 0014). Absent: `preferred_username` and
+                          `groups`, as before. Required in `FrontProxy` and `Issuer`.
+                        nullable: true
+                        properties:
+                          extra:
+                            default: []
+                            items:
+                              description: One entry of the user's `extra` map, keyed by a domain-prefixed name.
+                              properties:
+                                key:
+                                  type: string
+                                value_expression:
+                                  default: ''
+                                  description: A CEL expression over `claims` producing the value(s) for `key`.
+                                  type: string
+                              required:
+                              - key
+                              type: object
+                            type: array
+                          groups:
+                            description: |-
+                              Either a claim (with an optional prefix) or a CEL expression, never both.
+
+                              `prefix` exists to keep an external identity provider from minting a
+                              username that collides with a local one; it applies only to the `claim`
+                              form, since an `expression` can prepend whatever it likes itself.
+                            nullable: true
+                            properties:
+                              claim:
+                                maxLength: 253
+                                nullable: true
+                                type: string
+                              expression:
+                                maxLength: 4096
+                                nullable: true
+                                type: string
+                              prefix:
+                                description: Prepended to the claim's value. Only valid with `claim`.
+                                maxLength: 253
+                                nullable: true
+                                type: string
+                            type: object
+                            x-kubernetes-validations:
+                            - message: exactly one of claim or expression must be set
+                              rule: has(self.claim) != has(self.expression)
+                            - message: prefix may only be set together with claim
+                              rule: '!has(self.prefix) || has(self.claim)'
+                            - message: prefix is required with claim (use "" to opt out of prefixing deliberately)
+                              rule: '!has(self.claim) || has(self.prefix)'
+                          uid:
+                            description: Either a claim or a CEL expression, never both.
+                            nullable: true
+                            properties:
+                              claim:
+                                maxLength: 253
+                                nullable: true
+                                type: string
+                              expression:
+                                maxLength: 4096
+                                nullable: true
+                                type: string
+                            type: object
+                            x-kubernetes-validations:
+                            - message: exactly one of claim or expression must be set
+                              rule: has(self.claim) != has(self.expression)
+                          username:
+                            description: |-
+                              Required — a token that validates but maps to no username authenticates
+                              nobody, so the apiserver requires it too.
+                            nullable: true
+                            properties:
+                              claim:
+                                maxLength: 253
+                                nullable: true
+                                type: string
+                              expression:
+                                maxLength: 4096
+                                nullable: true
+                                type: string
+                              prefix:
+                                description: Prepended to the claim's value. Only valid with `claim`.
+                                maxLength: 253
+                                nullable: true
+                                type: string
+                            type: object
+                            x-kubernetes-validations:
+                            - message: exactly one of claim or expression must be set
+                              rule: has(self.claim) != has(self.expression)
+                            - message: prefix may only be set together with claim
+                              rule: '!has(self.prefix) || has(self.claim)'
+                            - message: prefix is required with claim (use "" to opt out of prefixing deliberately)
+                              rule: '!has(self.claim) || has(self.prefix)'
+                        type: object
+                        x-kubernetes-validations:
+                        - message: 'claim_mappings.username is required: without it a validated token maps to no user'
+                          rule: has(self.username)
                       client_id:
                         default: ''
                         description: |-
@@ -1814,6 +1921,81 @@ spec:
                     - name
                     type: object
                 type: object
+              upstream_auth:
+                description: |-
+                  How the proxy presents the caller's identity to the apiserver
+                  (RFC 0014). Absent: `Passthrough`, the caller's token is relayed.
+                nullable: true
+                properties:
+                  group_prefix:
+                    description: Prepended to every group the apiserver sees.
+                    maxLength: 64
+                    nullable: true
+                    type: string
+                    x-kubernetes-validations:
+                    - message: 'group_prefix must not start with system: nor carry a control character or an edge space'
+                      rule: self.matches('[\\x00-\\x1f\\x7f]|^\\s|\\s$') == false && !self.lowerAscii().startsWith('system:')
+                  issuer_key:
+                    description: |-
+                      The signing key of `Issuer`, also accepted in `Passthrough` so the
+                      apiserver can be prepared before the switch.
+                    nullable: true
+                    properties:
+                      issuer_url:
+                        description: |-
+                          The issuer the apiserver declares: `<public proxy URL>/issuer/<ns>/<name>`.
+                          Written here, never derived from the environment, so a redeploy or a
+                          restore cannot change it.
+                        maxLength: 2048
+                        type: string
+                        x-kubernetes-validations:
+                        - message: issuer_url must be https
+                          rule: self.startsWith('https://')
+                        - message: issuer_url must be reachable by the apiserver, not a loopback address
+                          rule: '!self.matches(''^https://(localhost|127\\.|\\[::1\\])'')'
+                      rotation_days:
+                        default: 30
+                        description: Automatic key rotation, 1 to 365 days.
+                        format: uint32
+                        maximum: 365.0
+                        minimum: 1.0
+                        type: integer
+                      token_ttl_seconds:
+                        default: 300
+                        description: Lifetime of an issued JWT, 60 to 900 seconds.
+                        format: uint32
+                        maximum: 900.0
+                        minimum: 60.0
+                        type: integer
+                    required:
+                    - issuer_url
+                    type: object
+                  mode:
+                    default: Passthrough
+                    description: 'Default: `Passthrough`, the behaviour without this block.'
+                    enum:
+                    - Passthrough
+                    - FrontProxy
+                    - Issuer
+                    type: string
+                  user_prefix:
+                    description: |-
+                      Prepended to the username the apiserver sees. No default: a prefix is
+                      a collision decision nobody else can take.
+                    maxLength: 64
+                    nullable: true
+                    type: string
+                    x-kubernetes-validations:
+                    - message: 'user_prefix must not start with system: nor carry a control character or an edge space'
+                      rule: self.matches('[\\x00-\\x1f\\x7f]|^\\s|\\s$') == false && !self.lowerAscii().startsWith('system:')
+                type: object
+                x-kubernetes-validations:
+                - message: user_prefix and group_prefix are required and non-empty in FrontProxy and Issuer
+                  rule: '!has(self.mode) || self.mode == ''Passthrough'' || (has(self.user_prefix) && self.user_prefix != '''' && has(self.group_prefix) && self.group_prefix != '''')'
+                - message: issuer_key is for Issuer (or its preparation in Passthrough), not FrontProxy
+                  rule: '!has(self.issuer_key) || !has(self.mode) || self.mode != ''FrontProxy'''
+                - message: mode Issuer requires issuer_key
+                  rule: '!has(self.mode) || self.mode != ''Issuer'' || has(self.issuer_key)'
               virtual_apis:
                 default: []
                 description: |-
@@ -1913,6 +2095,14 @@ spec:
               rule: '!has(self.proxy_group) || self.proxy_group != '''''
             - message: service Agent needs the remote apiserver's CA in cert (ConfigMap, Secret or Cert), never SystemRoots
               rule: '!has(self.service.Agent) || has(self.cert.ConfigMap) || has(self.cert.Secret) || has(self.cert.Cert)'
+            - message: 'client_cert is refused in FrontProxy and Issuer: FrontProxy reads its certificate from the proxy''s namespace, and in Issuer it would win over the JWT'
+              rule: '!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == ''Passthrough'' || !has(self.client_cert)'
+            - message: 'FrontProxy and Issuer need a validated identity: set auth_config without disable_validation'
+              rule: '!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == ''Passthrough'' || (has(self.auth_config) && !(has(self.auth_config.disable_validation) && self.auth_config.disable_validation))'
+            - message: 'FrontProxy and Issuer cannot validate against Kubernetes: the SelfSubjectReview needs the apiserver to know the IdP'
+              rule: '!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == ''Passthrough'' || !has(self.auth_config) || (has(self.auth_config.validate_against) && self.auth_config.validate_against != ''Kubernetes'')'
+            - message: 'FrontProxy and Issuer require oidc_provider.claim_mappings: preferred_username must not become a trusted identity'
+              rule: '!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == ''Passthrough'' || !has(self.auth_config) || !has(self.auth_config.validate_against) || self.auth_config.validate_against != ''OidcProvider'' || has(self.auth_config.oidc_provider.claim_mappings)'
           status:
             nullable: true
             properties:
@@ -2038,6 +2228,76 @@ spec:
               path:
                 nullable: true
                 type: string
+              upstreamAuth:
+                description: |-
+                  How the proxy presents the identity upstream (RFC 0014 §4.5), always
+                  set by an RFC 0014 controller.
+                nullable: true
+                properties:
+                  audience:
+                    description: '`Issuer`: the `aud` of every JWT, to declare in the apiserver.'
+                    nullable: true
+                    type: string
+                  clientCertNotAfter:
+                    description: '`FrontProxy`: the certificate''s `notAfter`, RFC 3339.'
+                    nullable: true
+                    type: string
+                  clientCertSecret:
+                    description: '`FrontProxy`: the Secret to create, `<proxy namespace>/<name>`.'
+                    nullable: true
+                    type: string
+                  clientCertSubject:
+                    description: '`FrontProxy`: the certificate''s subject.'
+                    nullable: true
+                    type: string
+                  clientCertTarget:
+                    description: '`FrontProxy`: the value its target annotation must hold.'
+                    nullable: true
+                    type: string
+                  issuerUrl:
+                    description: '`Issuer`: `issuer_key.issuer_url`, mirrored.'
+                    nullable: true
+                    type: string
+                  jwksUri:
+                    description: '`Issuer`: the JWKS the discovery document points to.'
+                    nullable: true
+                    type: string
+                  keyId:
+                    description: '`Issuer`: the `kid` of the key that signs.'
+                    nullable: true
+                    type: string
+                  keyRotatedAt:
+                    description: '`Issuer`: when that key began to sign, RFC 3339.'
+                    nullable: true
+                    type: string
+                  mode:
+                    description: |-
+                      `Passthrough` relays the caller's token, as before RFC 0014. The two others
+                      make the proxy the apiserver's trusted authenticator: `FrontProxy` asserts
+                      the identity in `X-Remote-*` headers over mutual TLS, `Issuer` in a JWT the
+                      proxy signs. `TokenExchange` (RFC 0010) joins this list with its schema.
+                    enum:
+                    - Passthrough
+                    - FrontProxy
+                    - Issuer
+                    type: string
+                  trust:
+                    description: The trust probe's verdict (RFC 0014 §5.4), as `status.upstreamAuth.trust`.
+                    enum:
+                    - Trusted
+                    - NotHonoured
+                    - Rejected
+                    - Unknown
+                    - Unguarded
+                    nullable: true
+                    type: string
+                  trustSince:
+                    description: When `trust` took its current value, RFC 3339.
+                    nullable: true
+                    type: string
+                required:
+                - mode
+                type: object
               warnings:
                 description: |-
                   Rules whose meaning a port or verb restriction changes (see

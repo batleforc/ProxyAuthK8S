@@ -182,7 +182,7 @@ impl Gateway {
     ) -> Result<(AgentIdentity, Option<String>), Reason> {
         let proxy: ProxyKubeApi = self
             .state
-            .get_object_from_redis(crd::REDIS_PREFIX, &request.cluster)
+            .get_proxy_from_redis(&request.cluster)
             .await
             .map_err(|_| "redis")?
             .ok_or("unknown cluster")?;

@@ -999,6 +999,26 @@
         }
       }
     },
+    "upstreamAuth": {
+      "type": "object",
+      "properties": {
+        "allowedModes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "Passthrough",
+              "FrontProxy",
+              "Issuer"
+            ]
+          },
+          "uniqueItems": true,
+          "contains": {
+            "const": "Passthrough"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "rbac": {
       "type": "object",
       "properties": {

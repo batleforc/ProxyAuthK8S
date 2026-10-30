@@ -48,10 +48,7 @@ pub(crate) async fn load_discovery_enabled_proxy(
     ns: &str,
     cluster: &str,
 ) -> Result<ProxyKubeApi, DiscoveryGateError> {
-    let proxy: ProxyKubeApi = match data
-        .get_object_from_redis(crd::REDIS_PREFIX, &format!("{ns}/{cluster}"))
-        .await
-    {
+    let proxy: ProxyKubeApi = match data.get_proxy_from_redis(&format!("{ns}/{cluster}")).await {
         Ok(Some(proxy)) => proxy,
         Ok(None) => return Err(DiscoveryGateError::NotFound),
         Err(e) => {

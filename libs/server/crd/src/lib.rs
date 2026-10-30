@@ -13,6 +13,7 @@ use security::SecurityConfiguration;
 use serde::{Deserialize, Serialize};
 use service::Service;
 use status::ProxyKubeApiStatus;
+use upstream_auth::UpstreamAuth;
 use virtual_api::{VirtualApiConfiguration, VirtualApiKind, enabled_kinds};
 
 pub mod authentication_configuration;
@@ -21,6 +22,7 @@ pub mod default;
 pub mod security;
 pub mod service;
 pub mod status;
+pub mod upstream_auth;
 pub mod virtual_api;
 
 pub static PROXY_KUBE_FINALIZER: &str = "weebo.si.rs";
@@ -31,6 +33,12 @@ pub static PROXY_KUBE_FINALIZER: &str = "weebo.si.rs";
 /// index) and the request path (reader): both must agree on this prefix or a
 /// cached proxy is written under one key and looked up under another.
 pub const REDIS_PREFIX: &str = "proxyk8sauth";
+
+/// Redis key prefix of a cluster in `FrontProxy` or `Issuer` (RFC 0014,
+/// decision 42). A binary older than RFC 0014 reads [`REDIS_PREFIX`] only,
+/// so it finds no such cluster and answers `404` instead of relaying the
+/// caller's token over a connection the apiserver trusts.
+pub const REDIS_TRUSTED_PREFIX: &str = "proxyk8sauth-upstream-auth";
 
 #[derive(CustomResource, Serialize, Deserialize, Clone, Debug, JsonSchema)]
 #[kube(
@@ -49,7 +57,11 @@ pub const REDIS_PREFIX: &str = "proxyk8sauth";
     printcolumn = r#"{"name":"Age","type":"date","jsonPath":".metadata.creationTimestamp"}"#,
     // `-o wide` only: empty for a cluster that is not an `Agent` (RFC 0013).
     printcolumn = r#"{"name":"Tunnels","type":"integer","priority":1,"jsonPath":".status.agent.tunnels"}"#,
-    printcolumn = r#"{"name":"Agents","type":"string","priority":1,"jsonPath":".status.agent.versions"}"#
+    printcolumn = r#"{"name":"Agents","type":"string","priority":1,"jsonPath":".status.agent.versions"}"#,
+    // `-o wide` only: always set by the controller, empty means a controller
+    // older than RFC 0014.
+    printcolumn = r#"{"name":"Upstream","type":"string","priority":1,"jsonPath":".status.upstreamAuth.mode"}"#,
+    printcolumn = r#"{"name":"Trust","type":"string","priority":1,"jsonPath":".status.upstreamAuth.trust"}"#
 )]
 #[schemars(extend("x-kubernetes-validations" = [
     serde_json::json!({
@@ -63,6 +75,25 @@ pub const REDIS_PREFIX: &str = "proxyk8sauth";
     serde_json::json!({
         "rule": "!has(self.service.Agent) || has(self.cert.ConfigMap) || has(self.cert.Secret) || has(self.cert.Cert)",
         "message": "service Agent needs the remote apiserver's CA in cert (ConfigMap, Secret or Cert), never SystemRoots",
+    }),
+    // RFC 0014 §4.3: the cross-field rules of the trusted modes. Each reads
+    // "not a trusted mode, or …"; the rules within `upstream_auth` itself
+    // live on `UpstreamAuth`.
+    serde_json::json!({
+        "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.client_cert)",
+        "message": "client_cert is refused in FrontProxy and Issuer: FrontProxy reads its certificate from the proxy's namespace, and in Issuer it would win over the JWT",
+    }),
+    serde_json::json!({
+        "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || (has(self.auth_config) && !(has(self.auth_config.disable_validation) && self.auth_config.disable_validation))",
+        "message": "FrontProxy and Issuer need a validated identity: set auth_config without disable_validation",
+    }),
+    serde_json::json!({
+        "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.auth_config) || (has(self.auth_config.validate_against) && self.auth_config.validate_against != 'Kubernetes')",
+        "message": "FrontProxy and Issuer cannot validate against Kubernetes: the SelfSubjectReview needs the apiserver to know the IdP",
+    }),
+    serde_json::json!({
+        "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.auth_config) || !has(self.auth_config.validate_against) || self.auth_config.validate_against != 'OidcProvider' || has(self.auth_config.oidc_provider.claim_mappings)",
+        "message": "FrontProxy and Issuer require oidc_provider.claim_mappings: preferred_username must not become a trusted identity",
     }),
 ]))]
 pub struct ProxyKubeApiSpec {
@@ -98,6 +129,9 @@ pub struct ProxyKubeApiSpec {
     /// synthesises by translating requests and responses
     #[serde(default = "default_empty_array::<VirtualApiConfiguration>")]
     pub virtual_apis: Vec<VirtualApiConfiguration>,
+    /// How the proxy presents the caller's identity to the apiserver
+    /// (RFC 0014). Absent: `Passthrough`, the caller's token is relayed.
+    pub upstream_auth: Option<UpstreamAuth>,
 }
 
 impl ProxyKubeApi {
@@ -118,8 +152,40 @@ impl ProxyKubeApi {
                 .virtual_apis
                 .iter()
                 .try_for_each(VirtualApiConfiguration::validate)?;
+            if let Some(upstream) = &self.spec.upstream_auth {
+                upstream.validate(
+                    self.spec.client_cert.is_some(),
+                    self.spec.auth_config.as_ref(),
+                )?;
+                self.validate_issuer_path(upstream)?;
+            }
         }
         Ok(())
+    }
+
+    /// The upstream mode, `Passthrough` when the block is absent.
+    #[must_use]
+    pub fn upstream_mode(&self) -> upstream_auth::UpstreamAuthMode {
+        self.spec
+            .upstream_auth
+            .as_ref()
+            .map_or_else(Default::default, |upstream| upstream.mode)
+    }
+
+    /// What CEL cannot check, the namespace being out of its reach: the
+    /// issuer's path is the route this proxy serves for this cluster.
+    fn validate_issuer_path(&self, upstream: &UpstreamAuth) -> Result<(), String> {
+        let Some(key) = &upstream.issuer_key else {
+            return Ok(());
+        };
+        let expected = format!("/issuer/{}", self.to_path());
+        if key.issuer_url.trim_end_matches('/').ends_with(&expected) {
+            Ok(())
+        } else {
+            Err(format!(
+                "issuer_key.issuer_url must end with {expected}, the route this proxy serves for this cluster"
+            ))
+        }
     }
     #[must_use]
     pub fn to_identifier(&self) -> String {
@@ -129,6 +195,22 @@ impl ProxyKubeApi {
             self.name_any()
         )
     }
+    /// The Redis prefix this cluster is cached under (decision 42).
+    #[must_use]
+    pub fn redis_prefix(&self) -> &'static str {
+        if self.upstream_mode().is_trusted() {
+            REDIS_TRUSTED_PREFIX
+        } else {
+            REDIS_PREFIX
+        }
+    }
+
+    /// The Redis key this cluster is cached under.
+    #[must_use]
+    pub fn redis_key(&self) -> String {
+        format!("{}:{}", self.redis_prefix(), self.to_path())
+    }
+
     #[must_use]
     pub fn to_path(&self) -> String {
         format!(
@@ -222,6 +304,7 @@ mod tests {
             accept_authorized_party: false,
             expose_oauth_authorization_server: false,
             config_from: None,
+            claim_mappings: None,
         }
     }
 
@@ -251,6 +334,7 @@ mod tests {
             dashboard_group: None,
             proxy_group: None,
             virtual_apis: Vec::new(),
+            upstream_auth: None,
         }
     }
 
@@ -461,6 +545,133 @@ mod tests {
             auth_config.disable_validation = true;
         }
         assert!(!proxy(spec).need_token_validation());
+    }
+
+    fn trusted(mode: upstream_auth::UpstreamAuthMode) -> ProxyKubeApiSpec {
+        let mut spec = spec();
+        let mut config = auth_config(ValidateAgainst::OidcProvider, true);
+        config.oidc_provider.claim_mappings = Some(
+            serde_json::from_value(serde_json::json!({
+                "username": { "claim": "sub", "prefix": "" }
+            }))
+            .expect("mapping"),
+        );
+        spec.auth_config = Some(config);
+        spec.upstream_auth = Some(UpstreamAuth {
+            mode,
+            user_prefix: Some("proxyauth:".to_string()),
+            group_prefix: Some("proxyauth:".to_string()),
+            issuer_key: None,
+        });
+        spec
+    }
+
+    #[test]
+    fn a_complete_front_proxy_spec_is_valid() {
+        let proxy = proxy(trusted(upstream_auth::UpstreamAuthMode::FrontProxy));
+        assert!(proxy.validate().is_ok(), "{:?}", proxy.validate());
+        assert_eq!(
+            proxy.upstream_mode(),
+            upstream_auth::UpstreamAuthMode::FrontProxy
+        );
+    }
+
+    #[test]
+    fn an_absent_upstream_block_is_passthrough() {
+        assert_eq!(
+            proxy(spec()).upstream_mode(),
+            upstream_auth::UpstreamAuthMode::Passthrough
+        );
+    }
+
+    #[test]
+    fn trusted_modes_refuse_what_would_make_the_asserted_identity_unsafe() {
+        use upstream_auth::UpstreamAuthMode::{FrontProxy, Issuer};
+        type Break = Box<dyn Fn(&mut ProxyKubeApiSpec)>;
+        let cases: [(&str, Break); 6] = [
+            (
+                "client_cert",
+                Box::new(|s| {
+                    s.client_cert = Some(certificate::ClientCertificate {
+                        cert: CertSource::Cert("c".into()),
+                        key: CertSource::Cert("k".into()),
+                    })
+                }),
+            ),
+            (
+                "Kubernetes",
+                Box::new(|s| {
+                    s.auth_config.as_mut().unwrap().validate_against = ValidateAgainst::Kubernetes
+                }),
+            ),
+            (
+                "disable_validation",
+                Box::new(|s| s.auth_config.as_mut().unwrap().disable_validation = true),
+            ),
+            (
+                "claim_mappings",
+                Box::new(|s| s.auth_config.as_mut().unwrap().oidc_provider.claim_mappings = None),
+            ),
+            (
+                "user_prefix",
+                Box::new(|s| {
+                    s.upstream_auth.as_mut().unwrap().user_prefix = Some("system:".into())
+                }),
+            ),
+            (
+                "group_prefix",
+                Box::new(|s| s.upstream_auth.as_mut().unwrap().group_prefix = None),
+            ),
+        ];
+        for mode in [FrontProxy, Issuer] {
+            for (needle, break_it) in &cases {
+                let mut spec = trusted(mode);
+                if mode == Issuer {
+                    spec.upstream_auth.as_mut().unwrap().issuer_key =
+                        Some(upstream_auth::IssuerKeySettings {
+                            issuer_url: "https://proxy.example.com/issuer/default/local-sso".into(),
+                            token_ttl_seconds: 300,
+                            rotation_days: 30,
+                        });
+                }
+                break_it(&mut spec);
+                let err = proxy(spec).validate().unwrap_err();
+                assert!(err.contains(needle), "{mode:?} {needle}: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_extra_key_that_cannot_be_forwarded_is_refused_in_a_trusted_mode() {
+        let mut spec = trusted(upstream_auth::UpstreamAuthMode::FrontProxy);
+        spec.auth_config
+            .as_mut()
+            .unwrap()
+            .oidc_provider
+            .claim_mappings = Some(
+            serde_json::from_value(serde_json::json!({
+                "username": { "claim": "sub", "prefix": "" },
+                "extra": [{ "key": "email", "value_expression": "claims.email" }]
+            }))
+            .expect("mapping"),
+        );
+        let err = proxy(spec.clone()).validate().unwrap_err();
+        assert!(err.contains("email"), "{err}");
+        // The same mapping stays valid in Passthrough: nothing is forwarded.
+        spec.upstream_auth.as_mut().unwrap().mode = upstream_auth::UpstreamAuthMode::Passthrough;
+        assert!(proxy(spec).validate().is_ok());
+    }
+
+    #[test]
+    fn the_issuer_url_must_be_the_route_served_for_this_cluster() {
+        let mut spec = trusted(upstream_auth::UpstreamAuthMode::Issuer);
+        spec.upstream_auth.as_mut().unwrap().issuer_key = Some(upstream_auth::IssuerKeySettings {
+            issuer_url: "https://proxy.example.com/issuer/other/cluster".into(),
+            token_ttl_seconds: 300,
+            rotation_days: 30,
+        });
+        let err = proxy(spec).validate().unwrap_err();
+        assert!(err.contains("/issuer/default/local-sso"), "{err}");
     }
 
     /// The regression this guards: the redirect workers record the whole

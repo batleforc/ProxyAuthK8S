@@ -238,7 +238,7 @@ impl Gateway {
         let peer = external_identity_of(end_entity).map_err(|_| "identity")?;
         let proxy: ProxyKubeApi = self
             .state
-            .get_object_from_redis(crd::REDIS_PREFIX, &peer.cluster())
+            .get_proxy_from_redis(&peer.cluster())
             .await
             .map_err(|_| "redis")?
             .ok_or("unknown cluster")?;
@@ -593,7 +593,7 @@ pub async fn current_agent(
     identity: &AgentIdentity,
 ) -> Result<AgentService, Reason> {
     let proxy: ProxyKubeApi = state
-        .get_object_from_redis(crd::REDIS_PREFIX, &identity.cluster())
+        .get_proxy_from_redis(&identity.cluster())
         .await
         .map_err(|_| "redis")?
         .ok_or("unknown cluster")?;

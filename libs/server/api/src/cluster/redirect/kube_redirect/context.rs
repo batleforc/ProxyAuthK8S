@@ -18,6 +18,7 @@ use common::State;
 use crd::ProxyKubeApi;
 
 use crate::cluster::redirect::audit::AuditContext;
+use crate::cluster::redirect::upstream_identity::Asserted;
 use crate::model::user::User;
 
 pub(super) struct RedirectContext {
@@ -33,6 +34,9 @@ pub(super) struct RedirectContext {
     /// is disabled — never "the caller failed to authenticate", which is
     /// refused before a worker is reached.
     pub user: Option<User>,
+    /// The identity asserted to the apiserver in `FrontProxy` (RFC 0014),
+    /// computed after the last gate; `None` in `Passthrough`.
+    pub upstream_identity: Option<Asserted>,
     pub audit: AuditContext,
     /// Upstream origin, with any trailing slash already trimmed.
     pub base_url: String,

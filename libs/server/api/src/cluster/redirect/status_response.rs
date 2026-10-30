@@ -45,6 +45,35 @@ pub fn agent_unavailable() -> Response {
     )
 }
 
+/// 503 with a Kubernetes `Status` body naming who can act, for an upstream
+/// mode this replica will not serve (RFC 0014 §4.2). Never followed by a
+/// relay in another mode.
+#[must_use]
+pub fn upstream_mode_unavailable(message: &str) -> Response {
+    status_response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "ServiceUnavailable",
+        message,
+    )
+}
+
+/// 502 with a Kubernetes `Status` body, for a `401` the apiserver gave to
+/// an identity the proxy asserted (RFC 0014, decision 46): the caller's token
+/// was validated, so the fault is the trust between proxy and apiserver,
+/// never the caller's, and a bare `Unauthorized` would send them to log in
+/// again for nothing. Counted in `proxyauth_upstream_rejected_total{mode}`.
+#[must_use]
+pub fn untrusted_upstream(cluster: &str, mode: &'static str) -> Response {
+    crate::metrics::record_upstream_rejected(mode);
+    status_response(
+        StatusCode::BAD_GATEWAY,
+        "BadGateway",
+        &format!(
+            "the cluster does not trust this proxy (see the conditions of ProxyKubeApi {cluster}); contact the cluster operator"
+        ),
+    )
+}
+
 /// 403 with a Kubernetes `Status` body.
 #[must_use]
 pub fn forbidden(message: &str) -> Response {

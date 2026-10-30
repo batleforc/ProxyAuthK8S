@@ -46,6 +46,14 @@ spec:
                 name: {{ include "proxyauthk8s.back.name" . }}
                 port:
                   number: {{ .Values.back.port }}
+          # RFC 0014: the Issuer discovery and JWKS the apiservers load.
+          - path: /issuer/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "proxyauthk8s.back.name" . }}
+                port:
+                  number: {{ .Values.back.port }}
     {{- with .Values.ingress.apiHost }}
     # Clusters only (#277): `oc login` probes `HEAD /` of the server's host and
     # gives up on the dashboard's HTML. `/` is the back's empty 404; nothing

@@ -103,6 +103,56 @@ static AGENT_REFUSALS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
         .build()
 });
 
+/// `proxyauth_upstream_identity_refused_total{reason}` (RFC 0014 §10.1):
+/// identities refused before any call upstream, by the closed reason of
+/// [`crate::cluster::redirect::upstream_identity::IdentityRefusal`].
+pub const UPSTREAM_IDENTITY_REFUSED: &str = "proxyauth.upstream.identity.refused";
+
+static UPSTREAM_IDENTITY_REFUSED_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(UPSTREAM_IDENTITY_REFUSED)
+        .with_description("Identities refused before being asserted upstream, by reason.")
+        .build()
+});
+
+/// `proxyauth_upstream_rejected_total{mode}` (RFC 0014 §10.1): the `401`s
+/// the apiserver gave to an identity the proxy asserted. Zero in steady
+/// state: any value is a broken trust.
+pub const UPSTREAM_REJECTED: &str = "proxyauth.upstream.rejected";
+
+static UPSTREAM_REJECTED_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(UPSTREAM_REJECTED)
+        .with_description("401s of the apiserver to an identity the proxy asserted, by mode.")
+        .build()
+});
+
+/// One `401` to an asserted identity.
+pub fn record_upstream_rejected(mode: &'static str) {
+    UPSTREAM_REJECTED_COUNTER.add(1, &[KeyValue::new("mode", mode)]);
+}
+
+/// `proxyauth_issuer_tokens_total{result}`: the JWTs an `Issuer` cluster
+/// needed, `signed` or reused (`cache_hit`) (RFC 0014 §5.2).
+pub const ISSUER_TOKENS: &str = "proxyauth.issuer.tokens";
+
+static ISSUER_TOKENS_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(ISSUER_TOKENS)
+        .with_description("Issuer JWTs, by result: signed or cache_hit.")
+        .build()
+});
+
+/// One `Issuer` JWT, `signed` or `cache_hit`.
+pub fn record_issuer_token(result: &'static str) {
+    ISSUER_TOKENS_COUNTER.add(1, &[KeyValue::new("result", result)]);
+}
+
+/// One identity refused (RFC 0014 §4.2).
+pub fn record_upstream_identity_refused(reason: &'static str) {
+    UPSTREAM_IDENTITY_REFUSED_COUNTER.add(1, &[KeyValue::new("reason", reason)]);
+}
+
 /// One refused tunnel.
 pub fn record_agent_refusal(reason: &'static str) {
     AGENT_REFUSALS_COUNTER.add(1, &[KeyValue::new("reason", reason)]);

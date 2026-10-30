@@ -1110,11 +1110,14 @@ dependencies = [
  "k8s-openapi",
  "kube",
  "opentelemetry",
+ "rcgen",
  "ring",
  "rustls",
  "semver",
  "serde_json",
+ "serde_yaml_ng",
  "thiserror 2.0.21",
+ "time",
  "tokio",
  "trace",
  "tracing",
@@ -1122,6 +1125,7 @@ dependencies = [
  "weebo-kit-domain",
  "weebo-kit-runtime",
  "wiremock",
+ "x509-parser",
 ]
 
 [[package]]

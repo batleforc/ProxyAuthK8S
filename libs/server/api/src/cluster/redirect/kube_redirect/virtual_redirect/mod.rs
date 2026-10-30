@@ -30,7 +30,7 @@ use super::context::RedirectContext;
 use super::list_fallback;
 use super::upstream::{apply_forward_headers, upstream_client};
 use crate::cluster::redirect::audit::AuditContext;
-use crate::model::user::User;
+use crate::cluster::redirect::upstream_identity::Upstream;
 
 mod body;
 mod plan;
@@ -222,7 +222,7 @@ struct Caller<'a> {
     req: &'a Parts,
     method: &'a http::Method,
     peer_ip: Option<IpAddr>,
-    user: Option<&'a User>,
+    upstream: Upstream<'a>,
 }
 
 /// Build the upstream request, send it, and hand back the upstream answer.
@@ -256,7 +256,7 @@ fn build_forwarded_request(
         client.request(caller.method.clone(), url),
         &caller.req.headers,
         caller.peer_ip,
-        caller.user,
+        caller.upstream,
     )
     .build()
     .map_err(VirtualFailure::BuildFailed)?;
@@ -402,7 +402,7 @@ async fn list_fallback_response(
         client: &client,
         headers: &caller.req.headers,
         peer_ip: caller.peer_ip,
-        user: caller.user,
+        upstream: caller.upstream,
         base_url: target.base_url,
         namespaces_path: &namespaces_path,
         query_string,
@@ -435,6 +435,7 @@ pub(super) async fn virtual_redirect(
         peer_ip,
         proxy,
         user,
+        upstream_identity,
         audit,
         base_url,
         upstream_path,
@@ -454,7 +455,7 @@ pub(super) async fn virtual_redirect(
         req: &req,
         method: &method,
         peer_ip,
-        user: user.as_ref(),
+        upstream: Upstream::new(user.as_ref(), upstream_identity.as_ref()),
     };
     let target = Target {
         proxy: &proxy,
@@ -481,6 +482,15 @@ pub(super) async fn virtual_redirect(
         let url = upstream_url(&base_url, forward.path(), query_string);
         let res = send_upstream(&proxy, &data, &url, &caller, request_body).await?;
         let status = res.status();
+        if caller.upstream.drops_authorization() && status == StatusCode::UNAUTHORIZED {
+            audit.emit_refusal(502);
+            return Ok(
+                crate::cluster::redirect::status_response::untrusted_upstream(
+                    &proxy.to_path(),
+                    proxy.upstream_mode().as_str(),
+                ),
+            );
+        }
 
         // Each branch emits the audit event for the status it really answers
         // with, exactly once. A watch never ends, so it is translated event by

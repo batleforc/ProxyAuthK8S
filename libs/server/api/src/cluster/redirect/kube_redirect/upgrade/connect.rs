@@ -21,9 +21,9 @@ use tokio_rustls::TlsConnector;
 
 use super::super::tls::cached_tls_config;
 use crate::cluster::redirect::forwarded::{
-    forwarded_for_value, identity_headers, is_proxy_owned_header, is_upstream_auth_header,
+    forwarded_for_value, is_proxy_owned_header, is_upstream_auth_header,
 };
-use crate::model::user::User;
+use crate::cluster::redirect::upstream_identity::Upstream;
 
 /// Bound on each of the TCP connect and the TLS handshake to the upstream, so a
 /// black-holed apiserver does not pin the upgrade handler. The established
@@ -168,6 +168,29 @@ fn is_dropped_request_header(header_name: &http::header::HeaderName) -> bool {
         || is_upstream_auth_header(header_name.as_str())
 }
 
+/// The bearer-token entries of `Sec-WebSocket-Protocol`, the apiserver's
+/// `base64url.bearer.authorization.k8s.io.<token>` (RFC 0014, decision 39).
+const BEARER_SUBPROTOCOL_PREFIX: &str = "base64url.bearer.authorization.k8s.io.";
+
+/// `Sec-WebSocket-Protocol` without its bearer-token entries, in every mode:
+/// the proxy validates `Authorization` only, so a second token there was
+/// never checked, and in a trusted mode it would carry the caller's IdP token
+/// upstream (or let the apiserver fall back to it, its union of
+/// authenticators going on after a refusal). `None` when nothing is left.
+fn strip_bearer_subprotocols(value: &HeaderValue) -> Option<HeaderValue> {
+    let kept: Vec<&str> = value
+        .to_str()
+        .ok()?
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty() && !entry.starts_with(BEARER_SUBPROTOCOL_PREFIX))
+        .collect();
+    if kept.is_empty() {
+        return None;
+    }
+    HeaderValue::from_str(&kept.join(", ")).ok()
+}
+
 /// The handshake sent upstream, serialized by hyper: the request line of
 /// `upstream_url`, its `Host`, the rebuilt `Connection`/`Upgrade`, the client's
 /// headers minus the dropped ones, the forwarding chain and the proxy's
@@ -177,7 +200,7 @@ pub(super) fn build_upgrade_request(
     method: &http::Method,
     upstream_url: &reqwest::Url,
     peer_ip: Option<IpAddr>,
-    user: Option<&User>,
+    upstream: Upstream<'_>,
 ) -> Result<Request<Empty<Bytes>>, String> {
     let path = match upstream_url.query() {
         Some(query) => format!("{}?{}", upstream_url.path(), query),
@@ -207,9 +230,18 @@ pub(super) fn build_upgrade_request(
         upstream_headers.insert(http::header::UPGRADE, upgrade.clone());
     }
     for (name, value) in headers {
-        if !is_dropped_request_header(name) {
-            upstream_headers.append(name, value.clone());
+        if is_dropped_request_header(name)
+            || (upstream.drops_authorization() && *name == http::header::AUTHORIZATION)
+        {
+            continue;
         }
+        if *name == http::header::SEC_WEBSOCKET_PROTOCOL {
+            if let Some(value) = strip_bearer_subprotocols(value) {
+                upstream_headers.append(name, value);
+            }
+            continue;
+        }
+        upstream_headers.append(name, value.clone());
     }
 
     let incoming_forwarded_for = headers
@@ -221,10 +253,14 @@ pub(super) fn build_upgrade_request(
             HeaderValue::from_str(&forwarded_for).map_err(|e| e.to_string())?,
         );
     }
-    for (name, value) in identity_headers(user) {
-        upstream_headers.insert(
-            name,
-            HeaderValue::from_str(&value).map_err(|e| e.to_string())?,
+    // Appended, never inserted: one `X-Remote-Group` per group.
+    for (name, value) in upstream.headers() {
+        let mut value = HeaderValue::from_str(&value).map_err(|e| e.to_string())?;
+        // The `Issuer` JWT never shows in a debug print of the request (T10).
+        value.set_sensitive(name.eq_ignore_ascii_case("authorization"));
+        upstream_headers.append(
+            http::header::HeaderName::from_bytes(name.as_bytes()).map_err(|e| e.to_string())?,
+            value,
         );
     }
     Ok(request)
@@ -270,7 +306,7 @@ mod tests {
             &http::Method::GET,
             &url("https://api.example:6443/api/v1/pods/p/exec?command=ls"),
             None,
-            None,
+            crate::cluster::redirect::upstream_identity::Upstream::Passthrough(None),
         )
         .unwrap();
         assert_eq!(req.method(), http::Method::GET);
@@ -281,7 +317,7 @@ mod tests {
             &http::Method::POST,
             &url("https://api.example/x"),
             None,
-            None,
+            crate::cluster::redirect::upstream_identity::Upstream::Passthrough(None),
         )
         .unwrap();
         assert_eq!(req.method(), http::Method::POST);
@@ -324,12 +360,87 @@ mod tests {
             &http::Method::GET,
             &url("https://api.example:6443/api/v1/namespaces/d/pods/p/exec"),
             None,
-            None,
+            crate::cluster::redirect::upstream_identity::Upstream::Passthrough(None),
         )
         .unwrap();
         assert_eq!(req.headers()["connection"], "Upgrade");
         assert_eq!(req.headers()["upgrade"], "websocket");
         assert_eq!(req.headers()["sec-websocket-protocol"], "v5.channel.k8s.io");
         assert!(!req.headers().contains_key("transfer-encoding"));
+    }
+
+    /// Decision 39: a bearer token in the sub-protocol never goes upstream,
+    /// the channel protocols do, in their order.
+    #[test]
+    fn bearer_subprotocol_entries_are_stripped_in_every_mode() {
+        let token = "base64url.bearer.authorization.k8s.io.ZXlKaGJHY2lPaUpTVXpJMU5pSjk";
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "websocket".parse().unwrap());
+        headers.append(
+            "sec-websocket-protocol",
+            format!("v5.channel.k8s.io, {token}").parse().unwrap(),
+        );
+        headers.append(
+            "sec-websocket-protocol",
+            "v4.channel.k8s.io".parse().unwrap(),
+        );
+        let req = build_upgrade_request(
+            &headers,
+            &http::Method::GET,
+            &url("https://api.example:6443/api/v1/namespaces/d/pods/p/exec"),
+            None,
+            crate::cluster::redirect::upstream_identity::Upstream::Passthrough(None),
+        )
+        .unwrap();
+        let sent: Vec<_> = req
+            .headers()
+            .get_all("sec-websocket-protocol")
+            .iter()
+            .map(|value| value.to_str().unwrap().to_string())
+            .collect();
+        assert_eq!(sent, ["v5.channel.k8s.io", "v4.channel.k8s.io"]);
+
+        // A header holding only the token is dropped altogether.
+        let mut headers = HeaderMap::new();
+        headers.insert("sec-websocket-protocol", token.parse().unwrap());
+        let req = build_upgrade_request(
+            &headers,
+            &http::Method::GET,
+            &url("https://api.example:6443/api/v1/namespaces/d/pods/p/exec"),
+            None,
+            crate::cluster::redirect::upstream_identity::Upstream::Passthrough(None),
+        )
+        .unwrap();
+        assert!(!req.headers().contains_key("sec-websocket-protocol"));
+    }
+
+    /// T5 and decision 23 on the upgrade path: in FrontProxy the caller's
+    /// token never goes, each group is its own header, nothing
+    /// `x-forwarded-*` is set.
+    #[test]
+    fn front_proxy_headers_replace_the_token_on_the_upgrade_path() {
+        use crate::cluster::redirect::upstream_identity::{Upstream, UpstreamIdentity};
+        let identity = UpstreamIdentity {
+            username: "proxyauth:alice".into(),
+            groups: vec!["proxyauth:a,b".into(), "proxyauth:c".into()],
+            extra: std::collections::BTreeMap::new(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("upgrade", "websocket".parse().unwrap());
+        headers.append("authorization", "Bearer idp-token".parse().unwrap());
+        headers.append("Authorization", "Bearer second".parse().unwrap());
+        let req = build_upgrade_request(
+            &headers,
+            &http::Method::GET,
+            &url("https://api.example:6443/api/v1/namespaces/d/pods/p/exec"),
+            None,
+            Upstream::Headers(&identity),
+        )
+        .unwrap();
+        assert!(!req.headers().contains_key("authorization"));
+        assert!(!req.headers().contains_key("x-forwarded-user"));
+        assert_eq!(req.headers()["x-remote-user"], "proxyauth:alice");
+        let groups: Vec<_> = req.headers().get_all("x-remote-group").iter().collect();
+        assert_eq!(groups, ["proxyauth:a,b", "proxyauth:c"]);
     }
 }

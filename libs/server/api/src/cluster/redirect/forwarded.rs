@@ -2,8 +2,6 @@
 
 use std::net::IpAddr;
 
-use crate::model::user::User;
-
 /// Headers managed by the transport itself; forwarding them corrupts the
 /// upstream request when the body is re-framed.
 const HOP_BY_HOP: [&str; 5] = [
@@ -128,44 +126,9 @@ fn select_client_ip(
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-/// Strip anything that could terminate a header line.
-///
-/// The upgrade path serializes headers by hand, so a claim carrying a CR or LF
-/// would let an OIDC provider (or a compromised one) inject arbitrary headers
-/// into the upstream request.
-fn sanitize_header_value(value: &str) -> String {
-    value
-        .chars()
-        .filter(|c| !matches!(c, '\r' | '\n' | '\0'))
-        .collect()
-}
-
-/// Identity headers describing the authenticated caller, if there is one.
-#[must_use]
-pub fn identity_headers(user: Option<&User>) -> Vec<(&'static str, String)> {
-    match user {
-        Some(user) => vec![
-            ("x-forwarded-user", sanitize_header_value(&user.username)),
-            (
-                "x-forwarded-groups",
-                sanitize_header_value(&user.groups.join(",")),
-            ),
-        ],
-        None => Vec::new(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn user() -> User {
-        User {
-            username: "alice".to_string(),
-            email: "alice@example.com".to_string(),
-            groups: vec!["dev".to_string(), "platform".to_string()],
-        }
-    }
 
     #[test]
     fn hop_by_hop_detection_is_case_insensitive() {
@@ -278,30 +241,5 @@ mod tests {
             "203.0.113.7"
         );
         assert_eq!(select_client_ip(None, None, 5), "unknown");
-    }
-
-    #[test]
-    fn identity_headers_describe_the_caller() {
-        assert_eq!(
-            identity_headers(Some(&user())),
-            vec![
-                ("x-forwarded-user", "alice".to_string()),
-                ("x-forwarded-groups", "dev,platform".to_string()),
-            ]
-        );
-        assert!(identity_headers(None).is_empty());
-    }
-
-    #[test]
-    fn identity_headers_cannot_inject_extra_headers() {
-        let user = User {
-            username: "alice\r\nx-admin: true".to_string(),
-            email: String::new(),
-            groups: vec!["dev\nx-admin: true".to_string()],
-        };
-        let headers = identity_headers(Some(&user));
-        assert_eq!(headers[0].1, "alicex-admin: true");
-        assert_eq!(headers[1].1, "devx-admin: true");
-        assert!(headers.iter().all(|(_, v)| !v.contains(['\r', '\n'])));
     }
 }

@@ -88,15 +88,43 @@ step "ca"
 CAROOT="$RUN/ca" mkcert -cert-file "$RUN/tls.crt" -key-file "$RUN/tls.key" \
   '*.k8s.localhost' proxyauth.k8s.localhost dex.k8s.localhost 2>/dev/null
 
+step "front-proxy ca"
+# RFC 0014 §6.6: a CA the apiserver trusts for X-Remote-* only, and the
+# proxy's client certificate (CN=proxyauth-it); the tests put it in the
+# Secret each FrontProxy cluster reads. k3s generates its own aggregation CA
+# at its first start: the file holds the dedicated CA alone until then.
+FP="$RUN/front-proxy"
+mkdir -p "$FP"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 \
+  -subj "/CN=proxyauth-it-front-proxy-ca" -keyout "$FP/ca.key" -out "$FP/ca.crt" 2>/dev/null
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=proxyauth-it" \
+  -keyout "$FP/client.key" -out "$FP/client.csr" 2>/dev/null
+printf 'extendedKeyUsage=clientAuth\n' >"$FP/client.ext"
+openssl x509 -req -in "$FP/client.csr" -CA "$FP/ca.crt" -CAkey "$FP/ca.key" -CAcreateserial \
+  -days 2 -extfile "$FP/client.ext" -out "$FP/client.crt" 2>/dev/null
+cp "$FP/ca.crt" "$FP/requestheader-ca.crt"
+
 step "cluster"
-awk -v image="$K3S" -v ca="$RUN/ca/rootCA.pem" -v traefik="$PWD/.it/traefik-config.yaml" '
-  /^ *__CA__$/ { while ((getline line < ca) > 0) print "              " line; next }
-  { gsub(/__IMAGE__/, image); gsub(/__TRAEFIK_CONFIG__/, traefik); print }' .it/k3d.yaml.tpl >"$RUN/k3d.yaml"
+awk -v image="$K3S" -v ca="$RUN/ca/rootCA.pem" -v traefik="$PWD/.it/traefik-config.yaml" -v fp="$(cd "$FP" && pwd)" '
+  /^ *__CA__$/ { while ((getline line < ca) > 0) print "              " line; close(ca); next }
+  { gsub(/__IMAGE__/, image); gsub(/__TRAEFIK_CONFIG__/, traefik); gsub(/__FRONT_PROXY_DIR__/, fp); print }' .it/k3d.yaml.tpl >"$RUN/k3d.yaml"
 sed -i "s/127.0.0.1:8443:8443/127.0.0.1:$PORT:8443/" "$RUN/k3d.yaml"
 k3d cluster create "$CLUSTER" --config "$RUN/k3d.yaml" --wait
 k3d kubeconfig get "$CLUSTER" >"$ADMIN"
 chmod 600 "$ADMIN"
 k() { kubectl --kubeconfig "$ADMIN" "$@"; }
+
+step "front-proxy ca concatenated"
+# k3s' aggregation CA next to the dedicated one, swapped in place: the
+# apiserver reloads the file without a restart (RFC 0014, decision 58).
+"$ENGINE" cp "k3d-$CLUSTER-server-0:/var/lib/rancher/k3s/server/tls/request-header-ca.crt" "$FP/k3s-request-header-ca.crt"
+cat "$FP/k3s-request-header-ca.crt" "$FP/ca.crt" >"$FP/.requestheader-ca.crt"
+mv "$FP/.requestheader-ca.crt" "$FP/requestheader-ca.crt"
+for _ in $(seq 150); do
+  k get --raw /apis/metrics.k8s.io/v1beta1 >/dev/null 2>&1 && break
+  sleep 2
+done
+k get --raw /apis/metrics.k8s.io/v1beta1 >/dev/null
 
 step "images"
 if [[ -z "${IT_SKIP_BUILD:-}" ]]; then

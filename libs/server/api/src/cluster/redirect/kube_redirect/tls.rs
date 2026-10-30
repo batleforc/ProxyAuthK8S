@@ -23,23 +23,38 @@ pub(super) async fn cached_tls_config(
         .get_or_try_insert_with(
             &UpstreamCacheKey::for_proxy(proxy),
             upstream_client_ttl(),
-            || async { build_tls_config(proxy, state, true).await.map(Arc::new) },
+            || async {
+                build_tls_config(proxy, state, ClientCert::Configured)
+                    .await
+                    .map(Arc::new)
+            },
         )
         .await
+}
+
+/// Which client certificate a TLS configuration presents.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ClientCert {
+    /// None: a CA-only connection (e.g. a privileged bearer-token call, which
+    /// must authenticate as the token alone).
+    None,
+    /// The one the cluster's mode calls for: `client_cert`, or in
+    /// `FrontProxy` the Secret of the proxy's namespace.
+    Configured,
+    /// The `FrontProxy` Secret whatever the mode: the trust probe of a
+    /// cluster still preparing the switch (RFC 0014 §5.4).
+    FrontProxy,
 }
 
 /// TLS configuration used to reach the target cluster.
 ///
 /// The trust anchor comes from the cluster's `cert` (or the platform store when
 /// it has none). A client certificate is attached when the cluster is
-/// configured for mutual TLS and `attach_client_cert` is `true`; pass `false`
-/// to build a CA-only connection (e.g. a privileged bearer-token call, which
-/// must authenticate unambiguously as the token and never be conflated with
-/// the front-proxy mTLS identity used for impersonated calls).
+/// configured for mutual TLS, as [`ClientCert`] says.
 pub(super) async fn build_tls_config(
     proxy: &ProxyKubeApi,
     state: &State,
-    attach_client_cert: bool,
+    client: ClientCert,
 ) -> Result<ClientConfig, String> {
     let namespace = proxy.namespace().unwrap_or_default();
     let cert_pem = proxy
@@ -65,19 +80,27 @@ pub(super) async fn build_tls_config(
             .map_err(|e| e.to_string())?
     };
 
-    let client_cert = if attach_client_cert {
-        proxy.spec.client_cert.as_ref()
-    } else {
-        None
-    };
-    let Some(client_cert) = client_cert else {
+    if client == ClientCert::None {
         return Ok(builder.with_no_client_auth());
+    }
+    // RFC 0014: in FrontProxy the certificate is the one the proxy
+    // administrator put in the proxy's namespace for this cluster and this
+    // target, never a `client_cert` (refused by admission in this mode).
+    let (cert_pem, key_pem) = if client == ClientCert::FrontProxy
+        || proxy.upstream_mode() == crd::upstream_auth::UpstreamAuthMode::FrontProxy
+    {
+        crd::upstream_auth::front_proxy::load(state.client.clone(), &state.lease_namespace, proxy)
+            .await
+            .map_err(|e| e.to_string())?
+    } else {
+        let Some(client_cert) = proxy.spec.client_cert.as_ref() else {
+            return Ok(builder.with_no_client_auth());
+        };
+        client_cert
+            .resolve(state.client.clone(), &namespace)
+            .await
+            .map_err(|e| e.to_string())?
     };
-
-    let (cert_pem, key_pem) = client_cert
-        .resolve(state.client.clone(), &namespace)
-        .await
-        .map_err(|e| e.to_string())?;
     let cert_chain: Vec<CertificateDer<'static>> =
         CertificateDer::pem_slice_iter(cert_pem.as_bytes())
             .collect::<Result<Vec<_>, _>>()

@@ -230,6 +230,45 @@ impl State {
         Ok(objects)
     }
 
+    /// A cached `ProxyKubeApi` by `ns/name`, whichever prefix it is under
+    /// (RFC 0014, decision 42): the trusted-mode key first, then the legacy one.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::get_object_from_redis`].
+    pub async fn get_proxy_from_redis(
+        &self,
+        path: &str,
+    ) -> Result<Option<crd::ProxyKubeApi>, RedisPoolError> {
+        if let Some(proxy) = self
+            .get_object_from_redis(crd::REDIS_TRUSTED_PREFIX, path)
+            .await?
+        {
+            return Ok(Some(proxy));
+        }
+        self.get_object_from_redis(crd::REDIS_PREFIX, path).await
+    }
+
+    /// Every cached `ProxyKubeApi`, under both prefixes. A cluster caught
+    /// mid-switch between them is listed once, from the trusted-mode key.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::list_objects`].
+    pub async fn list_proxies(&self) -> Result<Vec<crd::ProxyKubeApi>, RedisPoolError> {
+        let mut proxies: Vec<crd::ProxyKubeApi> =
+            self.list_objects(crd::REDIS_TRUSTED_PREFIX).await?;
+        let trusted: std::collections::HashSet<String> =
+            proxies.iter().map(crd::ProxyKubeApi::to_path).collect();
+        let legacy: Vec<crd::ProxyKubeApi> = self.list_objects(crd::REDIS_PREFIX).await?;
+        proxies.extend(
+            legacy
+                .into_iter()
+                .filter(|proxy| !trusted.contains(&proxy.to_path())),
+        );
+        Ok(proxies)
+    }
+
     /// Fetch and deserialize a single cached object by prefix and key.
     ///
     /// `Ok(None)` means the key is absent. A value that exists but cannot be

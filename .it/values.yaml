@@ -53,6 +53,11 @@ back:
       mountPath: /etc/proxyauth-it
       readOnly: true
 
+# RFC 0014 §6.P: every mode is exercised; a mode outside allowedModes is
+# proved by the unit tests (§17.3).
+upstreamAuth:
+  allowedModes: [Passthrough, FrontProxy, Issuer]
+
 front:
   replicas: 1
   podDisruptionBudget:

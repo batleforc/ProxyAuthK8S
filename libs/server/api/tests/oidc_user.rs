@@ -184,3 +184,117 @@ async fn fails_when_discovery_is_unavailable() {
 
     assert!(result.is_err(), "expected an error, got {result:?}");
 }
+
+// RFC 0014: `oidc_provider.claim_mappings` over the raw `/userinfo` claims.
+
+#[expect(
+    clippy::expect_used,
+    reason = "test helper: a bad fixture is a failed test"
+)]
+fn mappings(value: serde_json::Value) -> crd::authentication_configuration::ClaimMappings {
+    serde_json::from_value(value).expect("claim mappings")
+}
+
+async fn mapped(
+    server: &MockServer,
+    mappings: &crd::authentication_configuration::ClaimMappings,
+    trusted: bool,
+) -> Result<Option<User>, api::model::user::UserAuthError> {
+    User::get_user_info_mapped(
+        VALID_TOKEN.to_string(),
+        oidc_conf(&server.uri()),
+        Some(api::model::user::Mapping { mappings, trusted }),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn claim_mappings_read_any_userinfo_claim() {
+    let server = MockServer::start().await;
+    mount_discovery(&server).await;
+    mount_userinfo(
+        &server,
+        json!({
+            "sub": "alice-sub",
+            "preferred_username": "alice",
+            "email": "alice@example.com",
+            "teams": ["blue"],
+            "groups": ["dev"],
+        }),
+    )
+    .await;
+    let config = mappings(json!({
+        "username": { "claim": "sub", "prefix": "" },
+        "groups": { "expression": "claims.teams" },
+        "extra": [{ "key": "example.com/team", "value_expression": "claims.teams" }],
+    }));
+    let user = mapped(&server, &config, false)
+        .await
+        .expect("mapped")
+        .expect("user");
+    assert_eq!(user.username, "alice-sub");
+    assert_eq!(user.groups, vec!["blue"]);
+    assert_eq!(user.email, "alice@example.com");
+    assert_eq!(user.extra["example.com/team"], vec!["blue"]);
+}
+
+/// Decision 38: one token, one OIDC client, two clusters with different
+/// mappings: each gets its own user, never the other's cached one.
+#[tokio::test]
+async fn a_mapping_from_one_cluster_never_serves_another() {
+    let server = MockServer::start().await;
+    mount_discovery(&server).await;
+    mount_userinfo(
+        &server,
+        json!({ "sub": "alice-sub", "preferred_username": "alice", "groups": [] }),
+    )
+    .await;
+    let by_sub = mappings(json!({ "username": { "claim": "sub", "prefix": "" } }));
+    let everyone_admin = mappings(json!({ "username": { "expression": "'admin'" } }));
+
+    let first = mapped(&server, &everyone_admin, false)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.username, "admin");
+    let second = mapped(&server, &by_sub, true).await.unwrap().unwrap();
+    assert_eq!(second.username, "alice-sub");
+    let legacy =
+        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(legacy.username, "alice");
+}
+
+/// Decision 51: in a trusted mode, a username read from an unverified email
+/// is refused; untrusted, it is accepted as before.
+#[tokio::test]
+async fn an_unverified_email_is_refused_as_username_in_a_trusted_mode() {
+    let server = MockServer::start().await;
+    mount_discovery(&server).await;
+    mount_userinfo(
+        &server,
+        json!({ "sub": "alice-sub", "email": "alice@example.com", "email_verified": false }),
+    )
+    .await;
+    let by_email = mappings(json!({ "username": { "claim": "email", "prefix": "" } }));
+    assert!(mapped(&server, &by_email, true).await.is_err());
+    let user = mapped(&server, &by_email, false).await.unwrap().unwrap();
+    assert_eq!(user.username, "alice@example.com");
+}
+
+/// RFC 0014 §7.3: a `/userinfo` body past `PROXY_JWKS_MAX_DOCUMENT_BYTES`
+/// (64 KiB by default) is refused, not read whole.
+#[tokio::test]
+async fn an_oversized_userinfo_body_is_refused() {
+    let server = MockServer::start().await;
+    mount_discovery(&server).await;
+    let groups: Vec<String> = (0..8_000).map(|i| format!("group-{i:04}")).collect();
+    mount_userinfo(&server, json!({ "sub": "alice-sub", "groups": groups })).await;
+    let result =
+        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
+            .await;
+    // No `{result:?}`: a resolved user would carry the token into the output.
+    assert!(result.is_err(), "an oversized /userinfo must not resolve");
+}
