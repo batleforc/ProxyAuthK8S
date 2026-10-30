@@ -26,8 +26,7 @@ MATRIX = ROOT / "tests/SECURITY-MATRIX.md"
 # The RFCs whose threat models are backfilled (RFC 0015 decision 10).
 RFCS = ("0010", "0011", "0012", "0013", "0014")
 # 0010: its code is not written; it leaves this set in the PR that lands it.
-# 0013, 0014: backfill rows still `à écrire` (RFC 0015 phase 2).
-PENDING = {"0010", "0013", "0014"}
+PENDING = {"0010"}
 STATUSES = {"test", "hors suite", "à écrire"}
 
 

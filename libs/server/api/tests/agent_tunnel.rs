@@ -690,6 +690,47 @@ async fn a_protocol_range_without_overlap_is_refused_before_register() {
     delete_proxy(&pool, &other.namespace, &other.name).await;
 }
 
+/// RFC 0013, T4: a handshake whose identity is not verified writes nothing,
+/// and a loop of refusals rewrites one key per cluster, under its TTL, rather
+/// than growing the store.
+#[tokio::test]
+async fn a_refusal_loop_writes_one_bounded_key_and_an_unverified_handshake_none() {
+    let pool = memory_store();
+    let (addr, gateway) = agent_gateway(&pool).await;
+    let identity = seeded_agent_cluster(&pool, 15).await;
+    let key_name = common::agent_gateway::agent_refused_key(&identity.uid);
+
+    let foreign = agent_pki::AgentCa::generate().unwrap();
+    let (forged_cert, forged_key) = agent_cert(&foreign, &identity);
+    assert!(
+        dial_agent(addr, gateway.ca.cert_pem(), &forged_cert, &forged_key)
+            .await
+            .is_err()
+    );
+    assert!(!gateway.state.key_exists(&key_name).await.unwrap());
+
+    let (cert, key) = agent_cert(&gateway.ca, &identity);
+    let out_of_range = || agent_proto::control::AgentInfo {
+        version: "0.7.0".to_string(),
+        ca_fingerprint: String::new(),
+        protocol_min: 2,
+        protocol_max: 3,
+    };
+    for _ in 0..3 {
+        assert!(
+            dial_agent_announcing(addr, gateway.ca.cert_pem(), &cert, &key, out_of_range())
+                .await
+                .is_err()
+        );
+    }
+    let ttl = gateway.state.key_ttl(&key_name).await.unwrap();
+    assert!(
+        ttl.is_some_and(|ttl| ttl > 0 && ttl <= common::agent_gateway::REFUSAL_TTL.as_secs()),
+        "{ttl:?}"
+    );
+    delete_proxy(&pool, &identity.namespace, &identity.name).await;
+}
+
 /// RFC 0013, T1: what an agent announces reaches the presence record in a
 /// bounded shape only; the tunnel is served all the same.
 #[tokio::test]

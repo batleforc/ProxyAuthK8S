@@ -61,7 +61,7 @@ Une menace nouvelle d'une RFC suivante entre ici avec sa RFC dans `RFCS`.
 | 0013 | T1 | test | `libs/server/api/tests/agent_tunnel.rs::an_invalid_announce_is_served_but_never_recorded_as_sent`, `libs/agent/proto/src/lib.rs::only_a_short_semver_is_a_version`, `tests/integration/tests/rfc0013.rs::p6_a_forged_version_is_recorded_invalid` |
 | 0013 | T2 | hors suite | risque accepté (décision 3) : la version n'autorise rien, seul le protocole est négocié |
 | 0013 | T3 | test | `libs/agent/proto/src/lib.rs::negotiation_keeps_the_highest_protocol_of_both_ranges`, `libs/server/api/tests/agent_tunnel.rs::a_cert_from_another_ca_is_refused` |
-| 0013 | T4 | à écrire | une poignée de main sans certificat valide n'écrit aucune clé de refus, et des refus répétés laissent une seule clé par cluster avec un TTL de 5 min au plus |
+| 0013 | T4 | test | `libs/server/api/tests/agent_tunnel.rs::a_refusal_loop_writes_one_bounded_key_and_an_unverified_handshake_none` |
 | 0013 | T5 | test | `libs/server/api/tests/agent_tunnel.rs::a_protocol_range_without_overlap_is_refused_before_register` |
 | 0013 | T6 | hors suite | risque accepté (mainteneur) : lire la CR exige déjà le RBAC qui montre `spec`, aucune exposition nouvelle |
 | 0013 | T7 | test | `tests/integration/tests/rfc0013.rs::p5_a_protocol_without_overlap_is_refused_then_recovers` |
@@ -80,12 +80,12 @@ Une menace nouvelle d'une RFC suivante entre ici avec sa RFC dans `RFCS`.
 | 0014 | T12 | test | `libs/server/api/src/issuer.rs::two_identities_never_share_a_cached_jwt` |
 | 0014 | T13 | test | `libs/server/crd/src/lib.rs::trusted_modes_refuse_what_would_make_the_asserted_identity_unsafe`, `tests/integration/tests/rfc0014.rs::p5_a_missing_username_claim_is_refused_by_the_proxy` |
 | 0014 | T14 | hors suite | l'apiserver épingle la CA (`certificateAuthority`) ; qui contrôle l'Ingress du proxy contrôle déjà le proxy, risque accepté |
-| 0014 | T15 | à écrire | un flot de requêtes `/issuer/{ns}/{cluster}/jwks` et de JWT au `kid` inconnu n'est jamais banni ni limité, est servi de la mémoire sans lire Redis ni Secret, et un cluster inconnu répond 404 |
+| 0014 | T15 | test | `libs/server/api/tests/issuer_routes.rs::the_issuer_routes_are_never_throttled_and_answer_404_off_issuer` ; le service de la mémoire pendant une panne reste sans test rapide (lecture du Secret) |
 | 0014 | T16 | test | `tests/integration/tests/rfc0014.rs::p3_the_apiserver_sees_the_prefixed_identity` |
-| 0014 | T17 | à écrire | en `FrontProxy`, la revue `list_fallback` reçue par l'apiserver simulé ne porte ni certificat client ni `X-Remote-*` (`the_fallback_token_client_never_carries_remote_headers`) |
+| 0014 | T17 | test | `libs/server/api/src/cluster/redirect/kube_redirect/tls.rs::the_ca_only_client_of_a_front_proxy_cluster_presents_no_certificate` |
 | 0014 | T18 | test | `libs/server/crd/src/upstream_auth/issuer_key.rs::a_secret_without_the_expected_labels_is_never_adopted`, `libs/server/crd/src/upstream_auth/front_proxy.rs::a_secret_without_the_label_or_for_another_target_is_never_used` |
 | 0014 | T19 | test | `libs/server/api/src/cluster/redirect/kube_redirect.rs::a_trusted_mode_outside_allowed_modes_is_refused_with_who_can_act` |
-| 0014 | T20 | à écrire | un `ProxyKubeApi` en `FrontProxy` ou `Issuer` n'est publié que sous `REDIS_TRUSTED_PREFIX` : la lecture sous l'ancien préfixe (binaire v0.4.x) ne le trouve pas |
+| 0014 | T20 | test | `libs/server/controller/src/proxy_kube_api/reconcile.rs::a_trusted_cluster_is_invisible_under_the_legacy_prefix` |
 | 0014 | T21 | test | `libs/server/api/src/cluster/redirect/kube_redirect/upstream.rs::front_proxy_strips_every_authorization_value_and_asserts_the_identity`, `libs/server/api/src/cluster/redirect/kube_redirect/upstream.rs::issuer_replaces_the_token_with_the_proxy_jwt` |
 | 0014 | T22 | test | `libs/server/api/src/cluster/redirect/upstream_identity.rs::a_value_a_header_cannot_carry_is_refused_not_cleaned`, `libs/server/crd/src/lib.rs::an_extra_key_that_cannot_be_forwarded_is_refused_in_a_trusted_mode` |
 | 0014 | T23 | test | `libs/server/jwt_validator/src/validator.rs::a_trusted_mode_refuses_an_unverified_email_as_username`, `libs/server/api/tests/oidc_user.rs::an_unverified_email_is_refused_as_username_in_a_trusted_mode` |
@@ -93,5 +93,5 @@ Une menace nouvelle d'une RFC suivante entre ici avec sa RFC dans `RFCS`.
 | 0014 | T25 | test | `libs/server/crd/src/lib.rs::trusted_modes_refuse_what_would_make_the_asserted_identity_unsafe`, `tests/integration/tests/rfc0014.rs::p11_admission_refuses_an_issuer_without_its_key_or_with_a_client_cert` |
 | 0014 | T26 | test | `libs/server/controller/src/lib.rs::the_generated_crd_knows_upstream_auth_and_an_older_one_does_not` |
 | 0014 | T27 | test | `tests/integration/tests/rfc0014.rs::p11_admission_refuses_a_client_cert_in_front_proxy`, `libs/server/crd/src/upstream_auth/front_proxy.rs::the_secret_name_is_unambiguous` |
-| 0014 | T28 | à écrire | un cluster `FrontProxy` ou `Issuer` avec `OIDC_AUDIENCE_VALIDATION=off` finit `Ready=False` (`AudienceValidationRequired`) et ses requêtes répondent 503 (`audience_validation_off_closes_trusted_modes`) |
+| 0014 | T28 | test | `libs/server/api/tests/audience_validation_off.rs::a_trusted_mode_without_audience_validation_is_refused` ; le `Ready=False` (`AudienceValidationRequired`) du contrôleur reste sans test |
 | 0014 | T29 | test | `tests/integration/tests/rfc0014.rs::t29_a_certificate_bound_to_another_target_closes_the_cluster`, `libs/server/crd/src/upstream_auth/front_proxy.rs::a_secret_without_the_label_or_for_another_target_is_never_used` |
