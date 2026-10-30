@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review                                                              |
+| Status      | Accepted                                                               |
 | Short       | Tests profonds (unitaires et en processus, Rust)                       |
 | Settles     | Ce qui doit casser quand une régression entre, avant la suite d'intégration |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |

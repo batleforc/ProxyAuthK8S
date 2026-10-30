@@ -21,7 +21,7 @@ RFC passe au `/grill-me` avant d'être `In review`.
 | [0012](0012-agent-tunnel.md) | Mode agent : joindre un apiserver qui n'est pas exposé | à créer | Implemented | high |
 | [0013](0013-agent-version-skew.md) | Versions des agents : les voir, les comparer, refuser un protocole inconnu | #304 | Implemented | medium |
 | [0014](0014-trusted-authenticator.md) | Le proxy comme authentificateur de confiance (front-proxy, émetteur) | #323 | Accepted | high |
-| [0015](0015-deep-tests.md) | Des tests unitaires et en processus plus profonds | à créer | In review | medium |
+| [0015](0015-deep-tests.md) | Des tests unitaires et en processus plus profonds | #324 | Accepted | medium |
 | [REVIEW](REVIEW-roadmap-readme.md) | Revue de la roadmap et du README (2026-10-17) | — | — | — |
 
 Chaque document se termine par une section « Still open » (ou « Questions pour le
