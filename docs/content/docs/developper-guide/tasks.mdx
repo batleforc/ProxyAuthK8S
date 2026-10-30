@@ -49,17 +49,9 @@ lancez `task init`.
 
 ## Tests
 
-| Tâche                   | Effet                                                                          |
-| ----------------------- | ------------------------------------------------------------------------------ |
-| `task test:unit`        | Tests unitaires seuls (ni Redis, ni réseau)                                     |
-| `task test:integration` | Tier d'intégration rapide (wiremock + Redis réel) ; échoue si Redis est absent |
-| `task test:server`      | Tests côté serveur uniquement (sans les crates CLI)                             |
-| `task test:all`         | Tous les tests du workspace                                                     |
-| `task envtest:setup`    | Télécharge kube-apiserver et etcd pour l'envtest                                |
-| `task envtest:run`      | Suite envtest contre un apiserver éphémère réel (`envtest:clean` pour nettoyer) |
-
-Le Redis de test se règle avec `TEST_REDIS_URL` (défaut `redis://127.0.0.1:6379`) ;
-`REQUIRE_TEST_REDIS=1` transforme un Redis absent en échec plutôt qu'en test sauté.
+Les couches de test, leurs commandes et leurs règles sont dans [Tests](/docs/developper-guide/testing) :
+`task test:unit` (sans Redis), `task test:all` (avec), `task envtest:run`, la couverture et les
+garde-fous.
 
 Contre un vrai cluster (k3d, Dex, chart, images construites depuis l'arbre) : `task it:up`
 puis `task it:test`, voir [Suite d'intégration](/docs/developper-guide/integration-tests).

@@ -43,6 +43,7 @@ assignees: []
 
 - [ ] I followed the guidelines in [CONTRIBUTING.md](../../CONTRIBUTING.md)
 - [ ] Reproduction steps included and verified
+- [ ] A test fails without this fix: `<test name>` (CI, dependency or docs fix: say so)
 - [ ] Tests added/updated and pass locally
 - [ ] Linters/formatters pass
 - [ ] Backports or forward-ports considered (if needed)

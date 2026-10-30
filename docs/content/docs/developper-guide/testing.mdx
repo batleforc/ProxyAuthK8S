@@ -1,0 +1,95 @@
+---
+title: Tests
+description: Les couches de test côté Rust, leurs commandes et les règles qui les tiennent (RFC 0015)
+icon: FlaskConical
+---
+
+Cette page est la seule référence des commandes de test ; `task --list` donne leur
+description courte. Le front a sa propre couche (RFC 0017), les suites *heavy* et de
+performance la leur (RFC 0016).
+
+## Les couches
+
+| Couche | Où | Commande | Où elle tourne |
+| --- | --- | --- | --- |
+| Unitaire | `mod tests` dans le fichier, ou un `tests.rs` voisin | `task test:unit` | chaque PR |
+| En processus, sans Redis | `libs/server/*/tests/*.rs` sur le store en mémoire | `task test:unit` | chaque PR |
+| En processus, avec Redis | les suites de sécurité (throttle, OAuth, audit) et le contrat du store | `task test:all` | chaque PR |
+| Garde-fous | `authz_matrix`, `openapi_contract`, `variant_coverage` | `task test:unit` | chaque PR |
+| envtest | `libs/server/api/tests/envtest*.rs` contre un vrai kube-apiserver | `task envtest:run` | chaque PR |
+| Intégration | `tests/integration`, banc k3d ([Suite d'intégration](/docs/developper-guide/integration-tests)) | `task it:up` puis `task it:test` | chaque PR, chaque nuit |
+| Fuzz | `fuzz/fuzz_targets/` | `task fuzz:check`, `task fuzz TARGET=…` | compilation à chaque PR, 60 s par cible chaque nuit |
+| Mutants | les crates de sécurité | `task mutants` (RFC 0015, phase 2) | chaque semaine, ou avec le label `mutants` |
+| Couverture | tout le workspace (tiers rapides) | `task test:coverage`, `task test:coverage:ci` | chaque PR |
+| Release | le graphe de features du build livré | `task test:release-features` | chaque PR (job `release-features`) |
+
+`task test:unit` ne demande ni Redis ni réseau : les tests où Redis n'est qu'un stockage
+tournent sur `InMemoryKv`. Les tests qui testent Redis lui-même sautent alors, et la tâche
+les liste à la fin. `task test:all`, `test:server`, `test:integration` et `test:coverage*`
+mettent `REQUIRE_TEST_REDIS=1` : là, un Redis absent est un échec.
+
+Le Redis de test se règle avec `TEST_REDIS_URL` (défaut `redis://127.0.0.1:6379`). Ne le
+pointez pas sur un Redis partagé : les tests y écrivent leurs clés (préfixées, effacées à la
+fin, jamais de `FLUSHDB`). Un Redis jetable suffit :
+
+```bash
+podman run -d --rm --name test-redis -p 127.0.0.1:6390:6379 \
+  docker.io/library/redis:8-alpine redis-server --save '' --appendonly no
+TEST_REDIS_URL=redis://127.0.0.1:6390 task test:all
+```
+
+## Le store en mémoire
+
+`common::kv_memory::InMemoryKv` (feature `test-util`) remplace Redis derrière `State`. Il
+copie les commandes et scripts Lua que le serveur utilise (`GETDEL`, l'arrondi de `TTL`,
+l'`INCR` qui répare un compteur sans échéance, les scripts de présence) ;
+`libs/server/common/tests/kv_contract.rs` joue les mêmes cas contre lui et contre un vrai
+Redis. Il ne couvre pas le mode cluster de Redis (aucun job n'en démarre un).
+
+Dans un test d'`api` :
+
+```rust
+let store = memory_store();
+seed_proxy(&store, &proxy_fixture(&ns, &cluster, &upstream.uri())).await;
+let app = harness::app(memory_state(&store, upstream.uri()));
+```
+
+`store.fail_on(KvOp::Exists)` fait échouer une opération pendant que le store répond aux
+autres : c'est ainsi que se testent les branches d'erreur (par exemple
+`THROTTLE_FAIL_CLOSED`, `throttle_store_failures.rs`).
+
+## Les règles
+
+- **Un correctif apporte son test de régression**, qui échoue sans le correctif. Exception :
+  un correctif de CI, de dépendance ou de doc, dit dans la PR.
+- **Un refus a son test négatif**, nommé par le refus : `<cas>_refused`, `_rejected`,
+  `_denied` (ou `_returns_4xx`).
+- **Un saut n'est jamais silencieux** : `common::test_skip::redis_unavailable` écrit
+  `SKIPPED: <test> — <raison>`, et la tâche qui promet le test fait du saut un échec.
+- **On exclut, on ne baisse pas** : un fichier hors mesure entre dans `COVERAGE_EXCLUDE`
+  (`.tasks/test.yaml`) avec sa raison ; `COVERAGE_MIN` ne descend jamais.
+- **L'heure entre par un argument** là où le code décide d'une borne (`IssuerKeys::current(now)`,
+  `issuer::reusable`) ; les caches lisent `tokio::time::Instant`, figé par
+  `#[tokio::test(start_paused = true)]`. Pas d'entrée-sortie (wiremock, Redis) sous horloge
+  figée : tokio avance l'heure dès que le runtime attend, et les délais réels du code partent.
+- **Rangement** : `mod tests` dans le fichier par défaut ; un `tests.rs` voisin quand la suite
+  couvre plusieurs fichiers ; une fabrique partagée par crate de tests (`tests/harness/` pour
+  `api`, `tests/support/` pour `controller`).
+
+## Les garde-fous
+
+Ils échouent quand un cas est ajouté sans son test ; le message dit quoi faire.
+
+- **Une route** (`authz_matrix.rs`) : chaque route servie a une ligne dans `MAIN` ou
+  `LISTENER`, avec sa classe. `Public` (aucune identité demandée) n'est admis que sous
+  `PUBLIC_PREFIXES` et jamais pour une opération qui déclare `security` dans son
+  `#[utoipa::path]` ; `Authenticated` (jeton du fournisseur du service) ; `ClusterScoped`
+  (jeton du cluster et ses règles) ; `AgentEnrolled` (listener des agents). Le test appelle
+  chaque ligne : le refus de sa classe et un contrôle positif.
+- **Une réponse** (`openapi_contract.rs`) : chaque réponse 2xx déclare son `body`, ou figure
+  dans `NO_BODY` avec sa raison.
+- **Une variante** (`variant_coverage.rs`) : `UpstreamAuthMode`, `Verb` et `UpstreamTrust`
+  sont lus par des `match` sans `_` ; une variante nouvelle ne compile pas tant que son bras
+  ne nomme pas le test qui la couvre.
+- **Le build livré** (`task test:release-features`) : `common/test-util`, qui porte le store
+  en mémoire, ne doit pas atteindre `cargo build --release --workspace`.
