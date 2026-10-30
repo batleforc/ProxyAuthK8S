@@ -219,7 +219,7 @@
                     "type": "array"
                   },
                   "certificate_authority": {
-                    "description": "PEM bundle used to verify the issuer's TLS certificate. Absent means the\nsystem trust store.",
+                    "description": "PEM bundle used to verify the issuer's TLS certificate, added to the\nsystem trust store (never replacing it). Absent means the system trust\nstore alone. A bundle without any certificate is refused.",
                     "nullable": true,
                     "type": "string"
                   },
