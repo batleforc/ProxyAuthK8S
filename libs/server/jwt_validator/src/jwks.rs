@@ -358,7 +358,9 @@ pub fn select_key<'a>(set: &'a JwkSet, kid: Option<&str>) -> Option<&'a Jwk> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cached, Duration, Instant, JwksCache, MIN_REFRESH_INTERVAL, select_key};
+    use super::{
+        Cached, Duration, Instant, JWKS_TTL, JwksCache, MAX_STALE, MIN_REFRESH_INTERVAL, select_key,
+    };
     use jsonwebtoken::jwk::JwkSet;
 
     fn jwks(kids: &[&str]) -> JwkSet {
@@ -535,5 +537,43 @@ mod tests {
         assert_eq!(fetches.load(Ordering::SeqCst), 2);
         assert!(cache.key_at(&client, &url, Some("known")).await.is_ok());
         assert_eq!(fetches.load(Ordering::SeqCst), 2);
+    }
+    /// An issuer that cannot be reached keeps its expired key set trusted
+    /// for a day, not a second more: an attacker who keeps the JWKS
+    /// unreachable cannot keep a revoked key trusted forever.
+    #[tokio::test(start_paused = true)]
+    async fn an_expired_key_set_is_trusted_a_day_past_its_ttl_and_then_refused() {
+        // A closed port: every refetch fails at once.
+        let uri = "http://127.0.0.1:1/keys";
+        let cache = JwksCache::new();
+        cache.jwks.write().await.insert(
+            uri.to_string(),
+            Cached {
+                value: std::sync::Arc::new(jwks(&["known"])),
+                fetched_at: Instant::now(),
+            },
+        );
+        let client = reqwest::Client::new();
+
+        tokio::time::advance(JWKS_TTL).await;
+        assert!(cache.key_at(&client, uri, Some("known")).await.is_ok());
+        tokio::time::advance(MAX_STALE.saturating_sub(JWKS_TTL + Duration::from_secs(1))).await;
+        assert!(cache.key_at(&client, uri, Some("known")).await.is_ok());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(matches!(
+            cache.key_at(&client, uri, Some("known")).await,
+            Err(crate::error::JwtValidationError::JwksFetch { .. })
+        ));
+    }
+
+    /// The cache bounds as RFC 0012 states them (T13): what a test of each
+    /// bound would otherwise have to wait for.
+    #[test]
+    fn the_cache_bounds_are_the_documented_ones() {
+        assert_eq!(JWKS_TTL, Duration::from_secs(900));
+        assert_eq!(super::DISCOVERY_TTL, Duration::from_secs(3_600));
+        assert_eq!(MAX_STALE, Duration::from_secs(86_400));
+        assert_eq!(super::MAX_DOCUMENT_BYTES, 65_536);
+        assert_eq!(JwksCache::new().max_document_bytes(), 65_536);
     }
 }
