@@ -1868,24 +1868,30 @@ Codée sur la même branche, dans #323, commits `7e3ce96` à `7af6487`.
   publie le `keyId` du statut, dix requêtes réutilisent un JWT), point 11
   (`client_cert` et `issuer_key` absent refusés à l'admission), point 12
   (sans `userValidationRules` : `trust: Unguarded`, `IssuerNotTrusted`,
-  `503`). Le point 13 a dépassé le délai de 5 min de nextest, que la
-  rotation (5 min d'activation) dépasse par construction : sa dérogation
-  (15 min, `.config/nextest.toml`) est ajoutée, son résultat à reporter.
+  `503`). Le point 13 dépassait le délai de 5 min de nextest, que la
+  rotation (5 min d'activation) dépasse par construction ; avec sa
+  dérogation (15 min, `.config/nextest.toml`), **vert** sur `87a26f4`
+  (exécution `40927907337`, 101 tests, 101 passés, 399 s pour le point 13) :
+  aucune requête perdue pendant la rotation, les deux `kid` publiés avant
+  que la nouvelle clé signe ; après `revoke:<nonce>`, une clé neuve, la
+  révoquée absente du JWKS, les requêtes reprennent.
 
-### 17.4 Pour reprendre (état au 2026-10-29)
+### 17.4 Pour reprendre (état au 2026-10-30)
 
-- **Branche** : `probe/rfc0014-front-proxy`, PR #323 vers `main`. RFC `Accepted` le 2026-10-29.
-- **CI** : toute la CI de la PR verte sur `e9493b0` (intégration
-  `40900947199` : 98/98, CodeQL compris). Clippy et l'intégration ne
-  partent que lancés à la main : `gh workflow run back-clippy.yaml --ref
-  probe/rfc0014-front-proxy`, idem `integration.yaml`.
-- **Documentation** : `front-proxy.mdx` (guide, recette cert-manager, suivi
-  du verdict, runbook 401/403/502/503), `migration/v0-5-0.mdx` (numéro de
-  version supposé), référence CRD régénérée ; sécurité, roadmap et plugin
-  kubectl amendés.
-- **Prochaines étapes, dans l'ordre** : la phase 3 (`Issuer`) sur cette
-  branche, dans #323 ; la suite *heavy* (RFC suivante) ; la 0.5.0, avec
-  `Implemented` pour les trois phases.
+- **Branche** : `probe/rfc0014-front-proxy`, PR #323 vers `main`, les trois
+  phases. RFC `Accepted` le 2026-10-29.
+- **CI** : toute la CI de la PR verte sur `9de3836` (corrections de la
+  revue de code du 2026-10-30 ; intégration `41013625601` verte). Clippy et l'intégration se relancent à la main :
+  `gh workflow run back-clippy.yaml --ref probe/rfc0014-front-proxy`, idem
+  `integration.yaml` ; un push annule l'intégration en cours
+  (`cancel-in-progress`).
+- **Documentation** : `front-proxy.mdx`, `issuer.mdx`, `migration/v0-5-0.mdx`
+  (numéro de version supposé), référence CRD régénérée, raisons dans
+  `status-and-events.mdx`.
+- **Prochaines étapes, dans l'ordre** : la fusion de #323 (revue faite) ;
+  la condition `UpstreamTrusted` une fois weebo-operator-kit#34 publié ; la
+  suite *heavy* (RFC suivante, points 16 et 17 compris) ; la 0.5.0, avec
+  `Implemented`.
 - **Contraintes de travail** : la machine ne tient pas les charges
   lourdes — en local seulement `cargo check`, `cargo clippy` et
   `cargo test -p <crate> --lib` (ou un binaire de test ciblé) ; la suite
