@@ -428,16 +428,20 @@ async fn jwks(
     document_response(found.map(|documents| documents.jwks))
 }
 
+const DISCOVERY_PATH: &str = "/issuer/{ns}/{cluster}/.well-known/openid-configuration";
+const JWKS_PATH: &str = "/issuer/{ns}/{cluster}/jwks";
+
+/// The routes [`router`] serves, out of the OpenAPI document: the authz
+/// matrix reads them (RFC 0015 §5.3).
+pub const ROUTES: &[(&str, &str)] = &[("GET", DISCOVERY_PATH), ("GET", JWKS_PATH)];
+
 /// `/issuer/{ns}/{cluster}/…`: apart from `/clusters`, where every path is
 /// relayed to the apiserver, which serves its own `/.well-known`. Public,
 /// never banned nor rate limited (T15), out of the OpenAPI document.
 pub fn router() -> Router<SharedState> {
     Router::new()
-        .route(
-            "/issuer/{ns}/{cluster}/.well-known/openid-configuration",
-            get(discovery),
-        )
-        .route("/issuer/{ns}/{cluster}/jwks", get(jwks))
+        .route(DISCOVERY_PATH, get(discovery))
+        .route(JWKS_PATH, get(jwks))
 }
 
 #[cfg(test)]

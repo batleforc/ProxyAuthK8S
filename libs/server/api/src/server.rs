@@ -64,12 +64,15 @@ pub fn bind_listener(addr: SocketAddr) -> std::io::Result<std::net::TcpListener>
     Ok(socket.into())
 }
 
+/// Where the API reference is served, out of the OpenAPI document it shows.
+pub const DOCS_PATH: &str = "/api/docs";
+
 /// The application: every route, the API reference, and the middlewares in
 /// actix's order (CORS outermost, then compression, metrics, root span).
 pub fn app(app_state: &AppState) -> Router {
     let (router, api) = app_router();
     router
-        .merge(Scalar::with_url("/api/docs", api).custom_html(include_str!("../res/scalar.html")))
+        .merge(Scalar::with_url(DOCS_PATH, api).custom_html(include_str!("../res/scalar.html")))
         // Inside the router, where the matched route is known.
         .route_layer(middleware::from_fn(carry_matched_route))
         // A known path with another method: actix answered 404, not 405.

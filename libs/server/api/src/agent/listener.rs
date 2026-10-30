@@ -785,16 +785,26 @@ pub async fn serve_agents(
     }
 }
 
+const CONNECT_PATH: &str = "/agent/v1/connect";
+const ENROLL_PATH: &str = "/agent/v1/enroll";
+const HEALTHZ_PATH: &str = "/healthz";
+const READYZ_PATH: &str = "/readyz";
+
+/// The routes [`router`] serves: the authz matrix reads them (RFC 0015 §5.3).
+pub const ROUTES: &[(&str, &str)] = &[
+    ("GET", CONNECT_PATH),
+    ("POST", ENROLL_PATH),
+    ("GET", HEALTHZ_PATH),
+    ("GET", READYZ_PATH),
+];
+
 /// The routes of the agents' listener (`agentGateway.port`). Behind an
 /// ingress, `TRUSTED_PROXY_COUNT` names the enrolling client's address.
 pub fn router(gateway: Arc<Gateway>) -> Router {
     Router::new()
-        .route("/agent/v1/connect", get(connect))
-        .route(
-            "/agent/v1/enroll",
-            axum::routing::post(super::enroll::enroll),
-        )
-        .route("/healthz", get(|| async { axum::http::StatusCode::OK }))
-        .route("/readyz", get(ready))
+        .route(CONNECT_PATH, get(connect))
+        .route(ENROLL_PATH, axum::routing::post(super::enroll::enroll))
+        .route(HEALTHZ_PATH, get(|| async { axum::http::StatusCode::OK }))
+        .route(READYZ_PATH, get(ready))
         .with_state(gateway)
 }
