@@ -26,9 +26,16 @@ version: "3"
 vars:
   # Line-coverage floor enforced by `coverage:ci` and by the CI gate.
   # A ratchet: raise it as the real figure climbs, never lower it to turn a red
-  # build green. Last measured 63.18% (2026-08-29, workspace, fast tiers), after
-  # the CLI, Kubernetes-auth and controller test tiers landed.
-  COVERAGE_MIN: '{{ .COVERAGE_MIN | default "62" }}'
+  # build green. Last measured 84.63% (2026-10-30, workspace, fast tiers, CI run
+  # 41050492433, before COVERAGE_EXCLUDE), RFC 0015 phase 1.
+  COVERAGE_MIN: '{{ .COVERAGE_MIN | default "84" }}'
+  # Files out of the measure, each with its reason. Exclude with a reason,
+  # never lower the floor (RFC 0015 §4.2):
+  # - libs/cli/client_api: generated from swagger.json (task gen:back-api-client);
+  # - apps/server/src/main.rs, apps/crdgen, apps/swaggergen, apps/kubectl_proxyauth:
+  #   thin binaries over library code that is measured;
+  # - libs/server/common/src/kv_memory.rs: test code, compiled under test-util only.
+  COVERAGE_EXCLUDE: '(libs/cli/client_api/|apps/server/src/main\.rs|apps/crdgen/|apps/swaggergen/|apps/kubectl_proxyauth/|libs/server/common/src/kv_memory\.rs)'
 
 tasks:
   all:
@@ -97,7 +104,7 @@ tasks:
       REQUIRE_TEST_REDIS: "1"
     cmds:
       - echo "Measuring coverage against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
-      - cargo llvm-cov nextest --workspace --all-targets --summary-only
+      - cargo llvm-cov nextest --workspace --all-targets --summary-only --ignore-filename-regex '{{.COVERAGE_EXCLUDE}}'
 
   coverage:html:
     desc: "Write a browsable HTML coverage report to dist/coverage/html"
@@ -107,7 +114,7 @@ tasks:
     cmds:
       - echo "Measuring coverage against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
       # --output-dir appends its own html/ subdirectory.
-      - cargo llvm-cov nextest --workspace --all-targets --html --output-dir dist/coverage
+      - cargo llvm-cov nextest --workspace --all-targets --html --output-dir dist/coverage --ignore-filename-regex '{{.COVERAGE_EXCLUDE}}'
       - echo "Report written to dist/coverage/html/index.html"
 
   coverage:ci:
@@ -122,6 +129,6 @@ tasks:
       - cargo llvm-cov nextest --workspace --all-targets --no-report
       # --output-path will not create the parent directory itself.
       - mkdir -p dist/coverage
-      - cargo llvm-cov report --lcov --output-path dist/coverage/lcov.info
+      - cargo llvm-cov report --lcov --output-path dist/coverage/lcov.info --ignore-filename-regex '{{.COVERAGE_EXCLUDE}}'
       - echo "Enforcing a {{ .COVERAGE_MIN }}% line-coverage floor"
-      - cargo llvm-cov report --summary-only --fail-under-lines {{ .COVERAGE_MIN }}
+      - cargo llvm-cov report --summary-only --fail-under-lines {{ .COVERAGE_MIN }} --ignore-filename-regex '{{.COVERAGE_EXCLUDE}}'
