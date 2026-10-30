@@ -63,6 +63,12 @@ tasks:
       - uv run --script .it/matrix.py --self-test
       - uv run --script .it/matrix.py
 
+  stride:
+    desc: "Check that every STRIDE threat of RFCs 0010-0014 has a row in tests/SECURITY-MATRIX.md and an existing negative test (RFC 0015)"
+    cmds:
+      - uv run --script .it/stride.py --self-test
+      - uv run --script .it/stride.py
+
   logs:
     desc: "Dump the logs and events of every pod of the bench into .it/run/logs"
     cmds:

@@ -171,6 +171,7 @@ tasks:
       - js:lint
       - fuzz:check
       - it:matrix
+      - it:stride
       - perf:check-tag
 
   cli:
