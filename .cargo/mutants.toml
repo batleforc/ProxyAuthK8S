@@ -1,0 +1,17 @@
+# cargo-mutants (RFC 0015 §6.5): does a test fail when a line of the security
+# crates is mutated? Run by `task mutants` and the weekly mutants workflow.
+
+# One process per test: the global statics (issuer::SLOTS, upstream_trust's
+# RESULTS, the upstream_cache switch) rely on it, as the rest of the suite does.
+test_tool = "nextest"
+
+examine_globs = [
+  "libs/server/api/src/cluster/redirect/upstream_identity.rs",
+  "libs/server/api/src/issuer.rs",
+  "libs/server/crd/src/upstream_auth/**/*.rs",
+  "libs/server/jwt_validator/src/**/*.rs",
+]
+
+# Equivalent mutants: one regex per line, each with its reason in a comment
+# (RFC 0015 decision 16). No expiry: an equivalent mutant is not a risk.
+exclude_re = []

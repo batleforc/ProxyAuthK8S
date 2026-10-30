@@ -28,6 +28,7 @@ includes:
   ui: .tasks/ui.yaml
   it: .tasks/integration.yaml
   perf: .tasks/perf.yaml
+  mutants: .tasks/mutants.yaml
   # weebo-operator-kit's shared tasks, pinned to a kit release and to their
   # sha256 (Task refuses a file whose hash differs). `task --offline` runs
   # from Task's cache. RFC 0005.

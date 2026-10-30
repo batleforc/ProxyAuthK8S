@@ -1,0 +1,148 @@
+name: 🧬 Mutation testing
+
+# cargo-mutants on the security crates (RFC 0015 §6.5): which mutated lines no
+# test catches. A report, never a merge gate: weekly on main, or on a PR
+# labelled `mutants`. The scope and the equivalent mutants are in
+# .cargo/mutants.toml. A survivor on the weekly run opens or updates the
+# `mutants` issue; a labelled PR reads the job summary and the artefacts.
+
+on:
+  schedule:
+    - cron: "40 3 * * 1" # Monday, after the weekly perf run
+  pull_request:
+    branches: ["main"]
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutants-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutants:
+    # On a PR, only when the label added is `mutants`.
+    if: github.event_name != 'pull_request' || github.event.label.name == 'mutants'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    services:
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Without Redis, a skipped test would let its mutants survive.
+      TEST_REDIS_URL: redis://127.0.0.1:6379
+      REQUIRE_TEST_REDIS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4be9e76fd7c4901c61fb841f559994984270fce7 # stable
+        with:
+          toolchain: stable
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - name: Install mise
+        uses: ./.github/actions/setup-mise
+      - name: Install cargo-mutants and cargo-nextest
+        run: mise install cargo:cargo-mutants cargo:cargo-nextest
+      # Below the job's timeout, so the report below still uploads. Exit
+      # codes (cargo-mutants): 0 all caught, 2 survivors, 3 timeouts, 4 the
+      # unmutated tree failed its tests, which must never read as a clean run.
+      - name: Mutate shard ${{ matrix.shard }} of 8
+        id: run
+        timeout-minutes: 105
+        run: |
+          set +e
+          mise exec -- cargo mutants --shard ${{ matrix.shard }}/8 --output dist/mutants
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          case "$code" in
+            0 | 2 | 3) exit 0 ;;
+            *) echo "::error::cargo mutants exited $code (4: the baseline failed)"; exit "$code" ;;
+          esac
+      - name: Upload the shard report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutants-${{ matrix.shard }}
+          path: dist/mutants/mutants.out/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  report:
+    needs: mutants
+    if: always() && needs.mutants.result != 'skipped'
+    runs-on: ubuntu-latest
+    outputs:
+      survivors: ${{ steps.collect.outputs.survivors }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: mutants-*
+          path: shards
+      - name: Collect the survivors and the timeouts
+        id: collect
+        run: |
+          cat shards/*/missed.txt 2>/dev/null | sort > missed.txt || true
+          cat shards/*/timeout.txt 2>/dev/null | sort > timeout.txt || true
+          echo "survivors=$(wc -l < missed.txt)" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Mutation testing"
+            echo "$(wc -l < missed.txt) mutant(s) survived, $(wc -l < timeout.txt) timed out."
+            if [ -s missed.txt ]; then echo; echo '```'; cat missed.txt; echo '```'; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutants-missed
+          path: missed.txt
+          retention-days: 30
+
+  # Only the weekly run on main writes an issue: a fork's PR has no write
+  # token, and a PR's survivors would pollute it.
+  alert:
+    needs: report
+    if: >-
+      github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+      && needs.report.outputs.survivors != '0'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: mutants-missed
+      - name: Open or update the mutants issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # The survivors go through a file, never through `${{ }}` in the script.
+        run: |
+          {
+            echo "The weekly mutation run on $GITHUB_SHA left mutants no test catches: $RUN_URL"
+            echo
+            echo "Kill each with a test, or list it in .cargo/mutants.toml exclude_re with its reason (RFC 0015 decision 16)."
+            echo
+            echo '```'
+            cat missed.txt
+            echo '```'
+          } > body.md
+          gh label create mutants --color B60205 --description "Surviving mutants (RFC 0015)" 2>/dev/null || true
+          issue=$(gh issue list --label mutants --state open --json number --jq '.[0].number')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body-file body.md
+          else
+            gh issue create --title "Surviving mutants" --label mutants --body-file body.md
+          fi
