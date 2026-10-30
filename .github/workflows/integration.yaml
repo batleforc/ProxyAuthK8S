@@ -58,6 +58,19 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # RFC 0015 T1: the release build must not enable common/test-util, under
+  # which State can hold its store in memory. No `needs: changes`: a change to
+  # any Cargo.toml counts, and the check reads only the dependency graph.
+  release-features:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Self-test the detector
+        run: python3 .github/scripts/release-features.py --self-test
+      - name: common/test-util is absent from the release build
+        run: python3 .github/scripts/release-features.py
+
   integration:
     needs: changes
     if: needs.changes.outputs.run == 'true'

@@ -92,7 +92,7 @@ pub fn evaluate_bool(
         Value::Bool(result) => Ok(result),
         other => Err(JwtValidationError::ExpressionType {
             expression: expression.to_string(),
-            got: type_name(&other).to_string(),
+            got: other.type_of().to_string(),
             want: "bool".to_string(),
         }),
     }
@@ -108,7 +108,7 @@ pub fn evaluate_string(
         Value::String(result) => Ok(result.to_string()),
         other => Err(JwtValidationError::ExpressionType {
             expression: expression.to_string(),
-            got: type_name(&other).to_string(),
+            got: other.type_of().to_string(),
             want: "string".to_string(),
         }),
     }
@@ -132,7 +132,7 @@ pub fn evaluate_string_list(
                 Value::String(item) => Ok(item.to_string()),
                 other => Err(JwtValidationError::ExpressionType {
                     expression: expression.to_string(),
-                    got: type_name(other).to_string(),
+                    got: other.type_of().to_string(),
                     want: "string".to_string(),
                 }),
             })
@@ -140,25 +140,9 @@ pub fn evaluate_string_list(
         Value::Null => Ok(Vec::new()),
         other => Err(JwtValidationError::ExpressionType {
             expression: expression.to_string(),
-            got: type_name(&other).to_string(),
+            got: other.type_of().to_string(),
             want: "string or list of strings".to_string(),
         }),
-    }
-}
-
-fn type_name(value: &Value) -> &'static str {
-    match value {
-        Value::List(_) => "list",
-        Value::Map(_) => "map",
-        Value::Function(..) => "function",
-        Value::Int(_) => "int",
-        Value::UInt(_) => "uint",
-        Value::Float(_) => "double",
-        Value::String(_) => "string",
-        Value::Bytes(_) => "bytes",
-        Value::Bool(_) => "bool",
-        Value::Null => "null",
-        _ => "unknown",
     }
 }
 
@@ -243,6 +227,25 @@ mod tests {
                 crate::error::JwtValidationError::ExpressionCompile { .. }
             ),
             "unexpected error: {err}"
+        );
+    }
+
+    /// The error names the type the expression produced, so the operator
+    /// can fix the mapping without reading the token.
+    #[test]
+    fn a_wrongly_typed_result_names_the_type_it_got() {
+        use crate::error::JwtValidationError::ExpressionType;
+        for (expression, got) in [("1", "int"), ("[1]", "list"), ("true", "bool")] {
+            let err = evaluate_string(expression, "claims", &claims()).unwrap_err();
+            assert!(
+                matches!(err, ExpressionType { got: ref g, .. } if g == got),
+                "{expression}: {err}"
+            );
+        }
+        let err = evaluate_string_list("{'a': 1}", "claims", &claims()).unwrap_err();
+        assert!(
+            matches!(err, ExpressionType { got: ref g, .. } if g == "map"),
+            "{err}"
         );
     }
 

@@ -1,7 +1,7 @@
 //! Redis access on [`State`]: every command the API and controller send goes
 //! through these methods, so key layout and atomicity rules live in one place.
+//! The commands themselves are in [`crate::kv`].
 
-use deadpool_redis::redis;
 use tracing::{info, instrument, warn};
 
 use super::State;
@@ -12,7 +12,7 @@ impl State {
     /// Whether Redis is reached in cluster mode.
     #[must_use]
     pub fn redis_is_cluster(&self) -> bool {
-        self.redis.is_cluster()
+        self.kv.is_cluster()
     }
 
     /// Round-trip a `PING` to Redis, for the readiness probe.
@@ -22,10 +22,7 @@ impl State {
     /// Returns [`RedisPoolError`] when no connection can be obtained or the
     /// command fails.
     pub async fn redis_ping(&self) -> Result<(), RedisPoolError> {
-        self.redis
-            .query::<String>(&redis::cmd("PING"))
-            .await
-            .map(|_| ())
+        self.kv.ping().await
     }
 
     /// Read a string value.
@@ -35,7 +32,7 @@ impl State {
     /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn redis_get(&self, key: &str) -> Result<Option<String>, RedisPoolError> {
-        self.redis.query(redis::cmd("GET").arg(key)).await
+        self.kv.get(key).await
     }
 
     /// Read a string value and delete it in the same atomic step (`GETDEL`).
@@ -49,7 +46,7 @@ impl State {
     /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn redis_take(&self, key: &str) -> Result<Option<String>, RedisPoolError> {
-        self.redis.query(redis::cmd("GETDEL").arg(key)).await
+        self.kv.take(key).await
     }
 
     /// Write a string value, with an optional TTL in seconds.
@@ -64,18 +61,7 @@ impl State {
         value: &str,
         ttl_seconds: Option<u64>,
     ) -> Result<(), RedisPoolError> {
-        match ttl_seconds {
-            Some(ttl) => {
-                self.redis
-                    .query::<()>(redis::cmd("SETEX").arg(key).arg(ttl).arg(value))
-                    .await
-            }
-            None => {
-                self.redis
-                    .query::<()>(redis::cmd("SET").arg(key).arg(value))
-                    .await
-            }
-        }
+        self.kv.set(key, value, ttl_seconds).await
     }
 
     /// Increment a counter, giving it a TTL the first time it appears.
@@ -96,23 +82,7 @@ impl State {
     /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn incr_with_ttl(&self, key: &str, ttl_seconds: i64) -> Result<u64, RedisPoolError> {
-        const INCR_WITH_TTL: &str = r"
-            local v = redis.call('INCR', KEYS[1])
-            if redis.call('TTL', KEYS[1]) < 0 then
-                redis.call('EXPIRE', KEYS[1], ARGV[1])
-            end
-            return v
-        ";
-        let value: i64 = self
-            .redis
-            .query(
-                redis::cmd("EVAL")
-                    .arg(INCR_WITH_TTL)
-                    .arg(1)
-                    .arg(key)
-                    .arg(ttl_seconds),
-            )
-            .await?;
+        let value = self.kv.incr_with_ttl(key, ttl_seconds).await?;
         // INCR never returns a negative count; clamp defensively and convert
         // without a lossy sign cast.
         Ok(u64::try_from(value).unwrap_or(0))
@@ -125,8 +95,7 @@ impl State {
     /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn key_exists(&self, key: &str) -> Result<bool, RedisPoolError> {
-        let existing: i64 = self.redis.query(redis::cmd("EXISTS").arg(key)).await?;
-        Ok(existing > 0)
+        self.kv.exists(key).await
     }
 
     /// Remaining TTL of a key, `None` when it has none or does not exist.
@@ -138,7 +107,7 @@ impl State {
     pub async fn key_ttl(&self, key: &str) -> Result<Option<u64>, RedisPoolError> {
         // Redis answers -1 for "no expiry" and -2 for "no such key"; both mean
         // there is no delay to report.
-        let ttl: i64 = self.redis.query(redis::cmd("TTL").arg(key)).await?;
+        let ttl = self.kv.ttl(key).await?;
         Ok(u64::try_from(ttl).ok())
     }
 
@@ -160,7 +129,7 @@ impl State {
     /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn delete_key(&self, key: &str) -> Result<(), RedisPoolError> {
-        self.redis.query::<()>(redis::cmd("DEL").arg(key)).await
+        self.kv.del(key).await
     }
 
     /// Add a key to the index of cached objects.
@@ -174,9 +143,7 @@ impl State {
     /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn index_add(&self, prefix: &str, key: &str) -> Result<(), RedisPoolError> {
-        self.redis
-            .query::<()>(redis::cmd("SADD").arg(index_key(prefix)).arg(key))
-            .await
+        self.kv.set_add(&index_key(prefix), key).await
     }
 
     /// Remove a key from the index of cached objects.
@@ -186,9 +153,7 @@ impl State {
     /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn index_remove(&self, prefix: &str, key: &str) -> Result<(), RedisPoolError> {
-        self.redis
-            .query::<()>(redis::cmd("SREM").arg(index_key(prefix)).arg(key))
-            .await
+        self.kv.set_remove(&index_key(prefix), key).await
     }
 
     /// Every object cached under `prefix`.
@@ -205,10 +170,7 @@ impl State {
         &self,
         prefix: &str,
     ) -> Result<Vec<T>, RedisPoolError> {
-        let keys: Vec<String> = self
-            .redis
-            .query(redis::cmd("SMEMBERS").arg(index_key(prefix)))
-            .await?;
+        let keys = self.kv.set_members(&index_key(prefix)).await?;
 
         let mut objects = Vec::with_capacity(keys.len());
         for key in keys {
@@ -313,24 +275,7 @@ impl State {
         member: &str,
         ttl_seconds: u64,
     ) -> Result<(), RedisPoolError> {
-        const REFRESH: &str = r"
-            local now = tonumber(redis.call('TIME')[1])
-            redis.call('ZADD', KEYS[1], now + tonumber(ARGV[2]), ARGV[1])
-            redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
-            redis.call('EXPIRE', KEYS[1], tonumber(ARGV[2]) * 2)
-            return 1
-        ";
-        self.redis
-            .query::<i64>(
-                redis::cmd("EVAL")
-                    .arg(REFRESH)
-                    .arg(1)
-                    .arg(key)
-                    .arg(member)
-                    .arg(ttl_seconds),
-            )
-            .await
-            .map(|_| ())
+        self.kv.presence_refresh(key, member, ttl_seconds).await
     }
 
     /// Withdraw `member` from the presence set `key` at once.
@@ -340,10 +285,7 @@ impl State {
     /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn presence_remove(&self, key: &str, member: &str) -> Result<(), RedisPoolError> {
-        self.redis
-            .query::<i64>(redis::cmd("ZREM").arg(key).arg(member))
-            .await
-            .map(|_| ())
+        self.kv.presence_remove(key, member).await
     }
 
     /// The members of the presence set `key` that have not expired.
@@ -353,13 +295,7 @@ impl State {
     /// Returns [`RedisPoolError`] when the Redis command fails.
     #[instrument(skip(self))]
     pub async fn presence_members(&self, key: &str) -> Result<Vec<String>, RedisPoolError> {
-        const LIVE: &str = r"
-            local now = tonumber(redis.call('TIME')[1])
-            return redis.call('ZRANGEBYSCORE', KEYS[1], '(' .. now, '+inf')
-        ";
-        self.redis
-            .query(redis::cmd("EVAL").arg(LIVE).arg(1).arg(key))
-            .await
+        self.kv.presence_members(key).await
     }
 }
 

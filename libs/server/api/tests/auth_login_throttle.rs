@@ -29,22 +29,13 @@ use deadpool_redis::redis::AsyncTypedCommands;
 use harness::test;
 use harness::{
     delete_proxy, fail2login_config, oidc_auth_config, proxy_fixture, rate_limited_config,
-    seed_proxy, test_state, try_redis_pool, unique_cluster,
+    seed_proxy, test_state, unique_cluster,
 };
 use wiremock::MockServer;
 
 macro_rules! auth_app {
     ($state:expr_2021) => {
         test::init_service(harness::app($state)).await
-    };
-}
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
     };
 }
 

@@ -374,4 +374,327 @@ mod tests {
         // An unreadable mark starts the grace again, never deletes.
         assert_eq!(orphan_action(Some("yesterday"), 1_000), Orphan::Mark);
     }
+
+    // The key Secret against a wiremock apiserver (RFC 0015 P3): what the
+    // controller reads, writes, keeps and sweeps.
+    mod against_an_apiserver {
+        use super::*;
+        use crd::upstream_auth::{IssuerKeySettings, UpstreamAuth};
+        use serde_json::{Value, json};
+        use wiremock::matchers::{method, path, query_param};
+        use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+
+        const UID: &str = "u-alive";
+        const SECRETS: &str = "/api/v1/namespaces/default/secrets";
+
+        fn state(kube: &MockServer) -> State {
+            drop(rustls::crypto::ring::default_provider().install_default());
+            let config = kube::Config::new(kube.uri().parse().unwrap());
+            State::from_parts(
+                kube::Client::try_from(config).unwrap(),
+                common::kv_memory::InMemoryKv::new(),
+                common::oidc_conf::OidcConf {
+                    client_id: "proxyauthk8s".to_string(),
+                    client_secret: None,
+                    issuer_url: "http://127.0.0.1:1".to_string(),
+                    scopes: "openid".to_string(),
+                    audience: "proxyauthk8s".to_string(),
+                    accept_authorized_party: false,
+                    redirect_url: None,
+                },
+                "https://proxy.example.com".to_string(),
+                "https://front.example.com".to_string(),
+            )
+        }
+
+        fn issuing(issuer_url: &str) -> ProxyKubeApi {
+            let mut proxy = ProxyKubeApi::new(
+                "issuing",
+                serde_json::from_value(json!({
+                    "cert": { "SystemRoots": true },
+                    "service": { "ExternalService": { "url": "https://k:6443" } },
+                }))
+                .unwrap(),
+            );
+            proxy.metadata.namespace = Some("default".into());
+            proxy.metadata.uid = Some(UID.into());
+            proxy.spec.upstream_auth = Some(UpstreamAuth {
+                mode: UpstreamAuthMode::Issuer,
+                user_prefix: Some("proxyauth:".into()),
+                group_prefix: Some("proxyauth:".into()),
+                issuer_key: Some(IssuerKeySettings {
+                    issuer_url: issuer_url.into(),
+                    token_ttl_seconds: 300,
+                    rotation_days: 30,
+                }),
+            });
+            proxy
+        }
+
+        const ISSUER_URL: &str = "https://proxy.example.com/issuer/default/issuing";
+
+        fn secret_json(uid: &str, keys: &IssuerKeySet, annotations: Value) -> Value {
+            json!({
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {
+                    "name": format!("proxyauth-issuer-{uid}"),
+                    "namespace": "default",
+                    "uid": format!("secret-of-{uid}"),
+                    "resourceVersion": "42",
+                    "labels": issuer_key::labels(uid),
+                    "annotations": annotations,
+                },
+                "data": { KEYS_KEY: STANDARD.encode(serde_json::to_vec(keys).unwrap()) },
+            })
+        }
+
+        async fn serve_secret(kube: &MockServer, body: Value) {
+            Mock::given(method("GET"))
+                .and(path(format!("{SECRETS}/proxyauth-issuer-{UID}")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(body))
+                .mount(kube)
+                .await;
+        }
+
+        fn not_found() -> ResponseTemplate {
+            ResponseTemplate::new(404).set_body_json(json!({
+                "kind": "Status", "apiVersion": "v1", "status": "Failure",
+                "reason": "NotFound", "code": 404,
+            }))
+        }
+
+        /// Echo the written object back, as the apiserver does.
+        fn echo(status: u16) -> impl Fn(&Request) -> ResponseTemplate {
+            move |request: &Request| {
+                ResponseTemplate::new(status).set_body_bytes(request.body.clone())
+            }
+        }
+
+        fn written(kube_requests: &[Request], verb: &str) -> Vec<Value> {
+            kube_requests
+                .iter()
+                .filter(|r| r.method.as_str() == verb)
+                .map(|r| serde_json::from_slice(&r.body).unwrap())
+                .collect()
+        }
+
+        fn ready() -> Evaluation {
+            Evaluation {
+                ready: Ok("ok".into()),
+                advisories: Vec::new(),
+                status: crd::status::ProxyKubeApiStatus::default(),
+            }
+        }
+
+        /// The first key: one Secret, labelled for this cluster only, its
+        /// key active at once and named in the status.
+        #[tokio::test]
+        async fn the_first_key_secret_is_created_labelled_for_its_cluster() {
+            let kube = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path(format!("{SECRETS}/proxyauth-issuer-{UID}")))
+                .respond_with(not_found())
+                .mount(&kube)
+                .await;
+            Mock::given(method("POST"))
+                .and(path(SECRETS))
+                .respond_with(echo(201))
+                .expect(1)
+                .mount(&kube)
+                .await;
+            let mut evaluation = ready();
+            evaluate(&issuing(ISSUER_URL), &state(&kube), &mut evaluation).await;
+
+            let created = written(&kube.received_requests().await.unwrap(), "POST");
+            let secret: Secret = serde_json::from_value(created[0].clone()).unwrap();
+            assert!(issuer_key::owned(&secret, UID));
+            assert_eq!(
+                secret
+                    .annotations()
+                    .get(CLUSTER_ANNOTATION)
+                    .map(String::as_str),
+                Some("default/issuing")
+            );
+            let keys = issuer_key::read(&secret, UID).unwrap();
+            let current = keys.current(now()).expect("active at once");
+            assert!(evaluation.ready.is_ok());
+            let status = evaluation.status.upstream_auth.expect("status");
+            assert_eq!(status.key_id.as_deref(), Some(current.kid.as_str()));
+            assert_eq!(
+                status.jwks_uri.as_deref(),
+                Some(&*format!("{ISSUER_URL}/jwks"))
+            );
+        }
+
+        /// A set in force is left alone: no write on every reconcile.
+        #[tokio::test]
+        async fn a_current_key_set_is_kept_without_a_write() {
+            let at = now();
+            let keys = IssuerKeySet {
+                keys: vec![new_key(at, at).unwrap()],
+            };
+            let kube = MockServer::start().await;
+            serve_secret(&kube, secret_json(UID, &keys, json!({}))).await;
+            Mock::given(method("PUT"))
+                .respond_with(echo(200))
+                .expect(0)
+                .mount(&kube)
+                .await;
+            let kept = ensure_keys(&issuing(ISSUER_URL), &state(&kube))
+                .await
+                .unwrap();
+            assert_eq!(kept, keys);
+        }
+
+        /// A key past `rotation_days` gets a successor, written with the
+        /// `resourceVersion` read: two overlapping leaders never both add one.
+        #[tokio::test]
+        async fn a_rotation_is_written_with_the_resource_version_read() {
+            let at = now();
+            let old = at - 31 * 86_400;
+            let keys = IssuerKeySet {
+                keys: vec![new_key(old, old).unwrap()],
+            };
+            let kube = MockServer::start().await;
+            serve_secret(&kube, secret_json(UID, &keys, json!({}))).await;
+            Mock::given(method("PUT"))
+                .and(path(format!("{SECRETS}/proxyauth-issuer-{UID}")))
+                .respond_with(echo(200))
+                .expect(1)
+                .mount(&kube)
+                .await;
+            let rotated = ensure_keys(&issuing(ISSUER_URL), &state(&kube))
+                .await
+                .unwrap();
+            assert_eq!(rotated.keys.len(), 2);
+            let replaced = written(&kube.received_requests().await.unwrap(), "PUT");
+            assert_eq!(replaced[0]["metadata"]["resourceVersion"], "42");
+        }
+
+        /// T18: a Secret of the right name but another cluster's labels is
+        /// neither used nor overwritten, and the cluster is not Ready.
+        #[tokio::test]
+        async fn a_key_secret_of_another_cluster_is_refused() {
+            let at = now();
+            let keys = IssuerKeySet {
+                keys: vec![new_key(at, at).unwrap()],
+            };
+            let kube = MockServer::start().await;
+            let mut foreign = secret_json("u-other", &keys, json!({}));
+            foreign["metadata"]["name"] = json!(format!("proxyauth-issuer-{UID}"));
+            serve_secret(&kube, foreign).await;
+            Mock::given(method("PUT"))
+                .respond_with(echo(200))
+                .expect(0)
+                .mount(&kube)
+                .await;
+            let mut evaluation = ready();
+            evaluate(&issuing(ISSUER_URL), &state(&kube), &mut evaluation).await;
+            let failure = evaluation.ready.expect_err("not Ready");
+            assert_eq!(failure.reason, ReasonCode::IssuerKeyUnavailable);
+        }
+
+        /// An `issuer_url` that is not this cluster's route is refused,
+        /// whatever the keys.
+        #[tokio::test]
+        async fn an_issuer_url_of_another_route_is_refused() {
+            let at = now();
+            let keys = IssuerKeySet {
+                keys: vec![new_key(at, at).unwrap()],
+            };
+            let kube = MockServer::start().await;
+            serve_secret(&kube, secret_json(UID, &keys, json!({}))).await;
+            let mut evaluation = ready();
+            let proxy = issuing("https://proxy.example.com/issuer/default/another");
+            evaluate(&proxy, &state(&kube), &mut evaluation).await;
+            let failure = evaluation.ready.expect_err("not Ready");
+            assert_eq!(failure.reason, ReasonCode::IssuerUrlMismatch);
+        }
+
+        async fn serve_proxies(kube: &MockServer, response: ResponseTemplate) {
+            Mock::given(method("GET"))
+                .and(path("/apis/weebo.si.rs/v1/proxykubeapis"))
+                .respond_with(response)
+                .mount(kube)
+                .await;
+        }
+
+        /// The sweep leaves a live cluster's key, marks a new orphan, and
+        /// deletes one marked a day ago with the preconditions read.
+        #[tokio::test]
+        async fn the_sweep_marks_then_deletes_only_the_orphans() {
+            let keys = IssuerKeySet::default();
+            let marked = rfc3339(now() - ORPHAN_GRACE_SECONDS - 60).unwrap();
+            let kube = MockServer::start().await;
+            serve_proxies(
+                &kube,
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "apiVersion": "weebo.si.rs/v1", "kind": "ProxyKubeApiList",
+                    "metadata": {},
+                    "items": [serde_json::to_value(issuing(ISSUER_URL)).unwrap()],
+                })),
+            )
+            .await;
+            Mock::given(method("GET"))
+                .and(path(SECRETS))
+                .and(query_param(
+                    "labelSelector",
+                    format!("{MANAGED_BY_LABEL}={MANAGED_BY_VALUE},{CLUSTER_UID_LABEL}"),
+                ))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "apiVersion": "v1", "kind": "SecretList", "metadata": {},
+                    "items": [
+                        secret_json(UID, &keys, json!({})),
+                        secret_json("u-new-orphan", &keys, json!({})),
+                        secret_json("u-old-orphan", &keys, json!({ ORPHANED_ANNOTATION: marked })),
+                    ],
+                })))
+                .mount(&kube)
+                .await;
+            Mock::given(method("PUT"))
+                .and(path(format!("{SECRETS}/proxyauth-issuer-u-new-orphan")))
+                .respond_with(echo(200))
+                .expect(1)
+                .mount(&kube)
+                .await;
+            Mock::given(method("DELETE"))
+                .and(path(format!("{SECRETS}/proxyauth-issuer-u-old-orphan")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "kind": "Status", "apiVersion": "v1", "metadata": {}, "status": "Success",
+                })))
+                .expect(1)
+                .mount(&kube)
+                .await;
+
+            sweep(&state(&kube)).await.unwrap();
+            let requests = kube.received_requests().await.unwrap();
+            let mark = written(&requests, "PUT");
+            assert!(mark[0]["metadata"]["annotations"][ORPHANED_ANNOTATION].is_string());
+            let delete = written(&requests, "DELETE");
+            assert_eq!(
+                delete[0]["preconditions"],
+                json!({ "uid": "secret-of-u-old-orphan", "resourceVersion": "42" })
+            );
+        }
+
+        /// A failed list of the clusters sweeps nothing: an empty answer
+        /// must never read as "every cluster is gone".
+        #[tokio::test]
+        async fn a_failed_cluster_list_sweeps_nothing() {
+            let kube = MockServer::start().await;
+            serve_proxies(&kube, ResponseTemplate::new(500)).await;
+            Mock::given(method("PUT"))
+                .respond_with(echo(200))
+                .expect(0)
+                .mount(&kube)
+                .await;
+            Mock::given(method("DELETE"))
+                .respond_with(echo(200))
+                .expect(0)
+                .mount(&kube)
+                .await;
+            assert!(sweep(&state(&kube)).await.is_err());
+        }
+    }
 }

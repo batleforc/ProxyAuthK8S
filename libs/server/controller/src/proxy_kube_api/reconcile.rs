@@ -470,6 +470,98 @@ mod tests {
     use super::*;
     use crd::status::{AgentCount, AgentRefusal};
 
+    fn memory_state(store: &common::kv_memory::InMemoryKv) -> State {
+        drop(rustls::crypto::ring::default_provider().install_default());
+        let config = kube::Config::new("http://127.0.0.1:1".parse().unwrap());
+        State::from_parts(
+            kube::Client::try_from(config).unwrap(),
+            store.clone(),
+            common::oidc_conf::OidcConf {
+                client_id: "proxyauthk8s".to_string(),
+                client_secret: None,
+                issuer_url: "http://127.0.0.1:1".to_string(),
+                scopes: "openid".to_string(),
+                audience: "proxyauthk8s".to_string(),
+                accept_authorized_party: false,
+                redirect_url: None,
+            },
+            "https://proxy.example.com".to_string(),
+            "https://front.example.com".to_string(),
+        )
+    }
+
+    fn cluster(mode: Option<crd::upstream_auth::UpstreamAuthMode>) -> ProxyKubeApi {
+        let mut proxy = ProxyKubeApi::new(
+            "switching",
+            crd::ProxyKubeApiSpec {
+                enabled: true,
+                cert: crd::certificate::CertSource::SystemRoots(true),
+                client_cert: None,
+                service: Service::ExternalService {
+                    url: "https://cluster.example.com".to_string(),
+                },
+                auth_config: None,
+                security_config: None,
+                expose_via_dashboard: false,
+                dashboard_group: None,
+                proxy_group: None,
+                virtual_apis: Vec::new(),
+                upstream_auth: mode.map(|mode| crd::upstream_auth::UpstreamAuth {
+                    mode,
+                    user_prefix: Some("proxyauth:".to_string()),
+                    group_prefix: Some("proxyauth:".to_string()),
+                    issuer_key: None,
+                }),
+            },
+        );
+        proxy.metadata.namespace = Some("default".to_string());
+        proxy
+    }
+
+    /// RFC 0014 T20 (decision 42): a cluster switched to a trusted mode is
+    /// published under the trusted prefix only, so a v0.4.x replica, which
+    /// reads the legacy prefix and ignores `upstream_auth`, no longer finds
+    /// it and cannot relay the IdP token; switched back, it is legacy only.
+    #[tokio::test]
+    async fn a_trusted_cluster_is_invisible_under_the_legacy_prefix() {
+        let store = common::kv_memory::InMemoryKv::new();
+        let state = memory_state(&store);
+        let status = ProxyKubeApiStatus::default();
+        let legacy = cluster(None);
+        let path = legacy.to_path();
+
+        cache(&legacy, &status, &state).await.unwrap();
+        let read_by_v04 = || state.get_object_from_redis::<ProxyKubeApi>(crd::REDIS_PREFIX, &path);
+        assert!(read_by_v04().await.unwrap().is_some());
+
+        for mode in [
+            crd::upstream_auth::UpstreamAuthMode::FrontProxy,
+            crd::upstream_auth::UpstreamAuthMode::Issuer,
+        ] {
+            cache(&cluster(Some(mode)), &status, &state).await.unwrap();
+            assert!(read_by_v04().await.unwrap().is_none(), "{mode:?}");
+            assert!(
+                state
+                    .list_objects::<ProxyKubeApi>(crd::REDIS_PREFIX)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            );
+            let current = state.get_proxy_from_redis(&path).await.unwrap().unwrap();
+            assert_eq!(current.upstream_mode(), mode);
+        }
+
+        cache(&legacy, &status, &state).await.unwrap();
+        assert!(read_by_v04().await.unwrap().is_some());
+        assert!(
+            state
+                .get_object_from_redis::<ProxyKubeApi>(crd::REDIS_TRUSTED_PREFIX, &path)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
     #[test]
     fn the_version_window_is_one_minor_behind_never_newer() {
         let proxy = semver::Version::parse("0.5.2").unwrap();

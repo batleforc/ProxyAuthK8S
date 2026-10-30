@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, RwLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::{
     Json, Router,
@@ -31,6 +31,7 @@ use kube::ResourceExt as _;
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use sha2::{Digest as _, Sha256};
+use tokio::time::Instant;
 use tracing::warn;
 
 use crate::SharedState;
@@ -219,6 +220,13 @@ fn reuse_margin(ttl_seconds: u32) -> i64 {
     (i64::from(ttl_seconds) / 10).max(60)
 }
 
+/// Whether a cached JWT ending at `cached_exp` may answer a request at `iat`
+/// whose own JWT would end at `exp`: never past that bound (decision 61), and
+/// not within `margin` of its own end.
+fn reusable(cached_exp: i64, exp: i64, iat: i64, margin: i64) -> bool {
+    cached_exp <= exp && iat < cached_exp.saturating_sub(margin)
+}
+
 /// `claims` signed ES256 by `key`, its `kid` in the header.
 fn encode(key: &issuer_key::IssuerKey, claims: &Value) -> Result<String, &'static str> {
     let mut header = Header::new(Algorithm::ES256);
@@ -256,8 +264,7 @@ pub async fn sign(
     let margin = reuse_margin(settings.token_ttl_seconds);
     let cache_key = cache_key(identity, &uid, &settings.issuer_url, &key.kid);
     if let Some((jwt, cached_exp)) = JWTS.get(&cache_key)
-        && cached_exp <= exp
-        && iat < cached_exp.saturating_sub(margin)
+        && reusable(cached_exp, exp, iat, margin)
     {
         crate::metrics::record_issuer_token("cache_hit");
         return Ok((*jwt).clone());
@@ -298,6 +305,15 @@ struct Documents {
     serve_until: Option<i64>,
     /// Served without a lookup until then.
     fresh_until: Instant,
+}
+
+impl Documents {
+    /// Whether these documents may answer at `at`: still fresh when
+    /// `fresh_only`, and in any case not past the retirement of their keys.
+    fn servable(&self, fresh_only: bool, at: i64) -> bool {
+        (!fresh_only || Instant::now() < self.fresh_until)
+            && self.serve_until.is_none_or(|until| until > at)
+    }
 }
 
 /// How long the documents are served without a lookup: below their
@@ -350,8 +366,7 @@ async fn documents(state: &common::State, path: &str) -> Option<Documents> {
         let store = DOCUMENTS.lock().ok()?;
         store
             .get(path)
-            .filter(|documents| !fresh_only || Instant::now() < documents.fresh_until)
-            .filter(|documents| documents.serve_until.is_none_or(|until| until > at))
+            .filter(|documents| documents.servable(fresh_only, at))
             .cloned()
     };
     if let Some(documents) = last_good(true) {
@@ -421,16 +436,20 @@ async fn jwks(
     document_response(found.map(|documents| documents.jwks))
 }
 
+const DISCOVERY_PATH: &str = "/issuer/{ns}/{cluster}/.well-known/openid-configuration";
+const JWKS_PATH: &str = "/issuer/{ns}/{cluster}/jwks";
+
+/// The routes [`router`] serves, out of the OpenAPI document: the authz
+/// matrix reads them (RFC 0015 §5.3).
+pub const ROUTES: &[(&str, &str)] = &[("GET", DISCOVERY_PATH), ("GET", JWKS_PATH)];
+
 /// `/issuer/{ns}/{cluster}/…`: apart from `/clusters`, where every path is
 /// relayed to the apiserver, which serves its own `/.well-known`. Public,
 /// never banned nor rate limited (T15), out of the OpenAPI document.
 pub fn router() -> Router<SharedState> {
     Router::new()
-        .route(
-            "/issuer/{ns}/{cluster}/.well-known/openid-configuration",
-            get(discovery),
-        )
-        .route("/issuer/{ns}/{cluster}/jwks", get(jwks))
+        .route(DISCOVERY_PATH, get(discovery))
+        .route(JWKS_PATH, get(jwks))
 }
 
 #[cfg(test)]
@@ -466,6 +485,19 @@ mod tests {
         assert_eq!(expiry(1_000, 300, None), 1_300);
         assert_eq!(expiry(1_000, 300, Some(Duration::from_secs(120))), 1_120);
         assert_eq!(expiry(1_000, 300, Some(Duration::from_secs(3_600))), 1_300);
+    }
+
+    /// Decision 61 and the §5.2 margin, at each bound (RFC 0015 §6.2).
+    #[test]
+    fn a_cached_jwt_is_reused_only_inside_both_bounds() {
+        let (exp, margin) = (2_000, 60);
+        // Ending at the new bound is fine, one second past it is not: the
+        // source token may have less time left than when it was cached.
+        assert!(reusable(exp, exp, 1_000, margin));
+        assert!(!reusable(exp + 1, exp, 1_000, margin));
+        // Reused until `margin` before its end, not at it.
+        assert!(reusable(exp, exp, exp - margin - 1, margin));
+        assert!(!reusable(exp, exp, exp - margin, margin));
     }
 
     /// T11: a group change never reuses a cached JWT.
@@ -568,5 +600,84 @@ mod tests {
         assert_eq!(kids, ["new"]);
         // T8: the private key never reaches a document.
         assert!(!documents.jwks.to_string().contains("secret"));
+    }
+
+    /// §5.2: a tenth of the lifetime, never under a minute.
+    #[test]
+    fn the_reuse_margin_is_a_tenth_of_the_ttl_and_at_least_a_minute() {
+        assert_eq!(reuse_margin(60), 60);
+        assert_eq!(reuse_margin(600), 60);
+        assert_eq!(reuse_margin(900), 90);
+        assert_eq!(reuse_margin(1_200), 120);
+    }
+
+    #[test]
+    fn a_retry_waits_at_most_as_long_again() {
+        for _ in 0..100 {
+            assert!(jitter() < RETRY_AFTER);
+        }
+    }
+
+    /// Decision 44: the set in hand is served until its last key retires,
+    /// not at that second.
+    #[test]
+    fn a_held_set_is_servable_until_its_keys_retire() {
+        let keys = Arc::new(IssuerKeySet {
+            keys: vec![issuer_key::IssuerKey {
+                kid: "k".into(),
+                pkcs8: String::new(),
+                x: String::new(),
+                y: String::new(),
+                created_at: 0,
+                activate_at: 0,
+                retire_at: Some(100),
+            }],
+        });
+        let slot = Slot::default();
+        assert!(slot.servable(0).is_none());
+        slot.set(Held {
+            keys: Arc::clone(&keys),
+            fresh_until: Instant::now(),
+        });
+        assert_eq!(slot.servable(99).as_deref(), Some(&*keys));
+        assert!(slot.servable(100).is_none());
+    }
+
+    /// Decision 44: past their 10 s the documents need a lookup, yet stay
+    /// the outage fallback until their keys retire.
+    #[tokio::test(start_paused = true)]
+    async fn stale_documents_answer_only_as_the_outage_fallback() {
+        let documents = Documents {
+            discovery: Value::Null,
+            jwks: Value::Null,
+            serve_until: Some(100),
+            fresh_until: later(DOCUMENTS_FRESH),
+        };
+        assert!(documents.servable(true, 0));
+        tokio::time::advance(DOCUMENTS_FRESH).await;
+        assert!(!documents.servable(true, 0));
+        assert!(documents.servable(false, 0));
+        assert!(documents.servable(false, 99));
+        assert!(!documents.servable(false, 100));
+    }
+
+    /// An unused slot read `SLOT_IDLE` ago goes; one read just inside it
+    /// stays, keys included.
+    #[tokio::test(start_paused = true)]
+    async fn an_unused_slot_keeps_its_keys_for_a_day_and_no_longer() {
+        let held = |name: &str| {
+            slot(name).unwrap().set(Held {
+                keys: Arc::new(IssuerKeySet::default()),
+                fresh_until: Instant::now(),
+            });
+        };
+        held("test-day-old");
+        tokio::time::advance(Duration::from_secs(1)).await;
+        held("test-recent");
+        tokio::time::advance(SLOT_IDLE.saturating_sub(Duration::from_secs(1))).await;
+        drop(slot("test-trigger"));
+        let slots = SLOTS.lock().unwrap();
+        assert!(!slots.contains_key("test-day-old"));
+        assert!(slots.contains_key("test-recent"));
     }
 }

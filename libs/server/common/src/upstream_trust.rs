@@ -4,7 +4,10 @@
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
+
+// tokio's clock, the system clock outside a paused test (RFC 0015 §5.2).
+use tokio::time::Instant;
 
 /// What the apiserver made of the identity the probe asserted.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,6 +69,16 @@ mod tests {
         assert_eq!(get("t/a").map(|(t, _)| t), Some(Trust::Rejected));
         assert_eq!(get("t/b").map(|(t, _)| t), Some(Trust::Trusted));
         assert_eq!(get("t/none"), None);
+    }
+
+    /// A verdict counts until `MAX_AGE` and not at it (RFC 0015 §6.2).
+    #[tokio::test(start_paused = true)]
+    async fn a_verdict_expires_at_max_age() {
+        record("t/age", Trust::Trusted);
+        tokio::time::advance(MAX_AGE.saturating_sub(Duration::from_secs(1))).await;
+        assert!(get("t/age").is_some());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(get("t/age").is_none());
     }
 
     #[test]

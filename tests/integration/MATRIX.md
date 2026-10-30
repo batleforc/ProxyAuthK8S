@@ -166,3 +166,16 @@ Statuts :
 | 0014 | 12    | à écrire    | `rfc0014::p12_…` |
 | 0014 | 13    | à écrire    | `rfc0014::p13_…` |
 | 0014 | 14    | à écrire    | `rfc0014::p14_…` |
+| 0014 | 15    | suite       | `rfc0014::p15_a_mapping_from_one_cluster_never_serves_another` |
+| 0014 | 16    | hors suite  | RFC 0016 : le banc n'a pas d'écho amont pour lire la poignée relayée |
+| 0014 | 17    | hors suite  | RFC 0016 : le banc ne lance pas l'image du tag précédent à côté |
+| 0015 | 1     | hors suite  | chaîne de test, pas de client produit : `task test:unit`, job `🧪 Run cargo test` |
+| 0015 | 2     | hors suite  | `libs/server/common/tests/kv_contract.rs` sous `task test:all` |
+| 0015 | 3     | hors suite  | `libs/server/api/tests/throttle_store_failures.rs` (`…_refused_when_failing_closed`, `…_through_by_default`) |
+| 0015 | 4     | hors suite  | `libs/server/api/tests/authz_matrix.rs`, message de §4.3 |
+| 0015 | 5     | hors suite  | `libs/server/api/tests/authz_matrix.rs`, préfixes `Public` |
+| 0015 | 6     | hors suite  | `libs/server/api/tests/variant_coverage.rs` : `match` exhaustif, échec de compilation |
+| 0015 | 7     | hors suite  | `task test:release-features`, job `release-features` |
+| 0015 | 8     | hors suite  | `.github/workflows/mutants.yaml`, `.cargo/mutants.toml` |
+| 0015 | 9     | hors suite  | `task test:coverage:ci`, `COVERAGE_MIN` dans `.tasks/test.yaml` |
+| 0015 | 10    | hors suite  | `task it:stride` et son `--self-test` (`.it/stride.py`) |

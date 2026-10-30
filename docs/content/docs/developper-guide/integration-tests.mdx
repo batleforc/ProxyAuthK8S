@@ -4,7 +4,7 @@ description: Le banc k3d, la suite en boîte noire et la matrice des preuves §6
 icon: FlaskConical
 ---
 
-Les tests rapides (`task test`, envtest, la suite Playwright simulée) ne parlent jamais à un
+Les tests rapides ([Tests](/docs/developper-guide/testing) : `task test:all`, envtest, la suite Playwright simulée) ne parlent jamais à un
 vrai cluster avec kubelet. La suite d'intégration, si : elle monte la pile entière dans un
 cluster k3d, puis la pilote comme un utilisateur, avec le vrai `kubectl`, le vrai
 `kubectl-proxyauth` et Chromium. Chaque point de preuve (§6.P) d'une RFC y a un test, ou une

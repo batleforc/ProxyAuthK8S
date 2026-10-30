@@ -305,6 +305,17 @@ pub struct UpstreamAuthStatus {
 mod tests {
     use super::*;
 
+    /// The defaults the CRD documents: a 5-minute JWT, a monthly rotation.
+    #[test]
+    fn an_issuer_key_without_ttl_or_rotation_takes_the_documented_defaults() {
+        let settings: IssuerKeySettings = serde_json::from_value(
+            serde_json::json!({ "issuer_url": "https://p.example/issuer/a/b" }),
+        )
+        .unwrap();
+        assert_eq!(settings.token_ttl_seconds, 300);
+        assert_eq!(settings.rotation_days, 30);
+    }
+
     #[test]
     fn extra_keys_are_refused_when_the_apiserver_would_reinterpret_or_reserve_them() {
         assert_eq!(extra_key_refusal("example.com/team"), None);

@@ -15,7 +15,7 @@ use tracing::{info, instrument, warn};
 use weebo_kit_runtime::Health;
 
 use crate::{
-    config, error::StateInitError, oidc_conf, oidc_config_cache::OidcConfigCache,
+    config, error::StateInitError, kv::Kv, oidc_conf, oidc_config_cache::OidcConfigCache,
     redis_pool::RedisPool,
 };
 
@@ -37,7 +37,7 @@ pub fn oidc_discovery_retry_delay(attempt: u32, base: Duration, max: Duration) -
 #[derive(Clone)]
 pub struct State {
     pub client: Client,
-    redis: RedisPool,
+    kv: Kv,
     pub oidc_client: oidc_conf::OidcConf,
     pub oidc_cluster_redirect_base_url: String,
     pub oidc_front_redirect_base_url: String,
@@ -90,7 +90,7 @@ impl State {
         let oidc_client = oidc_conf::OidcConf::new();
         Ok(Self {
             client,
-            redis: pool,
+            kv: Kv::Redis(pool),
             oidc_client,
             oidc_cluster_redirect_base_url: config.oidc.cluster_redirect_base_url.clone(),
             oidc_front_redirect_base_url: config.oidc.front_redirect_base_url.clone(),
@@ -148,18 +148,19 @@ impl State {
     /// Assemble a `State` from already-built parts.
     ///
     /// `State::new()` performs Kubernetes and OIDC discovery at boot, which a
-    /// test cannot do; this lets a test point every dependency at a stub.
+    /// test cannot do; this lets a test point every dependency at a stub. `kv`
+    /// is a [`RedisPool`] or a [`crate::kv_memory::InMemoryKv`].
     #[cfg(feature = "test-util")]
     pub fn from_parts(
         client: Client,
-        redis: RedisPool,
+        kv: impl Into<Kv>,
         oidc_client: oidc_conf::OidcConf,
         oidc_cluster_redirect_base_url: String,
         oidc_front_redirect_base_url: String,
     ) -> Self {
         Self {
             client,
-            redis,
+            kv: kv.into(),
             oidc_client,
             oidc_cluster_redirect_base_url,
             oidc_front_redirect_base_url,

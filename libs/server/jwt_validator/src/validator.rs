@@ -46,6 +46,11 @@ const ALLOWED_ALGORITHMS: &[Algorithm] = &[
     Algorithm::EdDSA,
 ];
 
+/// How far past `exp`, or before `nbf`, a token is still accepted. Set here
+/// rather than left to jsonwebtoken's default, which has the same value, so a
+/// library upgrade cannot move it (RFC 0015 decision 18).
+const LEEWAY_SECONDS: u64 = 60;
+
 /// The algorithm and key `jwk` verifies with, `header_alg` used only when the
 /// key declares none.
 fn decoding_key(
@@ -94,6 +99,7 @@ pub fn verify_with_key(
     let mut validation = Validation::new(algorithm);
     validation.validate_exp = true;
     validation.validate_nbf = true;
+    validation.leeway = LEEWAY_SECONDS;
     validation.set_audience(&[audience]);
     decode::<serde_json::Value>(token, &key, &validation)
         .map(|data| data.claims)
@@ -172,17 +178,9 @@ impl JwtValidator {
         Ok(client)
     }
 
-    /// Validate `token` against `authenticators` and return the identity it maps to.
-    pub async fn validate(
-        &self,
-        token: &str,
-        authenticators: &[JWTAuthenticator],
-    ) -> Result<MappedUser, JwtValidationError> {
-        self.validate_for(token, authenticators, false).await
-    }
-
-    /// [`Self::validate`], for a cluster whose mode is `trusted` (RFC 0014):
-    /// see [`map_user_for`].
+    /// Validate `token` against `authenticators` and return the identity it
+    /// maps to; `trusted` for a cluster whose mode makes the apiserver trust
+    /// the proxy's identity (RFC 0014): see [`map_user_for`].
     #[instrument(skip_all, fields(issuer))]
     pub async fn validate_for(
         &self,
@@ -229,6 +227,7 @@ impl JwtValidator {
         let mut validation = Validation::new(algorithm);
         validation.validate_exp = true;
         validation.validate_nbf = true;
+        validation.leeway = LEEWAY_SECONDS;
         validation.set_issuer(&[&authenticator.issuer.url]);
         // `MatchAny` — the only policy the apiserver defines — is exactly
         // jsonwebtoken's "any of these audiences" semantics.
@@ -524,7 +523,12 @@ pub type SharedJwtValidator = Arc<JwtValidator>;
 
 #[cfg(test)]
 mod tests {
-    use super::{ALLOWED_ALGORITHMS, apply_claim_rule, map_user, map_user_for, unverified_issuer};
+    use base64::Engine as _;
+
+    use super::{
+        ALLOWED_ALGORITHMS, LEEWAY_SECONDS, apply_claim_rule, map_user, map_user_for,
+        unverified_issuer, verify_with_key,
+    };
     use crate::error::JwtValidationError;
     use crd::authentication_configuration::{
         ClaimMappings, ClaimOrExpression, ClaimValidationRule, ExtraMapping,
@@ -621,6 +625,12 @@ mod tests {
             claims["email_verified"] = serde_json::json!(true);
             assert!(map_user_for(config, &claims, true).is_ok());
         }
+        // An expression that reads email but returns something else is
+        // refused too: only the name check catches it, the end check cannot.
+        let derived = by_expression("claims.email == '' ? claims.sub : claims.sub");
+        let mut unverified = claims();
+        unverified["email_verified"] = serde_json::json!(false);
+        assert!(map_user_for(&derived, &unverified, true).is_err());
         // A username that does not read email is not concerned.
         assert!(map_user_for(&mappings(claim_mapping("sub", Some(""))), &claims(), true).is_ok());
     }
@@ -742,6 +752,10 @@ mod tests {
         config.groups = Some(claim_mapping("absent", Some("oidc:")));
 
         assert!(map_user(&config, &claims()).unwrap().groups.is_empty());
+        // An explicit `null` is no group either.
+        let mut claims = claims();
+        claims["absent"] = serde_json::Value::Null;
+        assert!(map_user(&config, &claims).unwrap().groups.is_empty());
     }
 
     #[test]
@@ -849,6 +863,18 @@ mod tests {
     }
 
     #[test]
+    fn the_document_bound_is_the_one_configured() {
+        assert_eq!(
+            super::JwtValidator::new().max_document_bytes(),
+            crate::jwks::MAX_DOCUMENT_BYTES
+        );
+        assert_eq!(
+            super::JwtValidator::with_max_document_bytes(4_096).max_document_bytes(),
+            4_096
+        );
+    }
+
+    #[test]
     fn the_unverified_issuer_is_read_from_the_payload() {
         // header.payload.signature, payload being {"iss":"https://issuer.example.com"}
         let token = "eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJodHRwczovL2lzc3Vlci5leGFtcGxlLmNvbSJ9.sig"; // gitleaks:allow
@@ -870,5 +896,125 @@ mod tests {
             unverified_issuer("not-a-jwt").unwrap_err(),
             JwtValidationError::Malformed(_)
         ));
+    }
+
+    /// A token signed now with `claims` merged in, and the key that verifies
+    /// it: `exp` and `nbf` stay with jsonwebtoken, which reads the system
+    /// clock, so the tests sign around it with a margin (RFC 0015 decision 18).
+    fn signed_now(claims: &serde_json::Value) -> (String, jsonwebtoken::jwk::Jwk) {
+        let pem = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
+            .unwrap()
+            .serialize_pem();
+        let key = jsonwebtoken::EncodingKey::from_ec_pem(pem.as_bytes()).unwrap();
+        let jwk = jsonwebtoken::jwk::Jwk::from_encoding_key(&key, Algorithm::ES256).unwrap();
+        let mut body = json!({"aud": "proxy", "sub": "alice"});
+        for (name, value) in claims.as_object().unwrap() {
+            body[name] = value.clone();
+        }
+        let token = jsonwebtoken::encode(&jsonwebtoken::Header::new(Algorithm::ES256), &body, &key)
+            .unwrap();
+        (token, jwk)
+    }
+
+    fn now() -> i64 {
+        i64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        )
+        .unwrap()
+    }
+
+    const LEEWAY: i64 = LEEWAY_SECONDS.cast_signed();
+
+    #[test]
+    fn a_token_expired_within_the_leeway_is_accepted() {
+        let (token, jwk) = signed_now(&json!({"exp": now() - LEEWAY + 5}));
+        assert!(verify_with_key(&token, &jwk, "proxy").is_ok());
+    }
+
+    #[test]
+    fn a_token_expired_past_the_leeway_is_refused() {
+        let (token, jwk) = signed_now(&json!({"exp": now() - LEEWAY - 5}));
+        assert!(matches!(
+            verify_with_key(&token, &jwk, "proxy"),
+            Err(JwtValidationError::Rejected(_))
+        ));
+    }
+
+    #[test]
+    fn a_token_not_yet_valid_within_the_leeway_is_accepted() {
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600, "nbf": now() + LEEWAY - 5}));
+        assert!(verify_with_key(&token, &jwk, "proxy").is_ok());
+    }
+
+    #[test]
+    fn a_token_not_yet_valid_past_the_leeway_is_refused() {
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600, "nbf": now() + LEEWAY + 5}));
+        assert!(matches!(
+            verify_with_key(&token, &jwk, "proxy"),
+            Err(JwtValidationError::Rejected(_))
+        ));
+    }
+
+    #[test]
+    fn a_token_for_another_audience_is_refused() {
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600}));
+        assert!(matches!(
+            verify_with_key(&token, &jwk, "another-proxy"),
+            Err(JwtValidationError::Rejected(_))
+        ));
+    }
+
+    /// An HMAC token: the key is public, so a symmetric signature would be
+    /// forgeable by anyone who read the JWKS (RFC 0015 §6.4).
+    #[test]
+    fn a_token_signed_with_an_algorithm_outside_the_list_is_refused() {
+        let (_, jwk) = signed_now(&json!({"exp": now() + 600}));
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::new(Algorithm::HS256),
+            &json!({"aud": "proxy", "sub": "alice", "exp": now() + 600}),
+            &jsonwebtoken::EncodingKey::from_secret(b"anything"),
+        )
+        .unwrap();
+        assert!(matches!(
+            verify_with_key(&token, &jwk, "proxy"),
+            Err(JwtValidationError::UnsupportedAlgorithm { .. })
+        ));
+    }
+
+    /// The header names another allowed algorithm than the key's: the key's
+    /// own algorithm decides, so the token does not verify.
+    #[test]
+    fn a_header_algorithm_other_than_the_keys_is_refused() {
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600}));
+        let mut parts = token.split('.');
+        let (_, payload, signature) = (parts.next(), parts.next().unwrap(), parts.next().unwrap());
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"alg":"ES384","typ":"JWT"}"#);
+        let forged = format!("{header}.{payload}.{signature}");
+        assert!(verify_with_key(&forged, &jwk, "proxy").is_err());
+    }
+
+    #[test]
+    fn a_token_signed_by_another_key_is_refused() {
+        let (token, _) = signed_now(&json!({"exp": now() + 600}));
+        let (_, other) = signed_now(&json!({"exp": now() + 600}));
+        assert!(matches!(
+            verify_with_key(&token, &other, "proxy"),
+            Err(JwtValidationError::Rejected(_))
+        ));
+    }
+
+    #[test]
+    fn an_audience_list_without_ours_is_refused() {
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600, "aud": ["a", "b"]}));
+        assert!(matches!(
+            verify_with_key(&token, &jwk, "proxy"),
+            Err(JwtValidationError::Rejected(_))
+        ));
+        let (token, jwk) = signed_now(&json!({"exp": now() + 600, "aud": ["a", "proxy"]}));
+        assert!(verify_with_key(&token, &jwk, "proxy").is_ok());
     }
 }

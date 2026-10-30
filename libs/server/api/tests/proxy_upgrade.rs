@@ -12,28 +12,18 @@
 
 mod harness;
 
+use harness::{memory_state, memory_store};
+
 use std::time::Duration;
 
 use crd::security::{
     AllowedPathConfiguration, AllowedPathConfigurationEnum, PortSpec, SecurityConfiguration,
 };
 use flate2::{Compress, Compression, FlushCompress};
-use harness::{
-    delete_proxy, proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
-};
+use harness::{delete_proxy, proxy_fixture, seed_proxy, unique_cluster};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
-
-/// Bind a test Redis, or bail out of the test (see `harness::try_redis_pool`).
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
 
 const SMUGGLED_MARKER: &str = "smuggled-request-marker";
 
@@ -50,11 +40,11 @@ impl ServerHandle {
 
 /// Serve the API on an ephemeral loopback port, through `serve` as in
 /// production (its HTTP/1 settings included).
-fn start_proxy() -> (std::net::SocketAddr, ServerHandle) {
+fn start_proxy(store: &common::kv_memory::InMemoryKv) -> (std::net::SocketAddr, ServerHandle) {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("proxy should bind");
     let addr = listener.local_addr().unwrap();
     let app = api::server::AppState {
-        state: test_state("http://127.0.0.1:1".to_string()),
+        state: memory_state(store, "http://127.0.0.1:1".to_string()),
         prometheus_registry: api::metrics::PrometheusRegistry(None),
         http_metrics: api::metrics::HttpMetrics::new(&opentelemetry::global::meter("test")),
         cors_allowed_origins: common::config::CorsOrigins::SameOriginOnly,
@@ -126,7 +116,7 @@ async fn start_upstream(
 /// and identity-header stripping.
 #[tokio::test]
 async fn a_refused_upgrade_never_forwards_the_client_bytes() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (upstream_url, received) = start_upstream(
         b"HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: 6\r\n\r\ndenied",
         false,
@@ -136,7 +126,7 @@ async fn a_refused_upgrade_never_forwards_the_client_bytes() {
 
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream_url)).await;
-    let (addr, server) = start_proxy();
+    let (addr, server) = start_proxy(&pool);
 
     let smuggled = format!(
         "GET /clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/exec?command=ls HTTP/1.1\r\n\
@@ -180,7 +170,7 @@ async fn a_refused_upgrade_never_forwards_the_client_bytes() {
 /// never upgrades, goes through the standard path instead of a raw socket.
 #[tokio::test]
 async fn an_upgrade_header_on_a_plain_path_does_not_open_a_raw_socket() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (upstream_url, received) = start_upstream(
         b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok",
         false,
@@ -190,7 +180,7 @@ async fn an_upgrade_header_on_a_plain_path_does_not_open_a_raw_socket() {
 
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream_url)).await;
-    let (addr, server) = start_proxy();
+    let (addr, server) = start_proxy(&pool);
 
     let request = format!(
         "GET /clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods HTTP/1.1\r\n\
@@ -226,7 +216,7 @@ async fn an_upgrade_header_on_a_plain_path_does_not_open_a_raw_socket() {
 #[tokio::test]
 async fn an_accepted_upgrade_tunnels_both_ways() {
     api::cluster::redirect::audit::capture::start();
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (upstream_url, received) = start_upstream(
         b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
         true,
@@ -236,7 +226,7 @@ async fn an_accepted_upgrade_tunnels_both_ways() {
 
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream_url)).await;
-    let (addr, server) = start_proxy();
+    let (addr, server) = start_proxy(&pool);
 
     let handshake = format!(
         "GET /clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/exec?command=sh HTTP/1.1\r\n\
@@ -354,12 +344,12 @@ async fn exchange(addr: std::net::SocketAddr, request: &[u8]) -> String {
 /// refused before reaching the cluster.
 #[tokio::test]
 async fn a_spdy_upgrade_is_refused_before_reaching_the_cluster() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
 
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream_url)).await;
-    let (addr, server) = start_proxy();
+    let (addr, server) = start_proxy(&pool);
 
     let handshake = format!(
         "POST /clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/portforward HTTP/1.1\r\n\
@@ -413,7 +403,7 @@ fn port_forward_proxy(
 /// outside the rule is refused before the cluster is contacted.
 #[tokio::test]
 async fn a_port_forward_query_outside_the_allowed_ports_is_refused() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
 
     let (ns, cluster) = unique_cluster();
@@ -422,7 +412,7 @@ async fn a_port_forward_query_outside_the_allowed_ports_is_refused() {
         &port_forward_proxy(&ns, &cluster, &upstream_url, &["8080"]),
     )
     .await;
-    let (addr, server) = start_proxy();
+    let (addr, server) = start_proxy(&pool);
 
     let handshake = format!(
         "GET /clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/portforward?ports=8080&ports=22 HTTP/1.1\r\n\
@@ -457,7 +447,7 @@ async fn a_rule_without_ports_does_not_lift_the_restriction() {
     use crd::security::{
         AllowedCrdConfiguration, NamespacedAccessConfiguration, NamespacedAccessRuleKind,
     };
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     for upgrade in ["websocket", "SPDY/3.1"] {
         let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
         let (ns, cluster) = unique_cluster();
@@ -480,7 +470,7 @@ async fn a_rule_without_ports_does_not_lift_the_restriction() {
                 verbs: None,
             }));
         seed_proxy(&pool, &proxy).await;
-        let (addr, server) = start_proxy();
+        let (addr, server) = start_proxy(&pool);
 
         let handshake = format!(
             "GET /clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/portforward?ports=5432 HTTP/1.1\r\n\
@@ -566,7 +556,7 @@ fn ws_binary(payload: &[u8]) -> Vec<u8> {
 #[tokio::test]
 async fn a_tunnelled_spdy_port_forward_is_filtered_per_stream() {
     api::cluster::redirect::audit::capture::start();
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (upstream_url, received) = start_upstream(
         b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Protocol: SPDY/3.1+portforward.k8s.io\r\n\r\n",
         false,
@@ -580,7 +570,7 @@ async fn a_tunnelled_spdy_port_forward_is_filtered_per_stream() {
         &port_forward_proxy(&ns, &cluster, &upstream_url, &["8080"]),
     )
     .await;
-    let (addr, server) = start_proxy();
+    let (addr, server) = start_proxy(&pool);
 
     let handshake = format!(
         "GET /clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/portforward HTTP/1.1\r\n\
@@ -700,11 +690,11 @@ async fn answer_to(addr: std::net::SocketAddr, handshake: &str) -> String {
 /// the same refusal, not "SPDY is not supported".
 #[tokio::test]
 async fn an_exec_outside_the_policy_never_reaches_the_cluster() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (upstream_url, contacted) = start_unused_upstream(Duration::from_millis(500)).await;
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &exec_proxy(&ns, &cluster, &upstream_url)).await;
-    let (addr, server) = start_proxy();
+    let (addr, server) = start_proxy(&pool);
 
     let path = format!("/clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/web/exec");
     let websocket = answer_to(
@@ -752,7 +742,7 @@ async fn an_exec_outside_the_policy_never_reaches_the_cluster() {
 #[tokio::test]
 async fn stdin_on_an_exec_without_stdin_closes_the_session() {
     api::cluster::redirect::audit::capture::start();
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let (upstream_url, received) = start_upstream(
         b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\
           Sec-WebSocket-Protocol: v5.channel.k8s.io\r\n\r\n",
@@ -762,7 +752,7 @@ async fn stdin_on_an_exec_without_stdin_closes_the_session() {
     .await;
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &exec_proxy(&ns, &cluster, &upstream_url)).await;
-    let (addr, server) = start_proxy();
+    let (addr, server) = start_proxy(&pool);
 
     let mut client = TcpStream::connect(addr).await.unwrap();
     client

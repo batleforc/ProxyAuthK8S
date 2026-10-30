@@ -1,7 +1,7 @@
 //! Fast-tier integration tests for the cluster proxy path.
 //!
-//! The upstream Kubernetes API is a `wiremock` server; Redis is real (see
-//! `harness`). Upgrade (exec/attach) is not covered here because it needs a raw
+//! The upstream Kubernetes API is a `wiremock` server; the store is the
+//! in-memory one (`harness::memory_store`, RFC 0015). Upgrade (exec/attach) is not covered here because it needs a raw
 //! HTTP/1.1 101 exchange on a bound socket.
 //!
 //! That exchange has no integration coverage anywhere — the envtest tier does
@@ -12,12 +12,11 @@
 
 mod harness;
 
+use harness::{memory_state, memory_store};
+
 use axum::http::StatusCode;
 use harness::test;
-use harness::{
-    delete_proxy, proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
-    unreachable_state,
-};
+use harness::{delete_proxy, proxy_fixture, seed_proxy, unique_cluster, unreachable_state};
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -27,19 +26,9 @@ macro_rules! proxy_app {
     };
 }
 
-/// Bind a test Redis, or bail out of the test (see `harness::try_redis_pool`).
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
-
 #[tokio::test]
 async fn forwards_a_request_to_the_upstream_cluster() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -55,7 +44,7 @@ async fn forwards_a_request_to_the_upstream_cluster() {
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream.uri())).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods"
@@ -76,7 +65,7 @@ async fn forwards_a_request_to_the_upstream_cluster() {
 /// stripped, never an identical substring further down the path.
 #[tokio::test]
 async fn strips_only_the_routing_prefix() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     let (ns, cluster) = unique_cluster();
@@ -91,7 +80,7 @@ async fn strips_only_the_routing_prefix() {
 
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream.uri())).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}{repeated}"))
         .to_request();
@@ -105,7 +94,7 @@ async fn strips_only_the_routing_prefix() {
 
 #[tokio::test]
 async fn forwards_query_string_and_headers() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -119,7 +108,7 @@ async fn forwards_query_string_and_headers() {
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream.uri())).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/api/v1/pods?labelSelector=app%3Dweb"
@@ -136,7 +125,7 @@ async fn forwards_query_string_and_headers() {
 
 #[tokio::test]
 async fn streams_a_watch_response_without_compressing_it() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     let events = "{\"type\":\"ADDED\"}\n{\"type\":\"MODIFIED\"}\n";
@@ -150,7 +139,7 @@ async fn streams_a_watch_response_without_compressing_it() {
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream.uri())).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/api/v1/pods?watch=true&timeout=32s"
@@ -173,7 +162,7 @@ async fn streams_a_watch_response_without_compressing_it() {
 
 #[tokio::test]
 async fn propagates_the_upstream_status_code() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("DELETE"))
@@ -185,7 +174,7 @@ async fn propagates_the_upstream_status_code() {
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream.uri())).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::delete()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods/missing"
@@ -201,7 +190,7 @@ async fn propagates_the_upstream_status_code() {
 
 #[tokio::test]
 async fn forwards_a_request_body() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("POST"))
@@ -214,7 +203,7 @@ async fn forwards_a_request_body() {
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream.uri())).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::post()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/api/v1/namespaces/dev/pods"
@@ -230,11 +219,11 @@ async fn forwards_a_request_body() {
 
 #[tokio::test]
 async fn unknown_cluster_returns_404() {
-    let _pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
     let (ns, cluster) = unique_cluster();
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
         .to_request();
@@ -245,7 +234,7 @@ async fn unknown_cluster_returns_404() {
 
 #[tokio::test]
 async fn disabled_cluster_returns_404() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     let (ns, cluster) = unique_cluster();
@@ -253,7 +242,7 @@ async fn disabled_cluster_returns_404() {
     proxy.spec.enabled = false;
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
         .to_request();
@@ -266,7 +255,7 @@ async fn disabled_cluster_returns_404() {
 
 #[tokio::test]
 async fn missing_token_returns_401_when_validation_is_required() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     let (ns, cluster) = unique_cluster();
@@ -274,7 +263,7 @@ async fn missing_token_returns_401_when_validation_is_required() {
     proxy.spec.auth_config = Some(harness::oidc_auth_config(&upstream.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
         .to_request();
@@ -295,7 +284,7 @@ async fn missing_token_returns_401_when_validation_is_required() {
 
 #[tokio::test]
 async fn invalid_token_returns_401_when_validation_is_required() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     // No OIDC discovery document is mounted, so token validation cannot succeed.
@@ -304,7 +293,7 @@ async fn invalid_token_returns_401_when_validation_is_required() {
     proxy.spec.auth_config = Some(harness::oidc_auth_config(&upstream.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!("/clusters/{ns}/{cluster}/api/v1/pods"))
         .insert_header(("authorization", "Bearer not-a-valid-token"))

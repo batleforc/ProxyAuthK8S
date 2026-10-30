@@ -4,7 +4,7 @@ name: 🦀 Rust tests
 # the OIDC provider are wiremock stubs, Redis is a real service container.
 # REQUIRE_TEST_REDIS makes a missing Redis a failure instead of a silent skip.
 # A second job re-runs the same two tiers under cargo-llvm-cov and fails the
-# build if line coverage drops below the floor declared in .taskfile/test.yaml.
+# build if line coverage drops below the floor declared in .tasks/test.yaml.
 
 on:
   push:
@@ -12,7 +12,8 @@ on:
       - "**/*.rs"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
-      - ".taskfile/test.yaml"
+      - ".tasks/test.yaml"
+      - ".config/nextest.toml"
       - ".github/workflows/back-cargo-test.yaml"
   pull_request:
     branches: ["main"]
@@ -20,7 +21,8 @@ on:
       - "**/*.rs"
       - "**/Cargo.toml"
       - "**/Cargo.lock"
-      - ".taskfile/test.yaml"
+      - ".tasks/test.yaml"
+      - ".config/nextest.toml"
       - ".github/workflows/back-cargo-test.yaml"
   workflow_dispatch:
 
@@ -110,7 +112,7 @@ jobs:
       - name: 📦 Install Task
         uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
 
-      # The floor lives in .taskfile/test.yaml so it is declared once and the
+      # The floor lives in .tasks/test.yaml so it is declared once and the
       # same gate can be reproduced locally with `task test:coverage:ci`.
       - name: 📊 Measure coverage and enforce the floor
         run: task test:coverage:ci

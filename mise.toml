@@ -32,6 +32,8 @@ trivy = "latest"
 semgrep = "latest"
 "cargo:cargo-nextest" = "latest"
 "cargo:cargo-llvm-cov" = "latest"
+# RFC 0015 §6.5: mutation testing of the security crates (task mutants:run).
+"cargo:cargo-mutants" = "latest"
 "pipx:desloppify[full]" = "latest"
 "pipx:graphifyy" = "latest"
 cargo-binstall = "latest"

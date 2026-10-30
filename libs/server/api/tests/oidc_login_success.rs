@@ -20,12 +20,13 @@
 
 mod harness;
 
+use harness::{memory_state, memory_store};
+
 use axum::http::StatusCode;
 use harness::test;
 use harness::{
     delete_proxy, mount_full_oidc_provider, mount_token_endpoint, oidc_auth_config,
-    oidc_auth_config_with_well_known, proxy_fixture, seed_proxy, sign_id_token, test_state,
-    try_redis_pool, unique_cluster,
+    oidc_auth_config_with_well_known, proxy_fixture, seed_proxy, sign_id_token, unique_cluster,
 };
 use reqwest::Url;
 
@@ -41,15 +42,6 @@ const EXTERNAL_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 macro_rules! login_app {
     ($state:expr_2021) => {
         test::init_service(harness::app($state)).await
-    };
-}
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
     };
 }
 
@@ -73,7 +65,7 @@ fn location(resp: &axum::response::Response) -> Url {
 
 #[tokio::test]
 async fn existing_auth_login_callback_flow_succeeds_with_a_real_signed_id_token() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let idp = harness_mock_server().await;
     mount_full_oidc_provider(&idp, "alice", &["dev"]).await;
 
@@ -82,7 +74,7 @@ async fn existing_auth_login_callback_flow_succeeds_with_a_real_signed_id_token(
     proxy.spec.auth_config = Some(oidc_auth_config(&idp.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let app = login_app!(test_state(idp.uri()));
+    let app = login_app!(memory_state(&pool, idp.uri()));
 
     // Step 1: authenticated login start — returns the upstream authorize URL as plain text.
     let login_req = test::TestRequest::get()
@@ -126,7 +118,7 @@ async fn existing_auth_login_callback_flow_succeeds_with_a_real_signed_id_token(
 
 #[tokio::test]
 async fn mediated_oauth_flow_succeeds_with_a_real_signed_id_token() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let idp = harness_mock_server().await;
     mount_full_oidc_provider(&idp, "alice", &["dev"]).await;
 
@@ -135,7 +127,7 @@ async fn mediated_oauth_flow_succeeds_with_a_real_signed_id_token() {
     proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(&idp.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let app = login_app!(test_state(idp.uri()));
+    let app = login_app!(memory_state(&pool, idp.uri()));
 
     // Step 1: unauthenticated start — the external client's own PKCE
     // challenge/state/redirect_uri, none of which need prior registration.

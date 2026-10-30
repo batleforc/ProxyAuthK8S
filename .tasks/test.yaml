@@ -3,7 +3,8 @@ version: "3"
 # Two tiers, run with cargo-nextest (one process per test):
 #   - unit tests, no external dependency;
 #   - a fast integration tier where the upstream Kubernetes API and the OIDC
-#     provider are wiremock stubs and Redis is a real server.
+#     provider are wiremock stubs, and the store is either the in-memory one
+#     (where Redis is only storage) or a real Redis server (RFC 0015).
 #
 # The Redis location comes from TEST_REDIS_URL (default redis://127.0.0.1:6379).
 # Without a reachable Redis the integration tests print "SKIPPED" and pass, so
@@ -25,9 +26,16 @@ version: "3"
 vars:
   # Line-coverage floor enforced by `coverage:ci` and by the CI gate.
   # A ratchet: raise it as the real figure climbs, never lower it to turn a red
-  # build green. Last measured 63.18% (2026-08-29, workspace, fast tiers), after
-  # the CLI, Kubernetes-auth and controller test tiers landed.
-  COVERAGE_MIN: '{{ .COVERAGE_MIN | default "62" }}'
+  # build green. Last measured 88.14% (2026-10-30, workspace, fast tiers,
+  # COVERAGE_EXCLUDE applied, CI run 41072375920); 85 is RFC 0015's target.
+  COVERAGE_MIN: '{{ .COVERAGE_MIN | default "85" }}'
+  # Files out of the measure, each with its reason. Exclude with a reason,
+  # never lower the floor (RFC 0015 §4.2):
+  # - libs/cli/client_api: generated from swagger.json (task gen:back-api-client);
+  # - apps/server/src/main.rs, apps/crdgen, apps/swaggergen, apps/kubectl_proxyauth:
+  #   thin binaries over library code that is measured;
+  # - libs/server/common/src/kv_memory.rs: test code, compiled under test-util only.
+  COVERAGE_EXCLUDE: '(libs/cli/client_api/|apps/server/src/main\.rs|apps/crdgen/|apps/swaggergen/|apps/kubectl_proxyauth/|libs/server/common/src/kv_memory\.rs)'
 
 tasks:
   all:
@@ -55,11 +63,22 @@ tasks:
       - echo "Running the server-side Rust tests"
       - cargo nextest run -p common -p crd -p api -p controller -p server
   unit:
-    desc: "Run the unit tests only (no Redis, no network)"
+    desc: "Run the tests that need no Redis: lib tests, and the in-process tests on the in-memory store (RFC 0015); lists the Redis tests it skipped"
     silent: true
+    # REQUIRE_TEST_REDIS stays unset: the tests that test Redis itself skip,
+    # each one named in dist/test-unit-skips.txt (nextest hides a passing
+    # test's stderr, so the list is printed here).
+    env:
+      TEST_SKIP_LOG: "{{.ROOT_DIR}}/dist/test-unit-skips.txt"
     cmds:
-      - echo "Running unit tests"
-      - cargo nextest run -p crd -p api -p controller --lib
+      - echo "Running the tests that need no Redis"
+      - mkdir -p dist && rm -f dist/test-unit-skips.txt
+      - cargo nextest run -p common -p crd -p api -p controller -p jwt_validator --lib --tests
+      - |
+        if [ -s dist/test-unit-skips.txt ]; then
+          echo "$(wc -l < dist/test-unit-skips.txt) tests skipped for lack of Redis (run task test:all with Redis for them):"
+          sed 's/ — .*//' dist/test-unit-skips.txt | sort
+        fi
   integration:
     desc: "Run the fast integration tier and fail if the test Redis is unreachable"
     silent: true
@@ -72,6 +91,12 @@ tasks:
       # package, so the controller's tier cannot share the line above.
       - cargo nextest run -p controller --test reconcile
 
+  release-features:
+    desc: "Fail if the release build enables common/test-util, the feature behind the in-memory store (RFC 0015 T1)"
+    cmds:
+      - python3 .github/scripts/release-features.py --self-test
+      - python3 .github/scripts/release-features.py
+
   coverage:
     desc: "Measure workspace line coverage and print a per-file summary"
     silent: true
@@ -79,7 +104,7 @@ tasks:
       REQUIRE_TEST_REDIS: "1"
     cmds:
       - echo "Measuring coverage against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
-      - cargo llvm-cov nextest --workspace --all-targets --summary-only
+      - cargo llvm-cov nextest --workspace --all-targets --summary-only --ignore-filename-regex '{{.COVERAGE_EXCLUDE}}'
 
   coverage:html:
     desc: "Write a browsable HTML coverage report to dist/coverage/html"
@@ -89,7 +114,7 @@ tasks:
     cmds:
       - echo "Measuring coverage against ${TEST_REDIS_URL:-redis://127.0.0.1:6379}"
       # --output-dir appends its own html/ subdirectory.
-      - cargo llvm-cov nextest --workspace --all-targets --html --output-dir dist/coverage
+      - cargo llvm-cov nextest --workspace --all-targets --html --output-dir dist/coverage --ignore-filename-regex '{{.COVERAGE_EXCLUDE}}'
       - echo "Report written to dist/coverage/html/index.html"
 
   coverage:ci:
@@ -104,6 +129,6 @@ tasks:
       - cargo llvm-cov nextest --workspace --all-targets --no-report
       # --output-path will not create the parent directory itself.
       - mkdir -p dist/coverage
-      - cargo llvm-cov report --lcov --output-path dist/coverage/lcov.info
+      - cargo llvm-cov report --lcov --output-path dist/coverage/lcov.info --ignore-filename-regex '{{.COVERAGE_EXCLUDE}}'
       - echo "Enforcing a {{ .COVERAGE_MIN }}% line-coverage floor"
-      - cargo llvm-cov report --summary-only --fail-under-lines {{ .COVERAGE_MIN }}
+      - cargo llvm-cov report --summary-only --fail-under-lines {{ .COVERAGE_MIN }} --ignore-filename-regex '{{.COVERAGE_EXCLUDE}}'

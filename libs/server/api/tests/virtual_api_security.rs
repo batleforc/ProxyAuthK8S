@@ -5,14 +5,15 @@
 //! become a way around the allow-list on the API it maps to.
 
 mod harness;
+
+use harness::{memory_state, memory_store};
 mod virtual_api_support;
 
 use axum::http::StatusCode;
 use crd::virtual_api::VirtualApiKind;
 use harness::test;
 use harness::{
-    delete_proxy, proxy_fixture, security_config, seed_proxy, test_state, try_redis_pool,
-    unique_cluster, with_virtual_api,
+    delete_proxy, proxy_fixture, security_config, seed_proxy, unique_cluster, with_virtual_api,
 };
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
@@ -24,18 +25,9 @@ macro_rules! proxy_app {
     };
 }
 
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
-
 #[tokio::test]
 async fn a_cluster_without_virtual_apis_proxies_the_path_verbatim() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     // No mapper enabled: the path goes upstream as typed and 404s there.
@@ -48,7 +40,7 @@ async fn a_cluster_without_virtual_apis_proxies_the_path_verbatim() {
     let (ns, cluster) = unique_cluster();
     seed_proxy(&pool, &proxy_fixture(&ns, &cluster, &upstream.uri())).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
@@ -65,7 +57,7 @@ async fn a_cluster_without_virtual_apis_proxies_the_path_verbatim() {
 /// A virtual path must not become a way around the resource allow-list.
 #[tokio::test]
 async fn the_allow_list_also_covers_the_mapped_upstream_path() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -83,7 +75,7 @@ async fn the_allow_list_also_covers_the_mapped_upstream_path() {
     )]));
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
@@ -105,7 +97,7 @@ async fn the_allow_list_also_covers_the_mapped_upstream_path() {
 
 #[tokio::test]
 async fn an_allow_list_covering_both_paths_lets_the_request_through() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -127,7 +119,7 @@ async fn an_allow_list_covering_both_paths_lets_the_request_through() {
     ]));
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
@@ -148,7 +140,7 @@ async fn an_allow_list_covering_both_paths_lets_the_request_through() {
 #[tokio::test]
 async fn the_verb_is_checked_on_the_mapped_request_too() {
     use crd::security::{AllowedPathConfiguration, AllowedPathConfigurationEnum, Verb};
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
     Mock::given(wiremock::matchers::any())
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
@@ -175,7 +167,7 @@ async fn the_verb_is_checked_on_the_mapped_request_too() {
     proxy.spec.security_config = Some(config);
     seed_proxy(&pool, &proxy).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::delete()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects/team-a"

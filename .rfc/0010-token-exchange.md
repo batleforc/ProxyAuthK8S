@@ -654,6 +654,9 @@ l'apiserver.
   - T10 `an_exchange_failure_never_relays_the_proxy_token`
   - T11 `only_a_validated_token_is_sent_to_the_exchange`
   - T12 `a_refused_refresh_counts_toward_a_ban`
+- **Garde-fous** (RFC 0015) : la variante `UpstreamAuthMode::TokenExchange` ne
+  compile pas sans son bras dans `libs/server/api/tests/variant_coverage.rs`,
+  qui nomme son test ; la route éventuelle a sa ligne dans `authz_matrix.rs`.
 - **Audit** : `task audit` vert (aucune dépendance nouvelle).
 - **Existing suites** : `http_contract`, `proxy_security`, `proxy_upgrade`,
   envtest et `rfc0003`, `rfc0006`, `rfc0007` inchangés : un cluster sans

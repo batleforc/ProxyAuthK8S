@@ -14,7 +14,10 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+// tokio's clock, the system clock outside a paused test (RFC 0015 §5.2).
+use tokio::time::Instant;
 
 use jsonwebtoken::jwk::{Jwk, JwkSet};
 use tokio::sync::RwLock;
@@ -355,7 +358,9 @@ pub fn select_key<'a>(set: &'a JwkSet, kid: Option<&str>) -> Option<&'a Jwk> {
 
 #[cfg(test)]
 mod tests {
-    use super::{JwksCache, select_key};
+    use super::{
+        Cached, Duration, Instant, JWKS_TTL, JwksCache, MAX_STALE, MIN_REFRESH_INTERVAL, select_key,
+    };
     use jsonwebtoken::jwk::JwkSet;
 
     fn jwks(kids: &[&str]) -> JwkSet {
@@ -452,5 +457,150 @@ mod tests {
         assert!(!cache.may_force_refresh("https://a.example.com/jwks").await);
         // …but a different issuer is unaffected.
         assert!(cache.may_force_refresh("https://b.example.com/jwks").await);
+    }
+
+    /// The floor holds for `MIN_REFRESH_INTERVAL`, then lets one refetch
+    /// through (RFC 0015 §6.2).
+    #[tokio::test(start_paused = true)]
+    async fn a_forced_refresh_is_allowed_again_once_the_floor_has_passed() {
+        let cache = JwksCache::new();
+        let uri = "https://a.example.com/jwks";
+        assert!(cache.may_force_refresh(uri).await);
+        tokio::time::advance(MIN_REFRESH_INTERVAL.saturating_sub(Duration::from_secs(1))).await;
+        assert!(!cache.may_force_refresh(uri).await);
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(cache.may_force_refresh(uri).await);
+        assert!(!cache.may_force_refresh(uri).await);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_cached_document_is_fresh_until_its_ttl_and_not_at_it() {
+        let cached = Cached {
+            value: (),
+            fetched_at: Instant::now(),
+        };
+        tokio::time::advance(Duration::from_secs(59)).await;
+        assert!(cached.is_fresh(Duration::from_secs(60)));
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(!cached.is_fresh(Duration::from_secs(60)));
+    }
+
+    /// A JWKS server that counts its fetches and always serves `body`.
+    async fn counting_server(
+        body: Vec<u8>,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let url = format!("http://{}/keys", listener.local_addr().expect("addr"));
+        let fetches = std::sync::Arc::new(AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&fetches);
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut tcp, _)) = listener.accept().await else {
+                    return;
+                };
+                counter.fetch_add(1, Ordering::SeqCst);
+                let mut request = [0u8; 1024];
+                let _read = tcp.read(&mut request).await;
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _sent = tcp.write_all(head.as_bytes()).await;
+                let _sent = tcp.write_all(&body).await;
+            }
+        });
+        (url, fetches)
+    }
+
+    /// An unknown `kid` drives one refetch, then the floor holds: a stream of
+    /// tokens with made-up `kid`s cannot make the proxy hammer the provider
+    /// (RFC 0015 §6.4).
+    #[tokio::test]
+    async fn an_unknown_kid_is_refused_after_a_single_refetch() {
+        use std::sync::atomic::Ordering;
+        let body = serde_json::to_vec(&jwks(&["known"])).expect("jwks serializes");
+        let (url, fetches) = counting_server(body).await;
+        let cache = JwksCache::new();
+        let client = reqwest::Client::new();
+
+        for _ in 0..3 {
+            assert!(matches!(
+                cache.key_at(&client, &url, Some("made-up")).await,
+                Err(crate::error::JwtValidationError::UnknownKey { .. })
+            ));
+        }
+        // The first fetch, then one forced refetch; never a third.
+        assert_eq!(fetches.load(Ordering::SeqCst), 2);
+        assert!(cache.key_at(&client, &url, Some("known")).await.is_ok());
+        assert_eq!(fetches.load(Ordering::SeqCst), 2);
+    }
+    /// An issuer that cannot be reached keeps its expired key set trusted
+    /// for a day, not a second more: an attacker who keeps the JWKS
+    /// unreachable cannot keep a revoked key trusted forever.
+    #[tokio::test(start_paused = true)]
+    async fn an_expired_key_set_is_trusted_a_day_past_its_ttl_and_then_refused() {
+        // A closed port: every refetch fails at once.
+        let uri = "http://127.0.0.1:1/keys";
+        let cache = JwksCache::new();
+        cache.jwks.write().await.insert(
+            uri.to_string(),
+            Cached {
+                value: std::sync::Arc::new(jwks(&["known"])),
+                fetched_at: Instant::now(),
+            },
+        );
+        let client = reqwest::Client::new();
+
+        tokio::time::advance(JWKS_TTL).await;
+        assert!(cache.key_at(&client, uri, Some("known")).await.is_ok());
+        tokio::time::advance(MAX_STALE.saturating_sub(JWKS_TTL + Duration::from_secs(1))).await;
+        assert!(cache.key_at(&client, uri, Some("known")).await.is_ok());
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert!(matches!(
+            cache.key_at(&client, uri, Some("known")).await,
+            Err(crate::error::JwtValidationError::JwksFetch { .. })
+        ));
+    }
+
+    /// A document of exactly the bound is read, one byte more refused,
+    /// whether its size is announced (`Content-Length`) or found while
+    /// reading.
+    #[tokio::test]
+    async fn a_document_of_exactly_the_bound_is_accepted() {
+        let body = serde_json::to_vec(&jwks(&["known"])).expect("jwks serializes");
+        let client = reqwest::Client::new();
+        for announced in [true, false] {
+            for (max, accepted) in [(body.len(), true), (body.len() - 1, false)] {
+                let url = if announced {
+                    counting_server(body.clone()).await.0
+                } else {
+                    serve_once(body.clone()).await
+                };
+                let cache = JwksCache::with_max_document_bytes(max);
+                let found = cache.key_at(&client, &url, Some("known")).await;
+                assert_eq!(found.is_ok(), accepted, "announced {announced}, max {max}");
+            }
+        }
+    }
+
+    /// The cache's `Debug` prints no key and no issuer.
+    #[test]
+    fn the_cache_debug_shows_nothing_of_its_content() {
+        assert_eq!(format!("{:?}", JwksCache::new()), "JwksCache");
+    }
+
+    /// The cache bounds as RFC 0012 states them (T13): what a test of each
+    /// bound would otherwise have to wait for.
+    #[test]
+    fn the_cache_bounds_are_the_documented_ones() {
+        assert_eq!(JWKS_TTL, Duration::from_secs(900));
+        assert_eq!(super::DISCOVERY_TTL, Duration::from_secs(3_600));
+        assert_eq!(MAX_STALE, Duration::from_secs(86_400));
+        assert_eq!(super::MAX_DOCUMENT_BYTES, 65_536);
+        assert_eq!(JwksCache::new().max_document_bytes(), 65_536);
     }
 }

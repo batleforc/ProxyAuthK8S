@@ -6,11 +6,13 @@
 //! back to them, and that a second request is served from the cache.
 
 mod harness;
+
+use harness::{memory_state, memory_store};
 mod virtual_api_support;
 
 use axum::http::StatusCode;
 use harness::test;
-use harness::{delete_proxy, test_state, try_redis_pool, unique_cluster};
+use harness::{delete_proxy, unique_cluster};
 use serde_json::{Value, json};
 use virtual_api_support::{FALLBACK_TOKEN, seed_openshift_proxy_with_fallback};
 use wiremock::matchers::{bearer_token, body_partial_json, method, path};
@@ -22,20 +24,11 @@ macro_rules! proxy_app {
     };
 }
 
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
-
 /// A `SelfSubjectRulesReview` with a `resourceNames`-scoped rule resolves
 /// filtering in one call — no per-item `SelfSubjectAccessReview` at all.
 #[tokio::test]
 async fn list_fallback_resolves_via_rules_review_without_any_access_review() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     // Every candidate is covered by the resolved rule below — nothing is
@@ -82,7 +75,7 @@ async fn list_fallback_resolves_via_rules_review_without_any_access_review() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy_with_fallback(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
@@ -119,7 +112,7 @@ async fn list_fallback_resolves_via_rules_review_without_any_access_review() {
 /// still resolved by the rules review alone.
 #[tokio::test]
 async fn list_fallback_resolves_unrestricted_rules_without_any_access_review() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -154,7 +147,7 @@ async fn list_fallback_resolves_unrestricted_rules_without_any_access_review() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy_with_fallback(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
@@ -179,7 +172,7 @@ async fn list_fallback_resolves_unrestricted_rules_without_any_access_review() {
 /// back to a real per-item access review, exactly like an unavailable review.
 #[tokio::test]
 async fn list_fallback_falls_back_to_per_item_checks_when_incomplete() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -235,7 +228,7 @@ async fn list_fallback_falls_back_to_per_item_checks_when_incomplete() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy_with_fallback(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/apis/project.openshift.io/v1/projects"
@@ -261,7 +254,7 @@ async fn list_fallback_falls_back_to_per_item_checks_when_incomplete() {
 /// namespace list is re-fetched.
 #[tokio::test]
 async fn list_fallback_caches_the_resolved_allow_set() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let upstream = MockServer::start().await;
 
     Mock::given(method("GET"))
@@ -301,7 +294,7 @@ async fn list_fallback_caches_the_resolved_allow_set() {
     let (ns, cluster) = unique_cluster();
     seed_openshift_proxy_with_fallback(&pool, &ns, &cluster, &upstream.uri()).await;
 
-    let app = proxy_app!(test_state(upstream.uri()));
+    let app = proxy_app!(memory_state(&pool, upstream.uri()));
     for _ in 0..2 {
         let req = test::TestRequest::get()
             .uri(&format!(

@@ -10,7 +10,7 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 reqwest = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 base64 = "0.23"
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 # `cel` is imported through `kube-cel` (see its docs): declaring a separate
@@ -21,7 +21,9 @@ kube-cel = "0.8"
 crd = { path = "../crd", version = "0.4.2" }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }
+# Already in the tree (controller, api): a fresh ES256 key per test token.
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "pem", "ring"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util", "test-util"] }
 
 [lints]
 workspace = true

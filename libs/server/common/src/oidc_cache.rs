@@ -20,8 +20,11 @@ use std::{
     collections::HashMap,
     hash::Hash,
     sync::{LazyLock, Mutex},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+// tokio's clock, the system clock outside a paused test (RFC 0015 §5.2).
+use tokio::time::Instant;
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use sha2::{Digest, Sha256};
@@ -225,6 +228,17 @@ mod tests {
         assert_eq!(cache.get(&"fresh"), Some(1));
         assert_eq!(cache.get(&"stale"), None);
         assert_eq!(cache.get(&"missing"), None);
+    }
+
+    /// An entry is served up to its TTL and not at it (RFC 0015 §6.2).
+    #[tokio::test(start_paused = true)]
+    async fn an_entry_is_served_until_its_ttl_and_not_at_it() {
+        let cache: TtlCache<&str, u32> = TtlCache::default();
+        cache.insert("k", 1, Duration::from_secs(60));
+        tokio::time::advance(Duration::from_secs(59)).await;
+        assert_eq!(cache.get(&"k"), Some(1));
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert_eq!(cache.get(&"k"), None);
     }
 
     #[test]

@@ -3,11 +3,13 @@
 
 mod harness;
 
+use harness::{memory_state, memory_store};
+
 use axum::http::StatusCode;
 use harness::test;
 use harness::{
     delete_proxy, mount_oidc_provider, oidc_auth_config, oidc_auth_config_with_well_known,
-    proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
+    proxy_fixture, seed_proxy, unique_cluster,
 };
 use wiremock::MockServer;
 
@@ -17,18 +19,9 @@ macro_rules! well_known_app {
     };
 }
 
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
-
 #[tokio::test]
 async fn serves_metadata_mirroring_the_upstream_provider_when_enabled() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let idp = MockServer::start().await;
     mount_oidc_provider(&idp, "alice", &["dev"]).await;
 
@@ -37,7 +30,7 @@ async fn serves_metadata_mirroring_the_upstream_provider_when_enabled() {
     proxy.spec.auth_config = Some(oidc_auth_config_with_well_known(&idp.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let state = test_state(idp.uri());
+    let state = memory_state(&pool, idp.uri());
     let app = well_known_app!(state);
     let req = test::TestRequest::get()
         .uri(&format!(
@@ -80,7 +73,7 @@ async fn serves_metadata_mirroring_the_upstream_provider_when_enabled() {
 
 #[tokio::test]
 async fn returns_404_when_discovery_is_not_enabled() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let idp = MockServer::start().await;
     mount_oidc_provider(&idp, "alice", &["dev"]).await;
 
@@ -90,7 +83,7 @@ async fn returns_404_when_discovery_is_not_enabled() {
     proxy.spec.auth_config = Some(oidc_auth_config(&idp.uri()));
     seed_proxy(&pool, &proxy).await;
 
-    let app = well_known_app!(test_state(idp.uri()));
+    let app = well_known_app!(memory_state(&pool, idp.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/.well-known/oauth-authorization-server"
@@ -105,7 +98,7 @@ async fn returns_404_when_discovery_is_not_enabled() {
 
 #[tokio::test]
 async fn returns_404_when_the_proxy_is_disabled() {
-    let pool = redis_or_skip!();
+    let pool = memory_store();
     let idp = MockServer::start().await;
     mount_oidc_provider(&idp, "alice", &["dev"]).await;
 
@@ -115,7 +108,7 @@ async fn returns_404_when_the_proxy_is_disabled() {
     proxy.spec.enabled = false;
     seed_proxy(&pool, &proxy).await;
 
-    let app = well_known_app!(test_state(idp.uri()));
+    let app = well_known_app!(memory_state(&pool, idp.uri()));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/.well-known/oauth-authorization-server"
@@ -130,10 +123,13 @@ async fn returns_404_when_the_proxy_is_disabled() {
 
 #[tokio::test]
 async fn returns_404_for_an_unknown_cluster() {
-    let _pool = redis_or_skip!();
+    let pool = memory_store();
     let (ns, cluster) = unique_cluster();
 
-    let app = well_known_app!(test_state("https://issuer.example.com".to_string()));
+    let app = well_known_app!(memory_state(
+        &pool,
+        "https://issuer.example.com".to_string()
+    ));
     let req = test::TestRequest::get()
         .uri(&format!(
             "/clusters/{ns}/{cluster}/.well-known/oauth-authorization-server"

@@ -66,6 +66,16 @@ You don't have the right to commit directly has all commit should be signed and 
 
 The JS side is a pnpm workspace (`pnpm-workspace.yaml`) of standalone packages: `apps/front`, `libs/front/front-api` (consumed from source) and `docs`. Each package exposes the same script names when it has the use (`dev`, `build`, `typecheck`, `test`, `lint`); Taskfile aggregates them with `pnpm -r --if-present run <script>` (`.tasks/js.yaml`), so a new package needs no Taskfile change. Nothing is hoisted: declare every import in the package's own `package.json`. A new install script must be reviewed into `allowBuilds`. There is no NX: Cargo is the only Rust build graph.
 
+## Tests
+
+The Rust test layers, their commands and rules are in `docs/content/docs/developper-guide/testing.mdx` (RFC 0015). Four rules matter most:
+- **A fix comes with a regression test** that fails without the fix, unless the fix is to CI, a dependency or the docs.
+- **A refusal has its negative test**, named after the refusal (`_refused`, `_rejected`, `_denied`).
+- **A skip is never silent**: use `common::test_skip::redis_unavailable`. A test where Redis only stores data uses `memory_store()` and `memory_state()` instead of a real Redis.
+- **Exclude with a reason, never lower the floor**: `COVERAGE_EXCLUDE` and `COVERAGE_MIN` in `.tasks/test.yaml`.
+
+A new route, behaviour enum variant or 2xx response fails `authz_matrix`, `variant_coverage` or `openapi_contract` until its row is written.
+
 ## Skills
 
 Weebo Dev skills exist and can be found [here](https://github.com/batleforc/weebo-skillsagent). The most important one if you work on UI is the `batlehub-design` skill, which is the design system (tokens, typography, Named Rules). RFCs follow the `batlehub-rfc` skill, and plans are challenged with `grill-me`.

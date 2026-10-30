@@ -219,8 +219,20 @@ mod tests {
         assert_ne!(a, b);
         let long = "x".repeat(240);
         assert!(matches!(
-            secret_name(&proxy("ns", &long, external)),
+            secret_name(&proxy("ns", &long, external.clone())),
             Err(FrontProxyCertError::NameTooLong(_))
+        ));
+        // 253 characters is a valid name, 254 is not.
+        let fits = "x".repeat(253 - "proxyauth-frontproxy-ns.".len());
+        assert_eq!(
+            secret_name(&proxy("ns", &fits, external.clone()))
+                .unwrap()
+                .len(),
+            253
+        );
+        assert!(matches!(
+            secret_name(&proxy("ns", &format!("{fits}x"), external)),
+            Err(FrontProxyCertError::NameTooLong(254))
         ));
     }
 

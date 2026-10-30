@@ -28,16 +28,6 @@ use weebo_kit_api::Condition;
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// Skip the test when the test Redis is unavailable (unless CI demands it).
-macro_rules! redis_or_skip {
-    () => {
-        match support::try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
-
 /// Answer the reachability probe — a plain GET on the service URL — with
 /// `status_code`.
 async fn mount_probe(server: &MockServer, status_code: u16) {

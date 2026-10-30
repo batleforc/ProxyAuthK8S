@@ -76,13 +76,15 @@ trace = { path = "../trace", version = "0.4.2", optional = true }
 secrecy = "0.10.3"
 
 [dev-dependencies]
+# RFC 0015 §6.4: invariants of the asserted identity over generated inputs.
+proptest = "1.12.0"
 opentelemetry_sdk = { workspace = true }
 tracing-subscriber = { workspace = true }
 opentelemetry-prometheus = "0.33"
 # `test-util` unlocks `State::from_parts`; dev-dependencies are not part of a
 # normal build so the feature stays off outside `cargo test`.
 common = { path = "../common", version = "0.4.2", features = ["test-util"] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "test-util"] }
 wiremock = "0.6"
 # Already in the tree (axum): `oneshot` on the router in tests.
 tower = { version = "0.5", features = ["util"] }

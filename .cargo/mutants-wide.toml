@@ -1,0 +1,18 @@
+# cargo-mutants, informative report (RFC 0015 decision 25): the crates outside
+# the security scope of .cargo/mutants.toml. Read with --config by the `wide`
+# job of the mutants workflow and `task mutants:wide`. No issue, no zero
+# survivor rule: a survivor here is a hint where a behaviour is untested.
+
+test_tool = "nextest"
+
+# common is exercised from api and controller, the agent only by its own tests.
+test_package = ["agent", "api", "common", "controller"]
+
+examine_globs = [
+  "apps/agent/src/**/*.rs",
+  "libs/server/common/src/**/*.rs",
+  "libs/server/controller/src/**/*.rs",
+]
+
+# Test code, compiled under test-util only (as in COVERAGE_EXCLUDE).
+exclude_globs = ["libs/server/common/src/kv_memory.rs"]

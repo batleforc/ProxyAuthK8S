@@ -539,6 +539,32 @@ mod tests {
         ));
     }
 
+    /// One Secret per cluster UID, carrying both labels `read` checks.
+    #[test]
+    fn the_key_secret_is_named_and_labelled_after_the_cluster_uid() {
+        let mut proxy = ProxyKubeApi::new(
+            "prod",
+            serde_json::from_value(serde_json::json!({
+                "cert": { "SystemRoots": true },
+                "service": { "ExternalService": { "url": "https://k:6443" } },
+            }))
+            .unwrap(),
+        );
+        assert!(matches!(secret_name(&proxy), Err(IssuerKeyError::NoUid)));
+        proxy.metadata.uid = Some("u1".into());
+        assert_eq!(secret_name(&proxy).unwrap(), "proxyauth-issuer-u1");
+        let labels = labels("u1");
+        assert_eq!(labels.len(), 2);
+        assert_eq!(
+            labels.get(MANAGED_BY_LABEL).map(String::as_str),
+            Some(MANAGED_BY_VALUE)
+        );
+        assert_eq!(
+            labels.get(CLUSTER_UID_LABEL).map(String::as_str),
+            Some("u1")
+        );
+    }
+
     #[test]
     fn the_issuer_url_must_name_the_route_of_its_cluster() {
         let mut proxy = ProxyKubeApi::new(

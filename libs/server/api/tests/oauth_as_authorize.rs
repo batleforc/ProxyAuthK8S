@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use harness::test;
 use harness::{
     delete_proxy, mount_oidc_provider, oidc_auth_config, oidc_auth_config_with_well_known,
-    proxy_fixture, seed_proxy, test_state, try_redis_pool, unique_cluster,
+    proxy_fixture, seed_proxy, test_state, unique_cluster,
 };
 use reqwest::Url;
 use wiremock::MockServer;
@@ -21,15 +21,6 @@ const VALID_CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 macro_rules! authorize_app {
     ($state:expr_2021) => {
         test::init_service(harness::app($state)).await
-    };
-}
-
-macro_rules! redis_or_skip {
-    () => {
-        match try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
     };
 }
 

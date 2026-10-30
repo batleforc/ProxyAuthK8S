@@ -57,15 +57,6 @@ macro_rules! envtest_or_skip {
     };
 }
 
-macro_rules! redis_or_skip {
-    () => {
-        match harness::try_redis_pool().await {
-            Some(pool) => pool,
-            None => return,
-        }
-    };
-}
-
 fn shipped_crd() -> CustomResourceDefinition {
     let yaml = include_str!("../../../../deploy/crds.yaml");
     serde_yaml_ng::from_str(yaml).expect("the generated CRD should deserialize")

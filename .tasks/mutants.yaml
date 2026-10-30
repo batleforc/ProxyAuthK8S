@@ -1,0 +1,38 @@
+version: "3"
+
+# cargo-mutants on the security crates (RFC 0015 §6.5). The scope and the
+# equivalent mutants are in .cargo/mutants.toml. Needs a Redis like test:all:
+# a test that skipped would let its mutants survive.
+
+tasks:
+  run:
+    desc: "Mutate the security crates and report the mutants no test caught (dist/mutants/mutants.out)"
+    env:
+      REQUIRE_TEST_REDIS: "1"
+    cmds:
+      - mkdir -p dist/mutants
+      - cargo mutants --output dist/mutants {{.CLI_ARGS}}
+
+  diff:
+    desc: "Mutate only the lines changed since BASE (default origin/main), e.g. task mutants:diff BASE=main"
+    vars:
+      BASE: '{{.BASE | default "origin/main"}}'
+    env:
+      REQUIRE_TEST_REDIS: "1"
+    cmds:
+      - mkdir -p dist/mutants
+      - git diff {{.BASE}}... > dist/mutants/branch.diff
+      - cargo mutants --output dist/mutants --in-diff dist/mutants/branch.diff {{.CLI_ARGS}}
+
+  wide:
+    desc: "Informative: mutate common, controller and the agent (.cargo/mutants-wide.toml, RFC 0015 decision 25)"
+    env:
+      REQUIRE_TEST_REDIS: "1"
+    cmds:
+      - mkdir -p dist/mutants-wide
+      - cargo mutants --config .cargo/mutants-wide.toml --output dist/mutants-wide {{.CLI_ARGS}}
+
+  list:
+    desc: "List the mutants of the security crates without running them (how big a run is)"
+    cmds:
+      - cargo mutants --list {{.CLI_ARGS}}

@@ -112,3 +112,81 @@ pub(super) async fn build_tls_config(
         .with_client_auth_cert(cert_chain, key)
         .map_err(|e| format!("could not configure mTLS: {e}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crd::ProxyKubeApiSpec;
+    use crd::certificate::CertSource;
+    use crd::service::Service;
+    use crd::upstream_auth::{UpstreamAuth, UpstreamAuthMode};
+
+    fn front_proxy_cluster() -> ProxyKubeApi {
+        let mut proxy = ProxyKubeApi::new(
+            "fp",
+            ProxyKubeApiSpec {
+                enabled: true,
+                cert: CertSource::SystemRoots(true),
+                client_cert: None,
+                service: Service::ExternalService {
+                    url: "https://cluster.example.com".to_string(),
+                },
+                auth_config: None,
+                security_config: None,
+                expose_via_dashboard: false,
+                dashboard_group: None,
+                proxy_group: None,
+                virtual_apis: Vec::new(),
+                upstream_auth: Some(UpstreamAuth {
+                    mode: UpstreamAuthMode::FrontProxy,
+                    user_prefix: Some("proxyauth:".to_string()),
+                    group_prefix: Some("proxyauth:".to_string()),
+                    issuer_key: None,
+                }),
+            },
+        );
+        proxy.metadata.namespace = Some("default".to_string());
+        proxy
+    }
+
+    /// A kube client on a closed port: reading the front-proxy Secret fails.
+    fn state() -> State {
+        drop(rustls::crypto::ring::default_provider().install_default());
+        let config = kube::Config::new("http://127.0.0.1:1".parse().unwrap());
+        State::from_parts(
+            kube::Client::try_from(config).unwrap(),
+            common::kv_memory::InMemoryKv::new(),
+            common::oidc_conf::OidcConf {
+                client_id: "proxyauthk8s".to_string(),
+                client_secret: None,
+                issuer_url: "https://idp.example.com".to_string(),
+                scopes: "openid".to_string(),
+                audience: "proxyauthk8s".to_string(),
+                accept_authorized_party: false,
+                redirect_url: None,
+            },
+            "https://proxy.example.com".to_string(),
+            "https://front.example.com".to_string(),
+        )
+    }
+
+    /// RFC 0014 T17: the `list_fallback` client of a `FrontProxy` cluster
+    /// presents no client certificate, so its privileged token is never
+    /// paired with the asserted front-proxy identity; the Secret holding that
+    /// certificate is not even read (here it cannot be).
+    #[tokio::test]
+    async fn the_ca_only_client_of_a_front_proxy_cluster_presents_no_certificate() {
+        let (proxy, state) = (front_proxy_cluster(), state());
+        let config = build_tls_config(&proxy, &state, ClientCert::None)
+            .await
+            .expect("a CA-only config needs no Secret");
+        assert!(!config.client_auth_cert_resolver.has_certs());
+
+        // The mode's own client does go for the front-proxy Secret.
+        assert!(
+            build_tls_config(&proxy, &state, ClientCert::Configured)
+                .await
+                .is_err()
+        );
+    }
+}

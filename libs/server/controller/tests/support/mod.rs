@@ -33,6 +33,18 @@ pub fn redis_url() -> String {
     std::env::var("TEST_REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string())
 }
 
+/// Bind a test Redis, or bail out of the test (see [`try_redis_pool`]): the
+/// controller's one copy, as `api`'s harness holds its own (RFC 0015 §6.1).
+#[macro_export]
+macro_rules! redis_or_skip {
+    () => {
+        match $crate::support::try_redis_pool().await {
+            Some(pool) => pool,
+            None => return,
+        }
+    };
+}
+
 /// Connect to the test Redis, or explain why the caller should give up.
 ///
 /// Returns `None` when Redis is unreachable and `REQUIRE_TEST_REDIS` is unset.
@@ -59,13 +71,7 @@ pub async fn try_redis_pool() -> Option<Pool> {
 }
 
 fn report_unavailable_redis(url: &str, error: &str) {
-    let message =
-        format!("test Redis at {url} is unreachable ({error}); set TEST_REDIS_URL to override");
-    assert!(
-        std::env::var("REQUIRE_TEST_REDIS").is_err(),
-        "REQUIRE_TEST_REDIS is set but {message}"
-    );
-    eprintln!("SKIPPED: {message}");
+    common::test_skip::redis_unavailable(url, error);
 }
 
 /// Building a kube client (and reqwest's rustls stack) reaches for the crypto

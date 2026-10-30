@@ -342,4 +342,210 @@ mod tests {
         assert!(!expiring(&long, 50 * day));
         assert!(expiring(&long, 61 * day));
     }
+
+    // The certificate Secret against a wiremock apiserver (RFC 0015 P3):
+    // every verdict `evaluate` draws from what it reads.
+    mod against_an_apiserver {
+        use super::*;
+        use crd::upstream_auth::UpstreamAuth;
+        use crd::upstream_auth::front_proxy::{
+            MANAGED_BY_LABEL, MANAGED_BY_VALUE, TARGET_ANNOTATION,
+        };
+        use serde_json::json;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        const SECRET: &str =
+            "/api/v1/namespaces/default/secrets/proxyauth-frontproxy-default.fronting";
+        const TARGET: &str = "external:https://k:6443";
+
+        fn state(kube: &MockServer) -> State {
+            drop(rustls::crypto::ring::default_provider().install_default());
+            let config = kube::Config::new(kube.uri().parse().unwrap());
+            State::from_parts(
+                kube::Client::try_from(config).unwrap(),
+                common::kv_memory::InMemoryKv::new(),
+                common::oidc_conf::OidcConf {
+                    client_id: "proxyauthk8s".to_string(),
+                    client_secret: None,
+                    issuer_url: "http://127.0.0.1:1".to_string(),
+                    scopes: "openid".to_string(),
+                    audience: "proxyauthk8s".to_string(),
+                    accept_authorized_party: false,
+                    redirect_url: None,
+                },
+                "https://proxy.example.com".to_string(),
+                "https://front.example.com".to_string(),
+            )
+        }
+
+        fn fronting(mode: UpstreamAuthMode) -> ProxyKubeApi {
+            let mut proxy = ProxyKubeApi::new(
+                "fronting",
+                serde_json::from_value(json!({
+                    "cert": { "SystemRoots": true },
+                    "service": { "ExternalService": { "url": "https://k:6443" } },
+                }))
+                .unwrap(),
+            );
+            proxy.metadata.namespace = Some("default".into());
+            proxy.spec.upstream_auth = Some(UpstreamAuth {
+                mode,
+                user_prefix: Some("proxyauth:".into()),
+                group_prefix: Some("proxyauth:".into()),
+                issuer_key: None,
+            });
+            proxy
+        }
+
+        /// A certificate valid from `from` days ago to `to` days ahead.
+        fn cert_between(subject: &str, from: i64, to: i64) -> String {
+            let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).unwrap();
+            let mut name = rcgen::DistinguishedName::new();
+            name.push(rcgen::DnType::CommonName, subject);
+            params.distinguished_name = name;
+            let now = time::OffsetDateTime::now_utc();
+            params.not_before = now.saturating_sub(time::Duration::days(from));
+            params.not_after = now.saturating_add(time::Duration::days(to));
+            let key = rcgen::KeyPair::generate().unwrap();
+            params.self_signed(&key).unwrap().pem()
+        }
+
+        async fn serve(kube: &MockServer, target: &str, cert: &str) {
+            let secret = json!({
+                "apiVersion": "v1", "kind": "Secret",
+                "metadata": {
+                    "name": "proxyauth-frontproxy-default.fronting", "namespace": "default",
+                    "labels": { MANAGED_BY_LABEL: MANAGED_BY_VALUE },
+                    "annotations": { TARGET_ANNOTATION: target },
+                },
+                "data": {
+                    "tls.crt": base64_encode(cert),
+                    "tls.key": base64_encode("KEY"),
+                },
+            });
+            Mock::given(method("GET"))
+                .and(path(SECRET))
+                .respond_with(ResponseTemplate::new(200).set_body_json(secret))
+                .mount(kube)
+                .await;
+        }
+
+        fn base64_encode(value: &str) -> String {
+            use base64::Engine as _;
+            base64::engine::general_purpose::STANDARD.encode(value)
+        }
+
+        async fn evaluated(kube: &MockServer, mode: UpstreamAuthMode) -> Evaluation {
+            let mut evaluation = Evaluation {
+                ready: Ok("ok".into()),
+                advisories: Vec::new(),
+                status: crd::status::ProxyKubeApiStatus::default(),
+            };
+            evaluate(&fronting(mode), &state(kube), &mut evaluation).await;
+            evaluation
+        }
+
+        fn refusal(evaluation: Evaluation) -> ReasonCode {
+            evaluation.ready.expect_err("not Ready").reason
+        }
+
+        #[tokio::test]
+        async fn a_sound_certificate_for_this_target_leaves_the_cluster_ready() {
+            let kube = MockServer::start().await;
+            serve(&kube, TARGET, &cert_between("proxyauth-fronting", 1, 90)).await;
+            let evaluation = evaluated(&kube, UpstreamAuthMode::FrontProxy).await;
+            assert!(evaluation.advisories.is_empty());
+            assert!(evaluation.ready.is_ok());
+            let status = evaluation.status.upstream_auth.expect("status");
+            assert_eq!(status.client_cert_target.as_deref(), Some(TARGET));
+            assert_eq!(
+                status.client_cert_secret.as_deref(),
+                Some("default/proxyauth-frontproxy-default.fronting")
+            );
+            assert!(
+                status
+                    .client_cert_subject
+                    .unwrap()
+                    .contains("proxyauth-fronting")
+            );
+            assert!(status.client_cert_not_after.is_some());
+        }
+
+        /// Decision 56: a certificate issued for another target is never
+        /// presented to this one.
+        #[tokio::test]
+        async fn a_certificate_for_another_target_is_refused() {
+            let kube = MockServer::start().await;
+            serve(
+                &kube,
+                "external:https://other:6443",
+                &cert_between("p", 1, 90),
+            )
+            .await;
+            let evaluation = evaluated(&kube, UpstreamAuthMode::FrontProxy).await;
+            assert_eq!(refusal(evaluation), ReasonCode::ClientCertTargetMismatch);
+        }
+
+        /// T2: a `system:` subject would be an apiserver identity of its own.
+        #[tokio::test]
+        async fn a_system_subject_is_refused() {
+            let kube = MockServer::start().await;
+            serve(&kube, TARGET, &cert_between("system:kube-proxy", 1, 90)).await;
+            let evaluation = evaluated(&kube, UpstreamAuthMode::FrontProxy).await;
+            assert_eq!(refusal(evaluation), ReasonCode::ClientCertSubjectReserved);
+        }
+
+        #[tokio::test]
+        async fn an_expired_certificate_is_refused_an_expiring_one_warned() {
+            let kube = MockServer::start().await;
+            serve(&kube, TARGET, &cert_between("p", 2, 0)).await;
+            let evaluation = evaluated(&kube, UpstreamAuthMode::FrontProxy).await;
+            assert_eq!(refusal(evaluation), ReasonCode::ClientCertMissing);
+
+            let kube = MockServer::start().await;
+            serve(&kube, TARGET, &cert_between("p", 80, 10)).await;
+            let evaluation = evaluated(&kube, UpstreamAuthMode::FrontProxy).await;
+            assert!(evaluation.ready.is_ok());
+            let reasons: Vec<_> = evaluation.advisories.iter().map(|a| a.reason).collect();
+            assert_eq!(reasons, [ReasonCode::ClientCertExpiring]);
+        }
+
+        /// No Secret: refused in the effective mode, silence while preparing
+        /// (it is simply not there yet).
+        #[tokio::test]
+        async fn a_missing_secret_is_refused_only_in_the_effective_mode() {
+            let kube = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path(SECRET))
+                .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                    "kind": "Status", "apiVersion": "v1", "status": "Failure",
+                    "reason": "NotFound", "code": 404,
+                })))
+                .mount(&kube)
+                .await;
+            let evaluation = evaluated(&kube, UpstreamAuthMode::FrontProxy).await;
+            assert_eq!(refusal(evaluation), ReasonCode::ClientCertMissing);
+            let preparing = evaluated(&kube, UpstreamAuthMode::Passthrough).await;
+            assert!(preparing.ready.is_ok());
+            assert!(preparing.advisories.is_empty());
+        }
+
+        /// While preparing, a bad certificate is an advisory, never a
+        /// `Ready=False` of a cluster that still works in `Passthrough`.
+        #[tokio::test]
+        async fn a_bad_certificate_while_preparing_is_an_advisory() {
+            let kube = MockServer::start().await;
+            serve(
+                &kube,
+                "external:https://other:6443",
+                &cert_between("p", 1, 90),
+            )
+            .await;
+            let evaluation = evaluated(&kube, UpstreamAuthMode::Passthrough).await;
+            assert!(evaluation.ready.is_ok());
+            let reasons: Vec<_> = evaluation.advisories.iter().map(|a| a.reason).collect();
+            assert_eq!(reasons, [ReasonCode::FrontProxyNotReady]);
+        }
+    }
 }
