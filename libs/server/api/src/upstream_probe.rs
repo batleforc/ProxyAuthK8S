@@ -195,12 +195,20 @@ async fn probe(state: &State, proxy: &ProxyKubeApi, upstream: &UpstreamAuth) -> 
     )
     .await
     {
-        Ok((401, _)) => Trust::Trusted,
-        Ok((200..=299, _)) => Trust::Unguarded,
-        Ok((other, _)) => Trust::Unknown(format!(
+        Ok((status, _)) => judge_unprefixed(status),
+        Err(e) => Trust::Unknown(e),
+    }
+}
+
+/// The verdict on the apiserver's answer to an unprefixed identity: refused
+/// is right, accepted means its `userValidationRules` are missing.
+fn judge_unprefixed(status: u16) -> Trust {
+    match status {
+        401 => Trust::Trusted,
+        200..=299 => Trust::Unguarded,
+        other => Trust::Unknown(format!(
             "the apiserver answered {other} to an unprefixed identity"
         )),
-        Err(e) => Trust::Unknown(e),
     }
 }
 
@@ -311,5 +319,14 @@ mod tests {
             judge(503, &json!({}), &asserted),
             Trust::Unknown(_)
         ));
+    }
+
+    /// `Issuer`: an unprefixed identity must be refused; accepted, the
+    /// issuer is unguarded (RFC 0014 point 12, here without the bench).
+    #[test]
+    fn an_accepted_unprefixed_identity_is_unguarded() {
+        assert_eq!(judge_unprefixed(401), Trust::Trusted);
+        assert_eq!(judge_unprefixed(201), Trust::Unguarded);
+        assert!(matches!(judge_unprefixed(403), Trust::Unknown(_)));
     }
 }
