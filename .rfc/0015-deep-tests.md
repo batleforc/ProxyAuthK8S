@@ -864,3 +864,69 @@ Rien.
 | 3 | `common`, `controller`, `apps/agent` jusqu'au palier ≥ 80 % ; rapport `mutants` informatif sur ces crates (décision 25) ; `testing.mdx` complété des chiffres mesurés ; RFC `Implemented`. |
 
 T1 (le faux en prod) est fermé en P1, dans la même phase que `Kv::Memory`.
+
+---
+
+## 17. Revision against the tree (2026-10-30)
+
+Tout est livré dans la PR #324, celle de la RFC (décision 4 et accord du
+propriétaire) : P1, P2 et la partie `controller` de P3. Restent `apps/agent`,
+`common` et le rapport `mutants` informatif de P3 (décision 25). Ce
+paragraphe est l'écart au texte ; §1 à §16 ne sont pas réécrits.
+
+### Ce qui a été observé
+
+- **Couverture.** 84,63 % (run 41050492433) était mesuré *avant*
+  `COVERAGE_EXCLUDE` : le client généré et les binaires minces comptaient.
+  Avec les exclusions et les tests de P2, **88,14 %** des lignes (run
+  41072375920). Les paliers 72 et 80 (décision 14) n'ont donc servi à rien ;
+  le plancher passe directement à **85**, la cible fixée par le propriétaire
+  le 2026-10-30, sans cibles par crate.
+- **Mutants, premier run** (355 mutants) : 103 survivants, dont la plupart
+  n'étaient jugés que par les tests de leur crate, alors que `jwt_validator`
+  est exercé depuis `api` et `crd` depuis `api` et `controller`.
+  `test_package` nomme désormais les quatre crates. Le partage `slice`
+  laissait 5 parties sur 8 finir en 5 minutes : `--sharding round-robin`,
+  environ une heure par partie.
+- **Mutants, second run** (350) : 45 survivants, dont 23 déjà tués par les
+  commits poussés pendant le run. Le reste a son test, ou sort du code
+  (`cel_rules::type_name` remplacé par `Value::type_of` de `cel` ; un
+  `JwtValidator::validate` sans appelant supprimé), ou est exclu avec sa
+  raison dans `.cargo/mutants.toml` (sept entrées). Le run de contrôle après
+  ces commits reste à lire.
+- **Trous réels trouvés par les mutants**, chacun avec son test :
+  l'émetteur (`issuer.rs`) n'avait aucun test en processus du chemin réussi
+  (documents, signature, réutilisation, une lecture du Secret par 30 s),
+  d'où `api/tests/issuer_flow.rs` contre un apiserver wiremock ; le repli
+  JWKS expiré n'était borné par aucun test (`age < MAX_STALE` remplacé par
+  `true` survivait) ; les bornes exactes de `upstream_identity` et du nom de
+  Secret `FrontProxy`.
+- **Constat hors périmètre, remis au propriétaire** : `reqwest` (rustls)
+  accepte un `certificate_authority` illisible sans erreur et construit le
+  client sans lui ; et une CA lisible *s'ajoute* aux racines système, elle ne
+  les remplace pas. Aucune admission ne vérifie le PEM. Le mutant de
+  `client_for` est exclu en renvoyant ici.
+
+### Écarts au texte, avec leur raison
+
+| Texte | Livré | Raison |
+| --- | --- | --- |
+| `[[test]] required-features` pour `kv_contract` | `#![cfg(feature = "test-util")]` dans le fichier | le build d'image exclut `tests/` et ne lit plus le manifeste |
+| `State::in_memory` | `memory_store()` / `memory_state()` dans le harness, plus `memory_state_on_kube` | même effet sans API publique de plus dans `common` |
+| Liste des tests ignorés en fin de suite | `$TEST_SKIP_LOG`, une écriture par skip ; l'URL Redis sans identifiants | des écritures concurrentes s'entrelaçaient ; un mot de passe fuyait dans le message |
+| Jitter de l'émetteur avec l'instant en argument | jitter inchangé, testé sous sa borne ; `<`/`<=` sur des `Instant` exclus des mutants | une valeur de jitter n'a pas de « bonne » valeur ; l'égalité d'`Instant` n'est pas observable |
+| proptest sur l'ordre du JWKS | abandonné | l'ordre n'est pas un invariant : l'apiserver choisit par `kid` |
+| `auth/login` classé `Public` | `Authenticated` dans `authz_matrix` | il exige un jeton ; le test l'a montré |
+| Deux `body` déclarés hors contrat OpenAPI | `NO_BODY` : `health`, `oauth/jwks` et cinq routes attrape-tout | ce que le code sert réellement |
+| Matrice STRIDE | 76 lignes : 59 `test`, 5 `hors suite`, 12 `à écrire`, toutes de la 0010 (`PENDING`) | le code de la 0010 n'existe pas encore |
+| `cargo-mutants` par `mise` | `taiki-e/install-action` en CI | le backend cargo de `mise` exige un Rust géré par `mise` |
+| envtest dans la mesure (décision 7) | non tenté | la mesure dépasse déjà la cible sans lui |
+| T28 de la 0014 | partiel : le refus côté proxy est prouvé, le `Ready=False` (`AudienceValidationRequired`) du contrôleur non | il dépend de `OIDC_AUDIENCE_VALIDATION`, lu dans l'environnement du processus |
+| `release-features` requis (décision 19) | job en place, non requis | ajout au ruleset `main-integration` : action du propriétaire |
+
+### Ce qui reste
+
+1. Lire le run `mutants` de contrôle sur la tête de la PR.
+2. P3 : `apps/agent` et `common` ; rapport `mutants` informatif sur
+   `common`, `controller`, `apps/agent`.
+3. `testing.mdx` avec les chiffres mesurés ; statut `Implemented`.

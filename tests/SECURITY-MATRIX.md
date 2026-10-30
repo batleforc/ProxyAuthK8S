@@ -80,7 +80,7 @@ Une menace nouvelle d'une RFC suivante entre ici avec sa RFC dans `RFCS`.
 | 0014 | T12 | test | `libs/server/api/src/issuer.rs::two_identities_never_share_a_cached_jwt` |
 | 0014 | T13 | test | `libs/server/crd/src/lib.rs::trusted_modes_refuse_what_would_make_the_asserted_identity_unsafe`, `tests/integration/tests/rfc0014.rs::p5_a_missing_username_claim_is_refused_by_the_proxy` |
 | 0014 | T14 | hors suite | l'apiserver épingle la CA (`certificateAuthority`) ; qui contrôle l'Ingress du proxy contrôle déjà le proxy, risque accepté |
-| 0014 | T15 | test | `libs/server/api/tests/issuer_routes.rs::the_issuer_routes_are_never_throttled_and_answer_404_off_issuer` ; le service de la mémoire pendant une panne reste sans test rapide (lecture du Secret) |
+| 0014 | T15 | test | `libs/server/api/tests/issuer_routes.rs::the_issuer_routes_are_never_throttled_and_answer_404_off_issuer`, `libs/server/api/src/issuer.rs::stale_documents_answer_only_as_the_outage_fallback` |
 | 0014 | T16 | test | `tests/integration/tests/rfc0014.rs::p3_the_apiserver_sees_the_prefixed_identity` |
 | 0014 | T17 | test | `libs/server/api/src/cluster/redirect/kube_redirect/tls.rs::the_ca_only_client_of_a_front_proxy_cluster_presents_no_certificate` |
 | 0014 | T18 | test | `libs/server/crd/src/upstream_auth/issuer_key.rs::a_secret_without_the_expected_labels_is_never_adopted`, `libs/server/crd/src/upstream_auth/front_proxy.rs::a_secret_without_the_label_or_for_another_target_is_never_used` |
