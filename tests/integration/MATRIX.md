@@ -183,3 +183,10 @@ Statuts :
 | 0015 | 8     | hors suite  | `.github/workflows/mutants.yaml`, `.cargo/mutants.toml` |
 | 0015 | 9     | hors suite  | `task test:coverage:ci`, `COVERAGE_MIN` dans `.tasks/test.yaml` |
 | 0015 | 10    | hors suite  | `task it:stride` et son `--self-test` (`.it/stride.py`) |
+| 0016 | 1     | heavy       | `heavy_rfc0016::p1_passthrough_relays_the_token_and_no_smuggled_identity` |
+| 0016 | 2     | heavy       | `heavy_rfc0016::p2_front_proxy_relays_only_the_asserted_identity` |
+| 0016 | 3     | heavy       | `perf_http::p3_the_proxy_holds_the_load_without_errors` |
+| 0016 | 4     | heavy       | `perf_http::p4_the_rate_limit_holds_under_concurrency` |
+| 0016 | 5     | hors suite  | job `nightly-alert` de `.github/workflows/heavy.yaml` (même mécanique que celui d'`integration.yaml`) |
+| 0016 | 6     | hors suite  | `task perf:compare-self-test` (dans `task lint`) |
+| 0016 | 7     | hors suite  | `task it:matrix` `--self-test` (dans `task lint`) |

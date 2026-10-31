@@ -36,6 +36,8 @@ puis déconnectez-vous et reconnectez-vous.
 | ------------------------------- | ---------------------------------------------------------------------------------- |
 | `task it:up`                    | CA du lancement, cluster k3d, images construites depuis l'arbre, Dex, Redis, chart |
 | `task it:test`                  | Suite Rust (`tests/integration`) puis Playwright (`apps/front/e2e-it`)            |
+| `task it:heavy`                 | Suite heavy (RFC 0016) : l'écho amont, le serveur précédent à côté                  |
+| `task perf:http`                | Charge HTTP k6 sur le banc (RFC 0016), rapport dans `.it/run/perf`                  |
 | `task it:reload IMAGE=server`   | Reconstruit une image (`server` ou `front`), l'importe et redémarre son déploiement |
 | `task it:logs`                  | Logs de tous les pods et évènements du cluster dans `.it/run/logs`                 |
 | `task it:matrix`                | Vérifie `tests/integration/MATRIX.md` (aussi lancé par `task lint`)                |
@@ -97,7 +99,11 @@ Une RFC livre ses tests dans la PR de son code :
 3. ses lignes dans `tests/integration/MATRIX.md`, et le retrait de la RFC de `PENDING` dans
    `.it/matrix.py` quand son code est écrit.
 
-`task it:matrix` refuse un point §6.P sans ligne, une ligne qui cite un test absent, un
+Un point que seul un écho amont ou une charge peut prouver va dans un fichier
+`heavy_rfcNNNN.rs` (ou `perf_http.rs`), que `it:test` laisse de côté, avec le statut `heavy`
+dans `MATRIX.md` ([Tests](/docs/developper-guide/testing)).
+
+`task it:matrix` refuse un point §6.P sans ligne, une ligne `suite` qui nomme un test heavy, une ligne qui cite un test absent, un
 `hors suite` sans renvoi, une `quarantaine` sans issue, et un `à écrire` pour une RFC dont le
 code est écrit.
 
@@ -108,6 +114,10 @@ chaque nuit sur `main`, et à la demande. Il publie les logs du cluster et le ra
 en artefact (7 jours), et la durée de chaque phase dans le résumé du job. Un échec de nuit
 ouvre ou commente l'issue `it-nightly`. La release exige un passage vert de la suite sur le
 commit tagué.
+
+Le workflow `heavy.yaml` monte son propre banc pour `it:heavy` et un autre pour
+`perf:http`, chaque nuit sur `main`, à la main, et sur une PR étiquetée `heavy` ou `perf`. Il
+n'est pas requis ; un échec de nuit ouvre l'issue `heavy-nightly`.
 
 `integration` est un check requis pour fusionner sur `main`. Le workflow démarre donc sur
 toutes les PR ; son job `changes` saute la suite quand aucun de ces chemins ne change, et un
