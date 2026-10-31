@@ -72,11 +72,12 @@ fn upstream_mode_refusal(proxy: &ProxyKubeApi) -> Option<String> {
             mode.as_str()
         ));
     }
-    if !mode.is_trusted() {
+    if !mode.replaces_token() {
         return None;
     }
     // Decision 50: in a trusted mode the proxy is the only one to check the
-    // audience.
+    // audience. In `TokenExchange`, an IdP like Dex exchanges a token issued
+    // to any client (RFC 0010, T11): the proxy's check is the only one too.
     if common::token_audience::AudienceValidationMode::from_env()
         != common::token_audience::AudienceValidationMode::Enforce
     {
@@ -84,6 +85,9 @@ fn upstream_mode_refusal(proxy: &ProxyKubeApi) -> Option<String> {
             "upstream mode {} requires OIDC audience validation; ask the proxy administrator (OIDC_AUDIENCE_VALIDATION=enforce)",
             mode.as_str()
         ));
+    }
+    if !mode.is_trusted() {
+        return None;
     }
     // Decision 45: a trusted cluster the controller found not ready (its
     // certificate, its target) is closed, with the controller's reason.
@@ -214,6 +218,11 @@ pub async fn redirect(
     // RFC 0014, decision 61: what is left of the caller's token, so an
     // issued JWT never outlives it.
     let mut source_ttl = None;
+    // RFC 0010: the caller's proxy token, kept for the exchange after the
+    // last gate; only in `TokenExchange`.
+    let mut subject_token = None;
+    let exchange_mode =
+        proxy.upstream_mode() == crd::upstream_auth::UpstreamAuthMode::TokenExchange;
     let user = if proxy.need_token_validation() {
         let token = match extract_authorization_header(&req.headers) {
             Ok(token) => token,
@@ -224,9 +233,16 @@ pub async fn redirect(
             }
         };
         source_ttl = common::oidc_cache::jwt_time_to_expiry(token);
-        match User::get_user_info_with_proxy((*data).clone(), proxy.clone(), token.to_string())
-            .await
-        {
+        // RFC 0010, gate 4: a `TokenExchange` cluster takes the proxy's own
+        // token, validated as the dashboard's is; a token of the cluster's
+        // IdP is refused here (T1).
+        let validated = if exchange_mode {
+            subject_token = Some(token.to_string());
+            User::get_user_info_from_oidc_token(token.to_string(), data.oidc_client.clone()).await
+        } else {
+            User::get_user_info_with_proxy((*data).clone(), proxy.clone(), token.to_string()).await
+        };
+        match validated {
             Ok(Some(user)) => {
                 throttle::clear_auth_failures(&data, &proxy, &peer_id).await;
                 Some(user)
@@ -559,6 +575,51 @@ pub async fn redirect(
         _ => None,
     };
 
+    // RFC 0010: the exchange, after the last gate, so a refused request never
+    // reaches the cluster's IdP (T2, T6). Closed on any failure: the proxy
+    // token is never relayed (T10).
+    let exchanged = match (&proxy.spec.upstream_auth, exchange_mode) {
+        (
+            Some(crd::upstream_auth::UpstreamAuth {
+                token_exchange: Some(settings),
+                ..
+            }),
+            true,
+        ) => {
+            // `user` is `Some` whenever a token was validated (T11): admission
+            // refuses `disable_validation` with the exchange; closed all the same.
+            let (Some(token), Some(_)) = (subject_token.as_deref(), user.as_ref()) else {
+                audited!(
+                    audit,
+                    forbidden(
+                        "this cluster exchanges the caller's token, which needs a validated user"
+                    )
+                );
+            };
+            match crate::cluster::redirect::token_exchange::exchanged_token(
+                &data, &proxy, settings, token, source_ttl, &audit,
+            )
+            .await
+            {
+                Ok(exchanged) => Some(exchanged),
+                Err(error) => audited!(
+                    audit,
+                    crate::cluster::redirect::token_exchange::refusal(&error, &proxy.to_path())
+                ),
+            }
+        }
+        (_, true) => {
+            audited!(
+                audit,
+                upstream_mode_unavailable(&format!(
+                    "this cluster is in mode TokenExchange without token_exchange; ask the owner of ProxyKubeApi {}",
+                    proxy.to_path()
+                ))
+            );
+        }
+        _ => None,
+    };
+
     let ctx = RedirectContext {
         req,
         body: payload,
@@ -568,6 +629,7 @@ pub async fn redirect(
         proxy,
         user,
         upstream_identity,
+        exchanged,
         audit,
         base_url,
         upstream_path,

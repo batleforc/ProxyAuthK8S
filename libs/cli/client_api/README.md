@@ -35,6 +35,10 @@ Class | Method | HTTP request | Description
 *AuthClustersApi* | [**jwks**](docs/AuthClustersApi.md#jwks) | **GET** /clusters/{ns}/{cluster}/oauth/jwks | The upstream identity provider's JSON Web Key Set, mirrored under the cluster's own path
 *AuthClustersApi* | [**oauth_authorization_server**](docs/AuthClustersApi.md#oauth_authorization_server) | **GET** /clusters/{ns}/{cluster}/.well-known/oauth-authorization-server | OAuth 2.0 Authorization Server Metadata for the cluster's mediated OAuth Authorization Server
 *AuthClustersApi* | [**token**](docs/AuthClustersApi.md#token) | **POST** /clusters/{ns}/{cluster}/oauth/token | Exchange a proxy-minted authorization code for the upstream tokens
+*AuthServerApi* | [**server_auth_callback**](docs/AuthServerApi.md#server_auth_callback) | **GET** /api/v1/auth/callback | Callback from the proxy's identity provider, for the SSO session (RFC 0010)
+*AuthServerApi* | [**server_auth_login**](docs/AuthServerApi.md#server_auth_login) | **GET** /api/v1/auth/login | Start the SSO session to the proxy (RFC 0010)
+*AuthServerApi* | [**server_auth_refresh**](docs/AuthServerApi.md#server_auth_refresh) | **POST** /api/v1/auth/refresh | Renew the SSO session to the proxy (RFC 0010)
+*AuthServerApi* | [**server_auth_token**](docs/AuthServerApi.md#server_auth_token) | **POST** /api/v1/auth/token | Redeem the single-use code of the SSO session (RFC 0010)
 *HealthApi* | [**health**](docs/HealthApi.md#health) | **GET** /management/health | Liveness: the process is up and serving HTTP.
 *HealthApi* | [**prometheus_metrics**](docs/HealthApi.md#prometheus_metrics) | **GET** /management/metrics | Prometheus metrics in the text exposition format 0.0.4.
 *HealthApi* | [**ready**](docs/HealthApi.md#ready) | **GET** /management/ready | Readiness: the pod can serve proxied traffic.
@@ -51,6 +55,8 @@ Class | Method | HTTP request | Description
  - [GetAllVisibleClusterBody](docs/GetAllVisibleClusterBody.md)
  - [OAuthAuthorizationServerMetadata](docs/OAuthAuthorizationServerMetadata.md)
  - [ReadinessBody](docs/ReadinessBody.md)
+ - [SessionError](docs/SessionError.md)
+ - [SessionTokens](docs/SessionTokens.md)
  - [TokenErrorBody](docs/TokenErrorBody.md)
  - [TokenResponseBody](docs/TokenResponseBody.md)
  - [VisibleCluster](docs/VisibleCluster.md)

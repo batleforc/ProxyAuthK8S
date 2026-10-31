@@ -215,7 +215,37 @@ pub async fn evaluate(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Evaluation {
             });
         }
     }
+    for warning in token_exchange_warnings(proxy, ctx.clone()).await {
+        warn!("ProxyKubeApi {}: {}", id, warning);
+        evaluation.advisories.push(Advisory {
+            reason: ReasonCode::TokenExchangeAtRisk,
+            message: warning.clone(),
+        });
+        evaluation.status.warnings.push(warning);
+    }
     evaluation
+}
+
+/// RFC 0010 §4.3: the exchange of a `TokenExchange` cluster, as the proxy
+/// would send it (the `config_from` Secret resolved), against the proxy's
+/// own IdP. An unresolvable configuration is reported elsewhere.
+async fn token_exchange_warnings(proxy: &ProxyKubeApi, ctx: Arc<State>) -> Vec<String> {
+    let Some(settings) = proxy
+        .spec
+        .upstream_auth
+        .as_ref()
+        .and_then(|upstream| upstream.token_exchange.as_ref())
+    else {
+        return Vec::new();
+    };
+    match proxy.get_oidc_conf(ctx, false, None).await {
+        Ok(Some(conf)) => settings.warnings(
+            &common::config::get().oidc.issuer_url,
+            &conf.issuer_url,
+            conf.client_secret.as_deref().is_some_and(|s| !s.is_empty()),
+        ),
+        _ => Vec::new(),
+    }
 }
 
 /// RFC 0013: a recent protocol refusal is the cause of `AgentNoTunnel`; an
@@ -511,6 +541,7 @@ mod tests {
                     user_prefix: Some("proxyauth:".to_string()),
                     group_prefix: Some("proxyauth:".to_string()),
                     issuer_key: None,
+                    token_exchange: None,
                 }),
             },
         );

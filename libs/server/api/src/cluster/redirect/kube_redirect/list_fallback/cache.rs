@@ -46,6 +46,18 @@ pub(super) fn identity_fingerprint(upstream: Upstream<'_>) -> String {
                 }
             }
         }
+        // RFC 0010: the exchanged token stands for this proxy user only; the
+        // tag keeps it apart from a Passthrough caller of the same name.
+        Upstream::Exchanged(user, _) => {
+            hasher.update(b"token-exchange\0");
+            hasher.update(user.username.as_bytes());
+            let mut groups: Vec<&str> = user.groups.iter().map(String::as_str).collect();
+            groups.sort_unstable();
+            for group in groups {
+                hasher.update(b"\0");
+                hasher.update(group.as_bytes());
+            }
+        }
         Upstream::Passthrough(Some(user)) => {
             hasher.update(user.username.as_bytes());
             let mut groups: Vec<&str> = user.groups.iter().map(String::as_str).collect();

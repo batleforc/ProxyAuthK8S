@@ -17,6 +17,9 @@ pub enum OidcError {
 
     #[error("failed to build the shared HTTP client: {0}")]
     HttpClientInit(String),
+
+    #[error("the provider {0} publishes no token_endpoint")]
+    MissingTokenEndpoint(String),
 }
 
 impl From<ParseError> for OidcError {

@@ -21,6 +21,207 @@
     }
   ],
   "paths": {
+    "/api/v1/auth/callback": {
+      "get": {
+        "tags": [
+          "auth_server"
+        ],
+        "summary": "Callback from the proxy's identity provider, for the SSO session (RFC 0010)",
+        "description": "Not meant to be opened directly. On success, redirects to the CLI's\nloopback `redirect_uri` with a single-use code, never a token.",
+        "operationId": "server_auth_callback",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "query",
+            "description": "Authorization code from the proxy's identity provider.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "The correlation id this proxy generated at `/auth/login`.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the CLI's redirect_uri, with a single-use code (or an error)."
+          },
+          "400": {
+            "description": "Unknown or expired state."
+          },
+          "429": {
+            "description": "Rate limited or banned (see UNSCOPED_* environment knobs)."
+          },
+          "500": {
+            "description": "Internal server error."
+          },
+          "503": {
+            "description": "Redis is unavailable."
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "get": {
+        "tags": [
+          "auth_server"
+        ],
+        "summary": "Start the SSO session to the proxy (RFC 0010)",
+        "description": "Redirects the browser to the proxy's identity provider; the CLI receives a\nsingle-use code on its loopback `redirect_uri`, redeemed at `/auth/token`.",
+        "operationId": "server_auth_login",
+        "parameters": [
+          {
+            "name": "redirect_uri",
+            "in": "query",
+            "description": "The CLI's loopback listener (`http://127.0.0.1:<port>/…`, `localhost`\nor `[::1]`); anything else is refused.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "description": "Opaque value echoed back verbatim on redirect.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "code_challenge",
+            "in": "query",
+            "description": "RFC 7636 `S256` challenge of the CLI's verifier.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the proxy's identity provider, or to redirect_uri with an error."
+          },
+          "400": {
+            "description": "redirect_uri is not a loopback URI."
+          },
+          "429": {
+            "description": "Rate limited or banned (see UNSCOPED_* environment knobs)."
+          },
+          "500": {
+            "description": "Internal server error."
+          },
+          "503": {
+            "description": "Redis is unavailable."
+          }
+        }
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth_server"
+        ],
+        "summary": "Renew the SSO session to the proxy (RFC 0010)",
+        "description": "The identity provider stays the only judge of the refresh token. A refused\none counts toward the unscoped ban; an unreachable provider does not.",
+        "operationId": "server_auth_refresh",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The renewed session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTokens"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_grant: the identity provider refused the refresh token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited or banned (see UNSCOPED_* environment knobs)."
+          },
+          "503": {
+            "description": "The identity provider is unavailable."
+          }
+        }
+      }
+    },
+    "/api/v1/auth/token": {
+      "post": {
+        "tags": [
+          "auth_server"
+        ],
+        "summary": "Redeem the single-use code of the SSO session (RFC 0010)",
+        "operationId": "server_auth_token",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The session: the proxy token and its refresh token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionTokens"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_grant: unknown, used or expired code, or a wrong verifier.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited or banned (see UNSCOPED_* environment knobs)."
+          },
+          "503": {
+            "description": "Redis is unavailable."
+          }
+        }
+      }
+    },
     "/api/v1/clusters": {
       "get": {
         "tags": [
@@ -1081,6 +1282,83 @@
           }
         }
       },
+      "SessionError": {
+        "type": "object",
+        "description": "An OAuth error body (`invalid_grant`, `invalid_request`…).",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionRefreshRequest": {
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "description": "The refresh token of the session; in the body, never in the URL."
+          }
+        }
+      },
+      "SessionTokenRequest": {
+        "type": "object",
+        "required": [
+          "code",
+          "redirect_uri",
+          "code_verifier"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The single-use code `/auth/callback` sent to the loopback listener."
+          },
+          "code_verifier": {
+            "type": "string",
+            "description": "The PKCE verifier of the `code_challenge` given to `/auth/login`."
+          },
+          "redirect_uri": {
+            "type": "string",
+            "description": "The `redirect_uri` given to `/auth/login`."
+          }
+        }
+      },
+      "SessionTokens": {
+        "type": "object",
+        "description": "The session the CLI keeps: the proxy token and what renews it.",
+        "required": [
+          "access_token",
+          "token_type"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Seconds until `access_token` expires, when the IdP said."
+          },
+          "refresh_token": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Absent when the IdP issued none (no session to renew)."
+          },
+          "token_type": {
+            "type": "string"
+          }
+        }
+      },
       "TokenErrorBody": {
         "type": "object",
         "required": [
@@ -1182,6 +1460,10 @@
           },
           "sso_enabled": {
             "type": "boolean"
+          },
+          "token_exchange": {
+            "type": "boolean",
+            "description": "RFC 0010: the cluster takes the proxy's own token (`upstream_auth.mode:\nTokenExchange`); no login to the cluster is needed."
           }
         }
       }
@@ -1202,6 +1484,10 @@
     {
       "name": "auth_clusters",
       "description": "Authentication endpoints for clusters."
+    },
+    {
+      "name": "auth_server",
+      "description": "The CLI's SSO session to the proxy itself (RFC 0010)."
     },
     {
       "name": "health",

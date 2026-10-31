@@ -436,6 +436,7 @@ pub(super) async fn virtual_redirect(
         proxy,
         user,
         upstream_identity,
+        exchanged,
         audit,
         base_url,
         upstream_path,
@@ -455,7 +456,11 @@ pub(super) async fn virtual_redirect(
         req: &req,
         method: &method,
         peer_ip,
-        upstream: Upstream::new(user.as_ref(), upstream_identity.as_ref()),
+        upstream: Upstream::new(
+            user.as_ref(),
+            upstream_identity.as_ref(),
+            exchanged.as_deref(),
+        ),
     };
     let target = Target {
         proxy: &proxy,

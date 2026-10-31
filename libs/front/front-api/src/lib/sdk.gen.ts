@@ -2,7 +2,7 @@
 
 import { type Client, type ClientMeta, type Options as Options2, type RequestResult, type TDataShape, urlSearchParamsBodySerializer } from './client';
 import { client } from './client.gen';
-import type { AuthorizeData, AuthorizeErrors, CallbackData, CallbackErrors, CallbackLoginData, CallbackLoginErrors, CallbackLoginResponses, ClusterLoginData, ClusterLoginErrors, ClusterLoginResponses, GetAllVisibleClusterData, GetAllVisibleClusterErrors, GetAllVisibleClusterResponses, JwksData, JwksErrors, JwksResponses, OauthAuthorizationServerData, OauthAuthorizationServerErrors, OauthAuthorizationServerResponses, TokenData, TokenErrors, TokenResponses } from './types.gen';
+import type { AuthorizeData, AuthorizeErrors, CallbackData, CallbackErrors, CallbackLoginData, CallbackLoginErrors, CallbackLoginResponses, ClusterLoginData, ClusterLoginErrors, ClusterLoginResponses, GetAllVisibleClusterData, GetAllVisibleClusterErrors, GetAllVisibleClusterResponses, JwksData, JwksErrors, JwksResponses, OauthAuthorizationServerData, OauthAuthorizationServerErrors, OauthAuthorizationServerResponses, ServerAuthCallbackData, ServerAuthCallbackErrors, ServerAuthLoginData, ServerAuthLoginErrors, ServerAuthRefreshData, ServerAuthRefreshErrors, ServerAuthRefreshResponses, ServerAuthTokenData, ServerAuthTokenErrors, ServerAuthTokenResponses, TokenData, TokenErrors, TokenResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -17,6 +17,53 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
      */
     meta?: keyof ClientMeta extends never ? Record<string, unknown> : ClientMeta;
 };
+
+/**
+ * Callback from the proxy's identity provider, for the SSO session (RFC 0010)
+ *
+ * Not meant to be opened directly. On success, redirects to the CLI's
+ * loopback `redirect_uri` with a single-use code, never a token.
+ */
+export const serverAuthCallback = <ThrowOnError extends boolean = false>(options: Options<ServerAuthCallbackData, ThrowOnError>): RequestResult<unknown, ServerAuthCallbackErrors, ThrowOnError> => (options.client ?? client).get<unknown, ServerAuthCallbackErrors, ThrowOnError>({ url: '/api/v1/auth/callback', ...options });
+
+/**
+ * Start the SSO session to the proxy (RFC 0010)
+ *
+ * Redirects the browser to the proxy's identity provider; the CLI receives a
+ * single-use code on its loopback `redirect_uri`, redeemed at `/auth/token`.
+ */
+export const serverAuthLogin = <ThrowOnError extends boolean = false>(options: Options<ServerAuthLoginData, ThrowOnError>): RequestResult<unknown, ServerAuthLoginErrors, ThrowOnError> => (options.client ?? client).get<unknown, ServerAuthLoginErrors, ThrowOnError>({ url: '/api/v1/auth/login', ...options });
+
+/**
+ * Renew the SSO session to the proxy (RFC 0010)
+ *
+ * The identity provider stays the only judge of the refresh token. A refused
+ * one counts toward the unscoped ban; an unreachable provider does not.
+ */
+export const serverAuthRefresh = <ThrowOnError extends boolean = false>(options: Options<ServerAuthRefreshData, ThrowOnError>): RequestResult<ServerAuthRefreshResponses, ServerAuthRefreshErrors, ThrowOnError> => (options.client ?? client).post<ServerAuthRefreshResponses, ServerAuthRefreshErrors, ThrowOnError>({
+    ...urlSearchParamsBodySerializer,
+    responseType: 'json',
+    url: '/api/v1/auth/refresh',
+    ...options,
+    headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...options.headers
+    }
+});
+
+/**
+ * Redeem the single-use code of the SSO session (RFC 0010)
+ */
+export const serverAuthToken = <ThrowOnError extends boolean = false>(options: Options<ServerAuthTokenData, ThrowOnError>): RequestResult<ServerAuthTokenResponses, ServerAuthTokenErrors, ThrowOnError> => (options.client ?? client).post<ServerAuthTokenResponses, ServerAuthTokenErrors, ThrowOnError>({
+    ...urlSearchParamsBodySerializer,
+    responseType: 'json',
+    url: '/api/v1/auth/token',
+    ...options,
+    headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...options.headers
+    }
+});
 
 /**
  * Get all cluster visible to the user.

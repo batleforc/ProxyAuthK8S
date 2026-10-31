@@ -74,6 +74,13 @@ pub fn untrusted_upstream(cluster: &str, mode: &'static str) -> Response {
     )
 }
 
+/// 502 with a Kubernetes `Status` body: an upstream dependency answered
+/// something the proxy cannot use (RFC 0010: an unreadable exchange).
+#[must_use]
+pub fn bad_gateway(message: &str) -> Response {
+    status_response(StatusCode::BAD_GATEWAY, "BadGateway", message)
+}
+
 /// 403 with a Kubernetes `Status` body.
 #[must_use]
 pub fn forbidden(message: &str) -> Response {

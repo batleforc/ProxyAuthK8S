@@ -115,6 +115,7 @@ impl From<&str> for ContentType {
 
 pub mod api_clusters_api;
 pub mod auth_clusters_api;
+pub mod auth_server_api;
 pub mod health_api;
 pub mod proxy_clusters_api;
 

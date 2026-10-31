@@ -40,6 +40,7 @@ impl Modify for SecurityAddons {
     tags(
             (name = "api_clusters", description = "API endpoints used by the front."),
             (name = "auth_clusters", description = "Authentication endpoints for clusters."),
+            (name = "auth_server", description = "The CLI's SSO session to the proxy itself (RFC 0010)."),
             (name = "health", description = "Health check endpoints."),
             (name = "proxy_clusters", description = "Proxy cluster endpoints."),
         ),

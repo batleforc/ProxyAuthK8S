@@ -45,6 +45,12 @@ pub enum Event {
     AgentRefused,
     AgentConnected,
     AgentDisconnected,
+    /// RFC 0010: a real exchange with a cluster's IdP, never a cache hit.
+    TokenExchanged,
+    /// RFC 0010: a step of the SSO session to the proxy.
+    ServerLogin,
+    /// RFC 0010: a renewal of that session.
+    TokenRefreshed,
 }
 
 impl Event {
@@ -65,6 +71,9 @@ impl Event {
             Self::AgentRefused => "agent_refused",
             Self::AgentConnected => "agent_connected",
             Self::AgentDisconnected => "agent_disconnected",
+            Self::TokenExchanged => "token_exchanged",
+            Self::ServerLogin => "server_login",
+            Self::TokenRefreshed => "token_refreshed",
         }
     }
 }
@@ -612,6 +621,19 @@ impl AuditContext {
             Some(exec) => line.exec(exec),
             None => line,
         }
+    }
+
+    /// Record a real token exchange (RFC 0010 §10.1): `result` is the
+    /// metric's, never a token or the IdP's description.
+    pub fn emit_token_exchange(&self, result: &'static str) {
+        let outcome = match result {
+            "exchanged" => Outcome::Allowed,
+            "refused" => Outcome::Denied,
+            _ => Outcome::Error,
+        };
+        self.event(Event::TokenExchanged, outcome)
+            .set("result", json!(result))
+            .emit();
     }
 
     /// Record a port policy decision: one audit line, and the shared counter.

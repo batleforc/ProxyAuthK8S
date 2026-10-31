@@ -80,20 +80,25 @@ pub const REDIS_TRUSTED_PREFIX: &str = "proxyk8sauth-upstream-auth";
     // "not a trusted mode, or …"; the rules within `upstream_auth` itself
     // live on `UpstreamAuth`.
     serde_json::json!({
-        "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.client_cert)",
+        "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || self.upstream_auth.mode == 'TokenExchange' || !has(self.client_cert)",
         "message": "client_cert is refused in FrontProxy and Issuer: FrontProxy reads its certificate from the proxy's namespace, and in Issuer it would win over the JWT",
     }),
     serde_json::json!({
         "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || (has(self.auth_config) && !(has(self.auth_config.disable_validation) && self.auth_config.disable_validation))",
-        "message": "FrontProxy and Issuer need a validated identity: set auth_config without disable_validation",
+        "message": "FrontProxy, Issuer and TokenExchange need a validated identity: set auth_config without disable_validation",
     }),
     serde_json::json!({
-        "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.auth_config) || (has(self.auth_config.validate_against) && self.auth_config.validate_against != 'Kubernetes')",
+        "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || self.upstream_auth.mode == 'TokenExchange' || !has(self.auth_config) || (has(self.auth_config.validate_against) && self.auth_config.validate_against != 'Kubernetes')",
         "message": "FrontProxy and Issuer cannot validate against Kubernetes: the SelfSubjectReview needs the apiserver to know the IdP",
     }),
     serde_json::json!({
-        "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.auth_config) || !has(self.auth_config.validate_against) || self.auth_config.validate_against != 'OidcProvider' || has(self.auth_config.oidc_provider.claim_mappings)",
+        "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || self.upstream_auth.mode == 'TokenExchange' || !has(self.auth_config) || !has(self.auth_config.validate_against) || self.auth_config.validate_against != 'OidcProvider' || has(self.auth_config.oidc_provider.claim_mappings)",
         "message": "FrontProxy and Issuer require oidc_provider.claim_mappings: preferred_username must not become a trusted identity",
+    }),
+    // RFC 0010 §4.3: the client that exchanges is the cluster's.
+    serde_json::json!({
+        "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode != 'TokenExchange' || (has(self.auth_config) && has(self.auth_config.oidc_provider) && self.auth_config.oidc_provider.enabled)",
+        "message": "TokenExchange needs auth_config.oidc_provider.enabled: it is the client that exchanges",
     }),
 ]))]
 pub struct ProxyKubeApiSpec {
@@ -198,7 +203,7 @@ impl ProxyKubeApi {
     /// The Redis prefix this cluster is cached under (decision 42).
     #[must_use]
     pub fn redis_prefix(&self) -> &'static str {
-        if self.upstream_mode().is_trusted() {
+        if self.upstream_mode().replaces_token() {
             REDIS_TRUSTED_PREFIX
         } else {
             REDIS_PREFIX
@@ -562,6 +567,7 @@ mod tests {
             user_prefix: Some("proxyauth:".to_string()),
             group_prefix: Some("proxyauth:".to_string()),
             issuer_key: None,
+            token_exchange: None,
         });
         spec
     }

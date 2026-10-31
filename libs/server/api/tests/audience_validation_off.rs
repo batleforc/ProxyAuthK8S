@@ -41,6 +41,7 @@ async fn status_of(mode: Option<UpstreamAuthMode>) -> (StatusCode, String, usize
         user_prefix: Some("proxyauth:".to_string()),
         group_prefix: Some("proxyauth:".to_string()),
         issuer_key: None,
+        token_exchange: None,
     });
     seed_proxy(&store, &proxy).await;
 

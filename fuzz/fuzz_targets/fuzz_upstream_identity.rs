@@ -40,6 +40,7 @@ fuzz_target!(|input: Input| {
         user_prefix: Some(input.user_prefix),
         group_prefix: Some(input.group_prefix),
         issuer_key: None,
+        token_exchange: None,
     };
     let Ok(identity) = UpstreamIdentity::from_user(&user, &upstream) else {
         return;
