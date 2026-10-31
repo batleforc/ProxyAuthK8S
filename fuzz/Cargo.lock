@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "agent_pki"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "rcgen",
  "ring",
@@ -15,7 +15,7 @@ dependencies = [
 
 [[package]]
 name = "agent_proto"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "bytes",
  "futures-util",
@@ -106,7 +106,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "agent_pki",
  "agent_proto",
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "base64 0.23.1",
  "crd",
@@ -695,7 +695,7 @@ checksum = "338089f42c427b86394a5ee60ff321da23a5c89c9d89514c829687b26359fcff"
 
 [[package]]
 name = "crd"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "base64 0.23.1",
  "k8s-openapi",
@@ -711,7 +711,7 @@ dependencies = [
 
 [[package]]
 name = "crd_runtime"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "base64 0.23.1",
  "common",
@@ -2007,7 +2007,7 @@ dependencies = [
 
 [[package]]
 name = "jwt_validator"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "base64 0.23.1",
  "crd",
@@ -4351,7 +4351,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "virtual_api"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "crd",
  "k8s-openapi",

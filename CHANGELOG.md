@@ -2,6 +2,104 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.5.0](https://github.com/batleforc/proxyauthK8s/compare/ff9e08a9d6d7002e2f90acc826cfdeb1cd56a8b7..v0.5.0) - 2026-10-31
+#### Features
+- (**api**) serve the Issuer documents and sign its JWTs (RFC 0014 phase 3) - ([33eaba9](https://github.com/batleforc/proxyauthK8s/commit/33eaba9c6d1e0f1eefe07c3f76613f3d9e028a8d)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) probe the FrontProxy trust and close on a broken one (RFC 0014) - ([bcbb50d](https://github.com/batleforc/proxyauthK8s/commit/bcbb50d561ecffa2c9d10142e21476734c4bd5da)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) serve FrontProxy (RFC 0014 phase 2) - ([37ca07a](https://github.com/batleforc/proxyauthK8s/commit/37ca07a2e4d5c22c20063b8a7955c8d266c9ad0e)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) assert the identity upstream in FrontProxy (RFC 0014 phase 2) - ([d688b48](https://github.com/batleforc/proxyauthK8s/commit/d688b48c3b6481d38fc227d7ecb3d10711b19151)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) cap /userinfo and audit the upstream-mode refusal (RFC 0014) - ([de5b1d4](https://github.com/batleforc/proxyauthK8s/commit/de5b1d4478774fe830355ed6c63e195fac4834a2)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**api**) map OidcProvider claims, key the token cache by mapping (RFC 0014) - ([7d3e645](https://github.com/batleforc/proxyauthK8s/commit/7d3e6455de72aac9f456b0c8c99f8c5080e00dd6)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**controller**) own the Issuer keys and sweep their orphans (RFC 0014 phase 3) - ([a5878ad](https://github.com/batleforc/proxyauthK8s/commit/a5878ad178edcf8fc70cede9a05064ea37eb1656)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**controller**) publish the trust probe verdict in status.upstreamAuth (RFC 0014) - ([1beba00](https://github.com/batleforc/proxyauthK8s/commit/1beba00008e592244857f1eaf96611806e85d7b5)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**controller**) read the FrontProxy certificate and close on its faults (RFC 0014) - ([002841a](https://github.com/batleforc/proxyauthK8s/commit/002841a3fa6501f9c1dc56f9c81390aeef6b0969)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**crd**) model the Issuer signing keys and their rotation (RFC 0014 phase 3) - ([7e3ce96](https://github.com/batleforc/proxyauthK8s/commit/7e3ce96b4e7acea233987a611e2d1b65f2328d92)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**crd**) add upstream_auth and its phase-1 guard (RFC 0014) - ([57a3411](https://github.com/batleforc/proxyauthK8s/commit/57a34115151b8d7b830e6f426b86c8bbff065ae8)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Bug Fixes
+- (**api**) close the review findings on RFC 0014 - ([9de3836](https://github.com/batleforc/proxyauthK8s/commit/9de3836c5061eb6bead8934e8e89186a30abbdc7)) - Max Batleforc, Claude Opus 5.5
+- (**common**) gate kv_contract in the file, not in Cargo.toml - ([43259e3](https://github.com/batleforc/proxyauthK8s/commit/43259e30ccd797a9a2af1aaa070311277eddce09)) - Max Batleforc, Claude Opus 5.5
+- (**controller**) lock its serde_yaml_ng dev-dependency - ([5bbd6f0](https://github.com/batleforc/proxyauthK8s/commit/5bbd6f08d62e9bb211e5efa8c379bd718d363243)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**mutants**) create the output directory before cargo mutants runs - ([8b7ce11](https://github.com/batleforc/proxyauthK8s/commit/8b7ce1149047024a187d50fb6b5fd4c95b2e6852)) - Max Batleforc, Claude Opus 5.5
+- (**rfc0014**) satisfy clippy on the phase-1 code - ([4ede9fe](https://github.com/batleforc/proxyauthK8s/commit/4ede9fe1bd7812031927c3c4bf12e27b645f6fee)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- refuse a certificate authority that holds no certificate - ([81480bd](https://github.com/batleforc/proxyauthK8s/commit/81480bd98cd8e76002fd0198df8d9b3434994e17)) - Max Batleforc, Claude Opus 5.5
+#### Documentation
+- (**crd**) say the issuer CA is added to the system trust store - ([24adba9](https://github.com/batleforc/proxyauthK8s/commit/24adba98bb3f1f0c2a7e39735e0c87dc0ef1bb1d)) - Max Batleforc, Claude Opus 5.5
+- (**matrix**) name the RFC 0014 tests and take 0014 out of PENDING - ([933f0d0](https://github.com/batleforc/proxyauthK8s/commit/933f0d04a4196546122f756e6aea761d89462bb5)) - Max Batleforc, Claude Opus 5.5
+- (**matrix**) give RFC 0014 points 15 to 17 and RFC 0015 their rows - ([45434ca](https://github.com/batleforc/proxyauthK8s/commit/45434caf4b617ae9852357bf6689dc35d3eca159)) - Max Batleforc, Claude Opus 5.5
+- (**rfc**) drop the 2026-10-17 roadmap and README review - ([9f23e04](https://github.com/batleforc/proxyauthK8s/commit/9f23e046436d147899e4a695b4e34bafb7c85e62)) - Max Batleforc, Claude Opus 5.5
+- (**rfc**) RFC 0015 Implemented - ([223a16a](https://github.com/batleforc/proxyauthK8s/commit/223a16ac979e60ddcb7654974a5a7bb10d909ad8)) - Max Batleforc, Claude Opus 5.5
+- (**rfc**) record RFC 0015 against the tree so far - ([a029a97](https://github.com/batleforc/proxyauthK8s/commit/a029a976233d82b520e2978511e1f80f64ed7616)) - Max Batleforc, Claude Opus 5.5
+- (**rfc**) accept RFC 0015 - ([6504263](https://github.com/batleforc/proxyauthK8s/commit/6504263d0811847aa4b020d639f97d35446f05ea)) - Max Batleforc, Claude Opus 5.5
+- (**rfc**) RFC 0015, deeper unit and in-process tests - ([c88a103](https://github.com/batleforc/proxyauthK8s/commit/c88a1036d9535e62a216e748cbf9f5a584d38635)) - Max Batleforc, Claude Opus 5.5
+- (**rfc**) record the final CI state of RFC 0014 before merge - ([cd0ac1f](https://github.com/batleforc/proxyauthK8s/commit/cd0ac1ffeb42ceadacc43c8039178860c00d3634)) - Max Batleforc, Claude Opus 5.5
+- (**rfc**) bring RFC 0014 phase 3 into #323 and cap issued JWTs at the source exp (decision 61) - ([1644657](https://github.com/batleforc/proxyauthK8s/commit/1644657b69befd9df1c087324f6393b4e2944b7d)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) accept RFC 0014 - ([c8901f9](https://github.com/batleforc/proxyauthK8s/commit/c8901f9be72e1974fd57e7c2b3cf5db627317957)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) record RFC 0014 points 5, 7, 8 and 14 and decision 57 as observed - ([32c900c](https://github.com/batleforc/proxyauthK8s/commit/32c900c6c5bb7efdd624aad80c56f8a44b4bb625)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) link RFC 0014 to its PR (#323) - ([7b700c6](https://github.com/batleforc/proxyauthK8s/commit/7b700c640c2332308575f0abeebed795641c4e40)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) move RFC 0014 to In review, record decision 60 - ([b218033](https://github.com/batleforc/proxyauthK8s/commit/b218033e3ae4f208605a95bb9a1c724d660c9963)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) record the green integration run of RFC 0014 phase 2 - ([70260cf](https://github.com/batleforc/proxyauthK8s/commit/70260cf8a7dc666c942b048be1870e98c14c934a)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) add the RFC 0014 hand-off for resuming the work - ([cd5e253](https://github.com/batleforc/proxyauthK8s/commit/cd5e253126f2b17d0a17d1f8c8e21c1fa23a6b1e)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) record how far RFC 0014 is implemented - ([613297b](https://github.com/batleforc/proxyauthK8s/commit/613297bb380b72a0123cd05d03360958c1ad7395)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) split RFC 0014 into a contract and an implementation annex - ([1ccdf1e](https://github.com/batleforc/proxyauthK8s/commit/1ccdf1e49fc739a03f3eece7bbf75b6e75c8304f)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) close RFC 0014's last open question from the apiserver sources - ([ca99850](https://github.com/batleforc/proxyauthK8s/commit/ca99850685729f5c1efbe4134286453f934924d6)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) record the k3s front-proxy probe in RFC 0014 - ([7c06e8d](https://github.com/batleforc/proxyauthK8s/commit/7c06e8de56c34b870419eb8d1557e332e3e7a952)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**rfc**) settle RFC 0014's final review and amend RFC 0010 - ([4e03e5b](https://github.com/batleforc/proxyauthK8s/commit/4e03e5ba595eb975a53ad95e335bd1ded626b8ef)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- ship RFC 0014 in 0.5.0 and move RFC 0010 to 0.6.0 - ([ba390c3](https://github.com/batleforc/proxyauthK8s/commit/ba390c369e031d42996bd76b65a0cbf359810385)) - Max Batleforc, Claude Opus 5.5
+- write the testing rules and the testing page - ([3302424](https://github.com/batleforc/proxyauthK8s/commit/3302424ffc00c0cd3e7ba8cfa939b9da746f0a0e)) - Max Batleforc, Claude Opus 5.5
+- document the Issuer mode (RFC 0014 phase 3) - ([7af6487](https://github.com/batleforc/proxyauthK8s/commit/7af648772d08eab0c5d236cc198849c6fa0a4383)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- document FrontProxy, its migration and its runbook (RFC 0014) - ([bb73700](https://github.com/batleforc/proxyauthK8s/commit/bb737004dde45910688027ca59110f5b166e1650)) - Max Batleforc, Claude Opus 5.5 (1M context)
+#### Tests
+- (**api**) check the asserted identity with proptest - ([b437fa0](https://github.com/batleforc/proxyauthK8s/commit/b437fa0bff02719f60d672fd176f3b785d84d821)) - Max Batleforc, Claude Opus 5.5
+- (**api**) guard that every served route has an authz row, and call each one - ([6b4f06a](https://github.com/batleforc/proxyauthK8s/commit/6b4f06a38140034fde5f2b1d84f75d6896ecaca6)) - Max Batleforc, Claude Opus 5.5
+- (**api**) guard that every variant of a behaviour enum names its test - ([14ee8e8](https://github.com/batleforc/proxyauthK8s/commit/14ee8e849deef96658645a24760f278f1af94020)) - Max Batleforc, Claude Opus 5.5
+- (**api**) guard that every 2xx response declares its body - ([54c7c45](https://github.com/batleforc/proxyauthK8s/commit/54c7c450029b0a2adc4b97e8f99747d522ee8d17)) - Max Batleforc, Claude Opus 5.5
+- (**api**) cover the throttle when a store command fails - ([a92bc70](https://github.com/batleforc/proxyauthK8s/commit/a92bc7088939361eda055d63d7f6989a0b242f14)) - Max Batleforc, Claude Opus 5.5
+- (**api**) stop printing the resolved user in the oversized /userinfo test - ([0165bdc](https://github.com/batleforc/proxyauthK8s/commit/0165bdc68ed58515e9e7d314614747fe43b05272)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**controller**) judge the FrontProxy certificate Secret against a wiremock apiserver - ([5a0abae](https://github.com/batleforc/proxyauthK8s/commit/5a0abae183ebae881560705967bae58e935d66bb)) - Max Batleforc, Claude Opus 5.5
+- (**controller**) drive the Issuer key Secret against a wiremock apiserver - ([96b7520](https://github.com/batleforc/proxyauthK8s/commit/96b75205e89be7a1508997edb4f67102655512e5)) - Max Batleforc, Claude Opus 5.5
+- (**integration**) give RFC 0014 point 13 the time a key rotation takes - ([87a26f4](https://github.com/batleforc/proxyauthK8s/commit/87a26f43cb18c17e21a69316585440d40c81eb1a)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) prove the Issuer mode on the bench (RFC 0014 points 10 to 13) - ([971f723](https://github.com/batleforc/proxyauthK8s/commit/971f7238358ae36a2ab677eedee936219b325f69)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) accept the anonymous 403 in RFC 0014 point 8 - ([e9493b0](https://github.com/batleforc/proxyauthK8s/commit/e9493b0ac6203d2cf046ed6ed2b42a0423ffef3a)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) prove RFC 0014 points 5, 7, 8 and 14 on the bench - ([af7d65a](https://github.com/batleforc/proxyauthK8s/commit/af7d65a38c6160cb594466d37ecae3829dfd4be4)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) expect the code, not the message, from kubectl on a closed cluster (RFC 0014) - ([9b79d7e](https://github.com/batleforc/proxyauthK8s/commit/9b79d7e679270e83fd82a45fba36919f007011c1)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) prove the FrontProxy trust probe (RFC 0014 §6.P 9) - ([f47ae51](https://github.com/batleforc/proxyauthK8s/commit/f47ae51cd2ee311b57c1c2ef0e8ec3487200db86)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) prove FrontProxy against the bench (RFC 0014 phase 2) - ([d88899d](https://github.com/batleforc/proxyauthK8s/commit/d88899ddff0c14cd7a23aa180a7e7723a9f610a7)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**integration**) prove RFC 0014 phase 1 against the bench - ([e87f7fd](https://github.com/batleforc/proxyauthK8s/commit/e87f7fd8962c81e5225ce79101c8848403a30db5)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**jwt_validator**) bound the expired JWKS fallback to a day - ([c01663a](https://github.com/batleforc/proxyauthK8s/commit/c01663a09d73071f4904565a73251e64ece1c882)) - Max Batleforc, Claude Opus 5.5
+- (**jwt_validator**) cover the refusals RFC 0015 §6.4 lists - ([43e23a4](https://github.com/batleforc/proxyauthK8s/commit/43e23a4e1c2edd48bc18cc2758040282f1cacac6)) - Max Batleforc, Claude Opus 5.5
+- answer the 45 mutants the second mutation run left - ([78ba01a](https://github.com/batleforc/proxyauthK8s/commit/78ba01af6c3e057d49fb5528c5afd3ecb120584f)) - Max Batleforc, Claude Opus 5.5
+- kill the Issuer and identity-limit mutants the first mutation run left - ([c02b378](https://github.com/batleforc/proxyauthK8s/commit/c02b378570f093e04e063a854e5b9f1bf9e2db99)) - Max Batleforc, Claude Opus 5.5
+- write the five missing STRIDE negative tests of RFCs 0013 and 0014 - ([eeefcca](https://github.com/batleforc/proxyauthK8s/commit/eeefcca574083106eed805d643ba99dbe025d3d3)) - Max Batleforc, Claude Opus 5.5
+- map every STRIDE threat of RFCs 0010 to 0014 to its negative test - ([15be6a3](https://github.com/batleforc/proxyauthK8s/commit/15be6a312286620fe28bcc5f1b2d1910bfad039f)) - Max Batleforc, Claude Opus 5.5
+- raise the coverage floor to 84 and exclude with reasons - ([468e2a5](https://github.com/batleforc/proxyauthK8s/commit/468e2a5e802ad957b21dd02e00399776f2be0114)) - Max Batleforc, Claude Opus 5.5
+- pin the time bounds of the caches, the issuer and the validator - ([ff733aa](https://github.com/batleforc/proxyauthK8s/commit/ff733aad8be164ec4648153265f89fddca90c7fc)) - Max Batleforc, Claude Opus 5.5
+- name every Redis skip, and run the in-memory tier in test:unit - ([3761ae1](https://github.com/batleforc/proxyauthK8s/commit/3761ae18ac5a791c8fa4528643a8776d733f0a9e)) - Max Batleforc, Claude Opus 5.5
+- seed through one Store, move storage-only tests to the in-memory store - ([6e3bca4](https://github.com/batleforc/proxyauthK8s/commit/6e3bca4d9920b1ddf948f877d80b093dc832f93f)) - Max Batleforc, Claude Opus 5.5
+#### Continuous Integration
+- (**mutants**) add the informative report on common, controller and the agent - ([29705e0](https://github.com/batleforc/proxyauthK8s/commit/29705e081c555944ce750f8afb475d3652032d09)) - Max Batleforc, Claude Opus 5.5
+- (**mutants**) install the tools as back-cargo-test does - ([4553254](https://github.com/batleforc/proxyauthK8s/commit/4553254d05abe74c9c25d8208ba646a3ac1d6fe6)) - Max Batleforc, Claude Opus 5.5
+- (**probe**) add the RFC 0014 k3s front-proxy probe - ([1135a2b](https://github.com/batleforc/proxyauthK8s/commit/1135a2bb390c20d5482d5fd58f28854e1a91794a)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- (**release**) run the integration suite inside Release Prepare - ([ac929eb](https://github.com/batleforc/proxyauthK8s/commit/ac929eb3d9449420a9a5d1f9efa503da6fb87f5b)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- report the mutants no test catches in the security crates - ([256b6fd](https://github.com/batleforc/proxyauthK8s/commit/256b6fd1e9ef5420efb90bb14527cb50628d27cb)) - Max Batleforc, Claude Opus 5.5
+- refuse a release build that enables common/test-util - ([88c8fe4](https://github.com/batleforc/proxyauthK8s/commit/88c8fe4d4b640dbeeeae0722815c11c7190dd326)) - Max Batleforc, Claude Opus 5.5
+#### Refactoring
+- (**common**) put the store behind Kv, with an in-memory stand-in and its contract - ([bc1697a](https://github.com/batleforc/proxyauthK8s/commit/bc1697a8127e941a6e973f678457e84c265f1d72)) - Max Batleforc, Claude Opus 5.5
+#### Miscellaneous Chores
+- (**deps**) bump everything within its range - ([5187a2d](https://github.com/batleforc/proxyauthK8s/commit/5187a2d1711813e30bedd1ac1a13833cd99402eb)) - Max Batleforc, Claude Opus 5.5
+- (**fuzz**) catch the fuzz lockfile up with secrecy - ([3058099](https://github.com/batleforc/proxyauthK8s/commit/305809998674bd65d65f446ad651040e92fc5084)) - Max Batleforc, Claude Opus 5.5
+- (**fuzz**) bump workspace crates to 0.4.2 in fuzz/Cargo.lock - ([ff9e08a](https://github.com/batleforc/proxyauthK8s/commit/ff9e08a9d6d7002e2f90acc826cfdeb1cd56a8b7)) - Max Batleforc, Claude Opus 5.5 (1M context)
+- merge fix/unreadable-ca (#329) - ([5be63b4](https://github.com/batleforc/proxyauthK8s/commit/5be63b489a483da1c2978bf259d90d9b652c239e)) - Maxime
+- merge docs/matrix-rfc0014 (#328) - ([d913afe](https://github.com/batleforc/proxyauthK8s/commit/d913afe0bb3434148b4898f000116727f4fbc64f)) - Maxime
+- merge chore/deps-2026-10-30 (#327) - ([b4dba63](https://github.com/batleforc/proxyauthK8s/commit/b4dba6313612af5e35af896720e9742e1fa0ad3e)) - Maxime
+- merge rfc/0015-deep-tests (#324) - ([d7bceab](https://github.com/batleforc/proxyauthK8s/commit/d7bceab5f20066c1a332fd075fd859708580af1c)) - Maxime
+- merge probe/rfc0014-front-proxy (#323) - ([834d87b](https://github.com/batleforc/proxyauthK8s/commit/834d87b29846e6482d2f4d688d65209035ee5a01)) - Maxime
+- merge ci/release-runs-integration (#319) - ([59bee4b](https://github.com/batleforc/proxyauthK8s/commit/59bee4ba206441c4133a4f149553ce279d68a45e)) - Maxime
+- merge release/v0.4.2 (#318) - ([eccfe5a](https://github.com/batleforc/proxyauthK8s/commit/eccfe5a70b73033b9c2d98f0781cd40f87b90690)) - Maxime
+#### Style
+- format kv_contract and tell exit 4 apart in the mutants job - ([6dfdb84](https://github.com/batleforc/proxyauthK8s/commit/6dfdb84839a7ea4281993a18ac3e7e30ff4dd62e)) - Max Batleforc, Claude Opus 5.5
+
+- - -
+
 ## [v0.4.2](https://github.com/batleforc/proxyauthK8s/compare/6a904f78ae90d6334e3ab8f42e400c55b31c5bfc..v0.4.2) - 2026-10-28
 #### Bug Fixes
 - (**ci**) install mise's rust before cargo-cyclonedx in the release SBOM job - ([04628cc](https://github.com/batleforc/proxyauthK8s/commit/04628cce032508a210349f88fc148b5c448f4f5d)) - Max Batleforc, Claude Opus 5.5 (1M context)
