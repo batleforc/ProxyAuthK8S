@@ -70,6 +70,9 @@ tasks:
     cmds:
       - echo "Generating backend API client from OpenAPI specification"
       - pnpm dlx @openapitools/openapi-generator-cli generate -i ./swagger.json -g rust -o./libs/cli/client_api
+      # The generator leaves trailing spaces the whitespace hook strips: strip
+      # them here, so a regeneration matches what is committed.
+      - find libs/cli/client_api -name '*.md' -exec sed -i 's/[[:space:]]*$//' {} +
       - cargo clippy --fix --lib -p client_api --allow-dirty
       - cargo fmt --all
   api-client:
