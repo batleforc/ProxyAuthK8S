@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: postmortem supply-chain gate
-        uses: mlab-sh/postmortem@f135230fd1ea51b200bcd04d24b2e0f034f72983 # v2.9.0
+        uses: mlab-sh/postmortem@1e8a96ea2e220b128867b70c702fcd513a2a64d1 # v2.9.2
         with:
           # The action's `version` input picks the binary it downloads and
           # defaults to an older release; keep it on the same tag as the action.
