@@ -59,7 +59,7 @@ jobs:
       # As back-cargo-test.yaml installs nextest: mise's cargo backend wants a
       # mise-managed Rust, which this job does not install.
       - name: Install cargo-mutants and cargo-nextest
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
         with:
           tool: nextest,cargo-mutants
       # Below the job's timeout, so the report below still uploads. Exit
