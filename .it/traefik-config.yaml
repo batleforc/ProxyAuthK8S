@@ -14,3 +14,8 @@ spec:
     service:
       spec:
         clusterIP: 10.43.0.200
+    # RFC 0010 §6.P point 6: a stopped IdP answers 503 through its Ingress,
+    # as a down upstream does, not a 404 for a route that went away.
+    providers:
+      kubernetesIngress:
+        allowEmptyServices: true

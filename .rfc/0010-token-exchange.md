@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Accepted                                                               |
+| Status      | Accepted — implémentée sur #332, preuve du banc en attente (§17)       |
 | Short       | Échange de jeton (RFC 8693)                                            |
 | Settles     | Ne plus demander une connexion SSO et un jeton stocké par cluster     |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -705,3 +705,100 @@ Aucune.
 
 Le contrôle (portes avant l'échange, refus fermés) arrive dans la même phase
 que la surface : la phase 1 ne relaie jamais un jeton échangé sans eux.
+
+---
+
+## 17. Revision against the tree (2026-10-31)
+
+Livrée sur la branche `rfc/0010-token-exchange` (PR #332), en quatre
+commits, un par phase. Phases 1 et 2 vérifiées en processus (22 tests :
+`libs/server/api/tests/{token_exchange,server_auth}.rs`, `authz_matrix`,
+`openapi_contract`, `variant_coverage`) ; phase 3 par les tests unitaires du
+CLI (189, dont 12 nouveaux) et du front ; la preuve §6.P (`rfc0010.rs`) ne
+tourne que sur le banc de la CI : son résultat s'ajoute ici au premier
+passage.
+
+### Écarts au texte, avec leur raison
+
+1. **La session SSO du CLI revient au proxy, pas au CLI.** §6.5 faisait
+   rediriger l'IdP vers le listener loopback. Dex n'accepte pas de loopback
+   sur un client public qui déclare des `redirectURIs` (celui du dashboard en
+   a). L'IdP rappelle donc `<API_CLUSTER_OIDC_BASE_REDIRECT_URL>/api/v1/auth/callback`
+   (une URI de plus à enregistrer sur le client du dashboard, documentée), le
+   proxy échange le code, puis remet au loopback un **code à usage unique**
+   (60 s, Redis) que le CLI échange par PKCE à une **quatrième route**,
+   `POST /api/v1/auth/token` : le schéma du serveur OAuth médié
+   (`cluster/auth/oauth`). Aucun jeton ne passe dans une URL. Les jetons de la
+   session vivent au plus 60 s dans Redis, comme ceux de l'OAuth médié (§9).
+2. **`TokenExchange` n'est pas un mode « de confiance ».**
+   `UpstreamAuthMode::is_trusted` reste `FrontProxy | Issuer` (préfixes,
+   sonde, `claim_mappings`) ; `replaces_token()` (tout sauf `Passthrough`)
+   range le cluster sous la clé Redis de la décision 42 de la 0014 et exige
+   `OIDC_AUDIENCE_VALIDATION=enforce` (T11). La sonde de confiance ne
+   s'applique pas : l'apiserver croit l'IdP du cluster.
+3. **Résultat `unreadable`** ajouté aux métriques et à l'audit (§10.1 n'en
+   avait que quatre) : la réponse illisible (`502`) se distingue d'un refus.
+4. **Avertissements** : en plus de `status.warnings`, une condition d'avis
+   `TokenExchangeAtRisk` (catalogue de la 0011).
+5. **Deux entrées de trousseau par serveur** (jeton d'accès, puis
+   `<url>::session` avec le refresh token et l'expiration) au lieu d'une :
+   le gestionnaire d'identifiants de Windows borne un secret à 2 560 octets.
+   Les deux écritures ne sont pas atomiques.
+6. **`login --server-url` sans `--token` lance toujours le SSO** : l'invite
+   de saisie du jeton serveur disparaît (un script passe `--token`). `get` et
+   `login clusters` rafraîchissent aussi la session, pas seulement
+   `get-token`. `get-token` reconnaît un cluster en échange au drapeau
+   `token_exchange` que `login` écrit dans la configuration du CLI : le
+   kubeconfig du front demande donc un `login` du cluster, sans navigateur.
+7. **Banc** : `offline_access` ajouté à `OIDC_SCOPES` (Dex ne rend un refresh
+   token qu'à cette portée, décision 13) ; `UNSCOPED_MAX_FAILED_LOGINS=1000`
+   pour que le point 9 voie le compteur ; Traefik `allowEmptyServices` pour
+   que Dex B arrêté réponde `503` (point 6) ; le point 8 passe par
+   `/api/v1/auth/refresh` en HTTP plutôt que par l'expiration d'un jeton de
+   Dex A, partagé avec les autres suites ; `rfc0010` dans la passe série.
+8. **Après la revue de code** : un `408` ou `429` de l'IdP du cluster est une
+   indisponibilité (`503`), pas un refus ; la clé du cache inclut aussi
+   `scope` et `connector_id` ; un succès de cache n'attend plus la discovery ;
+   le verrou par clé est libéré même si la requête est annulée ; seul
+   `invalid_grant` sur `/auth/refresh` compte pour le ban (`invalid_client`
+   donne `503`) ; un callback `?error=` revient au CLI en `access_denied` ;
+   le CLI sérialise le renouvellement de session (verrou de fichier) pour ne
+   pas dépenser deux fois un refresh token qu'un IdP fait tourner.
+9. **Après la revue à deux axes** :
+   - le front ne télécharge pas le kubeconfig depuis l'accueil (§6.4) : un
+     cluster en échange ouvre la page `cluster-nosso`, qui l'affiche avec la
+     marche à suivre (le kubeconfig suppose le `login` du CLI, écart 6) ; il
+     sort de `renderPluginKubeconfig`, partagé avec
+     `generateCallbackPluginKubeconfig` ;
+   - `cluster/auth/oauth/*`, « délibérément non touché », a reçu les
+     descriptions OpenAPI demandées par Spectral et les helpers que la
+     session SSO partage avec lui (`read_form`, `oauth_error`, `no_store`,
+     `redeem_code`) : aucun changement de comportement, ses tests passent
+     tels quels ; `SessionError` disparaît au profit de `TokenErrorBody`, de
+     même forme ;
+   - `token_exchanged` n'est écrit que si une requête a atteint l'IdP (§10.1
+     « échange réel ») : un échec de config, de discovery ou de client HTTP
+     n'est que compté ; un `ProxyKubeApi` sans UID est refusé (`503`) plutôt
+     que de partager une clé ;
+   - au callback de la session, un IdP injoignable donne `server_error` au
+     CLI, un code refusé `access_denied` ;
+   - p2 vérifie `cache_hit ≥ 9` et non `= 9` : la découverte d'API de kubectl
+     passe aussi par le cache ; la preuve exacte est `exchanged = 1` ;
+   - T2 et T6 sont renommés `a_non_member_is_refused_before_the_idp` et
+     `a_rate_limited_caller_is_refused_before_the_idp` (suffixe de refus,
+     `testing.mdx`).
+
+### Menaces (§7)
+
+T1 à T7, T10 et T11 : `libs/server/api/tests/token_exchange.rs` (noms de §14
+sauf T2 et T6, écart 9 ; T4 aussi en unitaire dans `common::token_exchange` ;
+T5 dans `kube_redirect/upstream.rs` ; T11 aussi dans
+`audience_validation_off.rs`) ; T8 :
+`crd::upstream_auth::token_exchange` ; T9 : `common::token_exchange` ; T12 :
+`libs/server/api/tests/server_auth.rs`. Sur le banc : points 3, 4, 7 et 9.
+
+### Supply chain (§8)
+
+`secrecy` 0.10.3 et `form_urlencoded` 1.2.2 deviennent dépendances directes
+de `common` (déjà dans `Cargo.lock`) ; aucune image nouvelle (Dex B est
+l'image de Dex).

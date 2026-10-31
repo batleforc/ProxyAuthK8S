@@ -27,9 +27,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MATRIX = ROOT / "tests/integration/MATRIX.md"
-# RFCs whose rows may still say `à écrire`: 0010, whose code is not written
-# yet; each leaves this set in the PR that lands its code and tests.
-PENDING = {"0010"}
+# RFCs whose rows may still say `à écrire`: those whose code is not written
+# yet; each leaves this set in the PR that lands its code and tests (0010 did).
+PENDING: set[str] = set()
 STATUSES = {"suite", "heavy", "hors suite", "quarantaine", "à écrire"}
 # The binaries `it:test` leaves out (RFC 0016): `it:heavy` and `perf:http` run them.
 HEAVY = re.compile(r"(heavy|perf)_\w*::")
@@ -87,7 +87,7 @@ def path_dependencies(root: Path) -> list[str]:
 
 
 def check(rfcs: dict[str, list[int]], matrix: str, tests: set[str],
-          path_deps: list[str]) -> tuple[list[str], list[str]]:
+          path_deps: list[str], pending: set[str] = PENDING) -> tuple[list[str], list[str]]:
     """(errors, warnings)."""
     errors, warnings = [], []
     rows = matrix_rows(matrix)
@@ -115,7 +115,7 @@ def check(rfcs: dict[str, list[int]], matrix: str, tests: set[str],
             quarantined += 1
             if not re.search(r"#\d+", proof):
                 errors.append(f"{where}: quarantine without an issue number")
-        elif status == "à écrire" and rfc not in PENDING:
+        elif status == "à écrire" and rfc not in pending:
             errors.append(f"{where}: `à écrire` for an RFC whose code is written")
     if quarantined:
         warnings.append(f"{quarantined} row(s) in quarantine")
@@ -146,7 +146,7 @@ def self_test() -> None:
     assert ok == [] and warnings == ["1 row(s) in quarantine"]
     todo = good.replace("| suite | `rfc0003::p1_ok` |", "| à écrire | |")
     assert check({"0001": [1, 2]}, todo.replace("0003", "0001"), tests, [])[0]
-    assert check({"0010": [1, 2]}, todo.replace("0003", "0010"), tests, [])[0] == []
+    assert check({"0010": [1, 2]}, todo.replace("0003", "0010"), tests, [], {"0010"})[0] == []
     assert check({"0003": [1, 2]}, good, tests, ["api"])[0]
     pw = good.replace("`rfc0003::p1_ok`", "`e2e-it/login.spec.ts › full login`")
     assert check({"0003": [1, 2]}, pw, tests, [])[0] == []

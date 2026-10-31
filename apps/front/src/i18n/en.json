@@ -212,6 +212,12 @@
     "notFoundToast": "Cluster not found.",
     "usesSso": "This cluster uses SSO, taking you back home…"
   },
+  "exchange": {
+    "title": "Cluster in token exchange",
+    "description": "Configuration for the cluster {cluster} in the namespace {ns}.",
+    "explanation": "This cluster takes your ProxyAuth session: the proxy exchanges it with the cluster's identity provider, so there is no login to the cluster and no cluster token on your machine.",
+    "kubeconfigText": "This kubeconfig asks the kubectl plugin for your session. Once, first: kubectl proxyauth login --server-url <proxy URL>, then kubectl proxyauth -n {ns} login {cluster} (no browser for this cluster)."
+  },
   "kubeconfig": {
     "title": "Kubernetes configuration",
     "download": "Download the kubeconfig",

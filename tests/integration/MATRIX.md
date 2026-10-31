@@ -108,15 +108,15 @@ Statuts :
 | 0009 | 7     | suite       | `e2e-it/login.spec.ts › full login` |
 | 0009 | 8     | hors suite  | `retries = 0` du profil nextest `it` et `retries: 0` de `playwright.it.config.ts` ; échec volontaire vérifié à la main |
 | 0009 | 9     | hors suite  | résumé du job `integration` (durées de `it:up` et `it:test`) |
-| 0010 | 1     | à écrire    | `rfc0010::p1_…` |
-| 0010 | 2     | à écrire    | `rfc0010::p2_…` |
-| 0010 | 3     | à écrire    | `rfc0010::p3_…` |
-| 0010 | 4     | à écrire    | `rfc0010::p4_…` |
-| 0010 | 5     | à écrire    | `rfc0010::p5_…` |
-| 0010 | 6     | à écrire    | `rfc0010::p6_…` |
-| 0010 | 7     | à écrire    | `rfc0010::p7_…` |
-| 0010 | 8     | à écrire    | `rfc0010::p8_…` |
-| 0010 | 9     | à écrire    | `rfc0010::p9_…` |
+| 0010 | 1     | suite       | `rfc0010::p1_an_sso_session_reaches_an_exchange_cluster` |
+| 0010 | 2     | suite       | `rfc0010::p2_ten_requests_cost_one_exchange` |
+| 0010 | 3     | suite       | `rfc0010::p3_a_non_member_is_refused_before_any_exchange` |
+| 0010 | 4     | suite       | `rfc0010::p4_a_cluster_token_is_refused` |
+| 0010 | 5     | suite       | `rfc0010::p5_exec_and_port_forward_go_through_the_exchange` |
+| 0010 | 6     | suite       | `rfc0010::p6_a_stopped_idp_is_503_and_never_bans` |
+| 0010 | 7     | suite       | `rfc0010::p7_the_exchanged_token_never_leaves_the_proxy` |
+| 0010 | 8     | suite       | `rfc0010::p8_the_session_is_renewed_without_a_browser` |
+| 0010 | 9     | suite       | `rfc0010::p9_an_invalid_refresh_token_is_refused_and_counted` |
 | 0011 | 1     | suite       | `rfc0011::p1_a_served_cluster_is_ready` |
 | 0011 | 2     | suite       | `rfc0011::p2_an_unreachable_target_is_refused_and_announced` |
 | 0011 | 3     | suite       | `rfc0011::p3_an_invalid_spec_is_refused_without_an_observed_generation` |

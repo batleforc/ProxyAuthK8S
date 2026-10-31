@@ -34,6 +34,9 @@ fn upstream_auth_mode(mode: UpstreamAuthMode) -> Covered {
             "front_proxy_strips_every_authorization_value_and_asserts_the_identity",
         ),
         UpstreamAuthMode::Issuer => (UPSTREAM, "issuer_replaces_the_token_with_the_proxy_jwt"),
+        UpstreamAuthMode::TokenExchange => {
+            (UPSTREAM, "client_authorization_headers_are_all_replaced")
+        }
     }
 }
 

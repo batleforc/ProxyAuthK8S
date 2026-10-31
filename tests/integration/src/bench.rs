@@ -11,6 +11,8 @@ use std::{
 
 pub const HOST: &str = "proxyauth.k8s.localhost";
 pub const DEX_HOST: &str = "dex.k8s.localhost";
+/// RFC 0010 §6.P: Dex B, the IdP of the token-exchange clusters.
+pub const DEX_B_HOST: &str = "dex-b.k8s.localhost";
 /// `ingress.apiHost` of the bench: the clusters only, for `oc login`.
 pub const API_HOST: &str = "api.k8s.localhost";
 /// The namespace `it:up` installs the chart, Dex and Redis in.
@@ -69,6 +71,11 @@ impl Bench {
         format!("https://{DEX_HOST}:{}", self.port)
     }
 
+    /// Dex B's issuer: the same URL inside the cluster (`.it/dex/config-b.yaml`).
+    pub fn dex_b_url(&self) -> String {
+        format!("https://{DEX_B_HOST}:{}", self.port)
+    }
+
     /// A client that trusts only the run's CA, resolves both bench names to
     /// the published port, and follows no redirect (tests look at them).
     pub fn http(&self) -> reqwest::Client {
@@ -91,6 +98,7 @@ impl Bench {
             .tls_certs_only([reqwest::Certificate::from_pem(&ca).expect("run CA is PEM")])
             .resolve(HOST, addr)
             .resolve(DEX_HOST, addr)
+            .resolve(DEX_B_HOST, addr)
             .resolve(API_HOST, addr)
             .redirect(reqwest::redirect::Policy::none())
     }

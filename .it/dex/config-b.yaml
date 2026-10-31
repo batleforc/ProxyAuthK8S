@@ -1,0 +1,52 @@
+# Dex B, the cluster's IdP of RFC 0010 §6.P: the apiserver trusts it
+# (.it/k3d.yaml.tpl), and the TokenExchange clusters exchange the proxy's
+# token (a Dex A token) here. `it:up` loads it as is: no persona of its own,
+# every identity comes from Dex A through the `proxy` connector.
+issuer: https://dex-b.k8s.localhost:8443
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+# The suite reads "token exchange successful" lines (server/grants/
+# tokenexchange.go, logged at info with the user's email) as the requests the
+# cluster's IdP saw.
+logger:
+  level: info
+
+oauth2:
+  responseTypes: [code]
+  skipApprovalScreen: true
+  grantTypes:
+    - authorization_code
+    - refresh_token
+    - urn:ietf:params:oauth:grant-type:token-exchange
+
+connectors:
+  # Federation to Dex A. An exchange names it (`connector_id: proxy`) with an
+  # access token: Dex B reads Dex A's /userinfo with it, which is how it
+  # verifies the token (connector/oidc/oidc.go, `getUserInfo`).
+  - type: oidc
+    id: proxy
+    name: ProxyAuthK8S
+    config:
+      issuer: https://dex.k8s.localhost:8443
+      clientID: dex-b
+      clientSecret: dex-b-it-secret
+      redirectURI: https://dex-b.k8s.localhost:8443/callback
+      # The run CA, from the `it-ca` Secret (.it/stack.yaml).
+      rootCAs:
+        - /etc/proxyauth-it/rootCA.pem
+      getUserInfo: true
+      insecureEnableGroups: true
+      scopes: [openid, profile, email, groups]
+
+staticClients:
+  # The `oidc_provider` of the TokenExchange clusters: confidential, Dex
+  # refuses an exchange from a public client. It only exchanges, so no
+  # redirect URI.
+  - id: kube-prod
+    name: Kubernetes (token exchange)
+    secret: kube-prod-it-secret

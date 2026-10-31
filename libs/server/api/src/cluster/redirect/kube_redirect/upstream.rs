@@ -292,6 +292,35 @@ mod tests {
         assert!(!format!("{request:?}").contains("proxy.jwt.sig"));
     }
 
+    /// RFC 0010 T5, T3: every `Authorization` of the client, a doubled one
+    /// included, replaced by the exchanged token alone, marked sensitive; no
+    /// identity header.
+    #[test]
+    fn client_authorization_headers_are_all_replaced() {
+        let user = User {
+            username: "alice".into(),
+            ..User::default()
+        };
+        let exchanged = secrecy::SecretString::from("exchanged-token");
+        let mut client = headers();
+        client.append("authorization", "Bearer smuggled".parse().unwrap());
+        let request = apply_forward_headers(
+            reqwest::Client::new().get("https://api.example:6443/api"),
+            &client,
+            None,
+            Upstream::Exchanged(&user, &exchanged),
+        )
+        .build()
+        .unwrap();
+        let headers = request.headers();
+        let authorization: Vec<_> = headers.get_all("authorization").iter().collect();
+        assert_eq!(authorization, ["Bearer exchanged-token"]);
+        assert!(headers["authorization"].is_sensitive());
+        assert!(!headers.contains_key("x-remote-user"));
+        assert!(!headers.contains_key("x-forwarded-user"));
+        assert!(!format!("{request:?}").contains("exchanged-token"));
+    }
+
     #[test]
     fn passthrough_relays_the_token_and_never_a_client_identity_header() {
         let user = User {

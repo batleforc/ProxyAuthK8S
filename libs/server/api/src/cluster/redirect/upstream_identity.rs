@@ -172,11 +172,21 @@ pub enum Upstream<'a> {
     /// `Issuer`: every `Authorization` is replaced by the proxy's JWT for
     /// the identity; no `X-Remote-*`, no `x-forwarded-*`.
     Bearer(&'a UpstreamIdentity, &'a SecretString),
+    /// `TokenExchange` (RFC 0010): every `Authorization` is replaced by the
+    /// token the cluster's IdP issued for this caller.
+    Exchanged(&'a User, &'a SecretString),
 }
 
 impl<'a> Upstream<'a> {
     #[must_use]
-    pub fn new(user: Option<&'a User>, asserted: Option<&'a Asserted>) -> Self {
+    pub fn new(
+        user: Option<&'a User>,
+        asserted: Option<&'a Asserted>,
+        exchanged: Option<&'a SecretString>,
+    ) -> Self {
+        if let (Some(user), Some(token)) = (user, exchanged) {
+            return Self::Exchanged(user, token);
+        }
         match asserted {
             None => Self::Passthrough(user),
             Some(Asserted {
@@ -224,7 +234,7 @@ impl<'a> Upstream<'a> {
                 }
                 headers
             }
-            Self::Bearer(_, token) => vec![(
+            Self::Bearer(_, token) | Self::Exchanged(_, token) => vec![(
                 "authorization".to_string(),
                 format!("Bearer {}", token.expose_secret()),
             )],
@@ -273,6 +283,7 @@ mod tests {
             user_prefix: Some("proxyauth:".to_string()),
             group_prefix: Some("proxyauth:".to_string()),
             issuer_key: None,
+            token_exchange: None,
         }
     }
 

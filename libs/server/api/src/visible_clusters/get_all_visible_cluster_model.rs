@@ -10,6 +10,10 @@ pub struct VisibleCluster {
     pub name: String,
     pub sso_enabled: bool,
     pub is_reachable: Option<bool>,
+    /// RFC 0010: the cluster takes the proxy's own token (`upstream_auth.mode:
+    /// TokenExchange`); no login to the cluster is needed.
+    #[serde(default)]
+    pub token_exchange: bool,
 }
 
 impl VisibleCluster {
@@ -28,12 +32,15 @@ impl VisibleCluster {
             name,
             sso_enabled,
             is_reachable,
+            token_exchange: false,
         }
     }
 }
 
 impl From<ProxyKubeApi> for VisibleCluster {
     fn from(proxy: ProxyKubeApi) -> Self {
+        let token_exchange =
+            proxy.upstream_mode() == crd::upstream_auth::UpstreamAuthMode::TokenExchange;
         Self {
             enabled: proxy.spec.enabled,
             namespace: proxy.metadata.namespace.unwrap_or_default(),
@@ -43,6 +50,7 @@ impl From<ProxyKubeApi> for VisibleCluster {
                 .auth_config
                 .is_some_and(|auth_config| auth_config.oidc_provider.enabled),
             is_reachable: Some(proxy.status.unwrap_or_default().exposed),
+            token_exchange,
         }
     }
 }

@@ -11,6 +11,7 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
+/// TokenErrorBody : An OAuth error response (RFC 6749 §5.2).
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TokenErrorBody {
     #[serde(rename = "error")]
@@ -18,6 +19,7 @@ pub struct TokenErrorBody {
 }
 
 impl TokenErrorBody {
+    /// An OAuth error response (RFC 6749 §5.2).
     pub fn new(error: String) -> TokenErrorBody {
         TokenErrorBody { error }
     }

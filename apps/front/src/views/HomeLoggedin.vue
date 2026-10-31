@@ -57,7 +57,13 @@ const canConnect = computed(
 );
 
 function connect(cluster: VisibleCluster) {
-  if (cluster.sso_enabled) {
+  // RFC 0010: the proxy session is enough, no login to the cluster's IdP.
+  if (cluster.token_exchange) {
+    router.push({
+      name: 'cluster-nosso',
+      params: { ns: cluster.namespace, cluster: cluster.name },
+    });
+  } else if (cluster.sso_enabled) {
     toast.info(t('home.connecting', { name: cluster.name }));
     clustersStore.redirectToLogin(cluster.namespace, cluster.name);
   } else {

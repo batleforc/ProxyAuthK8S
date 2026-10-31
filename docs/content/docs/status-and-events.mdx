@@ -68,6 +68,7 @@ Chaque avis devient une condition `True` à côté de `Ready`, de type égal à 
 | `IssuerNotReady` | avis | un cluster encore en `Passthrough` avec `issuer_key` ne serait pas servi une fois basculé en `Issuer` ; le message dit pourquoi |
 | `IssuerKeyRotationOverdue` | avis | la clé `Issuer` n'a pas tourné depuis plus de `rotation_days` + 1 jours |
 | `IssuerBehindAgent` | avis | `Issuer` derrière un agent : l'apiserver doit quand même joindre l'URL publique du proxy pour le JWKS |
+| `TokenExchangeAtRisk` | avis | `TokenExchange` : l'IdP du cluster n'est pas celui du proxy et `connector_id` est vide, ou `oidc_provider` n'a pas de secret client (l'échange échouera le plus souvent) ; le message dit lequel, et il est aussi dans `status.warnings` |
 
 Le verdict de la sonde de confiance se suit aussi hors des conditions, succès compris :
 `status.upstreamAuth.trust` (`Trusted`, `Rejected`, `NotHonoured`, `Unknown`, `Unguarded`) et

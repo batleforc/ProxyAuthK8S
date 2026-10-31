@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Mount the integration bench (RFC 0009 §6.2): a run CA, the k3d cluster,
-# the images built from the tree, Redis, Dex and the chart. Run through
+# the images built from the tree, Redis, Dex (and Dex B, RFC 0010) and the
+# chart. Run through
 # `task it:up`, from the repository root.
 set -euo pipefail
 
@@ -152,21 +153,25 @@ k apply -f deploy/crds.yaml
 k create namespace "$NS"
 k -n "$NS" create secret tls proxyauthk8s-tls --cert "$RUN/tls.crt" --key "$RUN/tls.key"
 k -n "$NS" create secret generic it-ca --from-file=rootCA.pem="$RUN/ca/rootCA.pem"
+# offline_access: Dex issues a refresh token only when it is asked for
+# (server/grants/grants.go, shouldIssueRefreshToken), and the CLI's SSO
+# session renews through one (RFC 0010 §6.5, decision 13).
 k -n "$NS" create secret generic proxyauthk8s-back-oidc \
   --from-literal=OIDC_ISSUER_URL=https://dex.k8s.localhost:8443 \
   --from-literal=OIDC_CLIENT_ID=proxyauthk8s \
   --from-literal=OIDC_AUDIENCE=proxyauthk8s \
-  --from-literal="OIDC_SCOPES=openid profile email groups"
+  --from-literal="OIDC_SCOPES=openid profile email groups offline_access"
 yq '.staticPasswords = (load(".it/personas.yaml").personas | to_entries | map({
       "email": .value.email, "username": .key, "hash": .value.hash,
       "userID": .value.userID, "groups": .value.groups}))' \
   .it/dex/config.yaml >"$RUN/dex.yaml"
 k -n "$NS" create secret generic dex-config --from-file=config.yaml="$RUN/dex.yaml"
+k -n "$NS" create secret generic dex-b-config --from-file=config.yaml=.it/dex/config-b.yaml
 sed -e "s|__REDIS__|$REDIS|" -e "s|__DEX__|$DEX|" .it/stack.yaml | k apply -f -
 helm --kubeconfig "$ADMIN" upgrade --install proxyauth deploy/chart -n "$NS" -f .it/values.yaml
 
 step "rollout"
-for d in redis dex proxyauth-proxyauthk8s-back proxyauth-proxyauthk8s-front proxyauth-proxyauthk8s-gateway; do
+for d in redis dex dex-b proxyauth-proxyauthk8s-back proxyauth-proxyauthk8s-front proxyauth-proxyauthk8s-gateway; do
   k -n "$NS" rollout status "deployment/$d" --timeout=180s
 done
 k -n kube-system rollout status deployment/traefik --timeout=180s

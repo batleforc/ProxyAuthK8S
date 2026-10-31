@@ -394,6 +394,7 @@ mod tests {
                 user_prefix: Some("proxyauth:".into()),
                 group_prefix: Some("proxyauth:".into()),
                 issuer_key: None,
+                token_exchange: None,
             });
             proxy
         }

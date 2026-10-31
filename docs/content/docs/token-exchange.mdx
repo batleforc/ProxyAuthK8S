@@ -1,0 +1,154 @@
+---
+title: Échange de jeton
+description: Une connexion au proxy pour tous les clusters (upstream_auth TokenExchange, RFC 0010), sans jeton de cluster sur le poste
+icon: ArrowLeftRight
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+En `TokenExchange`, le client présente **le jeton du proxy** (celui du dashboard, émis par
+l'IdP du proxy) et le proxy l'échange, côté serveur, contre un jeton de l'IdP du cluster
+([RFC 8693](https://www.rfc-editor.org/rfc/rfc8693.html)). L'apiserver valide toujours un
+vrai jeton de son IdP : sa configuration ne change pas. Le jeton échangé ne quitte jamais
+le proxy : il remplace l'`Authorization` de la requête relayée et vit en mémoire, par
+réplica, au plus `max_cache_seconds`.
+
+Côté utilisateur, une seule connexion SSO au proxy (`kubectl-proxyauth login --server-url …`)
+sert tous les clusters en échange ; le CLI ne garde qu'un secret, le refresh token de cette
+session.
+
+## Ce que vous acceptez
+
+<Callout type="warn">
+- Le jeton du proxy de chaque utilisateur part chez l'IdP du cluster à chaque échange.
+  Si cet IdP n'est pas le vôtre, vous lui confiez ces jetons.
+- Un groupe retiré chez l'IdP peut rester visible de l'apiserver jusqu'à
+  `max_cache_seconds` (300 s par défaut, 3 600 au plus, `0` pour échanger à chaque requête).
+- Dex ne vérifie pas l'audience du jeton qu'on lui présente : quiconque joint le Dex du
+  cluster avec un jeton de l'IdP du proxy obtient un jeton du cluster sans passer par le
+  proxy. Le proxy, lui, n'échange qu'un jeton émis pour `OIDC_AUDIENCE`.
+</Callout>
+
+## 1. Ouvrir le mode (admin du proxy)
+
+```yaml
+# values.yaml du chart
+upstreamAuth:
+  allowedModes: [Passthrough, TokenExchange]
+```
+
+Le proxy exige `OIDC_AUDIENCE_VALIDATION=enforce` (le défaut) pour un cluster en échange :
+sans elle, il le ferme en `503` et le message nomme le réglage.
+
+Pour la connexion SSO du CLI au serveur, l'IdP du proxy doit accepter la redirection
+`<API_CLUSTER_OIDC_BASE_REDIRECT_URL>/api/v1/auth/callback` pour le client `OIDC_CLIENT_ID`
+(une URI de plus sur le client du dashboard). Le proxy échange le code avec ce client,
+puis remet au CLI un code à usage unique sur son listener loopback : aucun jeton ne passe
+dans une URL.
+
+## 2. Configurer l'IdP du cluster
+
+Le client qui échange est celui du cluster, `oidc_provider` (`client_id`, et
+`client_secret` ou `config_from`) : un client **confidentiel** avec l'échange activé.
+
+### Keycloak (même realm)
+
+Keycloak 26.2 échange un jeton du realm contre un jeton pour un autre client du même realm
+(*standard token exchange*) :
+
+1. Sur le client du cluster : *Client authentication* activé, *Standard Token Exchange*
+   activé.
+2. Sur le client du dashboard (`OIDC_CLIENT_ID`) : un mapper *Audience* qui ajoute le client
+   du cluster à l'`aud` du jeton. Keycloak n'échange qu'un jeton dont l'`aud` nomme le
+   client qui échange.
+3. `token_exchange.audience` : le client du cluster, si l'apiserver attend cette audience.
+
+### Dex (fédération)
+
+Dex n'échange qu'un jeton d'un IdP amont, par un connecteur OIDC : l'IdP du proxy est
+l'amont du Dex du cluster.
+
+```yaml
+# config du Dex du cluster
+oauth2:
+  grantTypes: [authorization_code, refresh_token, "urn:ietf:params:oauth:grant-type:token-exchange"]
+connectors:
+  - type: oidc
+    id: proxy            # token_exchange.connector_id
+    name: ProxyAuthK8S
+    config:
+      issuer: https://sso.example.com/realms/corp   # l'IdP du proxy
+      clientID: kube-dex
+      clientSecret: …
+      getUserInfo: true
+      insecureEnableGroups: true
+staticClients:
+  - id: kube-prod        # oidc_provider.client_id du ProxyKubeApi
+    secret: …
+```
+
+Dex réencode le `sub` : écrivez le RBAC du cluster sur les groupes.
+
+## 3. Passer le cluster en échange (auteur du cluster)
+
+```yaml
+apiVersion: weebo.si.rs/v1
+kind: ProxyKubeApi
+spec:
+  auth_config:
+    validate_against: Kubernetes     # ne sert plus au jeton entrant
+    oidc_provider:
+      enabled: true
+      issuer_url: https://dex.prod.example.com
+      client_id: kube-prod
+      config_from: { name: kube-prod-oidc }   # client_secret
+  upstream_auth:
+    mode: TokenExchange
+    token_exchange:
+      audience: ""            # paramètre audience ; vide = omis
+      scope: ""               # paramètre scope ; vide = omis
+      connector_id: proxy     # Dex seulement
+      max_cache_seconds: 300
+```
+
+L'admission refuse `token_exchange` hors de ce mode, ce mode sans `token_exchange`, sans
+`oidc_provider.enabled` ou avec `disable_validation`, `max_cache_seconds` au-delà de 3 600,
+et un CR, un LF ou un `&` dans `audience`, `scope` ou `connector_id`.
+
+`status.warnings` et une condition d'avis `TokenExchangeAtRisk` signalent un IdP du cluster
+qui n'est pas celui du proxy sans `connector_id`, et un client sans secret.
+
+## 4. Côté utilisateur
+
+```bash
+kubectl-proxyauth login --server-url https://proxy.example.com   # SSO au proxy, une fois
+kubectl-proxyauth login clusters                                  # aucun SSO pour un cluster en échange
+kubectl get pods
+```
+
+`get-token` rend le jeton du proxy et le rafraîchit, sans navigateur, quand il lui reste
+moins de 60 s. `login --server-url … --token …` reste possible (scripts, CI), sans
+rafraîchissement.
+
+Passer un cluster en échange rend inutiles les jetons de cluster déjà distribués pour lui :
+les utilisateurs refont `kubectl-proxyauth login clusters`. Revenir en `Passthrough` rétablit
+l'ancien chemin ; rien n'est persisté.
+
+## 5. Exploiter
+
+| Réponse | Cause | Compte pour fail2login ? |
+| --- | --- | --- |
+| `401` « token could not be validated » | le jeton n'est pas un jeton du proxy pour `OIDC_AUDIENCE` | oui |
+| `401` « refused the token exchange » | l'IdP du cluster refuse (`invalid_grant`, client mal configuré) | non |
+| `502` | réponse de l'IdP du cluster illisible ou sans `access_token` | non |
+| `503` | IdP du cluster injoignable ou lent (plus de 5 s) | non |
+
+Le jeton du proxy n'est jamais relayé à l'apiserver en cas d'échec.
+
+- **Métriques** : `proxyauth_token_exchange_total{result}` (`exchanged`, `cache_hit`,
+  `refused`, `unavailable`, `unreadable`) et `proxyauth_token_exchange_duration_seconds`.
+  Alerte proposée : `rate(proxyauth_token_exchange_total{result="unavailable"}[5m]) > 0`
+  pendant 5 minutes.
+- **Audit** : une ligne `token_exchanged` par échange réel (jamais sur un cache hit), avec
+  l'utilisateur, le cluster et le résultat, jamais un jeton ; `server_login` et
+  `token_refreshed` pour la session du CLI.

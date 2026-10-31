@@ -29,6 +29,8 @@ staticClients:
     public: true
     redirectURIs:
       - https://proxyauth.k8s.localhost:8443/auth/callback
+      # RFC 0010 §6.5: the CLI's SSO session, mediated by the proxy.
+      - https://proxyauth.k8s.localhost:8443/api/v1/auth/callback
   # Cluster SSO (the ProxyKubeApi's oidc_provider, no client_secret: the
   # proxy then uses PKCE alone). Public, because the kubectl plugin's redirect
   # is http://localhost:<port>/auth/callback/<ns>/<cluster>, one per test
@@ -45,6 +47,13 @@ staticClients:
     public: true
     redirectURIs:
       - https://proxyauth.k8s.localhost:8443/clusters/it-rfc0008-p3-oc/c/oauth/callback
+
+  # RFC 0010 §6.P: Dex B's `proxy` connector (.it/dex/config-b.yaml).
+  - id: dex-b
+    name: Dex B
+    secret: dex-b-it-secret
+    redirectURIs:
+      - https://dex-b.k8s.localhost:8443/callback
 
 enablePasswordDB: true
 staticPasswords: []
