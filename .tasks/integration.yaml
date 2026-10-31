@@ -35,6 +35,14 @@ tasks:
         pnpm -C apps/front test:e2e:it || status=1
         exit $status
 
+  heavy:
+    desc: "Run the heavy suite against the bench (RFC 0016): the upstream echo and the previous release's server, tests/integration/tests/heavy_*.rs; needs mkcert"
+    cmds:
+      - cargo build -p kubectl_proxyauth
+      - |
+        env -u DBUS_SESSION_BUS_ADDRESS keyctl session - \
+          cargo nextest run -p integration --profile heavy
+
   reload:
     desc: "Rebuild one image of the bench (IMAGE=server or front), import it and restart its deployment"
     requires:

@@ -7,6 +7,8 @@ k3d = "latest"
 kubectl = "1.35"
 "aqua:kubernetes-sigs/krew" = "latest"
 mkcert = "latest"
+# The HTTP load scenarios of RFC 0016 (tests/perf/k6, task perf:http).
+k6 = "2.3"
 node = "lts"
 rust = { version = "latest", profile = "default", components = "rust-src,llvm-tools" }
 talosctl = "latest"
