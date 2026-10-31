@@ -31,14 +31,17 @@ pub fn echo_url(ns: &str) -> String {
 
 /// [`fixture::proxied`] in front of the echo of its namespace instead of the
 /// bench's apiserver: `c` is an `ExternalService` on [`echo_url`], verified
-/// against the run CA, in `Passthrough`; `reader` is logged in.
+/// against the run CA, in `Passthrough`; `reader` is logged in. Tokens are
+/// validated against Dex (`validate_against: OidcProvider`): the default asks
+/// the upstream to review them, and the echo is no apiserver.
 pub async fn echoed(test: &str) -> Proxied {
     let ns = namespace_name(test);
     let service = json!({ "ExternalService": { "url": echo_url(&ns) } });
     fixture::proxied_through(test, service, Value::Null, |ns| {
         deploy_echo(ns);
         let patch = json!({ "spec": {
-            "cert": { "ConfigMap": { "name": "echo-ca", "key": "ca.crt" } } } });
+            "cert": { "ConfigMap": { "name": "echo-ca", "key": "ca.crt" } },
+            "auth_config": { "validate_against": "OidcProvider" } } });
         let out = Bench::get().admin(&[
             "-n",
             ns,

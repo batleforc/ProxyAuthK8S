@@ -178,8 +178,11 @@ async fn p3_the_proxy_holds_the_load_without_errors() {
         "back_memory_mib": { "before": before, "peak": peak, "after": after, "samples": samples },
     });
     std::fs::write(out.join("resources.json"), resources.to_string()).expect("resources.json");
+    let mib = |v: Option<f64>| v.map_or_else(|| "n/a".to_string(), |v| format!("{v:.0}"));
     report.push_str(&format!(
-        "\nBack memory (MiB, every pod): before {before:?}, peak {peak:.0}, after {after:?}.\n"
+        "\nBack memory (working set, MiB, every pod): before {}, peak {peak:.0}, after {}.\n",
+        mib(before),
+        mib(after)
     ));
     std::fs::write(out.join("summary.md"), &report).expect("summary.md");
     println!("{report}");

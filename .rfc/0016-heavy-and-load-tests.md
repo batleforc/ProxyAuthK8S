@@ -553,3 +553,55 @@ Aucune.
 
 Une seule phase, une PR : la suite heavy, la charge et le workflow arrivent
 ensemble ; aucun ne touche le produit, et chacun laisse l'arbre vert seul.
+
+---
+
+## 17. Revision against the tree (2026-10-31)
+
+Premier passage sur la CI : run `41155757037` du workflow `heavy.yaml`, sur
+`80197b7` (PR #331, labels `heavy` et `perf`).
+
+### Ce qui a été observé
+
+- **Charge (job `perf`, vert)** : 2 tests, 2 passés, 11 min 39 s de charge.
+  Taux d'échec à 0,00 % sur chaque scénario ; la base
+  `tests/perf/baselines/0.5.0/` est ce rapport.
+
+  | Scénario | req/s | p95 ms | p99 ms |
+  | --- | --- | --- | --- |
+  | `01_proxied_get` | 379 | 34 | 45 |
+  | `02_proxied_list` | 267 | 61 | 80 |
+  | `03_discovery` | 386 | 54 | 66 |
+  | `04_dashboard_clusters` | 1 168 | 9 | 11 |
+
+  Les cibles de §6.3 (p95 de 200 à 500 ms) sont 5 à 20 fois au-dessus de la
+  mesure : elles restent des cibles larges, la comparaison à la base (25 %)
+  est le signal fin. Mémoire du back (working set de metrics-server, pas le
+  RSS) : 4 MiB avant, 10 au pic, 7 après.
+- **Throttle sous charge (point 4)** : 120 requêtes acceptées, 12 590
+  refusées en `429`, pour une limite de 120 par minute : le compteur Redis
+  tient exactement sous dix clients.
+- **Heavy (job `heavy`, rouge)** : le point 2 passe — l'écho reçoit
+  `X-Remote-User: proxyauth:reader@it.local` seul, des groupes préfixés,
+  ni jeton ni `Impersonate-*`, et la sonde conclut `Trusted` face à l'écho
+  (102 s, une sonde et une remise en file). Les trois tests qui partent en
+  `Passthrough` (0014 points 16 et 17, 0016 point 1) reçoivent `401` « the
+  token could not be validated ».
+
+### Écarts au texte, avec leur raison
+
+1. **Validation du jeton sur les clusters de l'écho** : par défaut, le proxy
+   fait relire le jeton par l'amont, et l'écho ne répond à aucune revue sans
+   `X-Remote-User`. `heavy::echoed` règle donc
+   `auth_config.validate_against: OidcProvider` (Dex, comme la fixture
+   `FrontProxy`) ; seul le contrôle du jeton change, `Passthrough` le relaie
+   toujours. La v0.4.2 connaît ce réglage.
+2. **Mémoire** : `kubectl top` donne le working set, pas le RSS que la RFC
+   annonçait en §5.3 ; le rapport le dit.
+
+### Ce qui reste
+
+- Repasser `heavy` avec l'écart 1 (commit en attente de signature : la clé
+  GPG de l'auteur n'était plus déverrouillée dans la nuit).
+- La confirmation des décisions 1 à 12 par l'auteur ; le statut passe alors
+  à `Accepted`, puis `Implemented` une fois `heavy` vert.
