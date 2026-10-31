@@ -17,6 +17,7 @@ use crate::server_auth::{
     CODE_PREFIX, SessionError, SessionTokens, peer, session_error, session_response, throttled,
 };
 
+/// The form the CLI posts to redeem its single-use code.
 #[derive(Deserialize, ToSchema)]
 pub struct SessionTokenRequest {
     /// The single-use code `/auth/callback` sent to the loopback listener.
@@ -28,6 +29,9 @@ pub struct SessionTokenRequest {
 }
 
 /// Redeem the single-use code of the SSO session (RFC 0010)
+///
+/// The CLI trades the code `/auth/callback` sent to its loopback, with the
+/// PKCE verifier, for the session. A code works once, whatever the outcome.
 #[utoipa::path(
     post,
     path = "/auth/token",
@@ -36,7 +40,7 @@ pub struct SessionTokenRequest {
     request_body(content = SessionTokenRequest, content_type = "application/x-www-form-urlencoded"),
     responses(
         (status = 200, description = "The session: the proxy token and its refresh token.", body = SessionTokens),
-        (status = 400, description = "invalid_grant: unknown, used or expired code, or a wrong verifier.", body = SessionError),
+        (status = 400, description = "Invalid grant (`invalid_grant`): unknown, used or expired code, or a wrong verifier.", body = SessionError),
         (status = 429, description = "Rate limited or banned (see UNSCOPED_* environment knobs)."),
         (status = 503, description = "Redis is unavailable."),
     )

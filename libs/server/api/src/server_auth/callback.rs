@@ -21,10 +21,15 @@ use crate::cluster::auth::oauth::{
 use crate::cluster::redirect::audit::{Event, HandlerAudit};
 use crate::server_auth::{CODE_PREFIX, PENDING_PREFIX, peer, session_conf, throttled};
 
+/// The identity provider's callback query.
 #[derive(Deserialize, ToSchema, IntoParams)]
 pub struct SessionCallbackQuery {
-    /// Authorization code from the proxy's identity provider.
-    pub code: String,
+    /// Authorization code from the proxy's identity provider; absent when it
+    /// answers with an `error` instead.
+    pub code: Option<String>,
+    /// The identity provider's error (`access_denied`…), sent back to the CLI
+    /// as `access_denied`.
+    pub error: Option<String>,
     /// The correlation id this proxy generated at `/auth/login`.
     pub state: String,
 }
@@ -96,13 +101,19 @@ async fn callback_inner(
     audit.redirect_uri(redirect_uri.as_str());
     let state = pending.client_state.as_deref();
     let fail = |error: &str| redirect_with_error(&redirect_uri, error, state);
+    // The user cancelled or was refused at the IdP: the CLI hears it now
+    // instead of waiting for its timeout.
+    let Some(code) = callback.code.clone().filter(|_| callback.error.is_none()) else {
+        audit.deny("the identity provider answered with an error");
+        return fail("access_denied");
+    };
 
     let conf = session_conf(data);
     let (Ok(http), Ok(client)) = (conf.oidc_reqwest_client(), conf.oidc_core().await) else {
         error!("couldn't build the proxy's oidc client");
         return fail("server_error");
     };
-    let Ok(exchange) = client.exchange_code(AuthorizationCode::new(callback.code.clone())) else {
+    let Ok(exchange) = client.exchange_code(AuthorizationCode::new(code)) else {
         return fail("server_error");
     };
     let tokens = match exchange

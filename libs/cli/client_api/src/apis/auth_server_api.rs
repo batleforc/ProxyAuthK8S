@@ -58,17 +58,24 @@ pub enum ServerAuthTokenError {
 /// Not meant to be opened directly. On success, redirects to the CLI's loopback `redirect_uri` with a single-use code, never a token.
 pub async fn server_auth_callback(
     configuration: &configuration::Configuration,
-    code: &str,
     state: &str,
+    code: Option<&str>,
+    error: Option<&str>,
 ) -> Result<(), Error<ServerAuthCallbackError>> {
     // add a prefix to parameters to efficiently prevent name collisions
-    let p_query_code = code;
     let p_query_state = state;
+    let p_query_code = code;
+    let p_query_error = error;
 
     let uri_str = format!("{}/api/v1/auth/callback", configuration.base_path);
     let mut req_builder = configuration.client.request(reqwest::Method::GET, &uri_str);
 
-    req_builder = req_builder.query(&[("code", &p_query_code.to_string())]);
+    if let Some(ref param_value) = p_query_code {
+        req_builder = req_builder.query(&[("code", &param_value.to_string())]);
+    }
+    if let Some(ref param_value) = p_query_error {
+        req_builder = req_builder.query(&[("error", &param_value.to_string())]);
+    }
     req_builder = req_builder.query(&[("state", &p_query_state.to_string())]);
     if let Some(ref user_agent) = configuration.user_agent {
         req_builder = req_builder.header(reqwest::header::USER_AGENT, user_agent.clone());
@@ -134,7 +141,7 @@ pub async fn server_auth_login(
     }
 }
 
-/// The identity provider stays the only judge of the refresh token. A refused one counts toward the unscoped ban; an unreachable provider does not.
+/// The identity provider stays the only judge of the refresh token. A refused one counts toward the unscoped ban; an unreachable or misconfigured provider does not.
 pub async fn server_auth_refresh(
     configuration: &configuration::Configuration,
     refresh_token: &str,
@@ -189,6 +196,7 @@ pub async fn server_auth_refresh(
     }
 }
 
+/// The CLI trades the code `/auth/callback` sent to its loopback, with the PKCE verifier, for the session. A code works once, whatever the outcome.
 pub async fn server_auth_token(
     configuration: &configuration::Configuration,
     code: &str,

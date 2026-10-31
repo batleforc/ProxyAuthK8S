@@ -20,6 +20,7 @@ use crate::cluster::auth::oauth::{
 use crate::cluster::redirect::audit::{Event, HandlerAudit};
 use crate::server_auth::{PENDING_PREFIX, peer, session_conf, throttled};
 
+/// The CLI's request to start the SSO session.
 #[derive(Deserialize, ToSchema, IntoParams)]
 pub struct SessionLoginQuery {
     /// The CLI's loopback listener (`http://127.0.0.1:<port>/…`, `localhost`
@@ -42,7 +43,7 @@ pub struct SessionLoginQuery {
     tag = "auth_server",
     responses(
         (status = 302, description = "Redirect to the proxy's identity provider, or to redirect_uri with an error."),
-        (status = 400, description = "redirect_uri is not a loopback URI."),
+        (status = 400, description = "The redirect_uri is not a loopback URI."),
         (status = 429, description = "Rate limited or banned (see UNSCOPED_* environment knobs)."),
         (status = 500, description = "Internal server error."),
         (status = 503, description = "Redis is unavailable."),

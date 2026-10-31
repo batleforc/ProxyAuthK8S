@@ -138,6 +138,34 @@ async fn the_cli_gets_its_session_through_a_single_use_code() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
+/// The user cancels at the IdP: the CLI's loopback hears `access_denied`
+/// at once, and the pending login is spent.
+#[tokio::test]
+async fn an_idp_error_is_sent_back_to_the_cli() {
+    let idp = MockServer::start().await;
+    mount_full_oidc_provider(&idp, "alice", &["dev"]).await;
+    let app = test::init_service(harness::app(memory_state(&memory_store(), idp.uri()))).await;
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&login_uri(LOOPBACK))
+            .to_request(),
+    )
+    .await;
+    let state = param(&location(&response), "state");
+    let callback = format!("/api/v1/auth/callback?error=access_denied&state={state}");
+    let response =
+        test::call_service(&app, test::TestRequest::get().uri(&callback).to_request()).await;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let back = location(&response);
+    assert_eq!(back.host_str(), Some("127.0.0.1"));
+    assert_eq!(param(&back, "error"), "access_denied");
+    assert_eq!(param(&back, "state"), "cli-state");
+    let response =
+        test::call_service(&app, test::TestRequest::get().uri(&callback).to_request()).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
 /// A code is only released to the holder of the verifier.
 #[tokio::test]
 async fn a_wrong_verifier_never_gets_the_session() {
@@ -275,6 +303,27 @@ async fn a_refused_refresh_counts_toward_a_ban() {
         refresh(&app, "198.51.100.11").await.0,
         StatusCode::TOO_MANY_REQUESTS
     );
+}
+
+/// An IdP refusing the proxy itself (`invalid_client`, its secret rotated)
+/// is not the caller's fault: `503`, no ban.
+#[tokio::test]
+async fn a_refused_proxy_client_never_counts_toward_a_ban() {
+    let _env = BanAfterOneFailure::new().await;
+    let idp = MockServer::start().await;
+    mount_full_oidc_provider(&idp, "alice", &["dev"]).await;
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({"error": "invalid_client"})))
+        .mount(&idp)
+        .await;
+    let app = test::init_service(harness::app(memory_state(&memory_store(), idp.uri()))).await;
+    for _ in 0..3 {
+        assert_eq!(
+            refresh(&app, "198.51.100.13").await.0,
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
 }
 
 /// An IdP that cannot answer is not the caller's fault: `503`, no ban.

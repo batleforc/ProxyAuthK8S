@@ -38,7 +38,8 @@ export const serverAuthLogin = <ThrowOnError extends boolean = false>(options: O
  * Renew the SSO session to the proxy (RFC 0010)
  *
  * The identity provider stays the only judge of the refresh token. A refused
- * one counts toward the unscoped ban; an unreachable provider does not.
+ * one counts toward the unscoped ban; an unreachable or misconfigured
+ * provider does not.
  */
 export const serverAuthRefresh = <ThrowOnError extends boolean = false>(options: Options<ServerAuthRefreshData, ThrowOnError>): RequestResult<ServerAuthRefreshResponses, ServerAuthRefreshErrors, ThrowOnError> => (options.client ?? client).post<ServerAuthRefreshResponses, ServerAuthRefreshErrors, ThrowOnError>({
     ...urlSearchParamsBodySerializer,
@@ -53,6 +54,9 @@ export const serverAuthRefresh = <ThrowOnError extends boolean = false>(options:
 
 /**
  * Redeem the single-use code of the SSO session (RFC 0010)
+ *
+ * The CLI trades the code `/auth/callback` sent to its loopback, with the
+ * PKCE verifier, for the session. A code works once, whatever the outcome.
  */
 export const serverAuthToken = <ThrowOnError extends boolean = false>(options: Options<ServerAuthTokenData, ThrowOnError>): RequestResult<ServerAuthTokenResponses, ServerAuthTokenErrors, ThrowOnError> => (options.client ?? client).post<ServerAuthTokenResponses, ServerAuthTokenErrors, ThrowOnError>({
     ...urlSearchParamsBodySerializer,

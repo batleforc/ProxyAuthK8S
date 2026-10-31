@@ -45,7 +45,7 @@ pub struct OAuthAuthorizationServerMetadata {
     responses(
         (status = 200, description = "OAuth 2.0 authorization server metadata (RFC 8414).", body = OAuthAuthorizationServerMetadata),
         (status = 404, description = "Cluster not found, disabled, or discovery not enabled."),
-        (status = 503, description = "Cache unreachable."),
+        (status = 503, description = "The cache (Redis) is unreachable."),
     ),
     params(
         ("ns" = String, description = "Namespace containing the cluster."),

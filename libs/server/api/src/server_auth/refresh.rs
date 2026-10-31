@@ -6,7 +6,9 @@ use axum::{
     http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
 };
-use openidconnect::{OAuth2TokenResponse, RefreshToken, RequestTokenError};
+use openidconnect::{
+    OAuth2TokenResponse, RefreshToken, RequestTokenError, core::CoreErrorResponseType,
+};
 use serde::Deserialize;
 use tracing::{error, instrument, warn};
 use utoipa::ToSchema;
@@ -17,6 +19,7 @@ use crate::server_auth::{
     SessionError, SessionTokens, peer, session_conf, session_error, session_response, throttled,
 };
 
+/// The form the CLI posts to renew its session.
 #[derive(Deserialize, ToSchema)]
 pub struct SessionRefreshRequest {
     /// The refresh token of the session; in the body, never in the URL.
@@ -26,7 +29,8 @@ pub struct SessionRefreshRequest {
 /// Renew the SSO session to the proxy (RFC 0010)
 ///
 /// The identity provider stays the only judge of the refresh token. A refused
-/// one counts toward the unscoped ban; an unreachable provider does not.
+/// one counts toward the unscoped ban; an unreachable or misconfigured
+/// provider does not.
 #[utoipa::path(
     post,
     path = "/auth/refresh",
@@ -35,9 +39,9 @@ pub struct SessionRefreshRequest {
     request_body(content = SessionRefreshRequest, content_type = "application/x-www-form-urlencoded"),
     responses(
         (status = 200, description = "The renewed session.", body = SessionTokens),
-        (status = 400, description = "invalid_grant: the identity provider refused the refresh token.", body = SessionError),
+        (status = 400, description = "Invalid grant (`invalid_grant`): the identity provider refused the refresh token.", body = SessionError),
         (status = 429, description = "Rate limited or banned (see UNSCOPED_* environment knobs)."),
-        (status = 503, description = "The identity provider is unavailable."),
+        (status = 503, description = "The identity provider is unavailable, or refused the proxy's own client."),
     )
 )]
 #[instrument(name = "server_token_refresh", skip(req, data, form))]
@@ -102,8 +106,11 @@ async fn refresh_inner(
                 )),
             })
         }
-        // The IdP judged the token: a fault of the caller's.
-        Err(RequestTokenError::ServerResponse(response)) => {
+        // The IdP judged the token: a fault of the caller's. Any other OAuth
+        // error (`invalid_client`…) is the proxy's, and bans nobody.
+        Err(RequestTokenError::ServerResponse(response))
+            if *response.error() == CoreErrorResponseType::InvalidGrant =>
+        {
             warn!(error = %response.error(), "the proxy's IdP refused a refresh token");
             audit.deny("invalid_grant");
             throttle::unscoped::record_auth_failure(data, &peer).await;

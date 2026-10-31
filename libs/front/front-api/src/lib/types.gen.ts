@@ -55,6 +55,9 @@ export type SessionError = {
     error: string;
 };
 
+/**
+ * The form the CLI posts to renew its session.
+ */
 export type SessionRefreshRequest = {
     /**
      * The refresh token of the session; in the body, never in the URL.
@@ -62,6 +65,9 @@ export type SessionRefreshRequest = {
     refresh_token: string;
 };
 
+/**
+ * The form the CLI posts to redeem its single-use code.
+ */
 export type SessionTokenRequest = {
     /**
      * The single-use code `/auth/callback` sent to the loopback listener.
@@ -93,10 +99,16 @@ export type SessionTokens = {
     token_type: string;
 };
 
+/**
+ * An OAuth error response (RFC 6749 §5.2).
+ */
 export type TokenErrorBody = {
     error: string;
 };
 
+/**
+ * The token request, form-encoded (RFC 6749 §4.1.3 and §6).
+ */
 export type TokenRequest = {
     /**
      * The proxy-minted code returned by `/oauth/callback`.
@@ -116,6 +128,9 @@ export type TokenRequest = {
     redirect_uri: string;
 };
 
+/**
+ * A successful token response (RFC 6749 §5.1).
+ */
 export type TokenResponseBody = {
     access_token: string;
     expires_in?: number | null;
@@ -146,9 +161,15 @@ export type ServerAuthCallbackData = {
     path?: never;
     query: {
         /**
-         * Authorization code from the proxy's identity provider.
+         * Authorization code from the proxy's identity provider; absent when it
+         * answers with an `error` instead.
          */
-        code: string;
+        code?: string | null;
+        /**
+         * The identity provider's error (`access_denied`…), sent back to the CLI
+         * as `access_denied`.
+         */
+        error?: string | null;
         /**
          * The correlation id this proxy generated at `/auth/login`.
          */
@@ -199,7 +220,7 @@ export type ServerAuthLoginData = {
 
 export type ServerAuthLoginErrors = {
     /**
-     * redirect_uri is not a loopback URI.
+     * The redirect_uri is not a loopback URI.
      */
     400: unknown;
     /**
@@ -225,7 +246,7 @@ export type ServerAuthRefreshData = {
 
 export type ServerAuthRefreshErrors = {
     /**
-     * invalid_grant: the identity provider refused the refresh token.
+     * Invalid grant (`invalid_grant`): the identity provider refused the refresh token.
      */
     400: SessionError;
     /**
@@ -233,7 +254,7 @@ export type ServerAuthRefreshErrors = {
      */
     429: unknown;
     /**
-     * The identity provider is unavailable.
+     * The identity provider is unavailable, or refused the proxy's own client.
      */
     503: unknown;
 };
@@ -258,7 +279,7 @@ export type ServerAuthTokenData = {
 
 export type ServerAuthTokenErrors = {
     /**
-     * invalid_grant: unknown, used or expired code, or a wrong verifier.
+     * Invalid grant (`invalid_grant`): unknown, used or expired code, or a wrong verifier.
      */
     400: SessionError;
     /**
@@ -339,7 +360,7 @@ export type OauthAuthorizationServerErrors = {
      */
     404: unknown;
     /**
-     * Cache unreachable.
+     * The cache (Redis) is unreachable.
      */
     503: unknown;
 };
@@ -508,6 +529,9 @@ export type AuthorizeData = {
          * Opaque value echoed back verbatim on redirect.
          */
         state?: string | null;
+        /**
+         * Space-separated scopes asked of the upstream provider.
+         */
         scope?: string | null;
         /**
          * RFC 7636 PKCE code challenge (43-128 chars, unreserved charset).
@@ -628,7 +652,7 @@ export type TokenData = {
 
 export type TokenErrors = {
     /**
-     * invalid_request / invalid_grant / unsupported_grant_type.
+     * OAuth error: `invalid_request`, `invalid_grant` or `unsupported_grant_type`.
      */
     400: TokenErrorBody;
     /**
@@ -636,7 +660,7 @@ export type TokenErrors = {
      */
     404: unknown;
     /**
-     * Cache unreachable.
+     * The cache (Redis) is unreachable.
      */
     503: unknown;
 };
@@ -645,7 +669,7 @@ export type TokenError = TokenErrors[keyof TokenErrors];
 
 export type TokenResponses = {
     /**
-     * Token response.
+     * The tokens for the cluster: access, ID and refresh.
      */
     200: TokenResponseBody;
 };

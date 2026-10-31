@@ -18,6 +18,7 @@ use crate::cluster::auth::{
 };
 use crate::helper::NsCluster;
 
+/// The token request, form-encoded (RFC 6749 §4.1.3 and §6).
 #[derive(Deserialize, ToSchema)]
 pub struct TokenRequest {
     /// Must be `authorization_code`; this server only implements that grant.
@@ -30,6 +31,7 @@ pub struct TokenRequest {
     pub code_verifier: String,
 }
 
+/// A successful token response (RFC 6749 §5.1).
 #[derive(Serialize, ToSchema)]
 pub struct TokenResponseBody {
     pub access_token: String,
@@ -42,6 +44,7 @@ pub struct TokenResponseBody {
     pub scope: String,
 }
 
+/// An OAuth error response (RFC 6749 §5.2).
 #[derive(Serialize, ToSchema)]
 pub struct TokenErrorBody {
     pub error: String,
@@ -71,10 +74,10 @@ pub const TOKEN_FORM_LIMIT: usize = 16 * 1024;
     tag = "auth_clusters",
     request_body(content = TokenRequest, content_type = "application/x-www-form-urlencoded"),
     responses(
-        (status = 200, description = "Token response.", body = TokenResponseBody),
-        (status = 400, description = "invalid_request / invalid_grant / unsupported_grant_type.", body = TokenErrorBody),
+        (status = 200, description = "The tokens for the cluster: access, ID and refresh.", body = TokenResponseBody),
+        (status = 400, description = "OAuth error: `invalid_request`, `invalid_grant` or `unsupported_grant_type`.", body = TokenErrorBody),
         (status = 404, description = "Cluster not found, disabled, or discovery not enabled."),
-        (status = 503, description = "Cache unreachable."),
+        (status = 503, description = "The cache (Redis) is unreachable."),
     ),
     params(
         ("ns" = String, description = "Namespace containing the cluster."),

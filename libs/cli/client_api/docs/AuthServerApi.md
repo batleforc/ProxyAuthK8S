@@ -13,7 +13,7 @@ Method | HTTP request | Description
 
 ## server_auth_callback
 
-> server_auth_callback(code, state)
+> server_auth_callback(state, code, error)
 Callback from the proxy's identity provider, for the SSO session (RFC 0010)
 
 Not meant to be opened directly. On success, redirects to the CLI's loopback `redirect_uri` with a single-use code, never a token.
@@ -23,8 +23,9 @@ Not meant to be opened directly. On success, redirects to the CLI's loopback `re
 
 Name | Type | Description  | Required | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-**code** | **String** | Authorization code from the proxy's identity provider. | [required] |
 **state** | **String** | The correlation id this proxy generated at `/auth/login`. | [required] |
+**code** | Option<**String**> | Authorization code from the proxy's identity provider; absent when it answers with an `error` instead. |  |
+**error** | Option<**String**> | The identity provider's error (`access_denied`…), sent back to the CLI as `access_denied`. |  |
 
 ### Return type
 
@@ -79,7 +80,7 @@ No authorization required
 > models::SessionTokens server_auth_refresh(refresh_token)
 Renew the SSO session to the proxy (RFC 0010)
 
-The identity provider stays the only judge of the refresh token. A refused one counts toward the unscoped ban; an unreachable provider does not.
+The identity provider stays the only judge of the refresh token. A refused one counts toward the unscoped ban; an unreachable or misconfigured provider does not.
 
 ### Parameters
 
@@ -108,6 +109,8 @@ No authorization required
 
 > models::SessionTokens server_auth_token(code, code_verifier, redirect_uri)
 Redeem the single-use code of the SSO session (RFC 0010)
+
+The CLI trades the code `/auth/callback` sent to its loopback, with the PKCE verifier, for the session. A code works once, whatever the outcome.
 
 ### Parameters
 

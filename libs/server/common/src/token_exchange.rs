@@ -120,7 +120,8 @@ pub fn parse_response(status: u16, body: &[u8]) -> Result<Exchanged, ExchangeErr
         error: Option<String>,
     }
     let answer = serde_json::from_slice::<Answer>(body).ok();
-    if status >= 500 {
+    // 408 and 429 are the IdP's load, not a verdict on the token.
+    if status >= 500 || status == 408 || status == 429 {
         return Err(ExchangeError::Unavailable(format!("status {status}")));
     }
     if !(200..300).contains(&status) {
@@ -229,18 +230,27 @@ pub fn cache_ttl(
 }
 
 /// The cache key: never the raw token, and scoped to the cluster (its UID),
-/// the IdP, the client and the audience (§5.2), so a user only ever gets the
-/// token exchanged for their own (T4).
+/// the IdP, the client and what is asked of it (audience, scope, connector,
+/// §5.2), so a user only ever gets the token exchanged for their own (T4),
+/// and a settings change is never served a token of the old ones.
 #[must_use]
 pub fn cache_key(
     subject_token: &str,
     cluster_uid: &str,
     issuer_url: &str,
     client_id: &str,
-    audience: &str,
+    settings: &TokenExchangeSettings,
 ) -> String {
     let mut hasher = Sha256::new();
-    for part in [subject_token, cluster_uid, issuer_url, client_id, audience] {
+    for part in [
+        subject_token,
+        cluster_uid,
+        issuer_url,
+        client_id,
+        &settings.audience,
+        &settings.scope,
+        &settings.connector_id,
+    ] {
         hasher.update((part.len() as u64).to_be_bytes());
         hasher.update(part.as_bytes());
     }
@@ -257,25 +267,49 @@ static EXCHANGED: LazyLock<TtlCache<String, Exchanged>> = LazyLock::new(TtlCache
 static IN_FLIGHT: LazyLock<StdMutex<HashMap<String, Arc<AsyncMutex<()>>>>> =
     LazyLock::new(|| StdMutex::new(HashMap::new()));
 
-fn acquire(key: &str) -> Arc<AsyncMutex<()>> {
-    let mut map = IN_FLIGHT
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    map.entry(key.to_string())
-        .or_insert_with(|| Arc::new(AsyncMutex::new(())))
-        .clone()
+/// A key's entry in [`IN_FLIGHT`], removed by the last holder on drop, so a
+/// request cancelled mid-exchange (client gone) leaves nothing behind.
+struct InFlight {
+    key: String,
+    lock: Arc<AsyncMutex<()>>,
 }
 
-fn release(key: &str) {
-    let mut map = IN_FLIGHT
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if map
-        .get(key)
-        .is_some_and(|lock| Arc::strong_count(lock) == 1)
-    {
-        map.remove(key);
+impl InFlight {
+    fn acquire(key: &str) -> Self {
+        let mut map = IN_FLIGHT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let lock = map
+            .entry(key.to_string())
+            .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+            .clone();
+        Self {
+            key: key.to_string(),
+            lock,
+        }
     }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        let mut map = IN_FLIGHT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // The map's and this one: no other request waits on the key.
+        if map
+            .get(&self.key)
+            .is_some_and(|lock| Arc::ptr_eq(lock, &self.lock) && Arc::strong_count(lock) == 2)
+        {
+            map.remove(&self.key);
+        }
+    }
+}
+
+/// The cached exchanged token for `key`, if any: read before anything else,
+/// so a cache hit never waits on the IdP's discovery.
+#[must_use]
+pub fn cached(key: &str) -> Option<Arc<SecretString>> {
+    EXCHANGED.get(&key.to_string()).map(|hit| hit.token)
 }
 
 /// Whether the token came from the cache or a real exchange.
@@ -299,15 +333,15 @@ pub async fn exchange_cached(
     subject_token: &str,
     source_ttl: Option<Duration>,
 ) -> Result<(Arc<SecretString>, Source), ExchangeError> {
-    if let Some(hit) = EXCHANGED.get(&key.to_string()) {
-        return Ok((hit.token, Source::CacheHit));
+    if let Some(token) = cached(key) {
+        return Ok((token, Source::CacheHit));
     }
-    let lock = acquire(key);
+    let in_flight = InFlight::acquire(key);
     let outcome = async {
-        let _guard = lock.lock().await;
+        let _guard = in_flight.lock.lock().await;
         // Another request may have filled it while this one waited.
-        if let Some(hit) = EXCHANGED.get(&key.to_string()) {
-            return Ok((hit.token, Source::CacheHit));
+        if let Some(token) = cached(key) {
+            return Ok((token, Source::CacheHit));
         }
         let exchanged = exchange(http, client, settings, subject_token).await?;
         let ttl = cache_ttl(exchanged.expires_in, source_ttl, settings.max_cache_seconds);
@@ -317,8 +351,7 @@ pub async fn exchange_cached(
         Ok((exchanged.token, Source::Exchanged))
     }
     .await;
-    drop(lock);
-    release(key);
+    drop(in_flight);
     outcome
 }
 
@@ -402,6 +435,13 @@ mod tests {
                 "status 400, invalid_grant".to_string()
             ))
         );
+        // The IdP's load is an outage, never a refusal of the caller.
+        for status in [408, 429] {
+            assert!(matches!(
+                parse_response(status, br#"{"error":"slow_down"}"#),
+                Err(ExchangeError::Unavailable(_))
+            ));
+        }
         assert!(matches!(
             parse_response(200, br#"{"token_type":"Bearer"}"#),
             Err(ExchangeError::Unreadable(_))
@@ -427,13 +467,59 @@ mod tests {
     /// T4: two tokens, or one token on two clusters, never share a key.
     #[test]
     fn two_users_never_share_an_exchanged_token() {
-        let key = |token, uid| cache_key(token, uid, "https://sso", "kube", "");
+        let key = |token, uid| cache_key(token, uid, "https://sso", "kube", &settings());
         assert_ne!(key("alice", "uid-1"), key("bob", "uid-1"));
         assert_ne!(key("alice", "uid-1"), key("alice", "uid-2"));
         // Length-prefixed: shifting bytes between parts changes the key.
         assert_ne!(
-            cache_key("ab", "c", "i", "k", ""),
-            cache_key("a", "bc", "i", "k", "")
+            cache_key("ab", "c", "i", "k", &settings()),
+            cache_key("a", "bc", "i", "k", &settings())
         );
+    }
+
+    /// A changed scope or connector is never served a token of the old one.
+    #[test]
+    fn a_settings_change_never_hits_the_old_cache() {
+        let key = |settings: &TokenExchangeSettings| cache_key("alice", "uid", "i", "k", settings);
+        let base = key(&settings());
+        for changed in [
+            TokenExchangeSettings {
+                audience: "other".into(),
+                ..settings()
+            },
+            TokenExchangeSettings {
+                scope: "openid".into(),
+                ..settings()
+            },
+            TokenExchangeSettings {
+                connector_id: "ldap".into(),
+                ..settings()
+            },
+        ] {
+            assert_ne!(base, key(&changed));
+        }
+    }
+
+    /// A request cancelled while it waits on a key leaves no entry behind.
+    #[tokio::test]
+    async fn a_cancelled_request_leaves_no_in_flight_entry() {
+        let key = "a_cancelled_request_leaves_no_in_flight_entry";
+        let holder = InFlight::acquire(key);
+        let held = holder.lock.lock().await;
+        let waiter = async {
+            let in_flight = InFlight::acquire(key);
+            let _guard = in_flight.lock.lock().await;
+        };
+        assert!(
+            tokio::time::timeout(Duration::from_millis(10), waiter)
+                .await
+                .is_err()
+        );
+        drop(held);
+        drop(holder);
+        let map = IN_FLIGHT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        assert!(!map.contains_key(key));
     }
 }

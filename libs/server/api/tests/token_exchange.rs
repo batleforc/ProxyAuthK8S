@@ -203,6 +203,20 @@ async fn the_proxy_token_is_exchanged_once_then_served_from_the_cache() {
     );
 }
 
+/// A cache hit never waits on the cluster IdP's discovery: once exchanged,
+/// the token is served while that IdP is gone.
+#[tokio::test]
+async fn a_cache_hit_survives_the_cluster_idp_going_away() {
+    let bench = Bench::new(|_| {}).await;
+    bench.exchange_succeeds(1).await;
+    bench.apiserver_expects(2).await;
+    let token = proxy_token("proxyauthk8s");
+    assert_eq!(bench.get(&token).await.0, StatusCode::OK);
+    bench.cluster_idp.reset().await;
+    let (status, body, _) = bench.get(&token).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
 /// T3: the exchanged token never comes back, in a body or a header.
 #[tokio::test]
 async fn the_exchanged_token_never_reaches_the_client() {

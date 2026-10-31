@@ -33,10 +33,25 @@
           {
             "name": "code",
             "in": "query",
-            "description": "Authorization code from the proxy's identity provider.",
-            "required": true,
+            "description": "Authorization code from the proxy's identity provider; absent when it\nanswers with an `error` instead.",
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "description": "The identity provider's error (`access_denied`…), sent back to the CLI\nas `access_denied`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {
@@ -113,7 +128,7 @@
             "description": "Redirect to the proxy's identity provider, or to redirect_uri with an error."
           },
           "400": {
-            "description": "redirect_uri is not a loopback URI."
+            "description": "The redirect_uri is not a loopback URI."
           },
           "429": {
             "description": "Rate limited or banned (see UNSCOPED_* environment knobs)."
@@ -133,7 +148,7 @@
           "auth_server"
         ],
         "summary": "Renew the SSO session to the proxy (RFC 0010)",
-        "description": "The identity provider stays the only judge of the refresh token. A refused\none counts toward the unscoped ban; an unreachable provider does not.",
+        "description": "The identity provider stays the only judge of the refresh token. A refused\none counts toward the unscoped ban; an unreachable or misconfigured\nprovider does not.",
         "operationId": "server_auth_refresh",
         "requestBody": {
           "content": {
@@ -157,7 +172,7 @@
             }
           },
           "400": {
-            "description": "invalid_grant: the identity provider refused the refresh token.",
+            "description": "Invalid grant (`invalid_grant`): the identity provider refused the refresh token.",
             "content": {
               "application/json": {
                 "schema": {
@@ -170,7 +185,7 @@
             "description": "Rate limited or banned (see UNSCOPED_* environment knobs)."
           },
           "503": {
-            "description": "The identity provider is unavailable."
+            "description": "The identity provider is unavailable, or refused the proxy's own client."
           }
         }
       }
@@ -181,6 +196,7 @@
           "auth_server"
         ],
         "summary": "Redeem the single-use code of the SSO session (RFC 0010)",
+        "description": "The CLI trades the code `/auth/callback` sent to its loopback, with the\nPKCE verifier, for the session. A code works once, whatever the outcome.",
         "operationId": "server_auth_token",
         "requestBody": {
           "content": {
@@ -204,7 +220,7 @@
             }
           },
           "400": {
-            "description": "invalid_grant: unknown, used or expired code, or a wrong verifier.",
+            "description": "Invalid grant (`invalid_grant`): unknown, used or expired code, or a wrong verifier.",
             "content": {
               "application/json": {
                 "schema": {
@@ -304,7 +320,7 @@
             "description": "Cluster not found, disabled, or discovery not enabled."
           },
           "503": {
-            "description": "Cache unreachable."
+            "description": "The cache (Redis) is unreachable."
           }
         }
       }
@@ -563,6 +579,7 @@
           {
             "name": "scope",
             "in": "query",
+            "description": "Space-separated scopes asked of the upstream provider.",
             "required": false,
             "schema": {
               "type": [
@@ -752,7 +769,7 @@
         },
         "responses": {
           "200": {
-            "description": "Token response.",
+            "description": "The tokens for the cluster: access, ID and refresh.",
             "content": {
               "application/json": {
                 "schema": {
@@ -762,7 +779,7 @@
             }
           },
           "400": {
-            "description": "invalid_request / invalid_grant / unsupported_grant_type.",
+            "description": "OAuth error: `invalid_request`, `invalid_grant` or `unsupported_grant_type`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -775,7 +792,7 @@
             "description": "Cluster not found, disabled, or discovery not enabled."
           },
           "503": {
-            "description": "Cache unreachable."
+            "description": "The cache (Redis) is unreachable."
           }
         }
       }
@@ -1296,6 +1313,7 @@
       },
       "SessionRefreshRequest": {
         "type": "object",
+        "description": "The form the CLI posts to renew its session.",
         "required": [
           "refresh_token"
         ],
@@ -1308,6 +1326,7 @@
       },
       "SessionTokenRequest": {
         "type": "object",
+        "description": "The form the CLI posts to redeem its single-use code.",
         "required": [
           "code",
           "redirect_uri",
@@ -1361,6 +1380,7 @@
       },
       "TokenErrorBody": {
         "type": "object",
+        "description": "An OAuth error response (RFC 6749 §5.2).",
         "required": [
           "error"
         ],
@@ -1372,6 +1392,7 @@
       },
       "TokenRequest": {
         "type": "object",
+        "description": "The token request, form-encoded (RFC 6749 §4.1.3 and §6).",
         "required": [
           "grant_type",
           "code",
@@ -1399,6 +1420,7 @@
       },
       "TokenResponseBody": {
         "type": "object",
+        "description": "A successful token response (RFC 6749 §5.1).",
         "required": [
           "access_token",
           "token_type",

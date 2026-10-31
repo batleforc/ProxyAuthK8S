@@ -84,6 +84,17 @@ async fn exchange(
         }
         Err(e) => return Err(ExchangeError::Unavailable(e.to_string())),
     };
+    let key = token_exchange::cache_key(
+        token,
+        proxy.metadata.uid.as_deref().unwrap_or_default(),
+        &conf.issuer_url,
+        &conf.client_id,
+        settings,
+    );
+    // A cache hit never waits on the IdP's discovery (its outage included).
+    if let Some(token) = token_exchange::cached(&key) {
+        return Ok((token, Source::CacheHit));
+    }
     let token_endpoint = conf
         .token_endpoint()
         .await
@@ -91,13 +102,6 @@ async fn exchange(
     let http = conf
         .reqwest_client()
         .map_err(|e| ExchangeError::Unavailable(e.to_string()))?;
-    let key = token_exchange::cache_key(
-        token,
-        proxy.metadata.uid.as_deref().unwrap_or_default(),
-        &conf.issuer_url,
-        &conf.client_id,
-        &settings.audience,
-    );
     let client = ExchangeClient {
         token_endpoint: &token_endpoint,
         client_id: &conf.client_id,
