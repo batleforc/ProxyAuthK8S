@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Accepted                                                               |
+| Status      | Implemented                                                            |
 | Short       | Authentificateur de confiance (front-proxy, émetteur)                  |
 | Settles     | Ne plus déclarer l'IdP de chaque utilisateur dans chaque apiserver     |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -1891,7 +1891,7 @@ Codée sur la même branche, dans #323, commits `7e3ce96` à `7af6487`.
 - **Prochaines étapes, dans l'ordre** : la fusion de #323 (revue faite) ;
   la condition `UpstreamTrusted` une fois weebo-operator-kit#34 publié ; la
   suite *heavy* (RFC suivante, points 16 et 17 compris) ; la 0.5.0, avec
-  `Implemented`.
+  `Implemented` (fait : livrée en 0.5.0, 2026-10-31).
 - **Contraintes de travail** : la machine ne tient pas les charges
   lourdes — en local seulement `cargo check`, `cargo clippy` et
   `cargo test -p <crate> --lib` (ou un binaire de test ciblé) ; la suite

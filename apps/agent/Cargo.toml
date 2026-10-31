@@ -1,6 +1,6 @@
 [package]
 name = "agent"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 publish = false
@@ -11,8 +11,8 @@ name = "proxyauthk8s-agent"
 path = "src/main.rs"
 
 [dependencies]
-agent_pki = { path = "../../libs/agent/pki", version = "0.4.2" }
-agent_proto = { path = "../../libs/agent/proto", version = "0.4.2" }
+agent_pki = { path = "../../libs/agent/pki", version = "0.5.0" }
+agent_proto = { path = "../../libs/agent/proto", version = "0.5.0" }
 anyhow = { workspace = true }
 axum = { workspace = true }
 # Already in the tree (api): the egress proxy's `Proxy-Authorization: Basic`.

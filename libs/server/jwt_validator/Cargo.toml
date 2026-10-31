@@ -1,6 +1,6 @@
 [package]
 name = "jwt_validator"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 
@@ -18,7 +18,7 @@ jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
 # type mismatch rather than a version error.
 kube-cel = "0.8"
 
-crd = { path = "../crd", version = "0.4.2" }
+crd = { path = "../crd", version = "0.5.0" }
 
 [dev-dependencies]
 # Already in the tree (controller, api): a fresh ES256 key per test token.
