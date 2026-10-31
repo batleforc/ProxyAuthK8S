@@ -1642,7 +1642,8 @@ sous-protocole WebSocket (décision 39) ; `upstream_mode` dans l'audit.
    l'apiserver, que le banc n'active pas encore. Le point 16 est couvert par
    le test unitaire `bearer_subprotocol_entries_are_stripped_in_every_mode`,
    le banc n'ayant pas d'écho amont ; le point 17 (binaire d'avant la
-   phase 1) n'est pas encore prouvé.
+   phase 1) n'est pas encore prouvé. Les deux le sont depuis par la suite
+   heavy de la RFC 0016 (`heavy_rfc0014.rs`).
 
 **Tests de sécurité livrés** : T19 et T20
 (`a_trusted_mode_outside_allowed_modes_is_refused_with_who_can_act`), T23

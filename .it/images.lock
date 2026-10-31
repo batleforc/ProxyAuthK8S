@@ -10,3 +10,7 @@ tinyproxy  docker.io/kalaksi/tinyproxy:1.7@sha256:5a65354cbb5f9c0fdcc8de3d3af8dd
 microsocks docker.io/heywoodlh/microsocks:2026_10_snapshot@sha256:a8cd0b0b10bd48e90cde836852951fa3a55700a94f5cf8755119db6d830376f7
 # RFC 0013 §6.P point 2: the published agent, a real client of the previous release.
 agent-v0.4.0 ghcr.io/batleforc/proxyauthk8s/agent:v0.4.0@sha256:cbb881b2201b06f1d752d8f32f0112a0d0474cfbb100b85bfe8242e39708eca4
+# RFC 0016 §6.1: the heavy suite's upstream echo (.it/heavy/echo.py, stdlib only).
+python   docker.io/library/python:3.14-alpine@sha256:eb2c62658b8d51bff0acc408504b76521d02030de56a8a3c1e830083e89b89d2
+# RFC 0014 point 17 (RFC 0016): the last server released before RFC 0014's phase 1, beside the current one.
+server-previous ghcr.io/batleforc/proxyauthk8s/server:v0.4.2@sha256:0e6fad44100f66bd92fa4146a6dd0b8cc238579d22d5d14830133f630739fd86

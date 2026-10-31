@@ -135,7 +135,7 @@ pub async fn agent_proxied_with(
 
 /// [`proxied`] with `service`; `before_ready` runs once everything is
 /// applied, before waiting for the cluster to be exposed.
-async fn proxied_through(
+pub async fn proxied_through(
     test: &str,
     service: Value,
     security: Value,
@@ -424,4 +424,26 @@ pub fn install_front_proxy_cert(ns: &str, cluster: &str, target: &str) {
         "stringData": { "tls.crt": read("client.crt"), "tls.key": read("client.key") },
     });
     bench.apply(&secret.to_string());
+}
+
+/// Wait until `status.upstreamAuth.trust` reads `expected`: a probe round
+/// (60 s), then the controller's requeue (60 s).
+pub async fn wait_trust(ns: &str, expected: &str) {
+    let mut trust = String::new();
+    for _ in 0..90 {
+        let out = Bench::get().admin(&[
+            "-n",
+            ns,
+            "get",
+            &format!("proxykubeapi/{}", CLUSTER),
+            "-o",
+            "jsonpath={.status.upstreamAuth.trust}",
+        ]);
+        trust = String::from_utf8_lossy(&out.stdout).to_string();
+        if trust == expected {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    }
+    assert_eq!(trust, expected, "status.upstreamAuth.trust");
 }

@@ -15,6 +15,7 @@
 pub mod bench;
 pub mod cli;
 pub mod fixture;
+pub mod heavy;
 pub mod observe;
 pub mod personas;
 

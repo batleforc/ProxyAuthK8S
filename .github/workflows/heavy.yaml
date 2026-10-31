@@ -1,0 +1,152 @@
+name: 🏋️ Heavy suite and HTTP load
+
+# RFC 0016: what the integration suite's bench cannot show on every PR. The
+# heavy suite (`task it:heavy`: the upstream echo, the previous release's
+# server) and the HTTP load (`task perf:http`: k6 through the Ingress, the
+# back's memory sampled), each on its own bench. Nightly on main, by hand,
+# and on a PR labelled `heavy` or `perf`. Not a required check: a nightly
+# failure opens the `heavy-nightly` issue.
+on:
+  schedule:
+    - cron: "45 3 * * *"
+  workflow_dispatch:
+    inputs:
+      perf_duration:
+        description: "Hold of each load scenario (k6 duration, e.g. 2m; hours make it a soak)"
+        default: "2m"
+      perf_vus:
+        description: "Virtual users of each load scenario"
+        default: "10"
+  pull_request:
+    branches: ["main"]
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: heavy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  heavy:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'heavy')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install mise
+        uses: ./.github/actions/setup-mise
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      - name: Install the tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends keyutils
+          mise install rust k3d kubectl helm mkcert yq uv cargo-binstall cargo:cargo-nextest
+      - name: Mount the bench
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: mise exec -- task it:up
+      - name: Raise the keyring quota
+        run: sudo sysctl -w kernel.keys.maxbytes=2000000 kernel.keys.maxkeys=2000
+      - name: Run the heavy suite
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: mise exec -- task it:heavy
+      - name: Collect the bench logs
+        if: always()
+        run: mise exec -- task it:logs || true
+      - name: 📤 Upload the logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: heavy-logs
+          path: .it/run/logs/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Delete the bench
+        if: always()
+        run: mise exec -- task it:down || true
+
+  perf:
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'perf')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PERF_OUT: ${{ github.workspace }}/dist/perf
+      PERF_DURATION: ${{ inputs.perf_duration || '2m' }}
+      PERF_VUS: ${{ inputs.perf_vus || '10' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install mise
+        uses: ./.github/actions/setup-mise
+      - name: Install Task
+        uses: go-task/setup-task@a00fbb05ce67b35648be3c78cbc9fd85354c757e # v2.2.0
+      - name: Install the tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends keyutils
+          mise install rust k3d kubectl helm mkcert yq uv k6 cargo-binstall cargo:cargo-nextest
+      - name: Mount the bench
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: mise exec -- task it:up
+      - name: Raise the keyring quota
+        run: sudo sysctl -w kernel.keys.maxbytes=2000000 kernel.keys.maxkeys=2000
+      - name: Run the load
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: mise exec -- task perf:http
+      - name: Compare with the last baseline
+        if: always()
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
+        run: |
+          cat "$PERF_OUT/summary.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          base=$(find tests/perf/baselines -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -n1)
+          if [ -z "$base" ] || [ ! -d "$PERF_OUT" ]; then
+            echo "No baseline yet (tests/perf/baselines/<version>/): nothing to compare." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo
+            echo "### Against $base"
+            mise exec -- task perf:compare BASE="$base" NEW="$PERF_OUT"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: 📤 Upload the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: perf-http
+          path: dist/perf/
+          retention-days: 30
+          if-no-files-found: ignore
+      - name: Collect the bench logs
+        if: always()
+        run: mise exec -- task it:logs || true
+      - name: Delete the bench
+        if: always()
+        run: mise exec -- task it:down || true
+
+  # Nobody waits on the nightly run: a failure opens the `heavy-nightly`
+  # issue, or comments on the open one.
+  nightly-alert:
+    needs: [heavy, perf]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open or comment the heavy-nightly issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body="The nightly heavy suite or HTTP load failed on $GITHUB_SHA: $RUN_URL"
+          issue=$(gh issue list --label heavy-nightly --state open --json number --jq '.[0].number')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh label create heavy-nightly --color B60205 --description "Nightly heavy suite or HTTP load failure" 2>/dev/null || true
+            gh issue create --title "Nightly heavy suite failing" --label heavy-nightly --body "$body"
+          fi

@@ -173,6 +173,7 @@ tasks:
       - it:matrix
       - it:stride
       - perf:check-tag
+      - perf:compare-self-test
 
   cli:
     desc: "Run kubectl_proxyauth with args"

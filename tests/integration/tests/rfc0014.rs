@@ -11,28 +11,6 @@
 use integration::{Bench, Persona, Session, fixture, observe};
 use serde_json::{Value, json};
 
-/// Wait until `status.upstreamAuth.trust` reads `expected`: a probe round
-/// (60 s), then the controller's requeue (60 s).
-async fn wait_trust(ns: &str, expected: &str) {
-    let mut trust = String::new();
-    for _ in 0..90 {
-        let out = Bench::get().admin(&[
-            "-n",
-            ns,
-            "get",
-            &format!("proxykubeapi/{}", fixture::CLUSTER),
-            "-o",
-            "jsonpath={.status.upstreamAuth.trust}",
-        ]);
-        trust = String::from_utf8_lossy(&out.stdout).to_string();
-        if trust == expected {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
-    }
-    assert_eq!(trust, expected, "status.upstreamAuth.trust");
-}
-
 /// A cluster the proxy closes: the request answers `503` with the proxy's
 /// `Status` naming `cause`, and kubectl fails with `ServiceUnavailable`.
 /// kubectl cannot print the message itself: the `503` comes during
@@ -302,7 +280,7 @@ async fn p3_the_apiserver_sees_the_prefixed_identity() {
         "no request audited with both identities"
     );
     // The probe's success is visible, not only the absence of a failure.
-    wait_trust(&ns, "Trusted").await;
+    fixture::wait_trust(&ns, "Trusted").await;
 }
 
 /// Point 4 (refusal): identity and impersonation headers a client adds
@@ -520,7 +498,7 @@ async fn p9_a_certificate_of_an_untrusted_ca_closes_the_cluster() {
         tokio::time::sleep(std::time::Duration::from_secs(4)).await;
     }
     assert_eq!(reason, "FrontProxyNotTrusted");
-    wait_trust(&ns, "Rejected").await;
+    fixture::wait_trust(&ns, "Rejected").await;
     assert_closed(&p, "not ready for upstream mode FrontProxy").await;
 }
 
@@ -614,7 +592,7 @@ async fn p7_front_proxy_crosses_the_agent_tunnel() {
         groups.iter().any(|g| g == "proxyauth:it-readers"),
         "{groups:?}"
     );
-    wait_trust(&p.ns.name, "Trusted").await;
+    fixture::wait_trust(&p.ns.name, "Trusted").await;
 }
 
 /// Point 8 (refusal): straight to the apiserver, without the proxy's
@@ -772,7 +750,7 @@ async fn p10_an_issuer_cluster_asserts_the_prefixed_identity() {
     let p = fixture::proxied("rfc0014-p10", Value::Null).await;
     let ns = p.ns.name.clone();
     fixture::prepare_issuer(&p);
-    wait_trust(&ns, "Trusted").await;
+    fixture::wait_trust(&ns, "Trusted").await;
     assert_eq!(
         upstream_status(&ns, "audience"),
         format!("proxyk8sauth:{ns}/{}", fixture::CLUSTER)
@@ -869,7 +847,7 @@ async fn p12_an_issuer_without_prefix_rules_is_closed() {
     let p = fixture::proxied("rfc0014-p12", Value::Null).await;
     let ns = p.ns.name.clone();
     fixture::prepare_issuer(&p);
-    wait_trust(&ns, "Unguarded").await;
+    fixture::wait_trust(&ns, "Unguarded").await;
     switch_to_issuer(&ns);
     fixture::wait(
         &ns,
@@ -890,7 +868,7 @@ async fn p13_a_rotation_loses_no_request_and_a_revocation_replaces_the_key() {
     let p = fixture::proxied("rfc0014-p13", Value::Null).await;
     let ns = p.ns.name.clone();
     fixture::prepare_issuer(&p);
-    wait_trust(&ns, "Trusted").await;
+    fixture::wait_trust(&ns, "Trusted").await;
     switch_to_issuer(&ns);
     let first = upstream_status(&ns, "keyId");
     let annotate = |value: &str| {

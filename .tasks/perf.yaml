@@ -15,6 +15,26 @@ tasks:
         WEEBO_PERF_OUT="${WEEBO_PERF_OUT:-{{.ROOT_DIR}}/target/perf}"
         cargo test --release --manifest-path tests/perf/Cargo.toml -- --ignored --nocapture
 
+  http:
+    desc: "HTTP load on the bench with k6 (RFC 0016, tests/perf/k6): every scenario through the Ingress, the back's memory sampled; report in PERF_OUT (default .it/run/perf). PERF_DURATION=2m (the hold of each scenario; hours make it a soak), PERF_VUS=10, PERF_ENFORCE=1 enforces the latency targets"
+    cmds:
+      - cargo build -p kubectl_proxyauth
+      - |
+        env -u DBUS_SESSION_BUS_ADDRESS keyctl session - \
+          cargo nextest run -p integration --profile perf --no-capture
+
+  compare:
+    desc: "Compare a perf:http report (NEW, default .it/run/perf) with a baseline (BASE=tests/perf/baselines/<version>): p95 per scenario, MARGIN=25 percent, FAIL=1 to exit non-zero on a regression"
+    requires:
+      vars: [BASE]
+    cmds:
+      - uv run --script .it/perf_compare.py {{.BASE}} {{.NEW | default ".it/run/perf"}} --margin {{.MARGIN | default "25"}} {{if eq (.FAIL | default "") "1"}}--fail{{end}}
+
+  compare-self-test:
+    desc: "Self-test of the perf:compare script (fixtures, no bench)"
+    cmds:
+      - uv run --script .it/perf_compare.py --self-test
+
   check-tag:
     desc: "Check that tests/perf pins the kit at the root Cargo.toml's tag (kit:sync only rewrites the root manifest)"
     silent: true

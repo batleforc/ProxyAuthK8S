@@ -10,6 +10,10 @@ Statuts :
 - `suite` : prouvé par la suite d'intégration. Rust :
   `rfcNNNN::pN_sujet` (`tests/integration/tests/rfcNNNN.rs`) ; Playwright :
   `e2e-it/<fichier> › <titre>` (`apps/front/e2e-it`).
+- `heavy` : prouvé par la suite heavy ou la charge HTTP (RFC 0016,
+  `task it:heavy`, `task perf:http`) : `heavy_rfcNNNN::pN_sujet` ou
+  `perf_http::pN_sujet` (`tests/integration/tests/{heavy,perf}_*.rs`),
+  que `it:test` laisse de côté.
 - `hors suite` : prouvé ailleurs (job CI, test unitaire) ou à la main, avec
   le renvoi ou la raison.
 - `quarantaine` : test instable désactivé, avec son issue (`#N`).
@@ -167,8 +171,8 @@ Statuts :
 | 0014 | 13    | suite       | `rfc0014::p13_a_rotation_loses_no_request_and_a_revocation_replaces_the_key` |
 | 0014 | 14    | suite       | `rfc0014::p14_the_dex_token_never_reaches_the_logs` |
 | 0014 | 15    | suite       | `rfc0014::p15_a_mapping_from_one_cluster_never_serves_another` |
-| 0014 | 16    | hors suite  | RFC 0016 : le banc n'a pas d'écho amont pour lire la poignée relayée |
-| 0014 | 17    | hors suite  | RFC 0016 : le banc ne lance pas l'image du tag précédent à côté |
+| 0014 | 16    | heavy       | `heavy_rfc0014::p16_the_bearer_subprotocol_never_reaches_upstream` |
+| 0014 | 17    | heavy       | `heavy_rfc0014::p17_a_previous_server_never_serves_a_trusted_cluster` |
 | 0015 | 1     | hors suite  | chaîne de test, pas de client produit : `task test:unit`, job `🧪 Run cargo test` |
 | 0015 | 2     | hors suite  | `libs/server/common/tests/kv_contract.rs` sous `task test:all` |
 | 0015 | 3     | hors suite  | `libs/server/api/tests/throttle_store_failures.rs` (`…_refused_when_failing_closed`, `…_through_by_default`) |
@@ -179,3 +183,10 @@ Statuts :
 | 0015 | 8     | hors suite  | `.github/workflows/mutants.yaml`, `.cargo/mutants.toml` |
 | 0015 | 9     | hors suite  | `task test:coverage:ci`, `COVERAGE_MIN` dans `.tasks/test.yaml` |
 | 0015 | 10    | hors suite  | `task it:stride` et son `--self-test` (`.it/stride.py`) |
+| 0016 | 1     | heavy       | `heavy_rfc0016::p1_passthrough_relays_the_token_and_no_smuggled_identity` |
+| 0016 | 2     | heavy       | `heavy_rfc0016::p2_front_proxy_relays_only_the_asserted_identity` |
+| 0016 | 3     | heavy       | `perf_http::p3_the_proxy_holds_the_load_without_errors` |
+| 0016 | 4     | heavy       | `perf_http::p4_the_rate_limit_holds_under_concurrency` |
+| 0016 | 5     | hors suite  | job `nightly-alert` de `.github/workflows/heavy.yaml` (même mécanique que celui d'`integration.yaml`) |
+| 0016 | 6     | hors suite  | `task perf:compare-self-test` (dans `task lint`) |
+| 0016 | 7     | hors suite  | `task it:matrix` `--self-test` (dans `task lint`) |

@@ -1,6 +1,6 @@
 # Matrice STRIDE → tests négatifs
 
-Une ligne par menace `T<n>` du §7.1 des RFC 0010 à 0014 (RFC 0015 §6.4,
+Une ligne par menace `T<n>` du §7.1 des RFC 0010 à 0014 et 0016 (RFC 0015 §6.4,
 décision 10) : le test qui tente le contournement et prouve qu'il est refusé.
 `task it:stride` (et donc `task lint`) échoue si une menace manque, si une
 ligne `test` nomme un test absent, si une ligne `hors suite` n'a ni renvoi ni
@@ -95,3 +95,8 @@ Une menace nouvelle d'une RFC suivante entre ici avec sa RFC dans `RFCS`.
 | 0014 | T27 | test | `tests/integration/tests/rfc0014.rs::p11_admission_refuses_a_client_cert_in_front_proxy`, `libs/server/crd/src/upstream_auth/front_proxy.rs::the_secret_name_is_unambiguous` |
 | 0014 | T28 | test | `libs/server/api/tests/audience_validation_off.rs::a_trusted_mode_without_audience_validation_is_refused` ; le `Ready=False` (`AudienceValidationRequired`) du contrôleur reste sans test |
 | 0014 | T29 | test | `tests/integration/tests/rfc0014.rs::t29_a_certificate_bound_to_another_target_closes_the_cluster`, `libs/server/crd/src/upstream_auth/front_proxy.rs::a_secret_without_the_label_or_for_another_target_is_never_used` |
+| 0016 | T1 | hors suite | digest exigé : `it:up` refuse une ligne de `.it/images.lock` sans `@sha256`, les tests heavy lisent les mêmes lignes (`fixture::image`) |
+| 0016 | T2 | hors suite | `.github/workflows/heavy.yaml` : `pull_request` (pas `_target`), `contents: read`, `issues: write` dans le seul job d'alerte sur `schedule` ; `actionlint` dans `task lint` |
+| 0016 | T3 | test | `tests/integration/tests/heavy_rfc0014.rs::p17_a_previous_server_never_serves_a_trusted_cluster`, `tests/integration/tests/heavy_rfc0016.rs::p1_passthrough_relays_the_token_and_no_smuggled_identity` (chaque test exige sa requête marquée avant d'en lire les en-têtes) |
+| 0016 | T4 | hors suite | risque accepté (RFC 0016 §7.1) : personas fictifs d'un banc jetable, namespace de l'écho supprimé en fin de test |
+| 0016 | T5 | hors suite | jobs `heavy` et `perf` jamais requis, `timeout-minutes`, concurrence par ref (`.github/workflows/heavy.yaml`) |

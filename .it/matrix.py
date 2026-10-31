@@ -6,7 +6,9 @@
 
 Every numbered point of a `### 6.P` section of `.rfc/NNNN-*.md` needs a row;
 a `suite` row must name tests that exist; `hors suite` needs a reason or a
-pointer; `quarantaine` needs an issue number; `à écrire` is refused except
+pointer; a `heavy` row names tests of the heavy suite or the load test
+(`heavy_*`, `perf_*` binaries, RFC 0016), which a `suite` row cannot, since
+`it:test` leaves them out; `quarantaine` needs an issue number; `à écrire` is refused except
 for the RFCs whose code is not written yet (PENDING). The suite crate must
 not depend on the workspace by path (§5.3).
 
@@ -28,7 +30,9 @@ MATRIX = ROOT / "tests/integration/MATRIX.md"
 # RFCs whose rows may still say `à écrire`: 0010, whose code is not written
 # yet; each leaves this set in the PR that lands its code and tests.
 PENDING = {"0010"}
-STATUSES = {"suite", "hors suite", "quarantaine", "à écrire"}
+STATUSES = {"suite", "heavy", "hors suite", "quarantaine", "à écrire"}
+# The binaries `it:test` leaves out (RFC 0016): `it:heavy` and `perf:http` run them.
+HEAVY = re.compile(r"(heavy|perf)_\w*::")
 
 
 def rfc_points(text: str) -> list[int]:
@@ -99,10 +103,12 @@ def check(rfcs: dict[str, list[int]], matrix: str, tests: set[str],
             errors.append(f"{where}: no such §6.P point")
         if status not in STATUSES:
             errors.append(f"{where}: unknown status {status!r}")
-        elif status == "suite":
+        elif status in ("suite", "heavy"):
             for test in re.findall(r"`([^`]+)`", proof) or [proof]:
                 if test not in tests:
                     errors.append(f"{where}: test {test!r} does not exist")
+                elif (status == "heavy") != bool(HEAVY.match(test)):
+                    errors.append(f"{where}: test {test!r} is not a {status} test")
         elif status == "hors suite" and not proof:
             errors.append(f"{where}: `hors suite` without a pointer or a reason")
         elif status == "quarantaine":
@@ -144,6 +150,14 @@ def self_test() -> None:
     assert check({"0003": [1, 2]}, good, tests, ["api"])[0]
     pw = good.replace("`rfc0003::p1_ok`", "`e2e-it/login.spec.ts › full login`")
     assert check({"0003": [1, 2]}, pw, tests, [])[0] == []
+    # RFC 0016: a heavy row names a heavy_/perf_ test, and a suite row cannot.
+    heavy_tests = tests | {"heavy_rfc0003::p2_echo"}
+    heavy = good.replace("| hors suite | job front-lint |", "| heavy | `heavy_rfc0003::p2_echo` |")
+    assert check({"0003": [1, 2]}, heavy, heavy_tests, [])[0] == []
+    errors, _ = check({"0003": [1, 2]}, heavy.replace("| heavy |", "| suite |"), heavy_tests, [])
+    assert errors == ["MATRIX.md:4 (0003 point 2): test 'heavy_rfc0003::p2_echo' is not a suite test"], errors
+    errors, _ = check({"0003": [1, 2]}, good.replace("| suite |", "| heavy |"), tests, [])
+    assert errors == ["MATRIX.md:3 (0003 point 1): test 'rfc0003::p1_ok' is not a heavy test"], errors
     print("matrix self-test: ok")
 
 

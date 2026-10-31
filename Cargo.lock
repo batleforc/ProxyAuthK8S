@@ -2567,6 +2567,7 @@ dependencies = [
 name = "integration"
 version = "0.5.0"
 dependencies = [
+ "base64 0.22.1",
  "futures-util",
  "reqwest",
  "rustls",
