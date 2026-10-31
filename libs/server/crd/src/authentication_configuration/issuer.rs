@@ -31,8 +31,9 @@ pub struct Issuer {
     #[serde(alias = "discoveryURL")]
     #[schemars(length(max = 253))]
     pub discovery_url: Option<String>,
-    /// PEM bundle used to verify the issuer's TLS certificate. Absent means the
-    /// system trust store.
+    /// PEM bundle used to verify the issuer's TLS certificate, added to the
+    /// system trust store (never replacing it). Absent means the system trust
+    /// store alone. A bundle without any certificate is refused.
     #[serde(alias = "certificateAuthority")]
     pub certificate_authority: Option<String>,
     /// Accepted `aud` values. At least one — an authenticator that accepts any
