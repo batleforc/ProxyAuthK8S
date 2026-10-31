@@ -5,6 +5,7 @@ import {
   generateCallbackKubeconfig,
   generateCallbackPluginCommands,
   generateCallbackPluginKubeconfig,
+  generateExchangeKubeconfig,
   generateNoSsoKubeconfig,
 } from './kubeconfig';
 
@@ -118,5 +119,31 @@ describe('generateNoSsoKubeconfig', () => {
 
   it('is empty without a cluster', () => {
     expect(generateNoSsoKubeconfig(null, '', 'jane')).toBe('');
+  });
+});
+
+describe('generateExchangeKubeconfig', () => {
+  const cluster = { namespace: 'team', name: 'prod' };
+
+  it('asks the exec plugin for the proxy session, never embeds a token', () => {
+    const yaml = generateExchangeKubeconfig(
+      cluster,
+      'https://proxy.example.com/clusters/team/prod',
+      'alice',
+    );
+    expect(yaml).toContain(`        - get-token
+        - --namespace=team
+        - --server-url=https://proxy.example.com
+        - prod`);
+    expect(yaml).toContain(
+      '    server: https://proxy.example.com/clusters/team/prod\n',
+    );
+    expect(yaml).not.toContain('token:');
+    expect(yaml.endsWith('current-context: team-prod-context')).toBe(true);
+  });
+
+  it('is empty without a cluster or its URL', () => {
+    expect(generateExchangeKubeconfig(null, 'https://p', 'alice')).toBe('');
+    expect(generateExchangeKubeconfig(cluster, '', 'alice')).toBe('');
   });
 });

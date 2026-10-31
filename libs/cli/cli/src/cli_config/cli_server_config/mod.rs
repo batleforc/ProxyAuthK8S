@@ -124,10 +124,9 @@ mod tests {
     #[test]
     fn clusters_are_looked_up_by_ns_and_name() {
         let mut config = CliServerConfig::new("https://localhost:5437".to_string());
-        config.clusters.insert(
-            "team-a/prod".to_string(),
-            CliClusterConfig { token_exist: true },
-        );
+        config
+            .clusters
+            .insert("team-a/prod".to_string(), CliClusterConfig::new());
 
         assert!(
             config

@@ -1,5 +1,6 @@
 use client_api::{
-    apis::api_clusters_api::get_all_visible_cluster, models::GetAllVisibleClusterBody,
+    apis::api_clusters_api::get_all_visible_cluster,
+    models::{GetAllVisibleClusterBody, SessionTokens, VisibleCluster},
 };
 use std::{
     io::{self, Write},
@@ -14,6 +15,7 @@ mod tofu;
 
 use crate::{
     cli_config::browser::{BrowserConfig, effective_browser},
+    cli_config::cli_cluster_config::CliClusterConfig,
     cli_config::cli_server_config::{
         CliServerConfig, api_configuration, http_client, load_certificate_authority,
         require_secure_server_url,
@@ -54,10 +56,10 @@ impl CliCtx {
         };
         if token.is_some() {
             // A token on the command line lands in `ps`/`/proc/<pid>/cmdline` and
-            // the shell history. Prefer the interactive prompt (omit `--token`).
+            // the shell history. Prefer omitting `--token` (SSO or prompt).
             warn!(
                 "passing --token on the command line exposes it to other local users \
-                 (ps, shell history); prefer the interactive prompt"
+                 (ps, shell history); prefer omitting it (SSO login or interactive prompt)"
             );
         }
         // if server_url is not provided and none exist in config, return error
@@ -98,8 +100,23 @@ impl CliCtx {
         let server_name = CliServerConfig::url_to_name_from_string(server_config.url.clone());
         let namespace = self.effective_namespace(&server_config.namespace);
         let clusters = Self::fetch_visible_clusters(server_config).await?;
-        let is_sso_enabled =
-            Self::cluster_sso_enabled(&clusters, &cluster, &namespace, &server_name)?;
+        let visible = Self::visible_cluster(&clusters, &cluster, &namespace, &server_name)?;
+        if visible.token_exchange == Some(true) {
+            // RFC 0010: the cluster takes the server token, which `get-token`
+            // hands out; there is no cluster login to run.
+            if token.is_some() {
+                warn!(
+                    "Cluster '{}' uses token exchange: --token is ignored.",
+                    cluster
+                );
+            }
+            info!(
+                "Cluster '{}' uses token exchange: no cluster login needed.",
+                cluster
+            );
+            return self.store_cluster_login(&server_name, &namespace, &cluster, None);
+        }
+        let is_sso_enabled = visible.sso_enabled;
         let browser = effective_browser(
             self.browser_flag.as_ref(),
             std::env::var("PROXYAUTH_BROWSER").ok().as_deref(),
@@ -120,7 +137,7 @@ impl CliCtx {
             // The token is stored without being checked against the cluster: a
             // round-trip to `/api?timeout=32s` (what kubectl uses) would catch a
             // bad token here instead of on first use. Tracked on the roadmap.
-            self.store_cluster_login(&server_name, &namespace, &cluster, tok)
+            self.store_cluster_login(&server_name, &namespace, &cluster, Some(tok))
         } else {
             error!("No token provided. Cluster login requires a token.");
             Err(ProxyAuthK8sError::InvalidUsage(
@@ -234,20 +251,19 @@ impl CliCtx {
         }
     }
 
-    /// Whether `namespace/cluster` has SSO enabled, or `ClusterNotFound` when
-    /// the server does not expose it.
-    fn cluster_sso_enabled(
-        clusters: &GetAllVisibleClusterBody,
+    /// `namespace/cluster` as the server exposes it, or `ClusterNotFound`.
+    fn visible_cluster<'a>(
+        clusters: &'a GetAllVisibleClusterBody,
         cluster: &str,
         namespace: &str,
         server_name: &str,
-    ) -> Result<bool, ProxyAuthK8sError> {
+    ) -> Result<&'a VisibleCluster, ProxyAuthK8sError> {
         if let Some(cluster_config) = clusters
             .clusters
             .iter()
             .find(|c| c.name == cluster && c.namespace == namespace)
         {
-            Ok(cluster_config.sso_enabled)
+            Ok(cluster_config)
         } else {
             error!("Cluster {} not found on server.", cluster);
             Err(ProxyAuthK8sError::ClusterNotFound {
@@ -302,13 +318,14 @@ impl CliCtx {
     }
 
     /// Persist a cluster login: token in the keyring, CLI config file, and a
-    /// kubeconfig context pointing kubectl at the cluster.
+    /// kubeconfig context pointing kubectl at the cluster. No token: the
+    /// cluster is in token exchange, recorded as such (RFC 0010).
     fn store_cluster_login(
         &mut self,
         server_name: &str,
         namespace: &str,
         cluster: &str,
-        tok: String,
+        tok: Option<String>,
     ) -> Result<(), ProxyAuthK8sError> {
         let Some(server) = self.config.servers.get_mut(server_name) else {
             // The server config was resolved just above; if it is gone now the
@@ -323,9 +340,22 @@ impl CliCtx {
         // usable credential, so abort instead of reporting a false success.
         let server_url = server.url.clone();
         let certificate_authority_data = server.certificate_authority_data.clone();
-        if let Err(e) = server.set_cluster_token(namespace.to_string(), cluster.to_string(), tok) {
-            error!("Failed to store cluster token: {}", e);
-            return Err(e);
+        if let Some(tok) = tok {
+            if let Err(e) =
+                server.set_cluster_token(namespace.to_string(), cluster.to_string(), tok)
+            {
+                error!("Failed to store cluster token: {}", e);
+                return Err(e);
+            }
+        } else {
+            server.clusters.insert(
+                format!("{namespace}/{cluster}"),
+                CliClusterConfig::token_exchange(),
+            );
+            // A token from before the cluster moved to exchange is never used.
+            if let Err(e) = server.clear_cluster_token(namespace.to_string(), cluster.to_string()) {
+                debug!("No previous cluster token dropped: {}", e);
+            }
         }
         match self.config.write_to_file(self.config_path.clone()) {
             Ok(_) => info!("Config file updated successfully."),
@@ -376,16 +406,6 @@ impl CliCtx {
             error!("{}", e);
             return Err(e);
         }
-        let token = token
-            .or_else(|| Self::prompt_for_token("Server token not provided. Enter server token: "));
-
-        let Some(tok) = token else {
-            error!("No token provided. Server login requires a token.");
-            return Err(ProxyAuthK8sError::InvalidUsage(
-                "server login requires a token".to_string(),
-            ));
-        };
-        info!("Using token for server authentication.");
         let previous_certificate_authority = self.saved_certificate_authority(&server_name);
         let certificate_authority_data = match certificate_authority_data {
             Some(given) => Some(given),
@@ -398,6 +418,24 @@ impl CliCtx {
             )
             .await?
             .or_else(|| previous_certificate_authority.clone()),
+        };
+        // Without `--token`, the SSO login to the server (RFC 0010 §6.5); a
+        // pasted token is kept as is, with nothing to renew it (decision 14).
+        let (tok, session) = match token {
+            Some(tok) => {
+                info!("Using token for server authentication.");
+                (tok, None)
+            }
+            None => {
+                let tokens = self
+                    .sso_server_session(
+                        &server_url,
+                        &server_name,
+                        certificate_authority_data.as_deref(),
+                    )
+                    .await?;
+                (tokens.access_token.clone(), Some(tokens))
+            }
         };
         let clusters = Self::fetch_visible_clusters_with_token(
             &tok,
@@ -430,7 +468,11 @@ impl CliCtx {
             return Err(e);
         }
         info!("Config file updated successfully.");
-        if let Err(e) = server_config.set_server_token(tok) {
+        let stored = match session {
+            Some(tokens) => server_config.store_session_tokens(tokens, None).map(drop),
+            None => server_config.set_server_login(&tok, None),
+        };
+        if let Err(e) = stored {
             error!("Failed to save token to keyring: {}", e);
             return Err(e);
         }
@@ -442,6 +484,29 @@ impl CliCtx {
             )?;
         }
         Ok(())
+    }
+
+    /// Run the SSO login to the server, with the browser `--browser`, else
+    /// `PROXYAUTH_BROWSER`, else the one saved for this server.
+    async fn sso_server_session(
+        &self,
+        server_url: &str,
+        server_name: &str,
+        certificate_authority_data: Option<&str>,
+    ) -> Result<SessionTokens, ProxyAuthK8sError> {
+        info!("No --token given: starting the SSO login to the server.");
+        let browser = effective_browser(
+            self.browser_flag.as_ref(),
+            std::env::var("PROXYAUTH_BROWSER").ok().as_deref(),
+            self.config
+                .servers
+                .get(server_name)
+                .and_then(|server| server.browser.as_ref()),
+        );
+        let config = api_configuration(server_url, None, http_client(certificate_authority_data)?);
+        Self::sso_server_login(&config, browser.as_ref())
+            .await
+            .inspect_err(|e| error!("{}", e))
     }
 
     /// Rewrite the CA of the kubeconfig clusters proxied through `server_url`,
@@ -638,10 +703,18 @@ mod tests {
             VisibleCluster::new(true, "prod".into(), "team-a".into(), true),
             VisibleCluster::new(true, "prod".into(), "team-b".into(), false),
         ]);
-        assert!(CliCtx::cluster_sso_enabled(&clusters, "prod", "team-a", NAME).unwrap());
-        assert!(!CliCtx::cluster_sso_enabled(&clusters, "prod", "team-b", NAME).unwrap());
+        assert!(
+            CliCtx::visible_cluster(&clusters, "prod", "team-a", NAME)
+                .unwrap()
+                .sso_enabled
+        );
+        assert!(
+            !CliCtx::visible_cluster(&clusters, "prod", "team-b", NAME)
+                .unwrap()
+                .sso_enabled
+        );
         assert!(matches!(
-            CliCtx::cluster_sso_enabled(&clusters, "prod", "team-c", NAME),
+            CliCtx::visible_cluster(&clusters, "prod", "team-c", NAME),
             Err(ProxyAuthK8sError::ClusterNotFound { server, cluster })
                 if server == NAME && cluster == "prod"
         ));
@@ -992,7 +1065,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut ctx = CliCtx::for_test_in(dir.path());
         assert!(matches!(
-            ctx.store_cluster_login("gone", "ns", "c", "t".to_string()),
+            ctx.store_cluster_login("gone", "ns", "c", Some("t".to_string())),
             Err(ProxyAuthK8sError::ServerNotFound(name)) if name == "gone"
         ));
 
@@ -1002,7 +1075,7 @@ mod tests {
         );
         ctx.kubeconfig_path = crate::helper::unwritable_path(dir.path(), "kubeconfig");
         assert!(matches!(
-            ctx.store_cluster_login("store-example", "ns", "c", "t".to_string()),
+            ctx.store_cluster_login("store-example", "ns", "c", Some("t".to_string())),
             Err(ProxyAuthK8sError::KubeconfigReadError(_))
         ));
         // The token and config were persisted before the kubeconfig step.
@@ -1010,7 +1083,7 @@ mod tests {
 
         ctx.config_path = crate::helper::unwritable_path(dir.path(), "config.yaml");
         assert!(matches!(
-            ctx.store_cluster_login("store-example", "ns", "c", "t".to_string()),
+            ctx.store_cluster_login("store-example", "ns", "c", Some("t".to_string())),
             Err(ProxyAuthK8sError::KubeconfigWriteError(_))
         ));
     }
@@ -1179,5 +1252,63 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(saved(&ctx), None);
+    }
+
+    // --- token exchange (RFC 0010) -------------------------------------------
+
+    #[tokio::test]
+    async fn cluster_login_on_an_exchange_cluster_runs_no_sso_and_stores_no_token() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path_regex},
+        };
+        let server = MockServer::start().await;
+        // SSO is on as well: were the cluster SSO run, its unmounted
+        // `/auth/login` would fail the login.
+        Mock::given(method("GET"))
+            .and(path_regex("/api/v1/clusters$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "clusters": [{
+                    "enabled": true,
+                    "name": "exchange",
+                    "namespace": "team-a",
+                    "sso_enabled": true,
+                    "token_exchange": true
+                }]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex("/auth/login$"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_logged_in(dir.path(), &server, "srv-tok");
+        ctx.namespace = "team-a".to_string();
+
+        ctx.handle_login_clusters("exchange".to_string(), None, None)
+            .await
+            .unwrap();
+
+        let name = CliServerConfig::url_to_name_from_string(server.uri());
+        let written = CliConfig::read_from_file(ctx.config_path.clone()).unwrap();
+        let cluster = &written.servers[&name].clusters["team-a/exchange"];
+        assert!(cluster.token_exchange);
+        assert!(!cluster.token_exist);
+        assert!(
+            ctx.config.servers[&name]
+                .get_cluster_token("team-a".to_string(), "exchange".to_string())
+                .is_err()
+        );
+        let kubeconfig = kube::config::Kubeconfig::from_yaml(
+            &std::fs::read_to_string(&ctx.kubeconfig_path).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            kubeconfig.current_context.as_deref(),
+            Some("team-a-exchange-context")
+        );
     }
 }

@@ -1,7 +1,12 @@
 //! Calls to the `ProxyAuthK8S` server through the generated `client_api`.
 
 use client_api::{
-    apis::{api_clusters_api::get_all_visible_cluster, configuration::Configuration},
+    apis::{
+        Error as ApiError,
+        api_clusters_api::get_all_visible_cluster,
+        auth_server_api::{ServerAuthRefreshError, server_auth_refresh},
+        configuration::Configuration,
+    },
     models::GetAllVisibleClusterBody,
 };
 use std::path::Path;
@@ -11,7 +16,14 @@ use reqwest::Certificate;
 use tracing::debug;
 use url::{Host, Url};
 
-use crate::{cli_config::cli_server_config::CliServerConfig, error::ProxyAuthK8sError};
+use crate::{
+    cli_config::cli_server_config::{CliServerConfig, keyring_store::unix_now},
+    error::ProxyAuthK8sError,
+};
+
+/// A server token with less validity than this is renewed before use
+/// (RFC 0010 §6.4).
+const REFRESH_MARGIN_SECONDS: i64 = 60;
 
 /// The `client_api` configuration for `url`, built field by field: the
 /// generated `Default` starts from `http://localhost` and a generator user
@@ -44,15 +56,73 @@ impl CliServerConfig {
         ))
     }
 
+    /// The server token, renewed first through `/api/v1/auth/refresh` when it
+    /// has less than [`REFRESH_MARGIN_SECONDS`] left and the SSO session holds
+    /// a refresh token. A pasted token (no session) is returned as is.
+    pub async fn fresh_server_token(&self) -> Result<String, ProxyAuthK8sError> {
+        // Checked before the keyring is read: a refused URL never sees a token.
+        require_secure_server_url(&self.url)?;
+        let token = self.server_token()?;
+        let Some(session) = self.server_session()? else {
+            return Ok(token);
+        };
+        if !session.expires_within(REFRESH_MARGIN_SECONDS, unix_now()) {
+            return Ok(token);
+        }
+        // `/auth/refresh` is not authenticated: the expiring token stays home.
+        let config = api_configuration(
+            &self.url,
+            None,
+            http_client(self.certificate_authority_data.as_deref())?,
+        );
+        let tokens = server_auth_refresh(&config, &session.refresh_token)
+            .await
+            .map_err(|e| refresh_error(&self.url, &e))?;
+        debug!("Server token renewed.");
+        self.store_session_tokens(tokens, Some(session.refresh_token))
+    }
+
     pub async fn clusters_from_remote(
         &self,
     ) -> Result<GetAllVisibleClusterBody, ProxyAuthK8sError> {
-        get_all_visible_cluster(&self.base_configuration()?)
-            .await
-            .map_err(|e| {
-                debug!("Error fetching clusters from remote: {:?}", e);
-                e.into()
-            })
+        let mut config = self.base_configuration()?;
+        // Renewed first, so `get` and `login clusters` outlive the 5 minutes
+        // of a default Keycloak access token.
+        config.bearer_access_token = Some(self.fresh_server_token().await?);
+        get_all_visible_cluster(&config).await.map_err(|e| {
+            debug!("Error fetching clusters from remote: {:?}", e);
+            e.into()
+        })
+    }
+}
+
+/// Why a session renewal failed: over (log in again), throttled, or the
+/// `IdP` (or the server) unreachable, which only needs a later retry.
+fn refresh_error(url: &str, err: &ApiError<ServerAuthRefreshError>) -> ProxyAuthK8sError {
+    let unavailable = || {
+        ProxyAuthK8sError::RemoteServerError(format!(
+            "could not renew the session with {url}: the identity provider is unavailable, \
+             try again later"
+        ))
+    };
+    match err {
+        ApiError::ResponseError(resp) => match resp.status.as_u16() {
+            400 => ProxyAuthK8sError::Unauthenticated(format!(
+                "the session with {url} is over; log in again with \
+                 `kubectl-proxyauth login --server-url {url}`"
+            )),
+            429 => ProxyAuthK8sError::RemoteServerError(format!(
+                "too many session renewals on {url}, try again later"
+            )),
+            503 => unavailable(),
+            _ => ProxyAuthK8sError::RemoteServerError(format!(
+                "could not renew the session with {url}: {err}"
+            )),
+        },
+        ApiError::Reqwest(_) | ApiError::Io(_) => unavailable(),
+        ApiError::Serde(_) => ProxyAuthK8sError::RemoteServerError(format!(
+            "could not renew the session with {url}: {err}"
+        )),
     }
 }
 
@@ -302,6 +372,128 @@ mod tests {
         assert!(matches!(
             config.clusters_from_remote().await,
             Err(ProxyAuthK8sError::RemoteServerError(_))
+        ));
+    }
+
+    // --- session renewal (RFC 0010) ---------------------------------------
+
+    use crate::cli_config::cli_server_config::keyring_store::ServerSession;
+    use wiremock::{
+        Mock, ResponseTemplate,
+        matchers::{body_string_contains, method, path_regex},
+    };
+
+    /// A server at `tag` holding `old-access` with a session whose access
+    /// token expires `expires_in` seconds from now.
+    fn with_session(server: &MockServer, tag: &str, expires_in: i64) -> CliServerConfig {
+        let config = CliServerConfig::new(tagged_url(server, tag));
+        config
+            .set_server_login(
+                "old-access",
+                Some(&ServerSession {
+                    refresh_token: "old-refresh".to_string(),
+                    expires_at: Some(unix_now().saturating_add(expires_in)),
+                }),
+            )
+            .unwrap();
+        config
+    }
+
+    async fn mount_refresh(server: &MockServer, response: ResponseTemplate, expected: u64) {
+        Mock::given(method("POST"))
+            .and(path_regex("/api/v1/auth/refresh$"))
+            .and(body_string_contains("refresh_token=old-refresh"))
+            .respond_with(response)
+            .expect(expected)
+            .mount(server)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn a_token_about_to_expire_is_renewed_and_the_new_pair_stored() {
+        let server = MockServer::start().await;
+        mount_refresh(
+            &server,
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "new-access",
+                "token_type": "Bearer",
+                "expires_in": 300,
+                "refresh_token": "new-refresh",
+            })),
+            1,
+        )
+        .await;
+        let config = with_session(&server, "refresh-ok", 10);
+
+        assert_eq!(config.fresh_server_token().await.unwrap(), "new-access");
+        assert_eq!(config.server_token().unwrap(), "new-access");
+        let session = config.server_session().unwrap().unwrap();
+        assert_eq!(session.refresh_token, "new-refresh");
+        let left = session.expires_at.unwrap().saturating_sub(unix_now());
+        assert!((290..=300).contains(&left), "{left}");
+        // Valid for 300 s now: no second renewal (the mock expects one call).
+        assert_eq!(config.fresh_server_token().await.unwrap(), "new-access");
+    }
+
+    #[tokio::test]
+    async fn a_token_with_time_left_or_without_session_is_used_as_is() {
+        let server = MockServer::start().await;
+        mount_refresh(&server, ResponseTemplate::new(500), 0).await;
+        let config = with_session(&server, "refresh-not-yet", 120);
+        assert_eq!(config.fresh_server_token().await.unwrap(), "old-access");
+
+        // A pasted token: no session, nothing to renew it with.
+        let pasted = CliServerConfig::new(tagged_url(&server, "refresh-pasted"));
+        pasted.set_server_login("pasted", None).unwrap();
+        assert_eq!(pasted.fresh_server_token().await.unwrap(), "pasted");
+    }
+
+    #[tokio::test]
+    async fn a_refused_renewal_asks_for_a_new_login() {
+        let server = MockServer::start().await;
+        mount_refresh(
+            &server,
+            ResponseTemplate::new(400).set_body_json(serde_json::json!({"error": "invalid_grant"})),
+            1,
+        )
+        .await;
+        let config = with_session(&server, "refresh-refused", 10);
+
+        let err = config.fresh_server_token().await.unwrap_err();
+        assert!(
+            matches!(&err, ProxyAuthK8sError::Unauthenticated(msg)
+                if msg.contains("kubectl-proxyauth login --server-url")),
+            "{err}"
+        );
+        // Nothing stored over the old pair.
+        assert_eq!(config.server_token().unwrap(), "old-access");
+    }
+
+    #[tokio::test]
+    async fn an_unavailable_idp_is_reported_without_login_advice() {
+        let server = MockServer::start().await;
+        mount_refresh(&server, ResponseTemplate::new(503), 1).await;
+        let config = with_session(&server, "refresh-503", 10);
+        let err = config.fresh_server_token().await.unwrap_err();
+        assert!(
+            matches!(&err, ProxyAuthK8sError::RemoteServerError(msg)
+                if msg.contains("unavailable") && !msg.contains("login")),
+            "{err}"
+        );
+
+        // The server itself unreachable: same message.
+        let down = CliServerConfig::new("http://127.0.0.1:9/refresh-down".to_string());
+        down.set_server_login(
+            "old-access",
+            Some(&ServerSession {
+                refresh_token: "old-refresh".to_string(),
+                expires_at: Some(0),
+            }),
+        )
+        .unwrap();
+        assert!(matches!(
+            down.fresh_server_token().await,
+            Err(ProxyAuthK8sError::RemoteServerError(msg)) if msg.contains("unavailable")
         ));
     }
 }

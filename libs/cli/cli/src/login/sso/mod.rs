@@ -11,15 +11,27 @@
 //!
 //! Steps 1 and 4 are `listener.rs`; classifying what the provider sent back is
 //! `callback.rs`. This module is the orchestration and the browser launch.
+//!
+//! The SSO login to the server itself (RFC 0010 §6.5) reuses the same
+//! listener: the CLI opens `/api/v1/auth/login` with its own `state` and a
+//! PKCE challenge, the proxy talks to its `IdP`, then redirects the browser to
+//! the listener with a single-use `code` that the CLI redeems at
+//! `/api/v1/auth/token`. No token ever travels in a URL.
 
 use std::io::IsTerminal;
 
-use tokio::sync::mpsc;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use sha2::{Digest, Sha256};
+use tokio::{net::TcpListener, sync::mpsc};
 use tracing::{info, warn};
 
-use client_api::apis::{
-    auth_clusters_api::{callback_login, cluster_login},
-    configuration::Configuration,
+use client_api::{
+    apis::{
+        auth_clusters_api::{callback_login, cluster_login},
+        auth_server_api::server_auth_token,
+        configuration::Configuration,
+    },
+    models::SessionTokens,
 };
 
 use crate::{
@@ -94,22 +106,8 @@ impl CliCtx {
                 ProxyAuthK8sError::SsoLoginError(format!("could not start the OIDC login: {e:?}"))
             })?;
 
-        // 2. Send the user to their provider.
-        info!(
-            "Opening your browser to sign in. If nothing happens, open this URL manually:\n{}",
-            auth_url
-        );
-        open_browser(&auth_url);
-
-        // 3. Wait for the provider to redirect back to the loopback listener.
-        if pasted.is_some() {
-            info!(
-                "If the browser runs on another machine (remote workspace, SSH), the page it \
-                 lands on after you sign in will fail to load: copy that page's full URL from \
-                 the address bar and paste it here."
-            );
-        }
-        let (code, state) = wait_for_callback(&listeners, pasted).await?;
+        // 2-3. Send the user to their provider, wait for the redirect back.
+        let (code, state) = open_and_wait(&listeners, &auth_url, open_browser, pasted).await?;
 
         // 4. Exchange the code for tokens through the server callback.
         let callback = callback_login(config, ns, cluster, None, Some(&redirect), &code, &state)
@@ -127,6 +125,95 @@ impl CliCtx {
         }
         Ok(callback.id_token)
     }
+}
+
+impl CliCtx {
+    /// Run the SSO login to the server at `config.base_path` (RFC 0010 §6.5)
+    /// and return the session it hands out. `config` carries no token.
+    pub(crate) async fn sso_server_login(
+        config: &Configuration,
+        browser: Option<&BrowserConfig>,
+    ) -> Result<SessionTokens, ProxyAuthK8sError> {
+        let port = callback_port(std::env::var("PROXYAUTH_CALLBACK_PORT").ok().as_deref());
+        let pasted = std::io::stdin().is_terminal().then(stdin_lines);
+        Self::sso_server_login_with(config, port, |url| open_with(browser, url), pasted).await
+    }
+
+    /// [`CliCtx::sso_server_login`] with the port and the browser given, for
+    /// tests.
+    async fn sso_server_login_with(
+        config: &Configuration,
+        port: u16,
+        open_browser: impl FnOnce(&str),
+        pasted: Option<mpsc::Receiver<String>>,
+    ) -> Result<SessionTokens, ProxyAuthK8sError> {
+        let listeners = bind_loopback_listeners(port).await?;
+        let redirect = format!("http://localhost:{port}/");
+        let state = random_token()?;
+        let verifier = random_token()?;
+        let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+
+        let mut login_url = url::Url::parse(&format!("{}/api/v1/auth/login", config.base_path))
+            .map_err(|e| {
+                ProxyAuthK8sError::InvalidServerUrl(config.base_path.clone(), e.to_string())
+            })?;
+        login_url
+            .query_pairs_mut()
+            .append_pair("redirect_uri", &redirect)
+            .append_pair("state", &state)
+            .append_pair("code_challenge", &challenge);
+
+        let (code, returned_state) =
+            open_and_wait(&listeners, login_url.as_str(), open_browser, pasted).await?;
+        // The redirect must answer the login this run started (login CSRF).
+        if returned_state != state {
+            return Err(ProxyAuthK8sError::SsoLoginError(
+                "the redirect does not answer this login (state mismatch); start it again"
+                    .to_string(),
+            ));
+        }
+        server_auth_token(config, &code, &verifier, &redirect)
+            .await
+            .map_err(|e| {
+                ProxyAuthK8sError::SsoLoginError(format!("could not redeem the login code: {e}"))
+            })
+    }
+}
+
+/// 32 random bytes, base64url: a PKCE verifier (43 characters, RFC 7636 §4.1)
+/// or an unguessable `state`.
+fn random_token() -> Result<String, ProxyAuthK8sError> {
+    let mut bytes = [0u8; 32];
+    rustls::crypto::ring::default_provider()
+        .secure_random
+        .fill(&mut bytes)
+        .map_err(|_| {
+            ProxyAuthK8sError::SsoLoginError("no secure random source available".to_string())
+        })?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
+}
+
+/// Open `url` in the browser, then wait for the redirect back to `listeners`
+/// (or pasted, when the browser runs elsewhere).
+async fn open_and_wait(
+    listeners: &[TcpListener],
+    url: &str,
+    open_browser: impl FnOnce(&str),
+    pasted: Option<mpsc::Receiver<String>>,
+) -> Result<(String, String), ProxyAuthK8sError> {
+    info!(
+        "Opening your browser to sign in. If nothing happens, open this URL manually:\n{}",
+        url
+    );
+    open_browser(url);
+    if pasted.is_some() {
+        info!(
+            "If the browser runs on another machine (remote workspace, SSH), the page it \
+             lands on after you sign in will fail to load: copy that page's full URL from \
+             the address bar and paste it here."
+        );
+    }
+    wait_for_callback(listeners, pasted).await
 }
 
 /// Each non-empty line typed on stdin, read on a plain thread: a blocked read
@@ -576,5 +663,137 @@ mod tests {
         .await
         .expect("the local browser's redirect still completes the login");
         assert_eq!(id_token, "signed-id-token");
+    }
+
+    // --- SSO login to the server (RFC 0010) ---------------------------------
+
+    /// Stands in for the browser and the proxy's `IdP` round trip: reads the
+    /// `state` from the login URL it is asked to open, then lands on the
+    /// loopback listener with a single-use code and `returned_state` (that
+    /// state when `None`).
+    fn proxy_browser(
+        port: u16,
+        returned_state: Option<&'static str>,
+        opened: Arc<Mutex<Vec<String>>>,
+    ) -> impl FnOnce(&str) {
+        move |url: &str| {
+            opened.lock().unwrap().push(url.to_string());
+            let state = returned_state.map_or_else(
+                || {
+                    url::Url::parse(url)
+                        .unwrap()
+                        .query_pairs()
+                        .find(|(k, _)| k == "state")
+                        .unwrap()
+                        .1
+                        .into_owned()
+                },
+                ToString::to_string,
+            );
+            tokio::spawn(async move {
+                let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+                let request = format!(
+                    "GET /?code=one-time&state={state} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+                );
+                stream.write_all(request.as_bytes()).await.unwrap();
+                let mut page = String::new();
+                drop(stream.read_to_string(&mut page).await);
+            });
+        }
+    }
+
+    async fn mount_token(server: &MockServer, expected: u64) {
+        Mock::given(method("POST"))
+            .and(path("/api/v1/auth/token"))
+            .and(wiremock::matchers::body_string_contains("code=one-time"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "proxy-access",
+                "token_type": "Bearer",
+                "expires_in": 300,
+                "refresh_token": "proxy-refresh",
+            })))
+            .expect(expected)
+            .mount(server)
+            .await;
+    }
+
+    async fn server_login(
+        server: &MockServer,
+        returned_state: Option<&'static str>,
+    ) -> (Result<SessionTokens, ProxyAuthK8sError>, Vec<String>) {
+        let port = free_port();
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let config = Configuration {
+            base_path: server.uri(),
+            ..Default::default()
+        };
+        let result = CliCtx::sso_server_login_with(
+            &config,
+            port,
+            proxy_browser(port, returned_state, Arc::clone(&opened)),
+            None,
+        )
+        .await;
+        let opened = opened.lock().unwrap().clone();
+        (result, opened)
+    }
+
+    #[tokio::test]
+    async fn the_server_login_redeems_the_code_with_the_pkce_verifier() {
+        let server = MockServer::start().await;
+        mount_token(&server, 1).await;
+
+        let (result, opened) = server_login(&server, None).await;
+        let tokens = result.expect("the server login succeeds");
+        assert_eq!(tokens.access_token, "proxy-access");
+        assert_eq!(
+            tokens.refresh_token,
+            Some(Some("proxy-refresh".to_string()))
+        );
+
+        // The browser opened the proxy's login with a loopback redirect and
+        // an S256 challenge; the redeem carried the matching verifier.
+        let login = url::Url::parse(&opened[0]).unwrap();
+        assert_eq!(login.path(), "/api/v1/auth/login");
+        let query: std::collections::HashMap<_, _> = login.query_pairs().into_owned().collect();
+        assert!(query["redirect_uri"].starts_with("http://localhost:"));
+        let requests = server.received_requests().await.unwrap();
+        let form: std::collections::HashMap<_, _> = url::form_urlencoded::parse(&requests[0].body)
+            .into_owned()
+            .collect();
+        assert_eq!(form["redirect_uri"], query["redirect_uri"]);
+        assert_eq!(form["code_verifier"].len(), 43);
+        assert_eq!(
+            URL_SAFE_NO_PAD.encode(Sha256::digest(form["code_verifier"].as_bytes())),
+            query["code_challenge"]
+        );
+        assert_ne!(form["code_verifier"], query["state"]);
+    }
+
+    #[tokio::test]
+    async fn a_redirect_with_another_state_is_refused_before_redeeming() {
+        let server = MockServer::start().await;
+        mount_token(&server, 0).await;
+
+        let (result, _) = server_login(&server, Some("forged")).await;
+        let err = result.expect_err("the state does not match");
+        assert!(err.to_string().contains("state mismatch"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_refused_code_fails_the_server_login() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/auth/token"))
+            .respond_with(
+                ResponseTemplate::new(400)
+                    .set_body_json(serde_json::json!({"error": "invalid_grant"})),
+            )
+            .mount(&server)
+            .await;
+
+        let (result, _) = server_login(&server, None).await;
+        let err = result.expect_err("the code is refused");
+        assert!(err.to_string().contains("could not redeem"), "{err}");
     }
 }

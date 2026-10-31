@@ -122,6 +122,52 @@ ${c(5)}
 kubectl proxyauth ctx --set "${data.ns}-${data.cluster}-context"`;
 }
 
+/**
+ * Kubeconfig for a cluster in token exchange (RFC 0010): the exec plugin hands
+ * kubectl the user's session to the proxy, no cluster login is needed.
+ */
+export function generateExchangeKubeconfig(
+  cluster: { namespace: string; name: string } | null | undefined,
+  clusterUrl: string,
+  username: string,
+): string {
+  if (!cluster || !clusterUrl) return '';
+
+  const clusterName = `${cluster.namespace}-${cluster.name}`;
+  const userName = `${username}@${clusterName}`;
+  const contextName = `${clusterName}-context`;
+  const serverUrl = new URL(clusterUrl).origin;
+
+  return `apiVersion: v1
+kind: Config
+clusters:
+- name: ${clusterName}
+  cluster:
+    server: ${clusterUrl}
+    insecure-skip-tls-verify: false
+users:
+- name: ${userName}
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1
+      args:
+        - proxyauth
+        - get-token
+        - --namespace=${cluster.namespace}
+        - --server-url=${serverUrl}
+        - ${cluster.name}
+      command: kubectl
+      env: null
+      interactiveMode: Never
+      provideClusterInfo: false
+contexts:
+- name: ${contextName}
+  context:
+    cluster: ${clusterName}
+    user: ${userName}
+current-context: ${contextName}`;
+}
+
 /** Kubeconfig for a non-SSO cluster reached through the proxy (token left to fill in). */
 export function generateNoSsoKubeconfig(
   cluster: { namespace: string; name: string } | null | undefined,

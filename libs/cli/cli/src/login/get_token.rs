@@ -1,9 +1,39 @@
+use crate::cli_config::cli_server_config::CliServerConfig;
 use crate::ctx::CliCtx;
 use crate::error::ProxyAuthK8sError;
 use tracing::{debug, error};
 
 //https://kubernetes.io/docs/reference/access-authn-authz/authentication/#input-and-output-formats
 impl CliCtx {
+    /// The token kubectl sends to `namespace/cluster`: the server token,
+    /// renewed when about to expire, for a cluster recorded in token exchange
+    /// by `login` (RFC 0010); else the cluster token from the keyring.
+    async fn cluster_exec_token(
+        server_config: &CliServerConfig,
+        namespace: &str,
+        cluster_name: &str,
+    ) -> Result<String, ProxyAuthK8sError> {
+        let token_exchange = server_config
+            .get_clusters_from_ns_name(Some(namespace.to_string()), cluster_name.to_string())
+            .is_some_and(|cluster| cluster.token_exchange);
+        if token_exchange {
+            return server_config.fresh_server_token().await.inspect_err(|e| {
+                error!(
+                    "Failed to retrieve the server token for cluster '{}/{}': {}",
+                    namespace, cluster_name, e
+                );
+            });
+        }
+        server_config
+            .get_cluster_token(namespace.to_string(), cluster_name.to_string())
+            .inspect_err(|e| {
+                error!(
+                    "Failed to retrieve token for cluster '{}/{}': {}. Please login using 'login --cluster-name {}'.",
+                    namespace, cluster_name, e, cluster_name
+                );
+            })
+    }
+
     /// Returns `Err` on any failure so the caller can propagate a non-zero
     /// exit code. `kubectl` treats a zero exit from an exec-credential plugin as
     /// "credentials produced"; exiting 0 on failure would make it retry/fail with
@@ -140,17 +170,7 @@ impl CliCtx {
             namespace, cluster_name, server_config.url
         );
 
-        // Retrieve the cluster token from keyring
-        let token = match server_config.get_cluster_token(namespace.clone(), cluster_name.clone()) {
-            Ok(token) => token,
-            Err(e) => {
-                error!(
-                    "Failed to retrieve token for cluster '{}/{}': {}. Please login using 'login --cluster-name {}'.",
-                    namespace, cluster_name, e, cluster_name
-                );
-                return Err(e);
-            }
-        };
+        let token = Self::cluster_exec_token(server_config, &namespace, &cluster_name).await?;
 
         debug!(
             "Successfully retrieved token for cluster '{}/{}'.",
@@ -184,5 +204,47 @@ impl CliCtx {
                 )))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli_config::cli_cluster_config::CliClusterConfig;
+
+    #[tokio::test]
+    async fn an_exchange_cluster_gets_the_server_token_never_a_cluster_token() {
+        let mut server = CliServerConfig::new("http://127.0.0.1:9/get-token-exchange".to_string());
+        server.set_server_token("srv-tok".to_string()).unwrap();
+        // A stale cluster token is there, and must not be the one handed out.
+        server
+            .set_cluster_token("team-a".to_string(), "x".to_string(), "cl-tok".to_string())
+            .unwrap();
+        server
+            .clusters
+            .insert("team-a/x".to_string(), CliClusterConfig::token_exchange());
+
+        let token = CliCtx::cluster_exec_token(&server, "team-a", "x")
+            .await
+            .unwrap();
+        assert_eq!(token, "srv-tok");
+    }
+
+    #[tokio::test]
+    async fn a_cluster_without_the_flag_keeps_its_own_token() {
+        let mut server = CliServerConfig::new("http://127.0.0.1:9/get-token-plain".to_string());
+        server.set_server_token("srv-tok".to_string()).unwrap();
+        server
+            .set_cluster_token("team-a".to_string(), "x".to_string(), "cl-tok".to_string())
+            .unwrap();
+
+        let token = CliCtx::cluster_exec_token(&server, "team-a", "x")
+            .await
+            .unwrap();
+        assert_eq!(token, "cl-tok");
+        assert!(matches!(
+            CliCtx::cluster_exec_token(&server, "team-a", "missing").await,
+            Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
     }
 }
