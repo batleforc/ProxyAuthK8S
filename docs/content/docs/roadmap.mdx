@@ -38,7 +38,10 @@ import { Callout } from 'fumadocs-ui/components/callout';
     section v0.4.0 🚧
       Contrôleur       : Conditions, Events, codes de raison (RFC 0011) ✅
       Proxy & Agent    : Mode agent, tunnel sortant (RFC 0012)
-    section v0.5.0 🚧
+    section v0.5.0 ✅
+      Upstream auth    : Front-proxy et émetteur (RFC 0014)
+      Tests            : Tests profonds côté Rust (RFC 0015)
+    section v0.6.0 🚧
       Exchange Token   : Une connexion au proxy pour tous les clusters (RFC 0010)
     section v1.0.0 🚧
       Production       : Redis cluster HA ✅, bloc sécurité ✅
@@ -280,7 +283,29 @@ de la refonte UI). Voir la RFC 0001.
 
 ---
 
-## v0.5.0 — Échange de jeton {"\uD83D\uDEA7"}
+## v0.5.0 — Authentificateur de confiance {"\u2705"}
+
+<Callout>
+  RFC 0014 (`.rfc/0014-trusted-authenticator.md`, Implemented) ; l'échange de
+  jeton (RFC 0010) passe en 0.6.0. Mise à jour : [vers la 0.5.0](/docs/migration/v0-5-0).
+</Callout>
+
+<Steps>
+
+<Step>
+### Le proxy comme authentificateur de confiance (RFC 0014)
+
+- ✅ `upstream_auth.mode: FrontProxy` : l'apiserver fait confiance à l'identité que le proxy affirme en en-têtes ([guide](/docs/front-proxy))
+- ✅ `upstream_auth.mode: Issuer` : le proxy signe un JWT que l'apiserver vérifie par son JWKS ([guide](/docs/issuer))
+- ✅ Sonde de confiance de l'amont et `claim_mappings`
+
+</Step>
+
+</Steps>
+
+---
+
+## v0.6.0 — Échange de jeton {"\uD83D\uDEA7"}
 
 <Callout>
   RFC 0010 (`.rfc/0010-token-exchange.md`, Accepted) : relue face au mode

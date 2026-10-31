@@ -48,8 +48,9 @@ flowchart LR
     B5 --> R020(["tag 0.2.0"])
     C2 --> R020
     R020 --> R040(["tag 0.4.0 : 0011 et 0012 (mode agent)"])
-    R040 --> R050(["tag 0.5.0 : 0010 (échange de jeton)"])
-    R050 --> V1(["v1.0.0 : bascules de défauts"])
+    R040 --> R050(["tag 0.5.0 : 0014 et 0015"])
+    R050 --> R060(["tag 0.6.0 : 0010 (échange de jeton)"])
+    R060 --> V1(["v1.0.0 : bascules de défauts"])
 ```
 
 Les flèches pleines sont des dépendances strictes. Les pointillées sont des
@@ -80,8 +81,8 @@ mergée.
 | 17 | **0012** (mode agent) | B | 13 | phases 1 à 4 de la 0012 | §6.P de la 0012 (phase 4 hors suite) | fait (0012 §17) : phases 1 à 4 et écarts, PR #294 à #297 mergées le 2026-10-24 et le 2026-10-25, prouvées sur le banc (`rfc0012.rs` 13/13, `rfc0012_passthrough`, `rfc0012_restart`) ; reste `AgentConnected`, qui attend un correctif du kit |
 | 16 | **tag 0.4.0** | — | 13, 17 | — | `integration.yaml` vert, la 0011 (fait) et la 0012 retirées de `PENDING` | à faire : la 0011 et la 0012 sont livrées et hors de `PENDING` ; reste `integration.yaml` vert sur `main` ; la 0010 passe en 0.5.0 (2026-10-24) |
 | 19 | **Première instance et recette de la 0007** | — | 16 | déploiement de la 0.4.0, en mode agent là où l'apiserver n'est pas exposé | 7 jours selon la 0007 §13 ; sans déploiement antérieur, le critère « sans hausse » est à reformuler en seuils absolus avant de commencer | à faire |
-| 15 | **0010** (échange de jeton) | B | 17 | relecture face au mode `Agent` (la 0010 ne touche ni `upstream.rs` ni `agent/`), puis phases 1 à 4 | §6.P de la 0010 | Accepted ; après la 0012, pour la 0.5.0 |
-| 18 | **tag 0.5.0** | — | 15 | — | `integration.yaml` vert, la 0010 retirée de `PENDING` | à faire |
+| 15 | **0010** (échange de jeton) | B | 17 | relecture face au mode `Agent` (la 0010 ne touche ni `upstream.rs` ni `agent/`), puis phases 1 à 4 | §6.P de la 0010 | Accepted ; après la 0012, pour la 0.6.0 (2026-10-31) |
+| 18 | **tag 0.6.0** | — | 15 | — | `integration.yaml` vert, la 0010 retirée de `PENDING` | à faire ; la 0.5.0 part avec la 0014 et la 0015 (2026-10-31) |
 | 14 | **v1.0.0** | — | 18 | bascules de défauts (§ « v1.0.0 ») | — | à faire |
 
 Les numéros d'étape sont gardés pour les renvois des RFC ; la table suit
@@ -131,7 +132,8 @@ refontes, à la place d'une release intermédiaire.
 | 0.2.0 | 0001 à 0009 | `feat!:` : règles sans `allowed_ports` ou sans `verbs` restreintes sous restriction, `nodes/proxy` refusé, politique `exec`, schéma d'audit v1 ; serveur sur axum ; nouvelle UI |
 | 0.3.0 | — | partie sans la 0010 ni la 0011 : CRD IDE (kit v0.24.0), scan trivy des images |
 | 0.4.0 | 0011, 0012 | `feat!:` : conditions, Events, codes de raison et rythme de reconcile du kit, élection de leader du kit (retour arrière : supprimer le lease) (0011) ; mode agent : tunnel sortant depuis le cluster distant, nouvelle image et nouveau chart (0012) |
-| 0.5.0 | 0010 | échange de jetons : une connexion SSO au proxy pour tous les clusters |
+| 0.5.0 | 0014, 0015 | le proxy comme authentificateur de confiance (`upstream_auth` : FrontProxy, Issuer) ; tests profonds côté Rust |
+| 0.6.0 | 0010 | échange de jetons : une connexion SSO au proxy pour tous les clusters |
 | 1.0.0 | bascules | voir ci-dessous |
 
 ## v1.0.0 : bascules de défauts
