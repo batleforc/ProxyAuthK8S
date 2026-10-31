@@ -19,18 +19,18 @@ Une menace nouvelle d'une RFC suivante entre ici avec sa RFC dans `RFCS`.
 
 | RFC  | T   | Statut | Preuve |
 | ---- | --- | ------ | ------ |
-| 0010 | T1 | à écrire | un jeton du cluster (autre émetteur) présenté sur un cluster en échange répond 401 sans appel à l'IdP du cluster (`a_cluster_token_is_refused_on_an_exchange_cluster`) |
-| 0010 | T2 | à écrire | un non-membre de `proxy_group` est refusé et l'IdP du cluster (wiremock) reçoit 0 appel d'échange (`a_non_member_never_reaches_the_idp`) |
-| 0010 | T3 | à écrire | le jeton échangé n'apparaît ni dans la réponse, ni dans les en-têtes renvoyés, ni dans un `Debug` (`the_exchanged_token_never_reaches_the_client`) |
-| 0010 | T4 | à écrire | deux utilisateurs sur le même cluster et la même audience reçoivent chacun leur propre jeton échangé du cache (`two_users_never_share_an_exchanged_token`) |
-| 0010 | T5 | à écrire | un client qui envoie plusieurs `Authorization` voit l'apiserver ne recevoir que le jeton échangé (`client_authorization_headers_are_all_replaced`) |
-| 0010 | T6 | à écrire | un appelant au-delà de la limite reçoit 429 sans aucun appel d'échange à l'IdP (`a_rate_limited_caller_never_reaches_the_idp`) |
-| 0010 | T7 | à écrire | un échange écrit une seule ligne d'audit `token_exchanged` sans le jeton (`an_exchange_writes_one_audit_event`) |
-| 0010 | T8 | à écrire | un issuer d'échange différent de celui du proxy sans `connector_id` produit l'avertissement (`a_foreign_issuer_without_connector_warns`) |
-| 0010 | T9 | à écrire | un jeton échangé en cache n'est plus servi après `max_cache_seconds`, et la CRD refuse plus de 3600 (`the_cache_never_outlives_max_cache_seconds`) |
-| 0010 | T10 | à écrire | un échange en échec ne relaie jamais le jeton du proxy à l'apiserver (`an_exchange_failure_never_relays_the_proxy_token`) |
-| 0010 | T11 | à écrire | un jeton du proxy émis pour une autre audience est refusé à la porte 4 et n'est jamais envoyé à l'échange (`only_a_validated_token_is_sent_to_the_exchange`) |
-| 0010 | T12 | à écrire | un `invalid_grant` sur `/api/v1/auth/refresh` compte vers un bannissement, un IdP injoignable non (`a_refused_refresh_counts_toward_a_ban`) |
+| 0010 | T1 | test | `libs/server/api/tests/token_exchange.rs::a_cluster_token_is_refused_on_an_exchange_cluster`, `tests/integration/tests/rfc0010.rs::p4_a_cluster_token_is_refused` |
+| 0010 | T2 | test | `libs/server/api/tests/token_exchange.rs::a_non_member_never_reaches_the_idp`, `tests/integration/tests/rfc0010.rs::p3_a_non_member_is_refused_before_any_exchange` |
+| 0010 | T3 | test | `libs/server/api/tests/token_exchange.rs::the_exchanged_token_never_reaches_the_client`, `tests/integration/tests/rfc0010.rs::p7_the_exchanged_token_never_leaves_the_proxy` |
+| 0010 | T4 | test | `libs/server/common/src/token_exchange.rs::two_users_never_share_an_exchanged_token` |
+| 0010 | T5 | test | `libs/server/api/src/cluster/redirect/kube_redirect/upstream.rs::client_authorization_headers_are_all_replaced` |
+| 0010 | T6 | test | `libs/server/api/tests/token_exchange.rs::a_rate_limited_caller_never_reaches_the_idp` |
+| 0010 | T7 | test | `libs/server/api/tests/token_exchange.rs::an_exchange_writes_one_audit_event` |
+| 0010 | T8 | test | `libs/server/crd/src/upstream_auth/token_exchange.rs::a_foreign_issuer_without_connector_warns` |
+| 0010 | T9 | test | `libs/server/common/src/token_exchange.rs::the_cache_never_outlives_max_cache_seconds` |
+| 0010 | T10 | test | `libs/server/api/tests/token_exchange.rs::an_exchange_failure_never_relays_the_proxy_token` |
+| 0010 | T11 | test | `libs/server/api/tests/token_exchange.rs::only_a_validated_token_is_sent_to_the_exchange` |
+| 0010 | T12 | test | `libs/server/api/tests/server_auth.rs::a_refused_refresh_counts_toward_a_ban`, `tests/integration/tests/rfc0010.rs::p9_an_invalid_refresh_token_is_refused_and_counted` |
 | 0011 | T1 | hors suite | `cargo deny check sources` (allow-git limité au dépôt du kit) dans `task audit`, commit figé par `Cargo.lock`, `kit:sync` relu en PR |
 | 0011 | T2 | test | `libs/server/api/tests/envtest_reconcile.rs::an_unresolved_oidc_config_never_shows_the_client_secret` |
 | 0011 | T3 | test | `tests/integration/tests/rfc0011.rs::t3_the_events_grant_is_create_and_patch_only` |

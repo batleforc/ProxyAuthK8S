@@ -1,6 +1,7 @@
 # Redis and Dex for the integration bench, in the chart's namespace. Images
 # come from .it/images.lock (`it:up` fills __REDIS__ and __DEX__); Dex's
-# configuration is the `dex-config` Secret `it:up` renders.
+# configuration is the `dex-config` Secret `it:up` renders. Dex B (RFC 0010
+# §6.P), the cluster's IdP, is the same image with `dex-b-config`.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -86,5 +87,71 @@ spec:
             backend:
               service:
                 name: dex
+                port:
+                  number: 5556
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dex-b
+  namespace: proxyauth
+spec:
+  selector:
+    matchLabels: { app: dex-b }
+  template:
+    metadata:
+      labels: { app: dex-b }
+    spec:
+      containers:
+        - name: dex
+          image: __DEX__
+          args: ["dex", "serve", "/etc/dex/config.yaml"]
+          ports:
+            - containerPort: 5556
+          readinessProbe:
+            httpGet: { path: /healthz, port: 5556 }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dex
+            # Its connector calls Dex A through the Ingress, on the run's cert.
+            - name: it-ca
+              mountPath: /etc/proxyauth-it
+              readOnly: true
+      volumes:
+        - name: config
+          secret:
+            secretName: dex-b-config
+        - name: it-ca
+          secret:
+            secretName: it-ca
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dex-b
+  namespace: proxyauth
+spec:
+  selector: { app: dex-b }
+  ports:
+    - port: 5556
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dex-b
+  namespace: proxyauth
+spec:
+  tls:
+    - hosts: [dex-b.k8s.localhost]
+      secretName: proxyauthk8s-tls
+  rules:
+    - host: dex-b.k8s.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dex-b
                 port:
                   number: 5556

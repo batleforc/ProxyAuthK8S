@@ -25,8 +25,9 @@ ROOT = Path(__file__).resolve().parent.parent
 MATRIX = ROOT / "tests/SECURITY-MATRIX.md"
 # The RFCs whose threat models are backfilled (RFC 0015 decision 10).
 RFCS = ("0010", "0011", "0012", "0013", "0014", "0016")
-# 0010: its code is not written; it leaves this set in the PR that lands it.
-PENDING = {"0010"}
+# RFCs whose code is not written yet; each leaves this set in the PR that
+# lands it (0010 did).
+PENDING: set[str] = set()
 STATUSES = {"test", "hors suite", "à écrire"}
 
 
@@ -63,7 +64,7 @@ def test_exists(root: Path, reference: str) -> bool:
                 and re.search(rf"\bfn {re.escape(function)}\s*\(", file.read_text()))
 
 
-def check(threats: dict[str, list[str]], matrix: str, exists) -> list[str]:
+def check(threats: dict[str, list[str]], matrix: str, exists, pending: set[str] = PENDING) -> list[str]:
     errors = []
     rows = matrix_rows(matrix)
     covered = {(rfc, threat) for _, rfc, threat, _, _ in rows}
@@ -86,7 +87,7 @@ def check(threats: dict[str, list[str]], matrix: str, exists) -> list[str]:
                     errors.append(f"{where}: names a test that does not exist: {reference}")
         elif status == "hors suite" and not proof:
             errors.append(f"{where}: `hors suite` without a pointer or a reason")
-        elif status == "à écrire" and rfc not in PENDING:
+        elif status == "à écrire" and rfc not in pending:
             errors.append(f"{where}: `à écrire` for an RFC whose backfill is due")
     return errors
 
@@ -106,7 +107,7 @@ def self_test() -> None:
     assert check({"0011": ["T1", "T2"]}, good.replace("gitleaks", ""), exists)
     todo = good.replace("| test | `libs/a.rs::t1_refused` |", "| à écrire | |")
     assert check({"0011": ["T1", "T2"]}, todo, exists)
-    assert check({"0010": ["T1", "T2"]}, todo.replace("0011", "0010"), exists) == []
+    assert check({"0010": ["T1", "T2"]}, todo.replace("0011", "0010"), exists, {"0010"}) == []
     print("stride self-test: ok")
 
 
