@@ -22,7 +22,7 @@ RFC passe au `/grill-me` avant d'être `In review`.
 | [0013](0013-agent-version-skew.md) | Versions des agents : les voir, les comparer, refuser un protocole inconnu | #304 | Implemented | medium |
 | [0014](0014-trusted-authenticator.md) | Le proxy comme authentificateur de confiance (front-proxy, émetteur) | #323 | Accepted | high |
 | [0015](0015-deep-tests.md) | Des tests unitaires et en processus plus profonds | #324 | Implemented | medium |
-| [0016](0016-heavy-and-load-tests.md) | Suite heavy et charge HTTP | #331 | In review | low |
+| [0016](0016-heavy-and-load-tests.md) | Suite heavy et charge HTTP | #331 | Implemented | low |
 
 Chaque document se termine par une section « Still open » (ou « Questions pour le
 grill »), qui sert d'ordre du jour pour le `/grill-me`.

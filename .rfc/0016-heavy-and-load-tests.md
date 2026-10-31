@@ -2,7 +2,7 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | In review                                                              |
+| Status      | Implemented (2026-10-31)                                               |
 | Short       | Suite heavy et charge HTTP                                             |
 | Settles     | Ce que le proxy relaie vraiment en amont, et comment il tient la charge |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
@@ -15,7 +15,7 @@
 > Les décisions 1 à 12 ont été prises par le co-auteur dans la nuit du
 > 2026-10-31, sans `/grill-me`, sur la demande de l'auteur d'écrire et de
 > livrer la RFC d'une traite (§15). Chacune porte sa recommandation et son
-> coût ; l'auteur les confirme ou les rouvre à la relecture de la PR.
+> coût ; l'auteur les a confirmées telles quelles le 2026-10-31.
 
 ---
 
@@ -609,7 +609,7 @@ verts.
 - **Charge** : 2 tests, 2 passés ; mémoire identique (4, 10, 7 MiB) ;
   throttle à 120 acceptées, 12 620 refusées en `429`.
 
-### Ce qui reste
+### Décisions
 
-- La confirmation des décisions 1 à 12 par l'auteur ; le statut passe alors
-  à `Accepted`, puis `Implemented`.
+Les décisions 1 à 12 ont été confirmées par l'auteur le 2026-10-31, sans
+changement ; la RFC passe à `Implemented`.
