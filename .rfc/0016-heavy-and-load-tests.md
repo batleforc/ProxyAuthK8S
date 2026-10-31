@@ -599,9 +599,17 @@ Premier passage sur la CI : run `41155757037` du workflow `heavy.yaml`, sur
 2. **Mémoire** : `kubectl top` donne le working set, pas le RSS que la RFC
    annonçait en §5.3 ; le rapport le dit.
 
+### Second passage
+
+Run `41182039715` sur `473873a` (l'écart 1 appliqué) : `heavy` et `perf`
+verts.
+
+- **Heavy** : 4 tests, 4 passés en 2 min 8 s — 0016 point 1 (16 s),
+  0014 point 16 (77 s), 0016 point 2 (111 s), 0014 point 17 (128 s).
+- **Charge** : 2 tests, 2 passés ; mémoire identique (4, 10, 7 MiB) ;
+  throttle à 120 acceptées, 12 620 refusées en `429`.
+
 ### Ce qui reste
 
-- Repasser `heavy` avec l'écart 1 (commit en attente de signature : la clé
-  GPG de l'auteur n'était plus déverrouillée dans la nuit).
 - La confirmation des décisions 1 à 12 par l'auteur ; le statut passe alors
-  à `Accepted`, puis `Implemented` une fois `heavy` vert.
+  à `Accepted`, puis `Implemented`.
