@@ -13,6 +13,7 @@ use tracing::{debug, error};
 use crate::{
     cli_config::{cli_cluster_config::CliClusterConfig, cli_server_config::CliServerConfig},
     error::ProxyAuthK8sError,
+    helper::unix_now,
     keystore,
 };
 
@@ -47,15 +48,6 @@ impl ServerSession {
         self.expires_at
             .is_some_and(|at| at.saturating_sub(now) < margin)
     }
-}
-
-/// Seconds since the Unix epoch (0 on a clock set before it).
-pub(crate) fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|elapsed| i64::try_from(elapsed.as_secs()).ok())
-        .unwrap_or(0)
 }
 
 impl CliServerConfig {

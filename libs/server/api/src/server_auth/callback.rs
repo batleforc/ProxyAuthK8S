@@ -6,7 +6,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use openidconnect::{
-    AccessTokenHash, AuthorizationCode, Nonce, OAuth2TokenResponse, PkceCodeVerifier, TokenResponse,
+    AccessTokenHash, AuthorizationCode, Nonce, OAuth2TokenResponse, PkceCodeVerifier,
+    RequestTokenError, TokenResponse,
 };
 use reqwest::Url;
 use serde::Deserialize;
@@ -122,9 +123,15 @@ async fn callback_inner(
         .await
     {
         Ok(tokens) => tokens,
+        // The IdP refused the code: the user's login is over.
+        Err(RequestTokenError::ServerResponse(response)) => {
+            error!(error = %response.error(), "the proxy's IdP refused the code");
+            return fail("access_denied");
+        }
+        // The IdP could not be reached or answered nonsense: retry later.
         Err(e) => {
             error!(error = %e, "the code exchange with the proxy's IdP failed");
-            return fail("access_denied");
+            return fail("server_error");
         }
     };
     let Some(id_token) = tokens.id_token() else {

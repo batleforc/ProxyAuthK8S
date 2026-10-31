@@ -6,6 +6,10 @@ vars:
   IT_DIR: .it/run
   IT_CLUSTER: proxyauth-it
   IT_HTTPS_PORT: 8443
+  # Tests that move the leader Lease or restart the back (RFC 0011 points 12,
+  # 13; RFC 0012 point 14), or stop Dex B and count its exchanges (RFC 0010):
+  # run alone, once nothing else runs. One list for both passes.
+  IT_SERIAL: binary(rfc0011_leader) | binary(rfc0012_restart) | binary(rfc0012_passthrough) | binary(rfc0010)
 
 env:
   IT_DIR: "{{.IT_DIR}}"
@@ -27,12 +31,9 @@ tasks:
       - |
         status=0
         env -u DBUS_SESSION_BUS_ADDRESS keyctl session - \
-          cargo nextest run -p integration --profile it -E 'not (binary(rfc0011_leader) | binary(rfc0012_restart) | binary(rfc0012_passthrough) | binary(rfc0010))' || status=1
-        # Tests that move the leader Lease or restart the back (RFC 0011
-        # points 12, 13; RFC 0012 point 14), or stop Dex B and count its
-        # exchanges (RFC 0010): alone, once nothing else runs.
+          cargo nextest run -p integration --profile it -E 'not ({{.IT_SERIAL}})' || status=1
         env -u DBUS_SESSION_BUS_ADDRESS keyctl session - \
-          cargo nextest run -p integration --profile it -E 'binary(rfc0011_leader) | binary(rfc0012_restart) | binary(rfc0012_passthrough) | binary(rfc0010)' -j 1 || status=1
+          cargo nextest run -p integration --profile it -E '{{.IT_SERIAL}}' -j 1 || status=1
         pnpm -C apps/front test:e2e:it || status=1
         exit $status
 

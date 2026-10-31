@@ -12,13 +12,12 @@ use client_api::{
 use std::{fs::File, path::Path, time::Duration};
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use reqwest::Certificate;
+use reqwest::{Certificate, StatusCode};
 use tracing::debug;
 use url::{Host, Url};
 
 use crate::{
-    cli_config::cli_server_config::{CliServerConfig, keyring_store::unix_now},
-    error::ProxyAuthK8sError,
+    cli_config::cli_server_config::CliServerConfig, error::ProxyAuthK8sError, helper::unix_now,
 };
 
 /// A server token with less validity than this is renewed before use
@@ -113,6 +112,7 @@ impl CliServerConfig {
             .write(true)
             .truncate(false)
             .open(&path)
+            .inspect_err(|e| debug!("Renewal lock file {}: {e}", path.display()))
             .ok()?;
         for _ in 0..RENEWAL_LOCK_ATTEMPTS {
             match file.try_lock() {
@@ -154,15 +154,15 @@ fn refresh_error(url: &str, err: &ApiError<ServerAuthRefreshError>) -> ProxyAuth
         ))
     };
     match err {
-        ApiError::ResponseError(resp) => match resp.status.as_u16() {
-            400 => ProxyAuthK8sError::Unauthenticated(format!(
+        ApiError::ResponseError(resp) => match resp.status {
+            StatusCode::BAD_REQUEST => ProxyAuthK8sError::Unauthenticated(format!(
                 "the session with {url} is over; log in again with \
                  `kubectl-proxyauth login --server-url {url}`"
             )),
-            429 => ProxyAuthK8sError::RemoteServerError(format!(
+            StatusCode::TOO_MANY_REQUESTS => ProxyAuthK8sError::RemoteServerError(format!(
                 "too many session renewals on {url}, try again later"
             )),
-            503 => unavailable(),
+            StatusCode::SERVICE_UNAVAILABLE => unavailable(),
             _ => ProxyAuthK8sError::RemoteServerError(format!(
                 "could not renew the session with {url}: {err}"
             )),

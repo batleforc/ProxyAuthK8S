@@ -47,13 +47,18 @@ fn allow_token_exchange() {
 /// A token of the proxy's IdP for this proxy (`aud` is the harness's
 /// `OIDC_AUDIENCE`), valid ten minutes.
 fn proxy_token(audience: &str) -> String {
+    proxy_token_of("alice-sub", audience)
+}
+
+/// [`proxy_token`] for the subject `sub`.
+fn proxy_token_of(sub: &str, audience: &str) -> String {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("the clock is after 1970")
         .as_secs();
     sign_claims(&json!({
         "iss": "https://proxy-idp.example.com",
-        "sub": "alice-sub",
+        "sub": sub,
         "aud": audience,
         "exp": now.saturating_add(600),
         "iat": now,
@@ -217,6 +222,46 @@ async fn a_cache_hit_survives_the_cluster_idp_going_away() {
     assert_eq!(status, StatusCode::OK, "{body}");
 }
 
+/// T4: two users on one cluster each get the token exchanged for their own,
+/// first and from the cache: never the other's.
+#[tokio::test]
+async fn two_users_never_share_an_exchanged_token() {
+    let bench = Bench::new(|_| {}).await;
+    let alice = proxy_token_of("alice-sub", "proxyauthk8s");
+    let bob = proxy_token_of("bob-sub", "proxyauthk8s");
+    for (token, exchanged) in [(&alice, "for-alice"), (&bob, "for-bob")] {
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .and(body_string_contains(
+                format!("subject_token={token}").as_str(),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": exchanged,
+                "issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+                "token_type": "Bearer",
+                "expires_in": 300,
+            })))
+            .expect(1)
+            .mount(&bench.cluster_idp)
+            .await;
+        Mock::given(method("GET"))
+            .and(header(
+                "authorization",
+                format!("Bearer {exchanged}").as_str(),
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_string(exchanged))
+            .mount(&bench.apiserver)
+            .await;
+    }
+    for _ in 0..2 {
+        for (token, exchanged) in [(&alice, "for-alice"), (&bob, "for-bob")] {
+            let (status, body, _) = bench.get(token).await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body, exchanged);
+        }
+    }
+}
+
 /// T3: the exchanged token never comes back, in a body or a header.
 #[tokio::test]
 async fn the_exchanged_token_never_reaches_the_client() {
@@ -259,7 +304,7 @@ async fn only_a_validated_token_is_sent_to_the_exchange() {
 
 /// T2: a caller outside `proxy_group` is refused before any exchange.
 #[tokio::test]
-async fn a_non_member_never_reaches_the_idp() {
+async fn a_non_member_is_refused_before_the_idp() {
     let bench = Bench::new(|proxy| proxy.spec.proxy_group = Some("ops".to_string())).await;
     bench.exchange_succeeds(0).await;
     bench.apiserver_expects(0).await;
@@ -270,7 +315,7 @@ async fn a_non_member_never_reaches_the_idp() {
 /// T6: a rate-limited request costs no exchange (cache off, so each allowed
 /// request would exchange).
 #[tokio::test]
-async fn a_rate_limited_caller_never_reaches_the_idp() {
+async fn a_rate_limited_caller_is_refused_before_the_idp() {
     let bench = Bench::new(|proxy| {
         proxy.spec.security_config = Some(harness::rate_limited_config(1));
         if let Some(upstream) = proxy.spec.upstream_auth.as_mut()
@@ -324,6 +369,31 @@ async fn an_exchange_failure_never_relays_the_proxy_token() {
 
 /// T7: one `token_exchanged` line per real exchange, none on a cache hit,
 /// and never a token in it.
+/// No request reached the IdP (its discovery is gone): `503`, counted, but
+/// no `token_exchanged` line, which records real exchanges only (§10.1).
+#[tokio::test]
+async fn a_failure_before_the_idp_writes_no_exchange_audit() {
+    capture::start();
+    let bench = Bench::new(|_| {}).await;
+    bench.cluster_idp.reset().await;
+    bench.apiserver_expects(0).await;
+    let (status, body, _) = bench.get(&proxy_token("proxyauthk8s")).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+    assert!(!capture::lines().iter().any(
+        |line| line["cluster"] == bench.cluster.as_str() && line["event"] == "token_exchanged"
+    ));
+}
+
+/// A cluster without UID could share its cache key with another: refused.
+#[tokio::test]
+async fn a_cluster_without_uid_is_refused() {
+    let bench = Bench::new(|proxy| proxy.metadata.uid = None).await;
+    bench.exchange_succeeds(0).await;
+    bench.apiserver_expects(0).await;
+    let (status, body, _) = bench.get(&proxy_token("proxyauthk8s")).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+}
+
 #[tokio::test]
 async fn an_exchange_writes_one_audit_event() {
     capture::start();

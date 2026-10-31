@@ -6,8 +6,6 @@ pub mod o_auth_authorization_server_metadata;
 pub use self::o_auth_authorization_server_metadata::OAuthAuthorizationServerMetadata;
 pub mod readiness_body;
 pub use self::readiness_body::ReadinessBody;
-pub mod session_error;
-pub use self::session_error::SessionError;
 pub mod session_tokens;
 pub use self::session_tokens::SessionTokens;
 pub mod token_error_body;

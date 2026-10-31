@@ -20,11 +20,11 @@ Une menace nouvelle d'une RFC suivante entre ici avec sa RFC dans `RFCS`.
 | RFC  | T   | Statut | Preuve |
 | ---- | --- | ------ | ------ |
 | 0010 | T1 | test | `libs/server/api/tests/token_exchange.rs::a_cluster_token_is_refused_on_an_exchange_cluster`, `tests/integration/tests/rfc0010.rs::p4_a_cluster_token_is_refused` |
-| 0010 | T2 | test | `libs/server/api/tests/token_exchange.rs::a_non_member_never_reaches_the_idp`, `tests/integration/tests/rfc0010.rs::p3_a_non_member_is_refused_before_any_exchange` |
+| 0010 | T2 | test | `libs/server/api/tests/token_exchange.rs::a_non_member_is_refused_before_the_idp`, `tests/integration/tests/rfc0010.rs::p3_a_non_member_is_refused_before_any_exchange` |
 | 0010 | T3 | test | `libs/server/api/tests/token_exchange.rs::the_exchanged_token_never_reaches_the_client`, `tests/integration/tests/rfc0010.rs::p7_the_exchanged_token_never_leaves_the_proxy` |
-| 0010 | T4 | test | `libs/server/common/src/token_exchange.rs::two_users_never_share_an_exchanged_token` |
+| 0010 | T4 | test | `libs/server/api/tests/token_exchange.rs::two_users_never_share_an_exchanged_token`, `libs/server/common/src/token_exchange.rs::two_users_never_share_an_exchanged_token` |
 | 0010 | T5 | test | `libs/server/api/src/cluster/redirect/kube_redirect/upstream.rs::client_authorization_headers_are_all_replaced` |
-| 0010 | T6 | test | `libs/server/api/tests/token_exchange.rs::a_rate_limited_caller_never_reaches_the_idp` |
+| 0010 | T6 | test | `libs/server/api/tests/token_exchange.rs::a_rate_limited_caller_is_refused_before_the_idp` |
 | 0010 | T7 | test | `libs/server/api/tests/token_exchange.rs::an_exchange_writes_one_audit_event` |
 | 0010 | T8 | test | `libs/server/crd/src/upstream_auth/token_exchange.rs::a_foreign_issuer_without_connector_warns` |
 | 0010 | T9 | test | `libs/server/common/src/token_exchange.rs::the_cache_never_outlives_max_cache_seconds` |

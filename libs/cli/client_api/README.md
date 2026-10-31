@@ -55,7 +55,6 @@ Class | Method | HTTP request | Description
  - [GetAllVisibleClusterBody](docs/GetAllVisibleClusterBody.md)
  - [OAuthAuthorizationServerMetadata](docs/OAuthAuthorizationServerMetadata.md)
  - [ReadinessBody](docs/ReadinessBody.md)
- - [SessionError](docs/SessionError.md)
  - [SessionTokens](docs/SessionTokens.md)
  - [TokenErrorBody](docs/TokenErrorBody.md)
  - [TokenResponseBody](docs/TokenResponseBody.md)

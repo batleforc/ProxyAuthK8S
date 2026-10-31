@@ -781,7 +781,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_refused_code_fails_the_server_login() {
+    async fn a_server_login_with_a_bad_code_is_refused() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/api/v1/auth/token"))

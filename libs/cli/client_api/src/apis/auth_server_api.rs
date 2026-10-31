@@ -39,7 +39,7 @@ pub enum ServerAuthLoginError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ServerAuthRefreshError {
-    Status400(models::SessionError),
+    Status400(models::TokenErrorBody),
     Status429(),
     Status503(),
     UnknownValue(serde_json::Value),
@@ -49,7 +49,7 @@ pub enum ServerAuthRefreshError {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ServerAuthTokenError {
-    Status400(models::SessionError),
+    Status400(models::TokenErrorBody),
     Status429(),
     Status503(),
     UnknownValue(serde_json::Value),

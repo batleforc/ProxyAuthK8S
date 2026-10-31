@@ -1,6 +1,15 @@
 use std::io;
 use std::path::Path;
 
+/// Seconds since the Unix epoch (0 on a clock set before it).
+pub(crate) fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|elapsed| i64::try_from(elapsed.as_secs()).ok())
+        .unwrap_or(0)
+}
+
 /// Write `contents` to `path`, restricting the file to owner read/write (`0600`)
 /// on Unix.
 ///

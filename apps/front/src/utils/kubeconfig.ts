@@ -54,24 +54,25 @@ export function generateCallbackKubeconfig(data: ClusterCallbackData): string {
   });
 }
 
-/** Kubeconfig delegating token retrieval to the `kubectl proxyauth` exec plugin. */
-export function generateCallbackPluginKubeconfig(
-  data: ClusterCallbackData,
+/** Kubeconfig of `user` on `ns`/`name` at `server`, whose token the `kubectl proxyauth` exec plugin fetches. */
+function renderPluginKubeconfig(
+  ns: string,
+  name: string,
+  server: string,
+  user: string,
 ): string {
-  if (!data.retour?.access_token) return '';
-
-  const clusterName = `${data.ns}-${data.cluster}`;
-  const userName = `${data.retour.subject}@${data.ns}-${data.cluster}`;
-  const contextName = `${data.ns}-${data.cluster}-context`;
-  // create a const of the cluster_url without the path
-  const clusterUrl = new URL(data.retour.cluster_url).origin;
+  const clusterName = `${ns}-${name}`;
+  const userName = `${user}@${clusterName}`;
+  const contextName = `${clusterName}-context`;
+  // The plugin talks to the proxy itself: the server URL without its path.
+  const serverUrl = new URL(server).origin;
 
   return `apiVersion: v1
 kind: Config
 clusters:
 - name: ${clusterName}
   cluster:
-    server: ${data.retour.cluster_url}
+    server: ${server}
     insecure-skip-tls-verify: false
 users:
 - name: ${userName}
@@ -81,9 +82,9 @@ users:
       args:
         - proxyauth
         - get-token
-        - --namespace=${data.ns}
-        - --server-url=${clusterUrl}
-        - ${data.cluster}
+        - --namespace=${ns}
+        - --server-url=${serverUrl}
+        - ${name}
       command: kubectl
       env: null
       interactiveMode: Never
@@ -94,6 +95,20 @@ contexts:
     cluster: ${clusterName}
     user: ${userName}
 current-context: ${contextName}`;
+}
+
+/** Kubeconfig delegating token retrieval to the `kubectl proxyauth` exec plugin. */
+export function generateCallbackPluginKubeconfig(
+  data: ClusterCallbackData,
+): string {
+  if (!data.retour?.access_token) return '';
+
+  return renderPluginKubeconfig(
+    data.ns,
+    data.cluster,
+    data.retour.cluster_url,
+    data.retour.subject,
+  );
 }
 
 /** Shell commands configuring the `kubectl proxyauth` plugin for this cluster. */
@@ -133,39 +148,12 @@ export function generateExchangeKubeconfig(
 ): string {
   if (!cluster || !clusterUrl) return '';
 
-  const clusterName = `${cluster.namespace}-${cluster.name}`;
-  const userName = `${username}@${clusterName}`;
-  const contextName = `${clusterName}-context`;
-  const serverUrl = new URL(clusterUrl).origin;
-
-  return `apiVersion: v1
-kind: Config
-clusters:
-- name: ${clusterName}
-  cluster:
-    server: ${clusterUrl}
-    insecure-skip-tls-verify: false
-users:
-- name: ${userName}
-  user:
-    exec:
-      apiVersion: client.authentication.k8s.io/v1
-      args:
-        - proxyauth
-        - get-token
-        - --namespace=${cluster.namespace}
-        - --server-url=${serverUrl}
-        - ${cluster.name}
-      command: kubectl
-      env: null
-      interactiveMode: Never
-      provideClusterInfo: false
-contexts:
-- name: ${contextName}
-  context:
-    cluster: ${clusterName}
-    user: ${userName}
-current-context: ${contextName}`;
+  return renderPluginKubeconfig(
+    cluster.namespace,
+    cluster.name,
+    clusterUrl,
+    username,
+  );
 }
 
 /** Kubeconfig for a non-SSO cluster reached through the proxy (token left to fill in). */

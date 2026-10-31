@@ -7,15 +7,15 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
-use tracing::{error, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
-use crate::cluster::auth::oauth::model::{IssuedCode, redirect_uri_matches, verify_pkce_s256};
+use crate::cluster::auth::oauth::{
+    Unredeemed, no_store, oauth_error, read_form, redeem_code, token::TokenErrorBody,
+};
 use crate::cluster::redirect::audit::{Event, HandlerAudit};
 use crate::cluster::redirect::throttle;
-use crate::server_auth::{
-    CODE_PREFIX, SessionError, SessionTokens, peer, session_error, session_response, throttled,
-};
+use crate::server_auth::{CODE_PREFIX, SessionTokens, peer, throttled};
 
 /// The form the CLI posts to redeem its single-use code.
 #[derive(Deserialize, ToSchema)]
@@ -40,7 +40,7 @@ pub struct SessionTokenRequest {
     request_body(content = SessionTokenRequest, content_type = "application/x-www-form-urlencoded"),
     responses(
         (status = 200, description = "The session: the proxy token and its refresh token.", body = SessionTokens),
-        (status = 400, description = "Invalid grant (`invalid_grant`): unknown, used or expired code, or a wrong verifier.", body = SessionError),
+        (status = 400, description = "Invalid grant (`invalid_grant`): unknown, used or expired code, or a wrong verifier.", body = TokenErrorBody),
         (status = 429, description = "Rate limited or banned (see UNSCOPED_* environment knobs)."),
         (status = 503, description = "Redis is unavailable."),
     )
@@ -63,46 +63,32 @@ async fn token_inner(
     form: Result<Form<SessionTokenRequest>, FormRejection>,
     audit: &mut HandlerAudit,
 ) -> Response {
-    let form = match form {
+    let form = match read_form(form) {
         Ok(form) => form,
-        Err(rejection) if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE => {
-            return StatusCode::PAYLOAD_TOO_LARGE.into_response();
-        }
-        Err(rejection) => return (StatusCode::BAD_REQUEST, rejection.body_text()).into_response(),
+        Err(response) => return *response,
     };
     let peer = peer(req);
     if let Some(response) = throttled(data, &peer).await {
         return response;
     }
     audit.redirect_uri(&form.redirect_uri);
-    // Single-use whatever follows: a replayed code finds nothing.
-    let issued = match data
-        .redis_take(&format!("{CODE_PREFIX}:{}", form.code))
-        .await
+    let key = format!("{CODE_PREFIX}:{}", form.code);
+    let issued = match redeem_code(data, &key, &form.redirect_uri, &form.code_verifier, audit).await
     {
-        Ok(Some(raw)) => serde_json::from_str::<IssuedCode>(&raw).ok(),
-        Ok(None) => None,
-        Err(e) => {
-            error!(error = %e, "couldn't get the issued code");
-            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        Ok(issued) => issued,
+        Err(Unredeemed::InvalidGrant) => {
+            throttle::unscoped::record_auth_failure(data, &peer).await;
+            return oauth_error(StatusCode::BAD_REQUEST, "invalid_grant");
         }
+        Err(Unredeemed::Unavailable) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    let Some(issued) = issued.filter(|issued| {
-        redirect_uri_matches(&form.redirect_uri, &issued.redirect_uri)
-            && verify_pkce_s256(&form.code_verifier, &issued.code_challenge)
-    }) else {
-        audit.deny("invalid_grant");
-        throttle::unscoped::record_auth_failure(data, &peer).await;
-        return session_error(StatusCode::BAD_REQUEST, "invalid_grant");
-    };
-    audit.user(&issued.subject, &[]);
     audit.grant(
         "authorization_code",
         issued
             .expires_in
             .and_then(|seconds| u64::try_from(seconds).ok()),
     );
-    session_response(SessionTokens {
+    no_store(SessionTokens {
         access_token: issued.access_token,
         token_type: "Bearer".to_string(),
         expires_in: issued.expires_in,

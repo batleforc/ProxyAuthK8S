@@ -166,9 +166,58 @@ async fn an_idp_error_is_sent_back_to_the_cli() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
+/// The callback with the IdP's token endpoint answering `response`: where
+/// the CLI's loopback is sent.
+async fn callback_when_the_idp_answers(response: ResponseTemplate) -> Url {
+    let idp = MockServer::start().await;
+    mount_full_oidc_provider(&idp, "alice", &["dev"]).await;
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .respond_with(response)
+        .mount(&idp)
+        .await;
+    let app = test::init_service(harness::app(memory_state(&memory_store(), idp.uri()))).await;
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&login_uri(LOOPBACK))
+            .to_request(),
+    )
+    .await;
+    let state = param(&location(&response), "state");
+    let response = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!(
+                "/api/v1/auth/callback?code=idp-code&state={state}"
+            ))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    location(&response)
+}
+
+/// The IdP refusing the code ends the login; the CLI hears `access_denied`.
+#[tokio::test]
+async fn a_code_the_idp_refuses_is_denied() {
+    let back = callback_when_the_idp_answers(
+        ResponseTemplate::new(400).set_body_json(json!({"error": "invalid_grant"})),
+    )
+    .await;
+    assert_eq!(param(&back, "error"), "access_denied");
+}
+
+/// An IdP that cannot answer is no refusal: the CLI hears `server_error`.
+#[tokio::test]
+async fn an_unavailable_idp_at_callback_is_a_server_error() {
+    let back = callback_when_the_idp_answers(ResponseTemplate::new(503)).await;
+    assert_eq!(param(&back, "error"), "server_error");
+}
+
 /// A code is only released to the holder of the verifier.
 #[tokio::test]
-async fn a_wrong_verifier_never_gets_the_session() {
+async fn a_wrong_verifier_is_refused() {
     let idp = MockServer::start().await;
     mount_full_oidc_provider(&idp, "alice", &["dev"]).await;
     let app = test::init_service(harness::app(memory_state(&memory_store(), idp.uri()))).await;

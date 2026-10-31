@@ -176,7 +176,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionError"
+                  "$ref": "#/components/schemas/TokenErrorBody"
                 }
               }
             }
@@ -224,7 +224,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SessionError"
+                  "$ref": "#/components/schemas/TokenErrorBody"
                 }
               }
             }
@@ -1296,18 +1296,6 @@
           "redis": {
             "type": "string",
             "description": "`ok` when Redis answered a `PING`, `unavailable` otherwise."
-          }
-        }
-      },
-      "SessionError": {
-        "type": "object",
-        "description": "An OAuth error body (`invalid_grant`, `invalid_request`…).",
-        "required": [
-          "error"
-        ],
-        "properties": {
-          "error": {
-            "type": "string"
           }
         }
       },

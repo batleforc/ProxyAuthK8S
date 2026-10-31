@@ -49,13 +49,6 @@ export type OAuthAuthorizationServerMetadata = {
 };
 
 /**
- * An OAuth error body (`invalid_grant`, `invalid_request`…).
- */
-export type SessionError = {
-    error: string;
-};
-
-/**
  * The form the CLI posts to renew its session.
  */
 export type SessionRefreshRequest = {
@@ -248,7 +241,7 @@ export type ServerAuthRefreshErrors = {
     /**
      * Invalid grant (`invalid_grant`): the identity provider refused the refresh token.
      */
-    400: SessionError;
+    400: TokenErrorBody;
     /**
      * Rate limited or banned (see UNSCOPED_* environment knobs).
      */
@@ -281,7 +274,7 @@ export type ServerAuthTokenErrors = {
     /**
      * Invalid grant (`invalid_grant`): unknown, used or expired code, or a wrong verifier.
      */
-    400: SessionError;
+    400: TokenErrorBody;
     /**
      * Rate limited or banned (see UNSCOPED_* environment knobs).
      */

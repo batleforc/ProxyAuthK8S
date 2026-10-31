@@ -764,11 +764,36 @@ passage.
    donne `503`) ; un callback `?error=` revient au CLI en `access_denied` ;
    le CLI sérialise le renouvellement de session (verrou de fichier) pour ne
    pas dépenser deux fois un refresh token qu'un IdP fait tourner.
+9. **Après la revue à deux axes** :
+   - le front ne télécharge pas le kubeconfig depuis l'accueil (§6.4) : un
+     cluster en échange ouvre la page `cluster-nosso`, qui l'affiche avec la
+     marche à suivre (le kubeconfig suppose le `login` du CLI, écart 6) ; il
+     sort de `renderPluginKubeconfig`, partagé avec
+     `generateCallbackPluginKubeconfig` ;
+   - `cluster/auth/oauth/*`, « délibérément non touché », a reçu les
+     descriptions OpenAPI demandées par Spectral et les helpers que la
+     session SSO partage avec lui (`read_form`, `oauth_error`, `no_store`,
+     `redeem_code`) : aucun changement de comportement, ses tests passent
+     tels quels ; `SessionError` disparaît au profit de `TokenErrorBody`, de
+     même forme ;
+   - `token_exchanged` n'est écrit que si une requête a atteint l'IdP (§10.1
+     « échange réel ») : un échec de config, de discovery ou de client HTTP
+     n'est que compté ; un `ProxyKubeApi` sans UID est refusé (`503`) plutôt
+     que de partager une clé ;
+   - au callback de la session, un IdP injoignable donne `server_error` au
+     CLI, un code refusé `access_denied` ;
+   - p2 vérifie `cache_hit ≥ 9` et non `= 9` : la découverte d'API de kubectl
+     passe aussi par le cache ; la preuve exacte est `exchanged = 1` ;
+   - T2 et T6 sont renommés `a_non_member_is_refused_before_the_idp` et
+     `a_rate_limited_caller_is_refused_before_the_idp` (suffixe de refus,
+     `testing.mdx`).
 
 ### Menaces (§7)
 
-T1 à T7, T10 et T11 : `libs/server/api/tests/token_exchange.rs` (noms de §14,
-T5 dans `kube_redirect/upstream.rs`) ; T8 :
+T1 à T7, T10 et T11 : `libs/server/api/tests/token_exchange.rs` (noms de §14
+sauf T2 et T6, écart 9 ; T4 aussi en unitaire dans `common::token_exchange` ;
+T5 dans `kube_redirect/upstream.rs` ; T11 aussi dans
+`audience_validation_off.rs`) ; T8 :
 `crd::upstream_auth::token_exchange` ; T9 : `common::token_exchange` ; T12 :
 `libs/server/api/tests/server_auth.rs`. Sur le banc : points 3, 4, 7 et 9.
 

@@ -80,34 +80,3 @@ pub struct SessionTokens {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
 }
-
-/// An OAuth error body (`invalid_grant`, `invalid_request`…).
-#[derive(Serialize, ToSchema)]
-pub struct SessionError {
-    pub error: String,
-}
-
-pub(crate) fn session_error(status: axum::http::StatusCode, error: &str) -> Response {
-    use axum::response::IntoResponse;
-    (
-        status,
-        axum::Json(SessionError {
-            error: error.to_string(),
-        }),
-    )
-        .into_response()
-}
-
-/// A `200` carrying the session, never cached.
-pub(crate) fn session_response(tokens: SessionTokens) -> Response {
-    use axum::{http::header, response::IntoResponse};
-    (
-        axum::http::StatusCode::OK,
-        [
-            (header::CACHE_CONTROL, "no-store"),
-            (header::PRAGMA, "no-cache"),
-        ],
-        axum::Json(tokens),
-    )
-        .into_response()
-}

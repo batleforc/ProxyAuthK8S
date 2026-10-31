@@ -4,7 +4,7 @@ use axum::{
     Form,
     extract::{State, rejection::FormRejection},
     http::{StatusCode, request::Parts},
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use openidconnect::{
     OAuth2TokenResponse, RefreshToken, RequestTokenError, core::CoreErrorResponseType,
@@ -13,11 +13,10 @@ use serde::Deserialize;
 use tracing::{error, instrument, warn};
 use utoipa::ToSchema;
 
+use crate::cluster::auth::oauth::{no_store, oauth_error, read_form, token::TokenErrorBody};
 use crate::cluster::redirect::audit::{Event, HandlerAudit};
 use crate::cluster::redirect::throttle;
-use crate::server_auth::{
-    SessionError, SessionTokens, peer, session_conf, session_error, session_response, throttled,
-};
+use crate::server_auth::{SessionTokens, peer, session_conf, throttled};
 
 /// The form the CLI posts to renew its session.
 #[derive(Deserialize, ToSchema)]
@@ -39,7 +38,7 @@ pub struct SessionRefreshRequest {
     request_body(content = SessionRefreshRequest, content_type = "application/x-www-form-urlencoded"),
     responses(
         (status = 200, description = "The renewed session.", body = SessionTokens),
-        (status = 400, description = "Invalid grant (`invalid_grant`): the identity provider refused the refresh token.", body = SessionError),
+        (status = 400, description = "Invalid grant (`invalid_grant`): the identity provider refused the refresh token.", body = TokenErrorBody),
         (status = 429, description = "Rate limited or banned (see UNSCOPED_* environment knobs)."),
         (status = 503, description = "The identity provider is unavailable, or refused the proxy's own client."),
     )
@@ -62,12 +61,9 @@ async fn refresh_inner(
     form: Result<Form<SessionRefreshRequest>, FormRejection>,
     audit: &mut HandlerAudit,
 ) -> Response {
-    let form = match form {
+    let form = match read_form(form) {
         Ok(form) => form,
-        Err(rejection) if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE => {
-            return StatusCode::PAYLOAD_TOO_LARGE.into_response();
-        }
-        Err(rejection) => return (StatusCode::BAD_REQUEST, rejection.body_text()).into_response(),
+        Err(response) => return *response,
     };
     let peer = peer(req);
     if let Some(response) = throttled(data, &peer).await {
@@ -75,7 +71,7 @@ async fn refresh_inner(
     }
     let unavailable = |audit: &mut HandlerAudit| {
         audit.fail("the proxy's identity provider is unavailable");
-        session_error(StatusCode::SERVICE_UNAVAILABLE, "temporarily_unavailable")
+        oauth_error(StatusCode::SERVICE_UNAVAILABLE, "temporarily_unavailable")
     };
     let conf = session_conf(data);
     let (Ok(http), Ok(client)) = (conf.oidc_reqwest_client(), conf.oidc_core().await) else {
@@ -95,7 +91,7 @@ async fn refresh_inner(
                 expires_in.and_then(|s| u64::try_from(s).ok()),
             );
             throttle::unscoped::clear_auth_failures(data, &peer).await;
-            session_response(SessionTokens {
+            no_store(SessionTokens {
                 access_token: tokens.access_token().secret().clone(),
                 token_type: "Bearer".to_string(),
                 expires_in,
@@ -114,7 +110,7 @@ async fn refresh_inner(
             warn!(error = %response.error(), "the proxy's IdP refused a refresh token");
             audit.deny("invalid_grant");
             throttle::unscoped::record_auth_failure(data, &peer).await;
-            session_error(StatusCode::BAD_REQUEST, "invalid_grant")
+            oauth_error(StatusCode::BAD_REQUEST, "invalid_grant")
         }
         Err(e) => {
             error!(error = %e, "the refresh with the proxy's IdP failed");
