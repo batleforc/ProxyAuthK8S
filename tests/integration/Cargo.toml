@@ -23,7 +23,7 @@ rustls = { workspace = true }
 tokio-rustls = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
 # RFC 0016: the token-in-subprotocol scheme of RFC 0014 point 16.
-base64 = "0.22"
+base64 = "0.23"
 
 [lints]
 workspace = true
