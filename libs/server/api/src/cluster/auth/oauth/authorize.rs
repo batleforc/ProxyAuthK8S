@@ -36,6 +36,7 @@ pub struct AuthorizeQuery {
     pub redirect_uri: String,
     /// Opaque value echoed back verbatim on redirect.
     pub state: Option<String>,
+    /// Space-separated scopes asked of the upstream provider.
     pub scope: Option<String>,
     /// RFC 7636 PKCE code challenge (43-128 chars, unreserved charset).
     pub code_challenge: String,

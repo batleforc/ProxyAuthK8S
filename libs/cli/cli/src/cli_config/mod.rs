@@ -217,10 +217,9 @@ mod tests {
             "localhost-5437".to_string(),
             "https://localhost:5437".to_string(),
         );
-        server.clusters.insert(
-            "team-a/prod".to_string(),
-            CliClusterConfig { token_exist: true },
-        );
+        server
+            .clusters
+            .insert("team-a/prod".to_string(), CliClusterConfig::new());
         config.default_server_name = "localhost-5437".to_string();
         config
     }

@@ -142,6 +142,7 @@ mod tests {
                     user_prefix: Some("proxyauth:".to_string()),
                     group_prefix: Some("proxyauth:".to_string()),
                     issuer_key: None,
+                    token_exchange: None,
                 }),
             },
         );

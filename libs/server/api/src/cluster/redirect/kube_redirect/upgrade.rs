@@ -370,6 +370,7 @@ pub(super) async fn upgrade_redirect(
         proxy,
         user,
         upstream_identity,
+        exchanged,
         audit,
         ..
     } = ctx;
@@ -383,7 +384,11 @@ pub(super) async fn upgrade_redirect(
             &method,
             &upstream_url,
             peer_ip,
-            Upstream::new(user.as_ref(), upstream_identity.as_ref()),
+            Upstream::new(
+                user.as_ref(),
+                upstream_identity.as_ref(),
+                exchanged.as_deref(),
+            ),
         )
         .map_err(UpgradeRefusal::InvalidUpstreamUrl)?;
         let client_upgrade = req

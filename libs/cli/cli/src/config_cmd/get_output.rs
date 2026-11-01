@@ -119,10 +119,9 @@ mod tests {
         let mut config = server_config();
         assert!(!GetOutput::new_from_servers(config.clone(), String::new()).has_clusters);
 
-        config.clusters.insert(
-            "default/prod".to_string(),
-            CliClusterConfig { token_exist: true },
-        );
+        config
+            .clusters
+            .insert("default/prod".to_string(), CliClusterConfig::new());
         let output = GetOutput::new_from_servers(config, String::new());
         assert!(output.has_clusters);
         assert_eq!(output.row()[3], "true");

@@ -1,15 +1,19 @@
 //! Bearer-token storage, backed by the OS keyring.
 //!
-//! Two kinds of entry are kept under the `proxyauthk8s` service: the server
-//! token, keyed by the server URL, and the per-cluster tokens, keyed by
+//! Three kinds of entry are kept under the `proxyauthk8s` service: the server
+//! token, keyed by the server URL; the SSO session that renews it (RFC 0010),
+//! keyed by `<server url>::session`; and the per-cluster tokens, keyed by
 //! `<server url>::<ns>/<cluster>`.
 
+use client_api::models::SessionTokens;
 use keyring_core::Entry;
+use serde::{Deserialize, Serialize};
 use tracing::{debug, error};
 
 use crate::{
     cli_config::{cli_cluster_config::CliClusterConfig, cli_server_config::CliServerConfig},
     error::ProxyAuthK8sError,
+    helper::unix_now,
     keystore,
 };
 
@@ -26,6 +30,26 @@ fn keyring_service(from_env: Option<String>) -> String {
         .unwrap_or_else(|| KEYRING_SERVICE.to_string())
 }
 
+/// What renews a server token obtained by the SSO login to the server (RFC
+/// 0010 §6.5). No `Debug`: it holds a secret.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct ServerSession {
+    pub refresh_token: String,
+    /// Unix seconds at which the access token expires, when the `IdP` said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
+}
+
+impl ServerSession {
+    /// Whether the access token has less than `margin` seconds left at `now`.
+    /// shortcut: an unknown expiry never renews; refresh on a 401 if an `IdP`
+    /// ever omits `expires_in`.
+    pub(crate) fn expires_within(&self, margin: i64, now: i64) -> bool {
+        self.expires_at
+            .is_some_and(|at| at.saturating_sub(now) < margin)
+    }
+}
+
 impl CliServerConfig {
     pub fn server_token(&self) -> Result<String, ProxyAuthK8sError> {
         self.read_token(&self.url)
@@ -36,7 +60,88 @@ impl CliServerConfig {
     }
 
     pub fn clear_server_token(&self) -> Result<(), ProxyAuthK8sError> {
+        self.forget_server_session();
         self.delete_token(&self.url)
+    }
+
+    /// Keyring user of the server's SSO session. A sibling of the server token
+    /// rather than one JSON with it: each stays under the 2560-byte blob limit
+    /// of the Windows Credential Manager. No `/`, so no cluster key clashes.
+    fn session_keyring_user(&self) -> String {
+        format!("{}::session", self.url)
+    }
+
+    /// The stored SSO session, or `None` for a pasted token (no session).
+    pub(crate) fn server_session(&self) -> Result<Option<ServerSession>, ProxyAuthK8sError> {
+        let entry = self.keyring_entry(
+            &self.session_keyring_user(),
+            ProxyAuthK8sError::KeyringReadError,
+        )?;
+        let unreadable = |detail: String| {
+            debug!("Keyring session read error: {}", detail);
+            ProxyAuthK8sError::KeyringReadError(format!(
+                "Failed to read the session from keyring for server URL: {}",
+                self.url
+            ))
+        };
+        match entry.get_password() {
+            Ok(raw) => serde_json::from_str(&raw)
+                .map(Some)
+                .map_err(|e| unreadable(e.to_string())),
+            Err(keyring_core::Error::NoEntry) => Ok(None),
+            Err(e) => Err(unreadable(e.to_string())),
+        }
+    }
+
+    /// Store a session the server handed out (login or refresh) and return
+    /// its access token. `previous_refresh_token` is kept when the `IdP` did
+    /// not rotate it; without any refresh token, no session is kept.
+    pub(crate) fn store_session_tokens(
+        &self,
+        tokens: SessionTokens,
+        previous_refresh_token: Option<String>,
+    ) -> Result<String, ProxyAuthK8sError> {
+        let session = tokens
+            .refresh_token
+            .flatten()
+            .or(previous_refresh_token)
+            .map(|refresh_token| ServerSession {
+                refresh_token,
+                expires_at: tokens
+                    .expires_in
+                    .flatten()
+                    .map(|seconds| unix_now().saturating_add(seconds)),
+            });
+        self.set_server_login(&tokens.access_token, session.as_ref())?;
+        Ok(tokens.access_token)
+    }
+
+    /// Store the server token and its session; `None` (a pasted token) drops
+    /// any previous session, which would otherwise renew over the new token.
+    pub(crate) fn set_server_login(
+        &self,
+        access_token: &str,
+        session: Option<&ServerSession>,
+    ) -> Result<(), ProxyAuthK8sError> {
+        self.write_token(&self.url, access_token)?;
+        let Some(session) = session else {
+            self.forget_server_session();
+            return Ok(());
+        };
+        let raw = serde_json::to_string(session).map_err(|e| {
+            ProxyAuthK8sError::KeyringWriteError(format!(
+                "Failed to encode the session for server URL {}: {e}",
+                self.url
+            ))
+        })?;
+        self.write_token(&self.session_keyring_user(), &raw)
+    }
+
+    /// Drop the SSO session, if any: there is often none (pasted token).
+    fn forget_server_session(&self) {
+        if let Err(e) = self.delete_token(&self.session_keyring_user()) {
+            debug!("No server session dropped: {}", e);
+        }
     }
 
     pub fn set_cluster_token(
@@ -46,10 +151,8 @@ impl CliServerConfig {
         token: String,
     ) -> Result<(), ProxyAuthK8sError> {
         let key = format!("{ns}/{cluster}");
-        let _ = self
-            .clusters
-            .entry(key.clone())
-            .or_insert(CliClusterConfig { token_exist: true });
+        // Replaced, not kept: a cluster leaving token exchange loses its flag.
+        self.clusters.insert(key.clone(), CliClusterConfig::new());
         self.write_token(&self.cluster_keyring_user(&key), &token)
     }
 
@@ -126,7 +229,11 @@ impl CliServerConfig {
     }
 
     pub fn clear_all_tokens(&self) {
-        for cluster in self.clusters.keys() {
+        for (cluster, config) in &self.clusters {
+            if config.token_exchange {
+                // Nothing stored for it (RFC 0010).
+                continue;
+            }
             let val: Vec<&str> = cluster.split('/').collect();
             let ns = val.first().unwrap_or(&"").to_string();
             let cluster = val.get(1).unwrap_or(&"").to_string();
@@ -239,10 +346,9 @@ mod tests {
         }
         // A cluster known in the config but without a stored token is only
         // logged, not fatal.
-        config.clusters.insert(
-            "ns/no-token".to_string(),
-            CliClusterConfig { token_exist: true },
-        );
+        config
+            .clusters
+            .insert("ns/no-token".to_string(), CliClusterConfig::new());
 
         config.clear_all_tokens();
 
@@ -256,5 +362,65 @@ mod tests {
         }
         // Clearing again (nothing left) does not panic.
         config.clear_all_tokens();
+    }
+
+    #[test]
+    fn a_login_session_is_stored_next_to_the_server_token() {
+        let config = CliServerConfig::new("https://session.example".to_string());
+        let mut tokens = SessionTokens::new("access".to_string(), "Bearer".to_string());
+        tokens.expires_in = Some(Some(300));
+        tokens.refresh_token = Some(Some("refresh".to_string()));
+
+        assert_eq!(config.store_session_tokens(tokens, None).unwrap(), "access");
+        // `server_token()` still reads the access token alone.
+        assert_eq!(config.server_token().unwrap(), "access");
+        let session = config.server_session().unwrap().unwrap();
+        assert_eq!(session.refresh_token, "refresh");
+        assert!(!session.expires_within(60, unix_now()));
+        assert!(session.expires_within(60, unix_now().saturating_add(250)));
+        let raw = keystore::entry(KEYRING_SERVICE, "https://session.example::session").unwrap();
+        assert!(
+            raw.get_password()
+                .unwrap()
+                .contains("\"refresh_token\":\"refresh\"")
+        );
+
+        // A pasted token afterwards drops the session that would renew it.
+        config.set_server_login("pasted", None).unwrap();
+        assert_eq!(config.server_token().unwrap(), "pasted");
+        assert!(config.server_session().unwrap().is_none());
+
+        // A session without refresh token keeps none; logout drops both.
+        let tokens = SessionTokens::new("bare".to_string(), "Bearer".to_string());
+        config.store_session_tokens(tokens, None).unwrap();
+        assert!(config.server_session().unwrap().is_none());
+        config
+            .set_server_login(
+                "a",
+                Some(&ServerSession {
+                    refresh_token: "r".to_string(),
+                    expires_at: None,
+                }),
+            )
+            .unwrap();
+        config.clear_server_token().unwrap();
+        assert!(config.server_session().unwrap().is_none());
+    }
+
+    #[test]
+    fn an_exchange_cluster_has_nothing_to_clear() {
+        let mut config = CliServerConfig::new("https://exchange-clear.example".to_string());
+        config.set_server_token("st".to_string()).unwrap();
+        config
+            .clusters
+            .insert("ns/x".to_string(), CliClusterConfig::token_exchange());
+        config.clear_all_tokens();
+        assert!(config.server_token().is_err());
+
+        // A token login replaces the exchange flag.
+        config
+            .set_cluster_token("ns".to_string(), "x".to_string(), "ct".to_string())
+            .unwrap();
+        assert!(!config.clusters["ns/x"].token_exchange);
     }
 }

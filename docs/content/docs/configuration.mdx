@@ -30,7 +30,7 @@ peuvent être ajoutées via `back.env`.
 | `OIDC_ISSUER_URL`                     | `https://authelia.k8s.localhost`        | Issuer du fournisseur d'identité (découverte via `/.well-known/openid-configuration`) |
 | `OIDC_CLIENT_ID`                      | `proxy-auth-k8s`                        | Client OIDC                                                                 |
 | `OIDC_CLIENT_SECRET`                  | —                                       | Secret du client (absent = client public)                                  |
-| `OIDC_SCOPES`                         | `openid email profile`                  | Scopes demandés                                                             |
+| `OIDC_SCOPES`                         | `openid email profile`                  | Scopes demandés ; ajoutez `offline_access` pour que la session SSO du CLI se renouvelle ([échange de jeton](/docs/token-exchange)) |
 | `OIDC_AUDIENCE`                       | `proxy-auth-k8s`                        | Audience (`aud`) exigée sur les access-tokens                              |
 | `OIDC_REDIRECT_URL`                   | —                                       | Redirect URI du client OIDC du dashboard                                    |
 | `OIDC_AUDIENCE_VALIDATION`            | `enforce`                               | `enforce` / `warn` / `off` (voir [Sécurité](/docs/security#validation-daudience-oidc)) |

@@ -2067,9 +2067,61 @@
           "enum": [
             "Passthrough",
             "FrontProxy",
-            "Issuer"
+            "Issuer",
+            "TokenExchange"
           ],
           "type": "string"
+        },
+        "token_exchange": {
+          "description": "The exchange of `TokenExchange` (RFC 0010); required in that mode and\nrefused in the others.",
+          "nullable": true,
+          "properties": {
+            "audience": {
+              "default": "",
+              "description": "The `audience` parameter of the exchange; empty: omitted.",
+              "maxLength": 512,
+              "type": "string",
+              "x-kubernetes-validations": [
+                {
+                  "message": "audience must not carry CR, LF or &",
+                  "rule": "!self.matches('[\\\\r\\\\n&]')"
+                }
+              ]
+            },
+            "connector_id": {
+              "default": "",
+              "description": "Dex only: the upstream connector that issued the proxy's token;\nempty: omitted.",
+              "maxLength": 256,
+              "type": "string",
+              "x-kubernetes-validations": [
+                {
+                  "message": "connector_id must not carry CR, LF or &",
+                  "rule": "!self.matches('[\\\\r\\\\n&]')"
+                }
+              ]
+            },
+            "max_cache_seconds": {
+              "default": 300,
+              "description": "The longest an exchanged token is reused, 0 to 3600 seconds; `0`\nexchanges on every request. Bounds how long a group removed at the\nIdP can go unseen by the apiserver.",
+              "format": "uint32",
+              "maximum": 3600,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "scope": {
+              "default": "",
+              "description": "The `scope` parameter of the exchange; empty: omitted.",
+              "maxLength": 512,
+              "type": "string",
+              "x-kubernetes-validations": [
+                {
+                  "message": "scope must not carry CR, LF or &",
+                  "rule": "!self.matches('[\\\\r\\\\n&]')"
+                }
+              ]
+            }
+          },
+          "type": "object"
         },
         "user_prefix": {
           "description": "Prepended to the username the apiserver sees. No default: a prefix is\na collision decision nobody else can take.",
@@ -2088,15 +2140,19 @@
       "x-kubernetes-validations": [
         {
           "message": "user_prefix and group_prefix are required and non-empty in FrontProxy and Issuer",
-          "rule": "!has(self.mode) || self.mode == 'Passthrough' || (has(self.user_prefix) && self.user_prefix != '' && has(self.group_prefix) && self.group_prefix != '')"
+          "rule": "!has(self.mode) || self.mode == 'Passthrough' || self.mode == 'TokenExchange' || (has(self.user_prefix) && self.user_prefix != '' && has(self.group_prefix) && self.group_prefix != '')"
         },
         {
-          "message": "issuer_key is for Issuer (or its preparation in Passthrough), not FrontProxy",
-          "rule": "!has(self.issuer_key) || !has(self.mode) || self.mode != 'FrontProxy'"
+          "message": "issuer_key is for Issuer (or its preparation in Passthrough), not FrontProxy nor TokenExchange",
+          "rule": "!has(self.issuer_key) || !has(self.mode) || (self.mode != 'FrontProxy' && self.mode != 'TokenExchange')"
         },
         {
           "message": "mode Issuer requires issuer_key",
           "rule": "!has(self.mode) || self.mode != 'Issuer' || has(self.issuer_key)"
+        },
+        {
+          "message": "token_exchange is required in mode TokenExchange and refused in the other modes",
+          "rule": "(has(self.mode) && self.mode == 'TokenExchange') == has(self.token_exchange)"
         }
       ]
     },
@@ -2232,19 +2288,23 @@
     },
     {
       "message": "client_cert is refused in FrontProxy and Issuer: FrontProxy reads its certificate from the proxy's namespace, and in Issuer it would win over the JWT",
-      "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.client_cert)"
+      "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || self.upstream_auth.mode == 'TokenExchange' || !has(self.client_cert)"
     },
     {
-      "message": "FrontProxy and Issuer need a validated identity: set auth_config without disable_validation",
+      "message": "FrontProxy, Issuer and TokenExchange need a validated identity: set auth_config without disable_validation",
       "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || (has(self.auth_config) && !(has(self.auth_config.disable_validation) && self.auth_config.disable_validation))"
     },
     {
       "message": "FrontProxy and Issuer cannot validate against Kubernetes: the SelfSubjectReview needs the apiserver to know the IdP",
-      "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.auth_config) || (has(self.auth_config.validate_against) && self.auth_config.validate_against != 'Kubernetes')"
+      "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || self.upstream_auth.mode == 'TokenExchange' || !has(self.auth_config) || (has(self.auth_config.validate_against) && self.auth_config.validate_against != 'Kubernetes')"
     },
     {
       "message": "FrontProxy and Issuer require oidc_provider.claim_mappings: preferred_username must not become a trusted identity",
-      "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.auth_config) || !has(self.auth_config.validate_against) || self.auth_config.validate_against != 'OidcProvider' || has(self.auth_config.oidc_provider.claim_mappings)"
+      "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || self.upstream_auth.mode == 'TokenExchange' || !has(self.auth_config) || !has(self.auth_config.validate_against) || self.auth_config.validate_against != 'OidcProvider' || has(self.auth_config.oidc_provider.claim_mappings)"
+    },
+    {
+      "message": "TokenExchange needs auth_config.oidc_provider.enabled: it is the client that exchanges",
+      "rule": "!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode != 'TokenExchange' || (has(self.auth_config) && has(self.auth_config.oidc_provider) && self.auth_config.oidc_provider.enabled)"
     }
   ]
 }

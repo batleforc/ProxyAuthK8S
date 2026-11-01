@@ -29,6 +29,9 @@ pub struct VisibleCluster {
     pub namespace: String,
     #[serde(rename = "sso_enabled")]
     pub sso_enabled: bool,
+    /// RFC 0010: the cluster takes the proxy's own token (`upstream_auth.mode: TokenExchange`); no login to the cluster is needed.
+    #[serde(rename = "token_exchange", skip_serializing_if = "Option::is_none")]
+    pub token_exchange: Option<bool>,
 }
 
 impl VisibleCluster {
@@ -45,6 +48,7 @@ impl VisibleCluster {
             name,
             namespace,
             sso_enabled,
+            token_exchange: None,
         }
     }
 }

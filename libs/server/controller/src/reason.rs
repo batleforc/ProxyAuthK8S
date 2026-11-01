@@ -94,6 +94,9 @@ weebo_kit_domain::reason_codes! {
         /// Advisory: `Issuer` behind an agent: the apiserver must still
         /// reach the proxy's public URL for the JWKS (decision 13).
         IssuerBehindAgent,
+        /// Advisory: a `TokenExchange` cluster whose exchange likely fails or
+        /// trusts a foreign IdP (RFC 0010 §4.3); the message says which.
+        TokenExchangeAtRisk,
     }
 }
 
@@ -118,7 +121,8 @@ impl Reason for ReasonCode {
             | Self::UpstreamTrustUnknown
             | Self::IssuerNotReady
             | Self::IssuerKeyRotationOverdue
-            | Self::IssuerBehindAgent => Severity::Advisory,
+            | Self::IssuerBehindAgent
+            | Self::TokenExchangeAtRisk => Severity::Advisory,
             Self::InvalidSpec
             | Self::OidcConfigUnresolved
             | Self::TargetUnreachable
@@ -154,8 +158,8 @@ mod tests {
     }
 
     #[test]
-    fn the_catalog_has_the_codes_of_rfc_0011_to_0014() {
-        assert_eq!(ReasonCode::ALL.len(), 34);
+    fn the_catalog_has_the_codes_of_rfc_0010_to_0014() {
+        assert_eq!(ReasonCode::ALL.len(), 35);
     }
 
     #[test]
@@ -180,6 +184,7 @@ mod tests {
                 &ReasonCode::IssuerNotReady,
                 &ReasonCode::IssuerKeyRotationOverdue,
                 &ReasonCode::IssuerBehindAgent,
+                &ReasonCode::TokenExchangeAtRisk,
             ]
         );
     }

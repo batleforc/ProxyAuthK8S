@@ -64,16 +64,7 @@ impl Session {
     /// --token <dashboard token>`, as the dashboard tells a user to run.
     pub async fn server_login(persona: &Persona) -> Session {
         let bench = Bench::get();
-        let home = tempfile::tempdir().expect("temp HOME");
-        let bin = tempfile::tempdir().expect("temp PATH dir");
-        // kubectl finds its plugin as `kubectl-proxyauth` on PATH.
-        std::os::unix::fs::symlink(cli_binary(), bin.path().join("kubectl-proxyauth"))
-            .expect("link kubectl-proxyauth");
-        let session = Session {
-            persona: persona.clone(),
-            home,
-            bin,
-        };
+        let session = Session::new(persona);
         let token = persona.dashboard_token().await;
         let ca = bench.ca_path();
         let out = session
@@ -95,13 +86,63 @@ impl Session {
         session
     }
 
+    /// RFC 0010 §6.5: `kubectl proxyauth login --server-url …` without
+    /// `--token`, the SSO session to the server: the test plays the browser
+    /// from the proxy's `/api/v1/auth/login` to the CLI's listener.
+    pub async fn sso_server_login(persona: &Persona) -> Session {
+        let bench = Bench::get();
+        let session = Session::new(persona);
+        let ca = bench.ca_path();
+        let url = bench.base_url();
+        let out = session
+            .browser_login(
+                &[
+                    "login",
+                    "--server-url",
+                    &url,
+                    "--certificate-authority",
+                    ca.to_str().expect("utf-8 path"),
+                ],
+                &persona.name,
+            )
+            .await;
+        assert!(
+            out.is_ok(),
+            "SSO server login of {} failed: {out:?}",
+            persona.name
+        );
+        session
+    }
+
+    /// A throwaway `HOME` and `PATH` for `persona`, not logged in.
+    fn new(persona: &Persona) -> Session {
+        let home = tempfile::tempdir().expect("temp HOME");
+        let bin = tempfile::tempdir().expect("temp PATH dir");
+        // kubectl finds its plugin as `kubectl-proxyauth` on PATH.
+        std::os::unix::fs::symlink(cli_binary(), bin.path().join("kubectl-proxyauth"))
+            .expect("link kubectl-proxyauth");
+        Session {
+            persona: persona.clone(),
+            home,
+            bin,
+        }
+    }
+
     /// `kubectl proxyauth login <cluster> -n <ns>` through the SSO flow.
     /// Returns the CLI's output; `Ok` when it exited 0.
     pub async fn cluster_login(&self, ns: &str, cluster: &str) -> Result<Output, Output> {
-        let port = callback_port(ns);
+        self.browser_login(&["login", cluster, "--namespace", ns], ns)
+            .await
+    }
+
+    /// `kubectl-proxyauth <args>`, playing the browser on the URL it prints,
+    /// if any (a login that needs none just exits). `seed` picks the
+    /// callback port.
+    async fn browser_login(&self, args: &[&str], seed: &str) -> Result<Output, Output> {
+        let port = callback_port(seed);
         let mut child = self
             .command(&cli_binary())
-            .args(["login", cluster, "--namespace", ns])
+            .args(args)
             .env("PROXYAUTH_BROWSER", "none")
             .env("PROXYAUTH_CALLBACK_PORT", port.to_string())
             .stdin(Stdio::null())
@@ -375,6 +416,30 @@ impl Session {
         })
     }
 
+    /// The descriptions of this session's keyring entries (keyutils, in the
+    /// session keyring `it:test` opens): one per stored token.
+    pub fn keyring_entries(&self) -> Vec<String> {
+        let service = format!("proxyauthk8s-it-{}", self.home.path().display());
+        let keyctl = |args: &[&str]| {
+            let out = std::process::Command::new("keyctl")
+                .args(args)
+                .output()
+                .expect("keyctl is on PATH");
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        keyctl(&["rlist", "@s"])
+            .split_whitespace()
+            // `type;uid;gid;perm;description`: the description may hold `;`.
+            .filter_map(|id| {
+                keyctl(&["rdescribe", id])
+                    .splitn(5, ';')
+                    .nth(4)
+                    .map(str::to_string)
+            })
+            .filter(|description| description.contains(&service))
+            .collect()
+    }
+
     /// The cluster token `get-token` hands kubectl, for raw requests.
     pub async fn cluster_token(&self, ns: &str, cluster: &str) -> String {
         let bench = Bench::get();
@@ -493,33 +558,40 @@ fn cli_binary() -> PathBuf {
     bin
 }
 
-/// The authorization URL in one line of the CLI's output, if any.
+/// The authorization URL in one line of the CLI's output, if any: the IdP's
+/// (`…/auth`), or the proxy's SSO session start (RFC 0010).
 pub fn authorization_url(line: &str) -> Option<Url> {
     line.split_whitespace()
         .filter(|word| word.starts_with("https://"))
         .find_map(|word| Url::parse(word).ok())
-        .filter(|url| url.path().ends_with("/auth"))
+        .filter(|url| url.path().ends_with("/auth") || url.path() == "/api/v1/auth/login")
 }
 
 /// Do what a person does in a browser: open the URL, sign in on Dex's form,
 /// and land on the client's loopback callback (`localhost` for the plugin,
 /// `127.0.0.1` for oc).
 async fn play_browser(persona: &Persona, start: &Url, port: u16) {
+    let url = browse_to_loopback(persona, start, port).await;
+    // The CLI's listener: plain HTTP on loopback, like the browser.
+    let page = reqwest::get(url.as_str())
+        .await
+        .expect("CLI callback listener");
+    assert!(
+        page.status().is_success(),
+        "CLI callback answered {}",
+        page.status()
+    );
+}
+
+/// [`play_browser`] up to the redirect to the loopback `port`, not
+/// followed: the URL the browser would open there, with its `code`.
+pub async fn browse_to_loopback(persona: &Persona, start: &Url, port: u16) -> Url {
     let http = Bench::get().http();
     let mut url = start.clone();
     for _ in 0..10 {
         let loopback = matches!(url.host_str(), Some("localhost" | "127.0.0.1"));
         if url.scheme() == "http" && loopback && url.port() == Some(port) {
-            // The CLI's listener: plain HTTP on loopback, like the browser.
-            let page = reqwest::get(url.as_str())
-                .await
-                .expect("CLI callback listener");
-            assert!(
-                page.status().is_success(),
-                "CLI callback answered {}",
-                page.status()
-            );
-            return;
+            return url;
         }
         let response = http
             .get(url.clone())
@@ -568,5 +640,9 @@ mod tests {
             Some(Some("dex.k8s.localhost".to_string()))
         );
         assert_eq!(authorization_url("see https://example.com/docs"), None);
+        let line = "https://proxyauth.k8s.localhost:8443/api/v1/auth/login?redirect_uri=x";
+        assert!(authorization_url(line).is_some());
+        let line = "https://proxyauth.k8s.localhost:8443/api/v1/auth/loginx";
+        assert_eq!(authorization_url(line), None);
     }
 }

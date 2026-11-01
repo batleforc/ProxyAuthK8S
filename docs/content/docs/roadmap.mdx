@@ -42,7 +42,7 @@ import { Callout } from 'fumadocs-ui/components/callout';
       Upstream auth    : Front-proxy et émetteur (RFC 0014)
       Tests            : Tests profonds côté Rust (RFC 0015)
     section v0.6.0 🚧
-      Exchange Token   : Une connexion au proxy pour tous les clusters (RFC 0010)
+      Exchange Token   : Une connexion au proxy pour tous les clusters (RFC 0010) ✅
     section v1.0.0 🚧
       Production       : Redis cluster HA ✅, bloc sécurité ✅
                        : Bascules de défauts, tests front
@@ -308,8 +308,8 @@ de la refonte UI). Voir la RFC 0001.
 ## v0.6.0 — Échange de jeton {"\uD83D\uDEA7"}
 
 <Callout>
-  RFC 0010 (`.rfc/0010-token-exchange.md`, Accepted) : relue face au mode
-  agent avant d'être codée.
+  RFC 0010 (`.rfc/0010-token-exchange.md`, Implemented) : livrée sur #332,
+  prouvée sur le banc d'intégration (§17).
 </Callout>
 
 <Steps>
@@ -317,7 +317,7 @@ de la refonte UI). Voir la RFC 0001.
 <Step>
 ### Échange de jeton (RFC 0010)
 
-- ⏳ Une connexion SSO au proxy, échangée contre un jeton par cluster (fédération d'IdP)
+- ✅ Une connexion SSO au proxy, échangée contre un jeton par cluster (fédération d'IdP)
 
 </Step>
 

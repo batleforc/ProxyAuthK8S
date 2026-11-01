@@ -27,6 +27,7 @@ pub mod model;
 mod root_span;
 #[cfg(feature = "server")]
 pub mod server;
+pub mod server_auth;
 pub mod upstream_probe;
 pub mod visible_clusters;
 
@@ -42,12 +43,21 @@ pub fn management_router() -> OpenApiRouter<SharedState> {
         .routes(routes!(metrics::prometheus_metrics))
 }
 
-/// `/api/v1`: what the dashboard calls.
+/// `/api/v1`: what the dashboard calls, and the CLI's SSO session to the
+/// proxy (RFC 0010).
 #[must_use]
 pub fn api_router() -> OpenApiRouter<SharedState> {
-    OpenApiRouter::new().routes(routes!(
-        visible_clusters::get_all_visible_cluster::get_all_visible_cluster
-    ))
+    let forms = OpenApiRouter::new()
+        .routes(routes!(server_auth::token::token))
+        .routes(routes!(server_auth::refresh::refresh))
+        .layer(DefaultBodyLimit::max(server_auth::FORM_LIMIT));
+    OpenApiRouter::new()
+        .routes(routes!(
+            visible_clusters::get_all_visible_cluster::get_all_visible_cluster
+        ))
+        .routes(routes!(server_auth::login::login))
+        .routes(routes!(server_auth::callback::callback))
+        .merge(forms)
 }
 
 /// `/clusters`: the cluster logins, the mediated OAuth server and the proxy.

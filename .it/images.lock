@@ -2,7 +2,13 @@
 # `it:up` refuses a line without @sha256. Bump one per PR; never shipped, so
 # not scanned by `task audit`.
 k3s      docker.io/rancher/k3s:v1.35.9-k3s1@sha256:ec9868c6a38d4e8c1869832fb5fd1eb8473c39794a0b44d2b952e7ba911951bc
-dex      ghcr.io/dexidp/dex:v2.46.0@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777
+# Held at v2.45.1: from v2.46.0 one refresh_token grant wedges /token and
+# /keys for good (dexidp/dex#5017, open), and RFC 0010 point 8 makes one.
+dex      ghcr.io/dexidp/dex:v2.45.1@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462
+# Dex B (RFC 0010 §6.P) serves exchanges, never a refresh, so it keeps v2.46:
+# from that release only does Dex log each successful exchange, which the
+# suite counts.
+dex-b    ghcr.io/dexidp/dex:v2.46.0@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777
 redis    docker.io/library/redis:8-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
 busybox  docker.io/library/busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
 # RFC 0012 §6.P points 9 and 10: the agents' egress proxies.
@@ -14,3 +20,7 @@ agent-v0.4.0 ghcr.io/batleforc/proxyauthk8s/agent:v0.4.0@sha256:cbb881b2201b06f1
 python   docker.io/library/python:3.14-alpine@sha256:eb2c62658b8d51bff0acc408504b76521d02030de56a8a3c1e830083e89b89d2
 # RFC 0014 point 17 (RFC 0016): the last server released before RFC 0014's phase 1, beside the current one.
 server-previous ghcr.io/batleforc/proxyauthk8s/server:v0.4.2@sha256:0e6fad44100f66bd92fa4146a6dd0b8cc238579d22d5d14830133f630739fd86
+# RFC 0010, heavy suite: Authentik, the cluster's IdP of a TokenExchange
+# cluster, and its database (.it/heavy/authentik.yaml).
+authentik ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
+postgres docker.io/library/postgres:17-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b

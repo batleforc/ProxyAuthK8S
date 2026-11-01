@@ -1,0 +1,204 @@
+# RFC 0010 heavy point 1: Authentik as the IdP of a TokenExchange cluster,
+# Dex A (the proxy's IdP) federated into it by an OIDC source. Deployed by
+# the test (`integration::heavy::deploy_authentik`), which fills __AUTHENTIK__
+# and __POSTGRES__ from .it/images.lock. Throwaway credentials: the bench
+# listens on 127.0.0.1 only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authentik-blueprint
+  namespace: proxyauth
+data:
+  proxyauth-it.yaml: |
+    version: 1
+    metadata:
+      name: proxyauth-it token exchange
+    entries:
+      # Dex A, trusted by its JWKS: Authentik checks the signature and `exp`
+      # of the proxy token, then names a generated service account after it.
+      - model: authentik_sources_oauth.oauthsource
+        id: dex-a
+        identifiers:
+          slug: proxy-dex
+        attrs:
+          name: ProxyAuthK8S (Dex A)
+          provider_type: openidconnect
+          consumer_key: unused
+          consumer_secret: unused
+          # Discovery fills the source's URLs and fetches the JWKS once,
+          # when the blueprint applies.
+          oidc_well_known_url: https://dex.k8s.localhost:8443/.well-known/openid-configuration
+      # The cluster's client: confidential, token exchange only.
+      - model: authentik_providers_oauth2.oauth2provider
+        id: kube-ak
+        identifiers:
+          name: kube-ak
+        attrs:
+          authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          client_type: confidential
+          client_id: kube-ak
+          client_secret: kube-ak-it-secret
+          # It only exchanges: no browser ever comes back to it.
+          redirect_uris: []
+          grant_types:
+            - urn:ietf:params:oauth:grant-type:token-exchange
+          signing_key: !Find [authentik_crypto.certificatekeypair, [name, "authentik Self-signed Certificate"]]
+          property_mappings:
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
+            - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+          jwt_federation_sources:
+            - !KeyOf dex-a
+      # Authentik refuses an exchange for a provider without an application.
+      - model: authentik_core.application
+        identifiers:
+          slug: kube-ak
+        attrs:
+          name: kube-ak
+          provider: !KeyOf kube-ak
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authentik-postgres
+  namespace: proxyauth
+spec:
+  selector:
+    matchLabels: { app: authentik-postgres }
+  template:
+    metadata:
+      labels: { app: authentik-postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: __POSTGRES__
+          env:
+            - { name: POSTGRES_DB, value: authentik }
+            - { name: POSTGRES_USER, value: authentik }
+            - { name: POSTGRES_PASSWORD, value: authentik-it }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports:
+            - containerPort: 5432
+          readinessProbe:
+            exec: { command: [pg_isready, -U, authentik, -d, authentik] }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentik-postgres
+  namespace: proxyauth
+spec:
+  selector: { app: authentik-postgres }
+  ports:
+    - port: 5432
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authentik-env
+  namespace: proxyauth
+data:
+  AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
+  AUTHENTIK_POSTGRESQL__NAME: authentik
+  AUTHENTIK_POSTGRESQL__USER: authentik
+  AUTHENTIK_POSTGRESQL__PASSWORD: authentik-it
+  AUTHENTIK_SECRET_KEY: proxyauth-it-authentik-secret-key-not-a-secret
+  # The source fetches Dex A's JWKS through the Ingress, on the run's cert.
+  REQUESTS_CA_BUNDLE: /etc/proxyauth-it/rootCA.pem
+  SSL_CERT_FILE: /etc/proxyauth-it/rootCA.pem
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authentik-server
+  namespace: proxyauth
+spec:
+  selector:
+    matchLabels: { app: authentik-server }
+  template:
+    metadata:
+      labels: { app: authentik-server }
+    spec:
+      containers:
+        - name: server
+          image: __AUTHENTIK__
+          args: [server]
+          envFrom:
+            - configMapRef: { name: authentik-env }
+          ports:
+            - containerPort: 9000
+          readinessProbe:
+            httpGet: { path: /-/health/ready/, port: 9000 }
+            periodSeconds: 5
+          volumeMounts:
+            - { name: it-ca, mountPath: /etc/proxyauth-it, readOnly: true }
+      volumes:
+        - name: it-ca
+          secret:
+            secretName: it-ca
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authentik-worker
+  namespace: proxyauth
+spec:
+  selector:
+    matchLabels: { app: authentik-worker }
+  template:
+    metadata:
+      labels: { app: authentik-worker }
+    spec:
+      containers:
+        - name: worker
+          image: __AUTHENTIK__
+          args: [worker]
+          envFrom:
+            - configMapRef: { name: authentik-env }
+          volumeMounts:
+            - { name: it-ca, mountPath: /etc/proxyauth-it, readOnly: true }
+            - { name: blueprint, mountPath: /blueprints/custom, readOnly: true }
+      volumes:
+        - name: it-ca
+          secret:
+            secretName: it-ca
+        - name: blueprint
+          configMap:
+            name: authentik-blueprint
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: authentik
+  namespace: proxyauth
+spec:
+  selector: { app: authentik-server }
+  ports:
+    - port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: authentik
+  namespace: proxyauth
+spec:
+  tls:
+    - hosts: [authentik.k8s.localhost]
+      secretName: proxyauthk8s-tls
+  rules:
+    - host: authentik.k8s.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: authentik
+                port:
+                  number: 9000

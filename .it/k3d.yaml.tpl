@@ -19,8 +19,12 @@ hostAliases:
     hostnames:
       - proxyauth.k8s.localhost
       - dex.k8s.localhost
+      # RFC 0010 §6.P: the cluster's IdP of the TokenExchange clusters.
+      - dex-b.k8s.localhost
       # RFC 0012: the agents dial the gateway through the Ingress.
       - agent.k8s.localhost
+      # RFC 0010, heavy suite: Authentik, the IdP of a TokenExchange cluster.
+      - authentik.k8s.localhost
 # Traefik's HelmChartConfig (websecure on 8443, ClusterIP 10.43.0.200), from
 # .it/traefik-config.yaml. A bind mount: k3s' data directory is a volume, so a
 # file k3d writes under it is hidden.
@@ -82,6 +86,34 @@ files:
           userValidationRules:
             - expression: "user.groups.all(group, !group.startsWith('system:'))"
               message: "groups cannot use the reserved system: prefix"
+        # RFC 0010 §6.P: Dex B, the IdP of the TokenExchange clusters. Dex B
+        # re-encodes `sub` (decision 11): the tests' RBAC names the groups.
+        - issuer:
+            url: https://dex-b.k8s.localhost:8443
+            audiences:
+              - kube-prod
+            certificateAuthority: |
+      __CA__
+          claimMappings:
+            username:
+              claim: sub
+              prefix: "dexb:"
+            groups:
+              claim: groups
+              prefix: "dexb:"
+        # RFC 0010, heavy suite: Authentik's provider `kube-ak`, deployed by
+        # the test only (.it/heavy/authentik.yaml). Its exchanged users are
+        # accounts Authentik generates, named in `preferred_username`.
+        - issuer:
+            url: https://authentik.k8s.localhost:8443/application/o/kube-ak/
+            audiences:
+              - kube-ak
+            certificateAuthority: |
+      __CA__
+          claimMappings:
+            username:
+              claim: preferred_username
+              prefix: "authentik:"
         # RFC 0014 §6.P point 10: the proxy as the issuer of a test cluster; the
         # apiserver checks the prefix itself (decision 28).
         - issuer:

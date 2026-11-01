@@ -8,17 +8,23 @@ use crate::authentication_configuration::{ClaimMappings, ValidateAgainst};
 
 pub mod front_proxy;
 pub mod issuer_key;
+pub mod token_exchange;
+
+pub use token_exchange::TokenExchangeSettings;
 
 /// `Passthrough` relays the caller's token, as before RFC 0014. The two others
 /// make the proxy the apiserver's trusted authenticator: `FrontProxy` asserts
 /// the identity in `X-Remote-*` headers over mutual TLS, `Issuer` in a JWT the
-/// proxy signs. `TokenExchange` (RFC 0010) joins this list with its schema.
+/// proxy signs. `TokenExchange` (RFC 0010) relays a token of the cluster's
+/// IdP the proxy obtained for the caller: the apiserver trusts that IdP, not
+/// the proxy.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash, JsonSchema)]
 pub enum UpstreamAuthMode {
     #[default]
     Passthrough,
     FrontProxy,
     Issuer,
+    TokenExchange,
 }
 
 impl UpstreamAuthMode {
@@ -26,6 +32,14 @@ impl UpstreamAuthMode {
     /// the caller's own token.
     #[must_use]
     pub fn is_trusted(self) -> bool {
+        matches!(self, Self::FrontProxy | Self::Issuer)
+    }
+
+    /// Whether the caller's own token never reaches the apiserver. A release
+    /// that does not know the mode must not serve the cluster as
+    /// `Passthrough` (RFC 0014, decision 42).
+    #[must_use]
+    pub fn replaces_token(self) -> bool {
         self != Self::Passthrough
     }
 
@@ -35,6 +49,7 @@ impl UpstreamAuthMode {
             Self::Passthrough => "Passthrough",
             Self::FrontProxy => "FrontProxy",
             Self::Issuer => "Issuer",
+            Self::TokenExchange => "TokenExchange",
         }
     }
 
@@ -45,18 +60,20 @@ impl UpstreamAuthMode {
             "Passthrough" => Some(Self::Passthrough),
             "FrontProxy" => Some(Self::FrontProxy),
             "Issuer" => Some(Self::Issuer),
+            "TokenExchange" => Some(Self::TokenExchange),
             _ => None,
         }
     }
 }
 
 /// The modes this version serves; grows with each phase of RFC 0014 (phase 3:
-/// `Issuer`). A mode outside it is refused with `503`, never relayed as
-/// `Passthrough` (decision 34).
+/// `Issuer`) and with RFC 0010 (`TokenExchange`). A mode outside it is
+/// refused with `503`, never relayed as `Passthrough` (decision 34).
 pub const SERVED_MODES: &[UpstreamAuthMode] = &[
     UpstreamAuthMode::Passthrough,
     UpstreamAuthMode::FrontProxy,
     UpstreamAuthMode::Issuer,
+    UpstreamAuthMode::TokenExchange,
 ];
 
 /// A prefix that is empty, starts with `system:`, carries a control character
@@ -67,16 +84,21 @@ const PREFIX_RULE: &str = "self.matches('[\\\\x00-\\\\x1f\\\\x7f]|^\\\\s|\\\\s$'
 #[derive(Serialize, Deserialize, Clone, Debug, Default, JsonSchema)]
 #[schemars(extend("x-kubernetes-validations" = [
     serde_json::json!({
-        "rule": "!has(self.mode) || self.mode == 'Passthrough' || (has(self.user_prefix) && self.user_prefix != '' && has(self.group_prefix) && self.group_prefix != '')",
+        "rule": "!has(self.mode) || self.mode == 'Passthrough' || self.mode == 'TokenExchange' || (has(self.user_prefix) && self.user_prefix != '' && has(self.group_prefix) && self.group_prefix != '')",
         "message": "user_prefix and group_prefix are required and non-empty in FrontProxy and Issuer",
     }),
     serde_json::json!({
-        "rule": "!has(self.issuer_key) || !has(self.mode) || self.mode != 'FrontProxy'",
-        "message": "issuer_key is for Issuer (or its preparation in Passthrough), not FrontProxy",
+        "rule": "!has(self.issuer_key) || !has(self.mode) || (self.mode != 'FrontProxy' && self.mode != 'TokenExchange')",
+        "message": "issuer_key is for Issuer (or its preparation in Passthrough), not FrontProxy nor TokenExchange",
     }),
     serde_json::json!({
         "rule": "!has(self.mode) || self.mode != 'Issuer' || has(self.issuer_key)",
         "message": "mode Issuer requires issuer_key",
+    }),
+    // RFC 0010 §4.3: one source of truth for the `Authorization`.
+    serde_json::json!({
+        "rule": "(has(self.mode) && self.mode == 'TokenExchange') == has(self.token_exchange)",
+        "message": "token_exchange is required in mode TokenExchange and refused in the other modes",
     }),
 ]))]
 pub struct UpstreamAuth {
@@ -97,6 +119,9 @@ pub struct UpstreamAuth {
     /// The signing key of `Issuer`, also accepted in `Passthrough` so the
     /// apiserver can be prepared before the switch.
     pub issuer_key: Option<IssuerKeySettings>,
+    /// The exchange of `TokenExchange` (RFC 0010); required in that mode and
+    /// refused in the others.
+    pub token_exchange: Option<TokenExchangeSettings>,
 }
 
 fn default_token_ttl_seconds() -> u32 {
@@ -183,11 +208,24 @@ impl UpstreamAuth {
         has_client_cert: bool,
         auth: Option<&crate::authentication_configuration::AuthenticationConfiguration>,
     ) -> Result<(), String> {
-        if self.mode == UpstreamAuthMode::FrontProxy && self.issuer_key.is_some() {
+        if matches!(
+            self.mode,
+            UpstreamAuthMode::FrontProxy | UpstreamAuthMode::TokenExchange
+        ) && self.issuer_key.is_some()
+        {
             return Err(
-                "issuer_key is for Issuer (or its preparation in Passthrough), not FrontProxy"
+                "issuer_key is for Issuer (or its preparation in Passthrough), not FrontProxy nor TokenExchange"
                     .to_string(),
             );
+        }
+        if (self.mode == UpstreamAuthMode::TokenExchange) != self.token_exchange.is_some() {
+            return Err(
+                "token_exchange is required in mode TokenExchange and refused in the other modes"
+                    .to_string(),
+            );
+        }
+        if let Some(exchange) = &self.token_exchange {
+            exchange.validate(auth)?;
         }
         if self.mode == UpstreamAuthMode::Issuer && self.issuer_key.is_none() {
             return Err("mode Issuer requires issuer_key".to_string());
@@ -343,10 +381,11 @@ mod tests {
             UpstreamAuthMode::Passthrough,
             UpstreamAuthMode::FrontProxy,
             UpstreamAuthMode::Issuer,
+            UpstreamAuthMode::TokenExchange,
         ] {
             assert_eq!(UpstreamAuthMode::parse(mode.as_str()), Some(mode));
         }
         assert_eq!(UpstreamAuthMode::parse("frontproxy"), None);
-        assert_eq!(UpstreamAuthMode::parse("TokenExchange"), None);
+        assert_eq!(UpstreamAuthMode::parse("tokenexchange"), None);
     }
 }

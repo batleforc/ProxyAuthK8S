@@ -115,6 +115,27 @@ async fn tolerates_missing_optional_claims() {
     assert!(user.groups.is_empty());
 }
 
+/// Dex's static users have no `preferred_username`: the email names them, so
+/// two of them never share the empty name (audit, per-user rate limit).
+#[tokio::test]
+async fn a_user_without_preferred_username_is_named_by_email() {
+    let server = MockServer::start().await;
+    mount_discovery(&server).await;
+    mount_userinfo(
+        &server,
+        json!({ "sub": "alice-sub", "email": "alice@example.com", "groups": [] }),
+    )
+    .await;
+
+    let user =
+        User::get_user_info_from_oidc_token(VALID_TOKEN.to_string(), oidc_conf(&server.uri()))
+            .await
+            .expect("user info should resolve")
+            .expect("user should be present");
+
+    assert_eq!(user.username, "alice@example.com");
+}
+
 #[tokio::test]
 async fn resolves_a_user_from_a_response_without_the_groups_claim() {
     let server = MockServer::start().await;

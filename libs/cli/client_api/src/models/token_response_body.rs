@@ -11,6 +11,7 @@
 use crate::models;
 use serde::{Deserialize, Serialize};
 
+/// TokenResponseBody : A successful token response (RFC 6749 §5.1).
 #[derive(Clone, Default, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TokenResponseBody {
     #[serde(rename = "access_token")]
@@ -38,6 +39,7 @@ pub struct TokenResponseBody {
 }
 
 impl TokenResponseBody {
+    /// A successful token response (RFC 6749 §5.1).
     pub fn new(
         access_token: String,
         id_token: String,

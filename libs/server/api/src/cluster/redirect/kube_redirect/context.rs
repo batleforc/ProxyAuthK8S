@@ -16,6 +16,7 @@ use axum::{
 };
 use common::State;
 use crd::ProxyKubeApi;
+use secrecy::SecretString;
 
 use crate::cluster::redirect::audit::AuditContext;
 use crate::cluster::redirect::upstream_identity::Asserted;
@@ -37,6 +38,9 @@ pub(super) struct RedirectContext {
     /// The identity asserted to the apiserver in `FrontProxy` (RFC 0014),
     /// computed after the last gate; `None` in `Passthrough`.
     pub upstream_identity: Option<Asserted>,
+    /// `TokenExchange` (RFC 0010): the cluster IdP's token for the caller,
+    /// obtained after the last gate; it replaces every `Authorization`.
+    pub exchanged: Option<Arc<SecretString>>,
     pub audit: AuditContext,
     /// Upstream origin, with any trailing slash already trimmed.
     pub base_url: String,

@@ -59,7 +59,7 @@ spec:
             {{- end }}
             {{- range .Values.front.env }}
             - name: {{ .name }}
-              value: {{ .value }}
+              value: {{ .value | quote }}
             {{- end }}
           resources:
             {{- with .Values.front.resources }}

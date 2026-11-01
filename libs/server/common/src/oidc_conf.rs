@@ -134,6 +134,20 @@ impl OidcConf {
         Ok(core_client)
     }
 
+    /// The provider's `token_endpoint`, from its cached discovery document
+    /// (RFC 0010: where the exchange is sent).
+    ///
+    /// # Errors
+    ///
+    /// [`OidcError`] when discovery fails or the document has no endpoint.
+    pub async fn token_endpoint(&self) -> Result<String, OidcError> {
+        self.provider_metadata()
+            .await?
+            .token_endpoint()
+            .map(|url| url.as_str().to_string())
+            .ok_or_else(|| OidcError::MissingTokenEndpoint(self.issuer_url.clone()))
+    }
+
     /// The provider's discovery document, served from [`DISCOVERY_CACHE`] when
     /// fresh. Only successful discoveries are cached.
     async fn provider_metadata(&self) -> Result<CoreProviderMetadata, OidcError> {

@@ -780,6 +780,9 @@ plutôt que de passer sans trace.
 | `oauth_authorize` | `/oauth/authorize` du serveur OAuth médié |
 | `oauth_callback` | retour de l'IdP vers le serveur OAuth médié |
 | `oauth_token_issued`, `oauth_token_denied` | `/oauth/token` : jetons remis ou refusés |
+| `token_exchanged` | un échange réel avec l'IdP d'un cluster en `TokenExchange`, jamais un cache hit : champ `result` (`exchanged`, `refused`, `unavailable`, `unreadable`) — voir [Échange de jeton](/docs/token-exchange) |
+| `server_login` | une étape de la session SSO du CLI au proxy (`/api/v1/auth/login`, `callback`, `token`) |
+| `token_refreshed` | `/api/v1/auth/refresh` : session du CLI renouvelée ou refusée |
 | `client_banned` | un client est banni après trop d'échecs (`failures`, `ban_seconds`, `0` : permanent) |
 | `session_closed` | fin d'un tunnel (exec, attach, port-forward, proxy) : `duration_ms`, `bytes_in` (du client), `bytes_out` (vers le client), `close_reason` (`client`, `upstream`, `filter`, `error`) |
 | `agent_enrolled`, `agent_refused` | passerelle d'agents (RFC 0012) : un agent reçoit son certificat, ou un enrôlement ou un tunnel est refusé (`reason`) |
@@ -897,9 +900,9 @@ Comme la cible est administrée via CRD, restreignez qui peut créer/éditer des
 | `PROXYAUTH_ALLOW_CROSS_NS_CERT`| `false`   | `true` réautorise un `namespace` de cert autre que celui du `ProxyKubeApi` (mono-tenant seulement) |
 | `PROXYAUTH_ALLOW_CROSS_NS_OIDC`| `false`   | `true` réautorise un `namespace` de Secret `config_from` autre que celui du `ProxyKubeApi` (mono-tenant seulement) — voir [Configuration OIDC dans un Secret externe](#configuration-oidc-dans-un-secret-externe-config_from) |
 | `THROTTLE_FAIL_CLOSED`         | `false`   | `true` refuse la requête quand Redis est indisponible (au lieu de laisser passer) — préserve bans/quotas au prix de la disponibilité |
-| `UNSCOPED_MAX_FAILED_LOGINS`   | *(désactivé)* | Nombre d'échecs d'authentification tolérés sur `/api/v1/clusters` avant bannissement. Vide ou `0` = pas de fail2login sur cette surface |
+| `UNSCOPED_MAX_FAILED_LOGINS`   | *(désactivé)* | Nombre d'échecs d'authentification tolérés sur `/api/v1/clusters` et `/api/v1/auth/*` (session du CLI) avant bannissement. Vide ou `0` = pas de fail2login sur cette surface |
 | `UNSCOPED_BAN_DURATION_SECONDS`| `300`     | Durée du bannissement ci-dessus |
-| `UNSCOPED_RATE_LIMIT_PER_MINUTE`| *(désactivé)* | Quota par minute et par appelant sur `/api/v1/clusters`. Vide ou `0` = pas de quota |
+| `UNSCOPED_RATE_LIMIT_PER_MINUTE`| *(désactivé)* | Quota par minute et par appelant sur `/api/v1/clusters` et `/api/v1/auth/*`. Vide ou `0` = pas de quota |
 | `CORS_ALLOWED_ORIGINS`         | *(vide)*  | Liste d'origines autorisées (séparées par des virgules) ; vide = aucune origine tierce (même origine uniquement, défaut depuis la 0.2) ; `*` seul = toutes origines, à activer explicitement. Un `*` mêlé à d'autres origines est ignoré. La chart renseigne l'origine de l'Ingress |
 
 <Callout type="info">

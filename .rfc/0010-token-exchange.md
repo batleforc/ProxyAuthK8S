@@ -2,14 +2,14 @@
 
 | Field       | Value                                                                  |
 | ----------- | ---------------------------------------------------------------------- |
-| Status      | Accepted                                                               |
+| Status      | Implemented (2026-11-01, #332 ; preuve du banc §17)                     |
 | Short       | Échange de jeton (RFC 8693)                                            |
 | Settles     | Ne plus demander une connexion SSO et un jeton stocké par cluster     |
 | Author      | Max Batleforc <maxleriche.60@gmail.com>                                |
 | Co-author   | Claude Opus 5.5 (1M context)                                           |
 | Created     | 2026-10-18                                                             |
 | Supersedes  | — (amendée par [0014](0014-trusted-authenticator.md) : config sous `upstream_auth.token_exchange`, `mode: TokenExchange` au lieu d'`enabled`, jeton dans `UpstreamCredential::Bearer`, deux non-goals de §3 levés ; texte amendé en §4.1, §4.3, §4.4, §6.1, §6.3, §6.4, §13) |
-| Touches     | `libs/server/crd/src/upstream_auth/` (RFC 0014), `libs/server/common/src/{oidc_cache.rs,token_exchange.rs}`, `libs/server/api/src/cluster/redirect/{kube_redirect.rs,forwarded.rs,audit.rs}`, `…/kube_redirect/{standard.rs,upgrade/connect.rs,virtual_redirect/,list_fallback/}`, `libs/server/api/src/visible_clusters/`, `libs/server/api/src/server_auth/` (nouveau), `libs/server/api/src/metrics.rs`, `libs/cli/cli/src/login/`, `apps/front/src/`, CRD générée, `swagger.json` et clients générés, `.it/`, `tests/integration/`, `.docs/content/docs/` |
+| Touches     | `libs/server/crd/src/upstream_auth/` (RFC 0014), `libs/server/common/src/{oidc_cache.rs,token_exchange.rs}`, `libs/server/api/src/cluster/redirect/{kube_redirect.rs,forwarded.rs,audit.rs}`, `…/kube_redirect/{standard.rs,upgrade/connect.rs,virtual_redirect/,list_fallback/}`, `libs/server/api/src/visible_clusters/`, `libs/server/api/src/server_auth/` (nouveau), `libs/server/api/src/{metrics.rs,model/user.rs}`, `deploy/chart/templates/dp.{back,front}.yaml`, `libs/cli/cli/src/login/`, `apps/front/src/`, CRD générée, `swagger.json` et clients générés, `.it/`, `tests/integration/`, `.docs/content/docs/` |
 | Risk        | high                                                                   |
 
 
@@ -410,6 +410,14 @@ porte sur les groupes, Dex B réencodant le `sub` (décision 11).
 9. **Refus** : `/api/v1/auth/refresh` avec un refresh token invalide — `400`,
    ligne `token_refreshed` denied, et le compteur de fail2login de l'adresse
    monte.
+10. Un IdP du cluster autre que Dex (ajouté le 2026-11-01, §17 écart 11) :
+    Authentik 2026.8, Dex A fédéré par une source OIDC, dans la suite heavy
+    — le jeton du proxy atteint le cluster ; l'apiserver voit le compte
+    qu'Authentik génère pour lui (`authentik:kube-ak-<sub>`) ; une seule
+    ligne `token_exchanged` `exchanged`.
+11. **Refus** : le même cluster avec un secret de client faux — Authentik
+    refuse le client, le proxy répond `401` sans relayer le jeton du proxy,
+    ligne `token_exchanged` `refused`.
 
 Le cas Keycloak (même realm, internal-to-internal) est vérifié à la main, hors
 suite, en suivant la doc ; aucune image Keycloak n'entre sur le banc
@@ -705,3 +713,187 @@ Aucune.
 
 Le contrôle (portes avant l'échange, refus fermés) arrive dans la même phase
 que la surface : la phase 1 ne relaie jamais un jeton échangé sans eux.
+
+---
+
+## 17. Revision against the tree (2026-10-31)
+
+Livrée sur la branche `rfc/0010-token-exchange` (PR #332), en quatre
+commits, un par phase. Phases 1 et 2 vérifiées en processus (22 tests :
+`libs/server/api/tests/{token_exchange,server_auth}.rs`, `authz_matrix`,
+`openapi_contract`, `variant_coverage`) ; phase 3 par les tests unitaires du
+CLI (189, dont 12 nouveaux) et du front ; la preuve §6.P (`rfc0010.rs`) ne
+tourne que sur le banc de la CI : son résultat s'ajoute ici au premier
+passage.
+
+### Écarts au texte, avec leur raison
+
+1. **La session SSO du CLI revient au proxy, pas au CLI.** §6.5 faisait
+   rediriger l'IdP vers le listener loopback. Dex n'accepte pas de loopback
+   sur un client public qui déclare des `redirectURIs` (celui du dashboard en
+   a). L'IdP rappelle donc `<API_CLUSTER_OIDC_BASE_REDIRECT_URL>/api/v1/auth/callback`
+   (une URI de plus à enregistrer sur le client du dashboard, documentée), le
+   proxy échange le code, puis remet au loopback un **code à usage unique**
+   (60 s, Redis) que le CLI échange par PKCE à une **quatrième route**,
+   `POST /api/v1/auth/token` : le schéma du serveur OAuth médié
+   (`cluster/auth/oauth`). Aucun jeton ne passe dans une URL. Les jetons de la
+   session vivent au plus 60 s dans Redis, comme ceux de l'OAuth médié (§9).
+2. **`TokenExchange` n'est pas un mode « de confiance ».**
+   `UpstreamAuthMode::is_trusted` reste `FrontProxy | Issuer` (préfixes,
+   sonde, `claim_mappings`) ; `replaces_token()` (tout sauf `Passthrough`)
+   range le cluster sous la clé Redis de la décision 42 de la 0014 et exige
+   `OIDC_AUDIENCE_VALIDATION=enforce` (T11). La sonde de confiance ne
+   s'applique pas : l'apiserver croit l'IdP du cluster.
+3. **Résultat `unreadable`** ajouté aux métriques et à l'audit (§10.1 n'en
+   avait que quatre) : la réponse illisible (`502`) se distingue d'un refus.
+4. **Avertissements** : en plus de `status.warnings`, une condition d'avis
+   `TokenExchangeAtRisk` (catalogue de la 0011).
+5. **Deux entrées de trousseau par serveur** (jeton d'accès, puis
+   `<url>::session` avec le refresh token et l'expiration) au lieu d'une :
+   le gestionnaire d'identifiants de Windows borne un secret à 2 560 octets.
+   Les deux écritures ne sont pas atomiques.
+6. **`login --server-url` sans `--token` lance toujours le SSO** : l'invite
+   de saisie du jeton serveur disparaît (un script passe `--token`). `get` et
+   `login clusters` rafraîchissent aussi la session, pas seulement
+   `get-token`. `get-token` reconnaît un cluster en échange au drapeau
+   `token_exchange` que `login` écrit dans la configuration du CLI : le
+   kubeconfig du front demande donc un `login` du cluster, sans navigateur.
+7. **Banc** : `offline_access` ajouté à `OIDC_SCOPES` (Dex ne rend un refresh
+   token qu'à cette portée, décision 13) ; `UNSCOPED_MAX_FAILED_LOGINS=1000`
+   pour que le point 9 voie le compteur ; Traefik `allowEmptyServices` pour
+   que Dex B arrêté réponde `503` (point 6) ; le point 8 passe par
+   `/api/v1/auth/refresh` en HTTP plutôt que par l'expiration d'un jeton de
+   Dex A, partagé avec les autres suites ; `rfc0010` dans la passe série.
+8. **Après la revue de code** : un `408` ou `429` de l'IdP du cluster est une
+   indisponibilité (`503`), pas un refus ; la clé du cache inclut aussi
+   `scope` et `connector_id` ; un succès de cache n'attend plus la discovery ;
+   le verrou par clé est libéré même si la requête est annulée ; seul
+   `invalid_grant` sur `/auth/refresh` compte pour le ban (`invalid_client`
+   donne `503`) ; un callback `?error=` revient au CLI en `access_denied` ;
+   le CLI sérialise le renouvellement de session (verrou de fichier) pour ne
+   pas dépenser deux fois un refresh token qu'un IdP fait tourner.
+9. **Après la revue à deux axes** :
+   - le front ne télécharge pas le kubeconfig depuis l'accueil (§6.4) : un
+     cluster en échange ouvre la page `cluster-nosso`, qui l'affiche avec la
+     marche à suivre (le kubeconfig suppose le `login` du CLI, écart 6) ; il
+     sort de `renderPluginKubeconfig`, partagé avec
+     `generateCallbackPluginKubeconfig` ;
+   - `cluster/auth/oauth/*`, « délibérément non touché », a reçu les
+     descriptions OpenAPI demandées par Spectral et les helpers que la
+     session SSO partage avec lui (`read_form`, `oauth_error`, `no_store`,
+     `redeem_code`) : aucun changement de comportement, ses tests passent
+     tels quels ; `SessionError` disparaît au profit de `TokenErrorBody`, de
+     même forme ;
+   - `token_exchanged` n'est écrit que si une requête a atteint l'IdP (§10.1
+     « échange réel ») : un échec de config, de discovery ou de client HTTP
+     n'est que compté ; un `ProxyKubeApi` sans UID est refusé (`503`) plutôt
+     que de partager une clé ;
+   - au callback de la session, un IdP injoignable donne `server_error` au
+     CLI, un code refusé `access_denied` ;
+   - p2 vérifie `cache_hit ≥ 9` et non `= 9` : la découverte d'API de kubectl
+     passe aussi par le cache ; la preuve exacte est `exchanged = 1` ;
+   - T2 et T6 sont renommés `a_non_member_is_refused_before_the_idp` et
+     `a_rate_limited_caller_is_refused_before_the_idp` (suffixe de refus,
+     `testing.mdx`).
+10. **Au premier passage sur le banc** (la preuve §6.P n'avait jamais
+    tourné), trois défauts du produit et six changements du banc :
+    - *produit* — `/userinfo` sans `preferred_username` (les utilisateurs
+      statiques de Dex) donnait un nom vide : l'audit du point 5 portait
+      `user: ""`, et tous ces utilisateurs partageaient un seul compteur de
+      ban. Le nom retombe sur l'email
+      (`a_user_without_preferred_username_is_named_by_email`) ;
+    - *produit* — le chart rendait les `env` supplémentaires du back et du
+      front sans guillemets : `UNSCOPED_MAX_FAILED_LOGINS: 1000` était refusé
+      par l'API (`expected string`). Les valeurs passent par `| quote` ;
+    - *produit* — Dex jusqu'à v2.45 refuse un refresh token inconnu par
+      `invalid_request` (dexidp/dex#5039) : le proxy y voyait sa propre faute
+      (`503`, aucun échec compté). Sur `/auth/refresh`, `invalid_request`
+      vaut maintenant `invalid_grant` : le refresh token est la seule entrée
+      de l'appelant (`a_refresh_refused_as_invalid_request_counts_toward_a_ban`).
+      Le refus de l'écart 8 (`invalid_client` → `503`, pas de ban) tient ;
+    - *banc* — Dex A est tenu à **v2.45.1** (`.it/images.lock`, au lieu de
+      la v2.46.0 de §6.P) : depuis v2.46.0 un seul `refresh_token` bloque
+      `/token` et `/keys` jusqu'au redémarrage (dexidp/dex#5017, ouvert ;
+      reproduit hors banc sur v2.46.0 et v2.46.1, stockage memory et
+      sqlite). Le point 8 est le premier vrai refresh du banc : Dex A ne
+      répondait plus, les nouveaux pods du back échouaient leur discovery et
+      chaque test série suivant expirait sur un rollout. Dex B, qui ne sert
+      que des échanges et jamais de refresh, garde v2.46.0 (entrée `dex-b`) :
+      v2.45.1 ne journalise pas l'échange réussi que les points 1 et 2
+      comptent. À relever quand #5017 sera corrigé ;
+    - *banc* — Dex B mappe `username` et `groups` par `claim` + `prefix`
+      (`dexb:`) et non par expression CEL : pour l'apiserver,
+      `claims.groups` est de type `any` et `.map` est refusé, k3s ne
+      démarrait pas ;
+    - *banc* — le point 6 arrête Dex B en changeant le sélecteur du
+      `Service` `dex-b` (`dex-b-stopped`) au lieu de passer à 0 réplique :
+      Dex B en stockage memory change de clés à chaque démarrage, et
+      l'apiserver refusait ensuite les jetons du point 7. Une attente fixe
+      de 3 s laisse Traefik recharger (`shortcut:` dans le test) ;
+    - *banc* — le défi PKCE du point 8 était mal recopié de la RFC 7636
+      (`…FrdMTVr7…` au lieu de `…FrEMTJgu…`) ;
+    - *banc* — `it:up` borne la création de k3d à 5 min et affiche le log du
+      serveur ; `it:logs` collecte aussi le log de k3s (refus JWT de
+      l'apiserver) et tourne sans auto-installation mise (limite de
+      l'API GitHub) ;
+    - *banc* — un refus de session (`http_session`) affiche le corps de la
+      réponse et les lignes d'audit `server_login`.
+
+11. **Un IdP du cluster autre que Dex** (2026-11-01, points 10 et 11 ajoutés
+    à §6.P) : Authentik 2026.8.5 sert l'échange RFC 8693, Dex A fédéré par
+    une source OIDC (`.it/heavy/authentik.yaml`, blueprint). Vérifié dans son
+    code et sur une instance locale avant le banc : il accepte le
+    `client_secret_basic` du proxy ; il vérifie la signature et `exp` du
+    jeton du proxy par le JWKS de la source, sans contrôler `iss` ni `aud` ;
+    l'utilisateur échangé est un compte de service généré,
+    `kube-ak-<sub du jeton>`, sans groupes, `email_verified: false` ; sans
+    `scope`, le jeton ne porte aucun claim de profil ; un secret faux donne
+    `400 invalid_client`, donc `401` au proxy. Authentik ne tourne que dans
+    la suite heavy (`heavy_rfc0010.rs`) : il ajoute Postgres, un serveur et
+    un worker (environ deux minutes de migrations) au banc requis. Le cas
+    où Authentik est aussi l'IdP du proxy n'est pas sur le banc : il
+    demanderait une seconde installation du back.
+
+### Preuve du banc (§6.P)
+
+Run [41249578636](https://github.com/batleforc/ProxyAuthK8S/actions/runs/41249578636)
+(commit `d9f5741`, 2026-11-01) : kubectl du banc, Dex A v2.45.1 et Dex B
+v2.46.0 ; passe série 13/13, passe parallèle 101/101.
+
+| Point | Observé |
+| --- | --- |
+| 1 | `login --server-url` sans `--token`, puis `kubectl get pods` : succès ; la `SelfSubjectReview` relayée nomme `dexb:…` avec le groupe `dexb:it-readers` ; Dex B a journalisé un échange pour l'email du persona ; aucune entrée de trousseau propre au cluster |
+| 2 | Dix `kubectl get pods` : une ligne `token_exchanged` `exchanged` côté proxy, un échange dans le log de Dex B ; `cache_hit` monte d'au moins 9 |
+| 3 | Persona hors de `proxy_group` : `403`, aucune ligne `token_exchanged`, aucun échange dans le log de Dex B |
+| 4 | Jeton de Dex B présenté au proxy : `401` à la porte 4, aucune ligne `token_exchanged`, l'apiserver n'a rien reçu du namespace |
+| 5 | `kubectl exec` et `port-forward` : les tunnels s'ouvrent ; l'audit de session nomme l'utilisateur du jeton du proxy ; au moins un échange |
+| 6 | Dex B arrêté (sélecteur du `Service` vidé) : trois `503`, jamais `429`, au moins trois lignes `unavailable`, aucun compteur de fail2login dans Redis |
+| 7 | Aucun jeton de Dex B dans la sortie `-v=9` de kubectl, la revue relayée ni le log du proxy (le motif est d'abord vérifié sur un vrai jeton) |
+| 8 | `/api/v1/auth/refresh` avec le refresh token de la session : `200`, une ligne `token_refreshed` allowed, un nouveau jeton d'accès accepté sur le cluster en échange |
+| 9 | Refresh token inconnu : `400 invalid_grant` (Dex A répond `invalid_request`, écart 10), une ligne `token_refreshed` denied, un échec de plus sur le compteur non scopé de l'adresse |
+| 10 | Suite heavy, run [41293391084](https://github.com/batleforc/ProxyAuthK8S/actions/runs/41293391084) (`beddd01`) : Authentik 2026.8.5 échange le jeton de Dex A ; la liste des pods répond `200`, la `SelfSubjectReview` relayée nomme `authentik:kube-ak-<sub>`, une ligne `token_exchanged` `exchanged` |
+| 11 | Même run : secret de client faux, Authentik répond `invalid_client`, le proxy `401`, une ligne `token_exchanged` `refused` |
+
+Le point 2 a compté deux échanges au lieu d'un sur un seul run
+(41237495417, avant les correctifs de l'écart 10), un sur les quatre
+suivants, avec une seule réplique du back. La cause n'est pas établie : le
+test affiche désormais les lignes `token_exchanged` s'il échoue, pour la
+trouver au prochain écart.
+
+### Menaces (§7)
+
+T1 à T7, T10 et T11 : `libs/server/api/tests/token_exchange.rs` (noms de §14
+sauf T2 et T6, écart 9 ; T4 aussi en unitaire dans `common::token_exchange` ;
+T5 dans `kube_redirect/upstream.rs` ; T11 aussi dans
+`audience_validation_off.rs`) ; T8 :
+`crd::upstream_auth::token_exchange` ; T9 : `common::token_exchange` ; T12 :
+`libs/server/api/tests/server_auth.rs` (et sa variante `invalid_request`,
+écart 10). Sur le banc : points 3, 4, 7 et 9.
+
+### Supply chain (§8)
+
+`secrecy` 0.10.3 et `form_urlencoded` 1.2.2 deviennent dépendances directes
+de `common` (déjà dans `Cargo.lock`) ; aucune image nouvelle (Dex B est
+l'image de Dex). Dex A descend sur le banc de v2.46.0 à v2.45.1
+(dexidp/dex#5017, écart 10), Dex B garde v2.46.0 sous sa propre entrée : image de test, jamais livrée, hors
+`task audit` (`.it/images.lock`).

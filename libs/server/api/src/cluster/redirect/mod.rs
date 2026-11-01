@@ -14,6 +14,7 @@ pub mod forwarded;
 pub mod kube_redirect;
 pub mod status_response;
 pub mod throttle;
+pub mod token_exchange;
 pub mod upstream_identity;
 
 // https://kubernetes.io/docs/reference/using-api/api-concepts/#api-verbs

@@ -22,6 +22,7 @@ pub mod state;
 #[cfg(feature = "test-util")]
 pub mod test_skip;
 pub mod token_audience;
+pub mod token_exchange;
 pub mod traits;
 pub mod upstream_cache;
 pub mod upstream_trust;

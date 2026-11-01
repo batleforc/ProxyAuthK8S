@@ -95,7 +95,7 @@ spec:
             {{- end }}
             {{- range .Values.back.env }}
             - name: {{ .name }}
-              value: {{ .value }}
+              value: {{ .value | quote }}
             {{- end }}
           envFrom:
             {{- if eq .Values.oidc.source "secret" }}

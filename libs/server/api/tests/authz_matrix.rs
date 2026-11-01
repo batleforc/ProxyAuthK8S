@@ -43,6 +43,12 @@ const MAIN: &[(&str, &str, Class)] = &[
     ("GET", "/management/ready", Public),
     ("GET", "/management/metrics", Public),
     ("GET", "/api/v1/clusters", Authenticated),
+    // RFC 0010 §6.5: the SSO session to the proxy; a loopback redirect, a
+    // single-use code with PKCE or a refresh token is the proof.
+    ("GET", "/api/v1/auth/login", Public),
+    ("GET", "/api/v1/auth/callback", Public),
+    ("POST", "/api/v1/auth/token", Public),
+    ("POST", "/api/v1/auth/refresh", Public),
     ("GET", "/api/docs", Public),
     ("GET", "/clusters/{ns}/{cluster}/auth/login", Authenticated),
     ("GET", "/clusters/{ns}/{cluster}/auth/callback", Public),
@@ -95,6 +101,7 @@ const LISTENER: &[(&str, &str, Class, &str, &str)] = &[
 const PUBLIC_PREFIXES: &[&str] = &[
     "/management/",
     "/api/docs",
+    "/api/v1/auth/",
     "/clusters/{ns}/{cluster}/auth/",
     "/clusters/{ns}/{cluster}/oauth/",
     "/clusters/{ns}/{cluster}/.well-known/",
