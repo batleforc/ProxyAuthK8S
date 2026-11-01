@@ -16,7 +16,7 @@ RFC passe au `/grill-me` avant d'être `In review`.
 | [0007](0007-migrate-actix-to-axum.md) | Migrer le serveur HTTP d'actix-web vers axum (hyper 1) | à créer | Accepted (recette après la première instance) | high |
 | [0008](0008-audit-trail.md) | Trace d'audit : couverture, schéma et sortie garantie | à créer | Implemented | medium |
 | [0009](0009-integration-suite.md) | Banc et suite d'intégration sur un vrai cluster | à créer | Implemented | medium |
-| [0010](0010-token-exchange.md) | Échange de jeton : une connexion au proxy pour tous les clusters | à créer | Accepted | high |
+| [0010](0010-token-exchange.md) | Échange de jeton : une connexion au proxy pour tous les clusters | #332 | Implemented | high |
 | [0011](0011-adopt-kit-runtime-crates.md) | Conditions, Events et codes de raison : adopter les crates du kit | à créer | Implemented | medium |
 | [0012](0012-agent-tunnel.md) | Mode agent : joindre un apiserver qui n'est pas exposé | à créer | Implemented | high |
 | [0013](0013-agent-version-skew.md) | Versions des agents : les voir, les comparer, refuser un protocole inconnu | #304 | Implemented | medium |

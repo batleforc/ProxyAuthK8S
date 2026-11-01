@@ -491,11 +491,14 @@ impl User {
             tracing::warn!("No email found in user info");
             String::new()
         };
+        // Dex's static users carry no `preferred_username`: the email names
+        // them instead, as the claim-mapped modes do, so the audit and the
+        // per-user rate limit never fall back to one shared empty name.
         let username = if let Some(username) = user_info.preferred_username() {
             username.to_string()
         } else {
             tracing::warn!("No preferred username found in user info");
-            String::new()
+            email.clone()
         };
         let groups = user_info.additional_claims().groups.clone();
         tracing::debug!(group_count = groups.len(), "resolved user groups");

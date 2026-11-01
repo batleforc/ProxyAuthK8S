@@ -33,7 +33,7 @@ Name | Type | Description  | Required | Notes
 **redirect_uri** | **String** | Must be a loopback URI (`http://localhost` or `http://127.0.0.1`), any port/path. | [required] |
 **code_challenge** | **String** | RFC 7636 PKCE code challenge (43-128 chars, unreserved charset). | [required] |
 **state** | Option<**String**> | Opaque value echoed back verbatim on redirect. |  |
-**scope** | Option<**String**> |  |  |
+**scope** | Option<**String**> | Space-separated scopes asked of the upstream provider. |  |
 **code_challenge_method** | Option<**String**> | Must be `S256` when present; only S256 is supported. |  |
 
 ### Return type

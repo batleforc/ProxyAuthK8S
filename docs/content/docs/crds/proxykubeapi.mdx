@@ -50,10 +50,11 @@ spec:
 - dashboard_group must not be empty when it is set — `!has(self.dashboard_group) || self.dashboard_group != ''`
 - proxy_group must not be empty when it is set — `!has(self.proxy_group) || self.proxy_group != ''`
 - service Agent needs the remote apiserver's CA in cert (ConfigMap, Secret or Cert), never SystemRoots — `!has(self.service.Agent) || has(self.cert.ConfigMap) || has(self.cert.Secret) || has(self.cert.Cert)`
-- client_cert is refused in FrontProxy and Issuer: FrontProxy reads its certificate from the proxy's namespace, and in Issuer it would win over the JWT — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.client_cert)`
-- FrontProxy and Issuer need a validated identity: set auth_config without disable_validation — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || (has(self.auth_config) && !(has(self.auth_config.disable_validation) && self.auth_config.disable_validation))`
-- FrontProxy and Issuer cannot validate against Kubernetes: the SelfSubjectReview needs the apiserver to know the IdP — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.auth_config) || (has(self.auth_config.validate_against) && self.auth_config.validate_against != 'Kubernetes')`
-- FrontProxy and Issuer require oidc_provider.claim_mappings: preferred_username must not become a trusted identity — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || !has(self.auth_config) || !has(self.auth_config.validate_against) || self.auth_config.validate_against != 'OidcProvider' || has(self.auth_config.oidc_provider.claim_mappings)`
+- client_cert is refused in FrontProxy and Issuer: FrontProxy reads its certificate from the proxy's namespace, and in Issuer it would win over the JWT — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || self.upstream_auth.mode == 'TokenExchange' || !has(self.client_cert)`
+- FrontProxy, Issuer and TokenExchange need a validated identity: set auth_config without disable_validation — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || (has(self.auth_config) && !(has(self.auth_config.disable_validation) && self.auth_config.disable_validation))`
+- FrontProxy and Issuer cannot validate against Kubernetes: the SelfSubjectReview needs the apiserver to know the IdP — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || self.upstream_auth.mode == 'TokenExchange' || !has(self.auth_config) || (has(self.auth_config.validate_against) && self.auth_config.validate_against != 'Kubernetes')`
+- FrontProxy and Issuer require oidc_provider.claim_mappings: preferred_username must not become a trusted identity — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode == 'Passthrough' || self.upstream_auth.mode == 'TokenExchange' || !has(self.auth_config) || !has(self.auth_config.validate_against) || self.auth_config.validate_against != 'OidcProvider' || has(self.auth_config.oidc_provider.claim_mappings)`
+- TokenExchange needs auth_config.oidc_provider.enabled: it is the client that exchanges — `!has(self.upstream_auth) || !has(self.upstream_auth.mode) || self.upstream_auth.mode != 'TokenExchange' || (has(self.auth_config) && has(self.auth_config.oidc_provider) && self.auth_config.oidc_provider.enabled)`
 
 ### `spec.auth_config` [#spec.auth_config]
 
@@ -732,14 +733,16 @@ Exactly one of `ConfigMap`, `Secret`.
 | --- | --- | --- | --- | --- |
 | `group_prefix` | `string` | no |  | Prepended to every group the apiserver sees.<br /><br />Constraints: `maxLength: 64` |
 | [`issuer_key`](#spec.upstream_auth.issuer_key) | `object` | no |  | The signing key of `Issuer`, also accepted in `Passthrough` so the apiserver can be prepared before the switch. |
-| `mode` | `string` | no | `"Passthrough"` | Default: `Passthrough`, the behaviour without this block.<br /><br />Values: `"Passthrough"`, `"FrontProxy"`, `"Issuer"` |
+| `mode` | `string` | no | `"Passthrough"` | Default: `Passthrough`, the behaviour without this block.<br /><br />Values: `"Passthrough"`, `"FrontProxy"`, `"Issuer"`, `"TokenExchange"` |
+| [`token_exchange`](#spec.upstream_auth.token_exchange) | `object` | no |  | The exchange of `TokenExchange` (RFC 0010); required in that mode and refused in the others. |
 | `user_prefix` | `string` | no |  | Prepended to the username the apiserver sees. No default: a prefix is a collision decision nobody else can take.<br /><br />Constraints: `maxLength: 64` |
 
 **Rules**
 
-- user_prefix and group_prefix are required and non-empty in FrontProxy and Issuer — `!has(self.mode) || self.mode == 'Passthrough' || (has(self.user_prefix) && self.user_prefix != '' && has(self.group_prefix) && self.group_prefix != '')`
-- issuer_key is for Issuer (or its preparation in Passthrough), not FrontProxy — `!has(self.issuer_key) || !has(self.mode) || self.mode != 'FrontProxy'`
+- user_prefix and group_prefix are required and non-empty in FrontProxy and Issuer — `!has(self.mode) || self.mode == 'Passthrough' || self.mode == 'TokenExchange' || (has(self.user_prefix) && self.user_prefix != '' && has(self.group_prefix) && self.group_prefix != '')`
+- issuer_key is for Issuer (or its preparation in Passthrough), not FrontProxy nor TokenExchange — `!has(self.issuer_key) || !has(self.mode) || (self.mode != 'FrontProxy' && self.mode != 'TokenExchange')`
 - mode Issuer requires issuer_key — `!has(self.mode) || self.mode != 'Issuer' || has(self.issuer_key)`
+- token_exchange is required in mode TokenExchange and refused in the other modes — `(has(self.mode) && self.mode == 'TokenExchange') == has(self.token_exchange)`
 - `group_prefix`: group_prefix must not start with system: nor carry a control character or an edge space — `self.matches('[\\x00-\\x1f\\x7f]|^\\s|\\s$') == false && !self.lowerAscii().startsWith('system:')`
 - `user_prefix`: user_prefix must not start with system: nor carry a control character or an edge space — `self.matches('[\\x00-\\x1f\\x7f]|^\\s|\\s$') == false && !self.lowerAscii().startsWith('system:')`
 
@@ -755,6 +758,21 @@ Exactly one of `ConfigMap`, `Secret`.
 
 - `issuer_url`: issuer_url must be https — `self.startsWith('https://')`
 - `issuer_url`: issuer_url must be reachable by the apiserver, not a loopback address — `!self.matches('^https://(localhost|127\\.|\\[::1\\])')`
+
+### `spec.upstream_auth.token_exchange` [#spec.upstream_auth.token_exchange]
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `audience` | `string` | no | `""` | The `audience` parameter of the exchange; empty: omitted.<br /><br />Constraints: `maxLength: 512` |
+| `connector_id` | `string` | no | `""` | Dex only: the upstream connector that issued the proxy's token; empty: omitted.<br /><br />Constraints: `maxLength: 256` |
+| `max_cache_seconds` | `integer` | no | `300` | The longest an exchanged token is reused, 0 to 3600 seconds; `0` exchanges on every request. Bounds how long a group removed at the IdP can go unseen by the apiserver.<br /><br />Constraints: `minimum: 0`, `maximum: 3600` |
+| `scope` | `string` | no | `""` | The `scope` parameter of the exchange; empty: omitted.<br /><br />Constraints: `maxLength: 512` |
+
+**Rules**
+
+- `audience`: audience must not carry CR, LF or & — `!self.matches('[\\r\\n&]')`
+- `connector_id`: connector_id must not carry CR, LF or & — `!self.matches('[\\r\\n&]')`
+- `scope`: scope must not carry CR, LF or & — `!self.matches('[\\r\\n&]')`
 
 ### `spec.virtual_apis[]` [#spec.virtual_apis]
 

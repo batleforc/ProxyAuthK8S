@@ -44,6 +44,10 @@ back:
     # RFC 0008 §6.P point 1: the audit must get through a restrictive level.
     - name: RUST_LOG
       value: warn
+    # RFC 0010 §6.P point 9: the unscoped fail2login counts (it is off when
+    # unset); high enough that the shared ingress address is never banned.
+    - name: UNSCOPED_MAX_FAILED_LOGINS
+      value: "1000"
   extraVolumes:
     - name: it-ca
       secret:
@@ -53,10 +57,10 @@ back:
       mountPath: /etc/proxyauth-it
       readOnly: true
 
-# RFC 0014 §6.P: every mode is exercised; a mode outside allowedModes is
-# proved by the unit tests (§17.3).
+# RFC 0014 §6.P: every mode is exercised (TokenExchange by RFC 0010 §6.P); a
+# mode outside allowedModes is proved by the unit tests (§17.3).
 upstreamAuth:
-  allowedModes: [Passthrough, FrontProxy, Issuer]
+  allowedModes: [Passthrough, FrontProxy, Issuer, TokenExchange]
 
 front:
   replicas: 1

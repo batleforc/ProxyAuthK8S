@@ -143,8 +143,7 @@ pub async fn proxied_through(
 ) -> Proxied {
     let bench = Bench::get();
     let ns = bench.namespace(test);
-    let busybox = image("busybox");
-    let items = json!({
+    let mut items = json!({
         "apiVersion": "v1",
         "kind": "List",
         "items": [
@@ -168,32 +167,6 @@ pub async fn proxied_through(
                 },
             },
             {
-                "apiVersion": "v1",
-                "kind": "Pod",
-                "metadata": { "name": "web", "namespace": ns.name, "labels": { "app": "web" } },
-                "spec": { "containers": [
-                    { "name": "app", "image": busybox,
-                      "command": ["httpd", "-f", "-p", "8080"] },
-                    { "name": "sidecar", "image": busybox,
-                      "command": ["httpd", "-f", "-p", "9090"] },
-                ] },
-            },
-            {
-                "apiVersion": "v1",
-                "kind": "Service",
-                "metadata": { "name": "web", "namespace": ns.name },
-                "spec": {
-                    "selector": { "app": "web" },
-                    "ports": [{ "name": "http", "port": 80, "targetPort": 8080 }],
-                },
-            },
-            {
-                "apiVersion": "v1",
-                "kind": "ConfigMap",
-                "metadata": { "name": "app", "namespace": ns.name },
-                "data": { "key": "value" },
-            },
-            {
                 "apiVersion": "rbac.authorization.k8s.io/v1",
                 "kind": "RoleBinding",
                 "metadata": { "name": "it-readers-admin", "namespace": ns.name },
@@ -204,6 +177,7 @@ pub async fn proxied_through(
             },
         ],
     });
+    with_workload(&mut items, &ns.name);
     bench.apply(&items.to_string());
     wait(&ns.name, &["pod/web", "--for=condition=Ready"]);
     before_ready(&ns.name);
@@ -221,6 +195,148 @@ pub async fn proxied_through(
         .await
         .expect("cluster login of reader");
     Proxied { ns, reader }
+}
+
+/// Add the fixture's workload to the `List` `items`: the `web` pod, its
+/// Service and the `app` ConfigMap, in `ns`.
+fn with_workload(items: &mut Value, ns: &str) {
+    let busybox = image("busybox");
+    let workload = [
+        json!({
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": { "name": "web", "namespace": ns, "labels": { "app": "web" } },
+            "spec": { "containers": [
+                { "name": "app", "image": busybox,
+                  "command": ["httpd", "-f", "-p", "8080"] },
+                { "name": "sidecar", "image": busybox,
+                  "command": ["httpd", "-f", "-p", "9090"] },
+            ] },
+        }),
+        json!({
+            "apiVersion": "v1",
+            "kind": "Service",
+            "metadata": { "name": "web", "namespace": ns },
+            "spec": {
+                "selector": { "app": "web" },
+                "ports": [{ "name": "http", "port": 80, "targetPort": 8080 }],
+            },
+        }),
+        json!({
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": { "name": "app", "namespace": ns },
+            "data": { "key": "value" },
+        }),
+    ];
+    items["items"]
+        .as_array_mut()
+        .expect("a List")
+        .extend(workload);
+}
+
+/// RFC 0010 §6.P: Dex B's confidential client (`.it/dex/config-b.yaml`), the
+/// `oidc_provider` that exchanges.
+pub const DEX_B_CLIENT: &str = "kube-prod";
+pub const DEX_B_SECRET: &str = "kube-prod-it-secret";
+
+/// The cluster's IdP of a `TokenExchange` cluster: its `oidc_provider`, the
+/// exchange's parameters, and the RBAC subject made admin of the namespace
+/// in the apiserver.
+pub struct ExchangeIdp {
+    pub issuer_url: String,
+    pub client_id: String,
+    pub client_secret: String,
+    pub connector_id: String,
+    pub scope: String,
+    pub subject: Value,
+}
+
+/// RFC 0010 §6.P: the fixture's cluster `c` and workload, the cluster in
+/// `TokenExchange` with Dex B (connector `proxy`, scope `openid email
+/// groups`, `max_cache_seconds`), and `dexb:it-readers` admin of the
+/// namespace in the apiserver (Dex B re-encodes `sub`, decision 11). Nobody
+/// is logged in: each test opens the session it proves.
+pub fn token_exchange(test: &str, security: Value, max_cache_seconds: u32) -> Namespace {
+    let idp = ExchangeIdp {
+        issuer_url: Bench::get().dex_b_url(),
+        client_id: DEX_B_CLIENT.to_string(),
+        client_secret: DEX_B_SECRET.to_string(),
+        connector_id: "proxy".to_string(),
+        scope: "openid email groups".to_string(),
+        subject: json!({ "apiGroup": "rbac.authorization.k8s.io",
+                         "kind": "Group", "name": "dexb:it-readers" }),
+    };
+    token_exchange_with(test, &idp, security, max_cache_seconds)
+}
+
+/// [`token_exchange`] on any cluster IdP.
+pub fn token_exchange_with(
+    test: &str,
+    idp: &ExchangeIdp,
+    security: Value,
+    max_cache_seconds: u32,
+) -> Namespace {
+    let bench = Bench::get();
+    let ns = bench.namespace(test);
+    let mut items = json!({
+        "apiVersion": "v1",
+        "kind": "List",
+        "items": [
+            {
+                "apiVersion": "weebo.si.rs/v1",
+                "kind": "ProxyKubeApi",
+                "metadata": { "name": CLUSTER, "namespace": ns.name },
+                "spec": {
+                    "cert": { "ConfigMap": { "name": "kube-root-ca.crt", "key": "ca.crt" } },
+                    "service": { "KubernetesService": {
+                        "name": "kubernetes", "namespace": "default", "port": 443 } },
+                    "expose_via_dashboard": true,
+                    "dashboard_group": "it-readers",
+                    "proxy_group": "it-readers",
+                    "auth_config": { "oidc_provider": {
+                        "enabled": true,
+                        "issuer_url": idp.issuer_url,
+                        "client_id": idp.client_id,
+                        "client_secret": idp.client_secret,
+                    } },
+                    "upstream_auth": {
+                        "mode": "TokenExchange",
+                        "token_exchange": {
+                            "connector_id": idp.connector_id,
+                            "scope": idp.scope,
+                            "max_cache_seconds": max_cache_seconds,
+                        },
+                    },
+                    "security_config": security,
+                },
+            },
+            {
+                "apiVersion": "rbac.authorization.k8s.io/v1",
+                "kind": "RoleBinding",
+                "metadata": { "name": "exchanged-admin", "namespace": ns.name },
+                "roleRef": { "apiGroup": "rbac.authorization.k8s.io",
+                             "kind": "ClusterRole", "name": "admin" },
+                "subjects": [idp.subject],
+            },
+        ],
+    });
+    with_workload(&mut items, &ns.name);
+    bench.apply(&items.to_string());
+    wait(&ns.name, &["pod/web", "--for=condition=Ready"]);
+    let cluster = format!("proxykubeapi/{CLUSTER}");
+    wait(
+        &ns.name,
+        &[
+            &cluster,
+            "--for=jsonpath={.status.upstreamAuth.mode}=TokenExchange",
+        ],
+    );
+    wait(
+        &ns.name,
+        &[&cluster, "--for=jsonpath={.status.exposed}=true"],
+    );
+    ns
 }
 
 /// Let `it-readers` use `nodes/proxy` in the apiserver, so a request the

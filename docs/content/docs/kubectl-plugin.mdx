@@ -57,11 +57,27 @@ profils sur le même serveur (deux comptes, deux `HOME`), donnez à chacun son s
 ### Se connecter au serveur
 
 ```bash
+kubectl proxyauth login --server-url https://proxyauthk8s.example.com
+```
+
+Sans `--token`, le login serveur est une connexion **SSO** : le plugin ouvre le navigateur sur
+`/api/v1/auth/login` du serveur (avec `--browser`, `PROXYAUTH_BROWSER` et le collage d'URL
+comme pour un cluster, voir plus bas). Après la connexion chez l'IdP du proxy, le navigateur
+revient sur le listener local (`http://localhost:18000/`, `PROXYAUTH_CALLBACK_PORT`) avec un
+code à usage unique, que le plugin échange (PKCE) contre la session : jeton d'accès et
+refresh token, rangés dans le trousseau. Aucun jeton ne passe dans une URL.
+
+Le jeton d'accès est **renouvelé** tout seul (`/api/v1/auth/refresh`) quand il lui reste moins
+de 60 s, à l'usage (`get-token`, `get`, `login <cluster>`). Si la session SSO est terminée, le
+plugin demande de relancer `kubectl proxyauth login --server-url …` ; si l'IdP est
+injoignable, il le dit et il suffit de réessayer plus tard.
+
+```bash
 kubectl proxyauth login --server-url https://proxyauthk8s.example.com --token <jeton>
 ```
 
-Le login serveur valide le jeton auprès du serveur puis le stocke dans le trousseau. Sans
-`--token`, le jeton est demandé de façon interactive.
+Avec `--token` (scripts, CI), le jeton collé est validé auprès du serveur puis stocké tel quel,
+**sans renouvellement** : il faut se reconnecter à son expiration.
 
 #### Certificat non reconnu par le système
 
@@ -261,6 +277,14 @@ kubectl proxyauth -n default login mon-cluster
 kubectl get pods   # passe par le proxy avec le jeton du trousseau
 ```
 
+#### Cluster en échange de jeton
+
+Un cluster en `upstream_auth.mode: TokenExchange` (`token_exchange: true` dans
+`/api/v1/clusters`) prend le jeton **du serveur** : `login mon-cluster` ne lance aucun SSO et
+ne stocke aucun jeton de cluster (un `--token` est ignoré). Il écrit le même contexte et note
+le cluster comme `token_exchange` dans la configuration du plugin ; `get-token` rend alors le
+jeton du serveur, renouvelé s'il expire dans moins de 60 s.
+
 ### Gérer les contextes kubectl
 
 ```bash
@@ -344,6 +368,8 @@ l'appel, applique les règles de sécurité, puis relaie vers l'apiserver.
 | Symptôme                                        | Cause probable                                                                 |
 | ----------------------------------------------- | ------------------------------------------------------------------------------ |
 | `401` sur toutes les requêtes                   | Jeton expiré : relancer `kubectl proxyauth login`                              |
+| `the session with … is over`                    | Session SSO du serveur terminée : relancer `kubectl proxyauth login --server-url …` |
+| `the identity provider is unavailable`          | IdP du proxy injoignable au renouvellement : réessayer plus tard                |
 | `403` avec un message sur un groupe             | L'utilisateur n'est pas dans le `proxy_group` du cluster                        |
 | `403` avec un message sur un chemin             | Le chemin n'est pas dans `security_config.allowed_resources`                   |
 | `429` avec un en-tête `Retry-After`             | Rate limiting, ou bannissement après des échecs d'authentification répétés      |

@@ -148,6 +148,37 @@ pub fn record_issuer_token(result: &'static str) {
     ISSUER_TOKENS_COUNTER.add(1, &[KeyValue::new("result", result)]);
 }
 
+/// `proxyauth_token_exchange_total{result}` (RFC 0010 §10.1): `exchanged`,
+/// `cache_hit`, `refused`, `unavailable` or `unreadable`. No `cluster`
+/// label: the cluster is in the audit line.
+pub const TOKEN_EXCHANGE: &str = "proxyauth.token_exchange";
+
+static TOKEN_EXCHANGE_COUNTER: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .u64_counter(TOKEN_EXCHANGE)
+        .with_description("Token exchanges of TokenExchange clusters, by result.")
+        .build()
+});
+
+/// `proxyauth_token_exchange_duration_seconds`: real exchanges only.
+pub const TOKEN_EXCHANGE_DURATION: &str = "proxyauth.token_exchange.duration";
+
+static TOKEN_EXCHANGE_DURATION_HISTOGRAM: LazyLock<Histogram<f64>> = LazyLock::new(|| {
+    opentelemetry::global::meter("proxyauthk8s")
+        .f64_histogram(TOKEN_EXCHANGE_DURATION)
+        .with_unit("s")
+        .with_description("Duration of the token exchanges sent to a cluster's IdP.")
+        .build()
+});
+
+/// One token exchange, or one cache hit (`seconds` is `None`).
+pub fn record_token_exchange(result: &'static str, seconds: Option<f64>) {
+    TOKEN_EXCHANGE_COUNTER.add(1, &[KeyValue::new("result", result)]);
+    if let Some(seconds) = seconds {
+        TOKEN_EXCHANGE_DURATION_HISTOGRAM.record(seconds, &[KeyValue::new("result", result)]);
+    }
+}
+
 /// One identity refused (RFC 0014 §4.2).
 pub fn record_upstream_identity_refused(reason: &'static str) {
     UPSTREAM_IDENTITY_REFUSED_COUNTER.add(1, &[KeyValue::new("reason", reason)]);

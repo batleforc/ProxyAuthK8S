@@ -2,22 +2,23 @@ use crate::cluster::redirect::audit::{Event, HandlerAudit};
 use std::sync::Arc;
 
 use axum::{
-    Form, Json,
+    Form,
     extract::{Path, State, rejection::FormRejection},
-    http::{StatusCode, header, request::Parts},
+    http::{StatusCode, request::Parts},
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, instrument};
+use tracing::instrument;
 use utoipa::ToSchema;
 
 use crate::cluster::auth::{
     load_discovery_enabled_proxy,
-    oauth::model::{CODE_PREFIX, IssuedCode, redirect_uri_matches, verify_pkce_s256},
+    oauth::{Unredeemed, model::CODE_PREFIX, no_store, oauth_error, read_form, redeem_code},
     throttle_oauth_as,
 };
 use crate::helper::NsCluster;
 
+/// The token request, form-encoded (RFC 6749 §4.1.3 and §6).
 #[derive(Deserialize, ToSchema)]
 pub struct TokenRequest {
     /// Must be `authorization_code`; this server only implements that grant.
@@ -30,6 +31,7 @@ pub struct TokenRequest {
     pub code_verifier: String,
 }
 
+/// A successful token response (RFC 6749 §5.1).
 #[derive(Serialize, ToSchema)]
 pub struct TokenResponseBody {
     pub access_token: String,
@@ -42,19 +44,10 @@ pub struct TokenResponseBody {
     pub scope: String,
 }
 
+/// An OAuth error response (RFC 6749 §5.2).
 #[derive(Serialize, ToSchema)]
 pub struct TokenErrorBody {
     pub error: String,
-}
-
-fn token_error(status: StatusCode, error: &str) -> Response {
-    (
-        status,
-        Json(TokenErrorBody {
-            error: error.to_string(),
-        }),
-    )
-        .into_response()
 }
 
 /// The largest form body the token endpoint reads: actix's `Form` default,
@@ -71,10 +64,10 @@ pub const TOKEN_FORM_LIMIT: usize = 16 * 1024;
     tag = "auth_clusters",
     request_body(content = TokenRequest, content_type = "application/x-www-form-urlencoded"),
     responses(
-        (status = 200, description = "Token response.", body = TokenResponseBody),
-        (status = 400, description = "invalid_request / invalid_grant / unsupported_grant_type.", body = TokenErrorBody),
+        (status = 200, description = "The tokens for the cluster: access, ID and refresh.", body = TokenResponseBody),
+        (status = 400, description = "OAuth error: `invalid_request`, `invalid_grant` or `unsupported_grant_type`.", body = TokenErrorBody),
         (status = 404, description = "Cluster not found, disabled, or discovery not enabled."),
-        (status = 503, description = "Cache unreachable."),
+        (status = 503, description = "The cache (Redis) is unreachable."),
     ),
     params(
         ("ns" = String, description = "Namespace containing the cluster."),
@@ -103,14 +96,9 @@ async fn token_inner(
     form: Result<Form<TokenRequest>, FormRejection>,
     audit: &mut HandlerAudit,
 ) -> Response {
-    // As under actix: a body over the limit is a 413, any other unreadable
-    // form a 400 (axum's own answer would be a 422).
-    let form = match form {
+    let form = match read_form(form) {
         Ok(form) => form,
-        Err(rejection) if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE => {
-            return StatusCode::PAYLOAD_TOO_LARGE.into_response();
-        }
-        Err(rejection) => return (StatusCode::BAD_REQUEST, rejection.body_text()).into_response(),
+        Err(response) => return *response,
     };
     let proxy = match load_discovery_enabled_proxy(&data, &ns, &cluster).await {
         Ok(proxy) => proxy,
@@ -123,63 +111,37 @@ async fn token_inner(
     audit.redirect_uri(&form.redirect_uri);
     if form.grant_type != "authorization_code" {
         audit.deny("unsupported_grant_type");
-        return token_error(StatusCode::BAD_REQUEST, "unsupported_grant_type");
+        return oauth_error(StatusCode::BAD_REQUEST, "unsupported_grant_type");
     }
 
     let code_key = format!("{CODE_PREFIX}:{ns}/{cluster}/{}", form.code);
-    // Single-use: the code is read and deleted atomically, regardless of what
-    // follows, so a leaked, retried or concurrently replayed code can never be
-    // redeemed twice.
-    let issued = match data.redis_take(&code_key).await {
-        Ok(Some(raw)) => match serde_json::from_str::<IssuedCode>(&raw) {
-            Ok(issued) => issued,
-            Err(e) => {
-                error!(error = %e, "couldn't parse issued code");
-                audit.deny("invalid_grant");
-                return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
-            }
-        },
-        Ok(None) => {
-            audit.deny("invalid_grant");
-            return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
+    let issued = match redeem_code(
+        &data,
+        &code_key,
+        &form.redirect_uri,
+        &form.code_verifier,
+        audit,
+    )
+    .await
+    {
+        Ok(issued) => issued,
+        Err(Unredeemed::InvalidGrant) => {
+            return oauth_error(StatusCode::BAD_REQUEST, "invalid_grant");
         }
-        Err(e) => {
-            error!(error = %e, "couldn't get issued code");
-            return StatusCode::SERVICE_UNAVAILABLE.into_response();
-        }
+        Err(Unredeemed::Unavailable) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    if !issued.subject.is_empty() {
-        audit.user(&issued.subject, &[]);
-    }
-    if !redirect_uri_matches(&form.redirect_uri, &issued.redirect_uri) {
-        audit.deny("redirect_uri does not match the code");
-        return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
-    }
-    if !verify_pkce_s256(&form.code_verifier, &issued.code_challenge) {
-        audit.deny("PKCE verification failed");
-        return token_error(StatusCode::BAD_REQUEST, "invalid_grant");
-    }
-
     audit.grant(
         "authorization_code",
         issued
             .expires_in
             .and_then(|seconds| u64::try_from(seconds).ok()),
     );
-    (
-        StatusCode::OK,
-        [
-            (header::CACHE_CONTROL, "no-store"),
-            (header::PRAGMA, "no-cache"),
-        ],
-        Json(TokenResponseBody {
-            access_token: issued.access_token,
-            token_type: "Bearer".to_string(),
-            expires_in: issued.expires_in,
-            refresh_token: issued.refresh_token,
-            id_token: issued.id_token,
-            scope: issued.scope,
-        }),
-    )
-        .into_response()
+    no_store(TokenResponseBody {
+        access_token: issued.access_token,
+        token_type: "Bearer".to_string(),
+        expires_in: issued.expires_in,
+        refresh_token: issued.refresh_token,
+        id_token: issued.id_token,
+        scope: issued.scope,
+    })
 }

@@ -427,6 +427,7 @@ mod tests {
                     token_ttl_seconds: 300,
                     rotation_days: 30,
                 }),
+                token_exchange: None,
             });
             proxy
         }

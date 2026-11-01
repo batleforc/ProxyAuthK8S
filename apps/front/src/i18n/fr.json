@@ -212,6 +212,12 @@
     "notFoundToast": "Cluster introuvable.",
     "usesSso": "Ce cluster utilise le SSO, retour à l'accueil…"
   },
+  "exchange": {
+    "title": "Cluster en échange de jeton",
+    "description": "Configuration pour le cluster {cluster} dans le namespace {ns}.",
+    "explanation": "Ce cluster prend votre session ProxyAuth : le proxy l'échange auprès du fournisseur d'identité du cluster, sans connexion au cluster ni jeton de cluster sur votre poste.",
+    "kubeconfigText": "Ce kubeconfig demande votre session au plugin kubectl. Une fois, d'abord : kubectl proxyauth login --server-url <URL du proxy>, puis kubectl proxyauth -n {ns} login {cluster} (sans navigateur pour ce cluster)."
+  },
   "kubeconfig": {
     "title": "Configuration Kubernetes",
     "download": "Télécharger le kubeconfig",

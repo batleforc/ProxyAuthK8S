@@ -1008,7 +1008,8 @@
             "enum": [
               "Passthrough",
               "FrontProxy",
-              "Issuer"
+              "Issuer",
+              "TokenExchange"
             ]
           },
           "uniqueItems": true,

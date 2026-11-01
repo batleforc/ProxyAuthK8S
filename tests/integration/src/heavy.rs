@@ -15,7 +15,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::{
     Bench,
-    bench::{BACK_SERVICE, STACK_NS, namespace_name},
+    bench::{AUTHENTIK_HOST, BACK_SERVICE, STACK_NS, namespace_name},
     fixture::{self, CLUSTER, Proxied},
 };
 
@@ -393,4 +393,64 @@ pub async fn eventually(timeout: Duration, mut check: impl FnMut() -> bool) -> b
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
     check()
+}
+
+/// Authentik's provider of the exchange (`.it/heavy/authentik.yaml`): its
+/// client and the issuer the apiserver trusts (`.it/k3d.yaml.tpl`).
+pub const AUTHENTIK_CLIENT: &str = "kube-ak";
+pub const AUTHENTIK_SECRET: &str = "kube-ak-it-secret";
+
+/// The issuer of [`AUTHENTIK_CLIENT`]: Authentik names one per provider.
+#[must_use]
+pub fn authentik_issuer() -> String {
+    format!(
+        "https://{AUTHENTIK_HOST}:{}/application/o/{AUTHENTIK_CLIENT}/",
+        Bench::get().port
+    )
+}
+
+/// Authentik in the stack's namespace (`.it/heavy/authentik.yaml`): Postgres,
+/// the server and the worker rolled out, then the blueprint applied, which is
+/// when the provider's discovery answers. Left running: the bench is torn
+/// down after the suite.
+pub async fn deploy_authentik() {
+    let bench = Bench::get();
+    let manifest = std::fs::read_to_string(bench.root.join(".it/heavy/authentik.yaml"))
+        .expect("read .it/heavy/authentik.yaml")
+        .replace("__AUTHENTIK__", &fixture::image("authentik"))
+        .replace("__POSTGRES__", &fixture::image("postgres"));
+    bench.apply(&manifest);
+    for deployment in ["authentik-postgres", "authentik-server", "authentik-worker"] {
+        let out = bench.admin(&[
+            "-n",
+            STACK_NS,
+            "rollout",
+            "status",
+            &format!("deployment/{deployment}"),
+            "--timeout=600s",
+        ]);
+        assert!(
+            out.status.success(),
+            "{deployment} did not start: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let discovery = format!("{}.well-known/openid-configuration", authentik_issuer());
+    let start = Instant::now();
+    loop {
+        let served = bench
+            .http()
+            .get(&discovery)
+            .send()
+            .await
+            .is_ok_and(|response| response.status().is_success());
+        if served {
+            return;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(600),
+            "Authentik never served {discovery}: its blueprint did not apply"
+        );
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
 }

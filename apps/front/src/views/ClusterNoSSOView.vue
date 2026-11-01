@@ -13,7 +13,10 @@ import { Button } from '@/components/ui/button';
 import ClusterSummary from '../features/cluster/ClusterSummary.vue';
 import KubeconfigPanel from '../features/cluster/KubeconfigPanel.vue';
 import { clusterProxyUrl, clusterStatus } from '../features/cluster/status.ts';
-import { generateNoSsoKubeconfig } from '../utils/kubeconfig.ts';
+import {
+  generateExchangeKubeconfig,
+  generateNoSsoKubeconfig,
+} from '../utils/kubeconfig.ts';
 
 const { t } = useI18n();
 const clustersStore = useClustersStore();
@@ -46,7 +49,7 @@ onMounted(async () => {
     setTimeout(() => router.push({ name: 'home' }), 2000);
     return;
   }
-  if (foundCluster.sso_enabled) {
+  if (foundCluster.sso_enabled && !foundCluster.token_exchange) {
     toast.warning(t('noSso.usesSso'), { timeout: 3000 });
     setTimeout(() => router.push({ name: 'home' }), 2000);
     return;
@@ -61,15 +64,31 @@ const clusterUrl = computed(() =>
 const username = computed(
   () => authStore.user?.profile?.preferred_username || 'user',
 );
+// RFC 0010: same page, the exchange's own texts and plugin kubeconfig.
+const exchange = computed(() => clusterData.value?.token_exchange === true);
+const texts = computed(() => (exchange.value ? 'exchange' : 'noSso'));
+const kubeconfig = computed(() =>
+  exchange.value
+    ? generateExchangeKubeconfig(
+        clusterData.value,
+        clusterUrl.value,
+        username.value,
+      )
+    : generateNoSsoKubeconfig(
+        clusterData.value,
+        clusterUrl.value,
+        username.value,
+      ),
+);
 </script>
 
 <template>
   <section class="border-b border-rule-soft px-4 pb-5 pt-10 sm:px-6">
     <PageHeader
       variant="display"
-      :title="t('noSso.title')"
+      :title="t(`${texts}.title`)"
       :description="
-        t('noSso.description', {
+        t(`${texts}.description`, {
           cluster: clusterData?.name || '…',
           ns: clusterData?.namespace || '…',
         })
@@ -102,7 +121,7 @@ const username = computed(
         {{ t('noSso.info') }}
       </h2>
       <p class="mb-4 mt-0 max-w-[64ch] text-sm text-muted-foreground">
-        {{ t('noSso.explanation') }}
+        {{ t(`${texts}.explanation`) }}
       </p>
       <ClusterSummary
         :name="clusterData.name"
@@ -124,10 +143,15 @@ const username = computed(
         {{ t('kubeconfig.title') }}
       </h2>
       <p class="mb-4 mt-0 max-w-[64ch] text-sm text-muted-foreground">
-        {{ t('noSso.kubeconfigText') }}
+        {{
+          t(`${texts}.kubeconfigText`, {
+            ns: clusterData.namespace,
+            cluster: clusterData.name,
+          })
+        }}
       </p>
       <KubeconfigPanel
-        :content="generateNoSsoKubeconfig(clusterData, clusterUrl, username)"
+        :content="kubeconfig"
         :filename="`kubeconfig-${clusterData.namespace}-${clusterData.name}.yaml`"
         name="Kubeconfig"
       />

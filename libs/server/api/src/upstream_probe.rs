@@ -46,7 +46,9 @@ fn probed(proxy: &ProxyKubeApi) -> Option<&UpstreamAuth> {
     match upstream.mode {
         UpstreamAuthMode::FrontProxy | UpstreamAuthMode::Issuer => Some(upstream),
         UpstreamAuthMode::Passthrough if prefixed => Some(upstream),
-        UpstreamAuthMode::Passthrough => None,
+        // RFC 0010: the apiserver trusts the cluster's IdP, not the proxy;
+        // there is no trust to probe.
+        UpstreamAuthMode::Passthrough | UpstreamAuthMode::TokenExchange => None,
     }
 }
 
@@ -257,6 +259,7 @@ mod tests {
             user_prefix: Some("p:".into()),
             group_prefix: Some("p:".into()),
             issuer_key: None,
+            token_exchange: None,
         })
     }
 

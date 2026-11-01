@@ -77,6 +77,7 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> Response {
         proxy,
         user,
         upstream_identity,
+        exchanged,
         audit,
         ..
     } = ctx;
@@ -180,7 +181,11 @@ pub(super) async fn standard_redirect(ctx: RedirectContext) -> Response {
         forwarded_req,
         &req.headers,
         peer_ip,
-        Upstream::new(user.as_ref(), upstream_identity.as_ref()),
+        Upstream::new(
+            user.as_ref(),
+            upstream_identity.as_ref(),
+            exchanged.as_deref(),
+        ),
     );
 
     // Kubernetes sends durations in Go format (`timeout=32s`, `1m30s`), so the

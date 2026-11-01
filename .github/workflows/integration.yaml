@@ -137,6 +137,8 @@ jobs:
 
       - name: Collect the bench logs
         if: always()
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
         run: mise exec -- task it:logs || true
       - name: 📤 Upload the logs and the Playwright report
         if: always()
@@ -151,6 +153,8 @@ jobs:
           if-no-files-found: ignore
       - name: Delete the bench
         if: always()
+        env:
+          MISE_EXEC_AUTO_INSTALL: "false"
         run: mise exec -- task it:down || true
 
   # The nightly run on main is the only signal nobody is waiting on: a
