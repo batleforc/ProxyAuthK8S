@@ -12,7 +12,7 @@
     reason = "test harness: a panic is a failed test, with its message"
 )]
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use integration::{
@@ -46,12 +46,13 @@ fn exchanges(ns: &str, result: &str) -> usize {
         .count()
 }
 
-/// The exchanges Dex B served to `email` since `since`: its "token exchange
+/// The exchanges Dex B has served to `email` so far: its "token exchange
 /// successful" lines (`server/grants/tokenexchange.go`, info level), which
-/// carry the user's email.
-fn dex_b_exchanges(email: &str, since: Instant) -> usize {
-    let since = format!("--since={}s", since.elapsed().as_secs().saturating_add(2));
-    let out = Bench::get().admin(&["-n", STACK_NS, "logs", "deployment/dex-b", &since]);
+/// carry the user's email. A test reads it before and after what it counts:
+/// the log is shared, and a `--since` window caught the previous test's
+/// exchange as the same persona.
+fn dex_b_exchanges(email: &str) -> usize {
+    let out = Bench::get().admin(&["-n", STACK_NS, "logs", "deployment/dex-b", "--tail=-1"]);
     assert!(
         out.status.success(),
         "Dex B's log: {}",
@@ -284,10 +285,11 @@ impl Drop for DexBStopped {
 /// holds the server session only, no token of the cluster.
 #[tokio::test]
 async fn p1_an_sso_session_reaches_an_exchange_cluster() {
-    let started = Instant::now();
     let guard = fixture::token_exchange("rfc0010-p1", Value::Null, 300);
     let ns = guard.name.as_str();
-    let reader = Session::sso_server_login(&Persona::named("reader")).await;
+    let persona = Persona::named("reader");
+    let dex_b_before = dex_b_exchanges(&persona.email);
+    let reader = Session::sso_server_login(&persona).await;
     reader
         .cluster_login(ns, CLUSTER)
         .await
@@ -313,7 +315,7 @@ async fn p1_an_sso_session_reaches_an_exchange_cluster() {
         "{review}"
     );
     assert!(
-        dex_b_exchanges(&reader.persona.email, started) >= 1,
+        dex_b_exchanges(&reader.persona.email) > dex_b_before,
         "Dex B logged no exchange for {}",
         reader.persona.email
     );
@@ -339,7 +341,7 @@ async fn p2_ten_requests_cost_one_exchange() {
         .cluster_login(ns, CLUSTER)
         .await
         .expect("cluster login");
-    let started = Instant::now();
+    let dex_b_before = dex_b_exchanges(&reader.persona.email);
     let (hits, ()) = observe::metric_delta(EXCHANGE, &[("result", "cache_hit")], async {
         for _ in 0..10 {
             let out = reader.kubectl(&["-n", ns, "get", "pods"]).await;
@@ -349,7 +351,11 @@ async fn p2_ten_requests_cost_one_exchange() {
     .await;
     let exchanged = events(ns, "token_exchanged");
     assert_eq!(exchanges(ns, "exchanged"), 1, "{exchanged:#?}");
-    assert_eq!(dex_b_exchanges(&reader.persona.email, started), 1);
+    assert_eq!(
+        dex_b_exchanges(&reader.persona.email),
+        dex_b_before + 1,
+        "{exchanged:#?}"
+    );
     // At least the nine other `get pods`; kubectl's discovery adds more.
     assert!(hits >= 9.0, "cache hits: {hits}");
 }
@@ -358,10 +364,10 @@ async fn p2_ten_requests_cost_one_exchange() {
 /// proxy, and not a single exchange, at the proxy or in Dex B's log.
 #[tokio::test]
 async fn p3_a_non_member_is_refused_before_any_exchange() {
-    let started = Instant::now();
     let guard = fixture::token_exchange("rfc0010-p3", Value::Null, 300);
     let ns = guard.name.as_str();
     let nogroup = Persona::named("nogroup");
+    let dex_b_before = dex_b_exchanges(&nogroup.email);
     let token = nogroup.dashboard_token().await;
     let response = Bench::get()
         .proxied(
@@ -376,7 +382,7 @@ async fn p3_a_non_member_is_refused_before_any_exchange() {
         .expect("request");
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert!(events(ns, "token_exchanged").is_empty());
-    assert_eq!(dex_b_exchanges(&nogroup.email, started), 0);
+    assert_eq!(dex_b_exchanges(&nogroup.email), dex_b_before);
 }
 
 /// Point 4 (refusal): a token of Dex B (the cluster's IdP) presented to the
