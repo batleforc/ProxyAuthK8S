@@ -249,4 +249,30 @@ mod tests {
         assert_eq!(row.login, "none");
         assert_eq!(row.row()[4], "-");
     }
+
+    #[test]
+    fn an_sso_session_shows_as_sso_with_the_idp_expiry() {
+        use client_api::models::SessionTokens;
+        let server = CliServerConfig::new("https://status-sso.example".to_string());
+        // An opaque access token: the expiry comes from the IdP's expires_in,
+        // not from the token.
+        let mut tokens = SessionTokens::new("opaque-access".to_string(), "Bearer".to_string());
+        tokens.refresh_token = Some(Some("refresh".to_string()));
+        tokens.expires_in = Some(Some(1_800));
+        server.store_session_tokens(tokens, None).unwrap();
+
+        let row = StatusOutput::new(&server, true);
+        assert_eq!(row.login, "sso");
+        assert!(row.user.is_none());
+        let left = row.expires_at.unwrap() - unix_now();
+        assert!((1_790..=1_800).contains(&left), "{left}");
+        // 1800 s left in the same second, 1799 s one tick later.
+        let expires = &row.row()[4];
+        assert!(expires == "in 30m" || expires == "in 29m", "{expires}");
+        // Expired: a session renews on next use, a pasted token does not.
+        assert_eq!(
+            remaining(Some(0), 1, row.login == "sso"),
+            "expired (renewed on next use)"
+        );
+    }
 }

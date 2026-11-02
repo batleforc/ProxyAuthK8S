@@ -42,6 +42,23 @@ impl CliCtx {
         &mut self,
         cluster_name: Option<String>,
     ) -> Result<(), ProxyAuthK8sError> {
+        // KUBERNETES_EXEC_INFO is always set by kubectl when invoking an exec plugin
+        let exec_info = std::env::var("KUBERNETES_EXEC_INFO").ok();
+        let credential = self
+            .exec_credential(cluster_name, exec_info.as_deref())
+            .await?;
+        // Output ExecCredential JSON to stdout (kubectl exec plugin protocol)
+        println!("{credential}");
+        Ok(())
+    }
+
+    /// The `ExecCredential` JSON answering kubectl's `exec_info` (the content
+    /// of `KUBERNETES_EXEC_INFO`) for `cluster_name`, or the one named in it.
+    async fn exec_credential(
+        &self,
+        cluster_name: Option<String>,
+        exec_info: Option<&str>,
+    ) -> Result<String, ProxyAuthK8sError> {
         debug!("Handling get token for cluster: {:?}", cluster_name);
 
         // if server_url is not provided and none exist in config, return error
@@ -49,8 +66,7 @@ impl CliCtx {
             return Err(ProxyAuthK8sError::NotLoggedIn);
         }
 
-        // KUBERNETES_EXEC_INFO is always set by kubectl when invoking an exec plugin
-        let exec_ctx = if let Ok(info) = std::env::var("KUBERNETES_EXEC_INFO") {
+        let exec_ctx = if let Some(info) = exec_info {
             info
         } else {
             debug!("KUBERNETES_EXEC_INFO environment variable is not set. Cannot retrieve ctx.");
@@ -60,7 +76,7 @@ impl CliCtx {
         };
         debug!("KUBERNETES_EXEC_INFO: {}", exec_ctx);
 
-        let exec_info: serde_json::Value = match serde_json::from_str(&exec_ctx) {
+        let exec_info: serde_json::Value = match serde_json::from_str(exec_ctx) {
             Ok(info) => info,
             Err(e) => {
                 debug!("Failed to parse KUBERNETES_EXEC_INFO as JSON: {}", e);
@@ -177,7 +193,6 @@ impl CliCtx {
             "client.authentication.k8s.io/v1"
         };
 
-        // Output ExecCredential JSON to stdout (kubectl exec plugin protocol)
         let exec_credential = serde_json::json!({
             "apiVersion": api_version,
             "kind": "ExecCredential",
@@ -187,10 +202,7 @@ impl CliCtx {
         });
 
         match serde_json::to_string(&exec_credential) {
-            Ok(output) => {
-                println!("{output}");
-                Ok(())
-            }
+            Ok(output) => Ok(output),
             Err(e) => {
                 debug!("Failed to serialize ExecCredential response: {}", e);
                 Err(ProxyAuthK8sError::ExecCredential(format!(
@@ -239,6 +251,207 @@ mod tests {
         assert!(matches!(
             CliCtx::cluster_exec_token(&server, "team-a", "missing").await,
             Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
+    }
+
+    // --- `exec_credential`: what kubectl gets after an OIDC cluster login ---
+
+    /// An `id_token` as the SSO cluster login stores it (opaque to get-token).
+    const ID_TOKEN: &str = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJyZWFkZXIifQ.sig";
+
+    /// A context logged in to `url` (the default server, default namespace
+    /// `team-c`) whose keyring holds an id_token per `(namespace, cluster)`.
+    fn ctx_with_id_tokens(url: &str, tokens: &[(&str, &str, &str)]) -> CliCtx {
+        let mut ctx = CliCtx::for_test();
+        let name = CliServerConfig::url_to_name_from_string(url.to_string());
+        let server = ctx
+            .config
+            .get_or_insert_server_config(name.clone(), url.to_string());
+        server.namespace = "team-c".to_string();
+        for (ns, cluster, token) in tokens {
+            server
+                .set_cluster_token(
+                    (*ns).to_string(),
+                    (*cluster).to_string(),
+                    (*token).to_string(),
+                )
+                .unwrap();
+        }
+        ctx.config.default_server_name = name;
+        ctx
+    }
+
+    fn exec_info(api_version: &str, server: Option<&str>) -> String {
+        let mut info = serde_json::json!({ "apiVersion": api_version, "kind": "ExecCredential" });
+        if let Some(server) = server {
+            info["spec"] = serde_json::json!({ "cluster": { "server": server } });
+        }
+        info.to_string()
+    }
+
+    async fn credential(
+        ctx: &CliCtx,
+        cluster: Option<&str>,
+        info: &str,
+    ) -> Result<serde_json::Value, ProxyAuthK8sError> {
+        let raw = ctx
+            .exec_credential(cluster.map(str::to_string), Some(info))
+            .await?;
+        Ok(serde_json::from_str(&raw).expect("ExecCredential is JSON"))
+    }
+
+    #[tokio::test]
+    async fn kubectl_gets_the_oidc_id_token_of_the_cluster_it_targets() {
+        let ctx = ctx_with_id_tokens(
+            "https://gettoken-oidc.example",
+            &[("team-a", "prod", ID_TOKEN)],
+        );
+        // No argument: the cluster and its namespace come from the proxy URL
+        // kubectl is about to call.
+        let out = credential(
+            &ctx,
+            None,
+            &exec_info(
+                "client.authentication.k8s.io/v1",
+                Some("https://gettoken-oidc.example/clusters/team-a/prod"),
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            out,
+            serde_json::json!({
+                "apiVersion": "client.authentication.k8s.io/v1",
+                "kind": "ExecCredential",
+                "status": { "token": ID_TOKEN }
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn the_namespace_is_the_flag_else_kubectls_url_else_the_server_default() {
+        let mut ctx = ctx_with_id_tokens(
+            "https://gettoken-ns.example",
+            &[
+                ("team-a", "prod", "tok-a"),
+                ("team-b", "prod", "tok-b"),
+                ("team-c", "prod", "tok-c"),
+            ],
+        );
+        let v1 = "client.authentication.k8s.io/v1";
+        let from_url = exec_info(v1, Some("https://gettoken-ns.example/clusters/team-a/prod"));
+        let token = |out: serde_json::Value| out["status"]["token"].as_str().unwrap().to_string();
+
+        // The kubeconfig written by `login` passes the cluster as argument.
+        let out = credential(&ctx, Some("prod"), &from_url).await.unwrap();
+        assert_eq!(token(out), "tok-a");
+        // Without a usable URL, the server's default namespace.
+        let out = credential(&ctx, Some("prod"), &exec_info(v1, None))
+            .await
+            .unwrap();
+        assert_eq!(token(out), "tok-c");
+        // `--namespace` (also written by `login`) wins over both.
+        ctx.namespace = "team-b".to_string();
+        let out = credential(&ctx, Some("prod"), &from_url).await.unwrap();
+        assert_eq!(token(out), "tok-b");
+    }
+
+    #[tokio::test]
+    async fn the_answer_uses_the_api_version_kubectl_asked_for() {
+        let ctx = ctx_with_id_tokens(
+            "https://gettoken-version.example",
+            &[("team-c", "prod", ID_TOKEN)],
+        );
+        for (asked, answered) in [
+            (
+                "client.authentication.k8s.io/v1",
+                "client.authentication.k8s.io/v1",
+            ),
+            (
+                "client.authentication.k8s.io/v1beta1",
+                "client.authentication.k8s.io/v1beta1",
+            ),
+        ] {
+            let out = credential(&ctx, Some("prod"), &exec_info(asked, None))
+                .await
+                .unwrap();
+            assert_eq!(out["apiVersion"], answered);
+        }
+        // No apiVersion at all: the older v1beta1, which every kubectl reads.
+        let out = credential(&ctx, Some("prod"), "{}").await.unwrap();
+        assert_eq!(out["apiVersion"], "client.authentication.k8s.io/v1beta1");
+    }
+
+    #[tokio::test]
+    async fn get_token_outside_kubectl_or_with_a_bad_exec_info_is_refused() {
+        let ctx = ctx_with_id_tokens(
+            "https://gettoken-refused.example",
+            &[("team-c", "prod", ID_TOKEN)],
+        );
+        // Not run by kubectl: no KUBERNETES_EXEC_INFO.
+        assert!(matches!(
+            ctx.exec_credential(Some("prod".to_string()), None).await,
+            Err(ProxyAuthK8sError::ExecCredential(_))
+        ));
+        assert!(matches!(
+            ctx.exec_credential(Some("prod".to_string()), Some("not json"))
+                .await,
+            Err(ProxyAuthK8sError::ExecCredential(_))
+        ));
+        // Neither an argument nor a cluster URL to name the cluster.
+        assert!(matches!(
+            credential(
+                &ctx,
+                None,
+                &exec_info("client.authentication.k8s.io/v1", None)
+            )
+            .await,
+            Err(ProxyAuthK8sError::ExecCredential(_))
+        ));
+        // A URL that is not a proxied cluster's.
+        assert!(matches!(
+            credential(
+                &ctx,
+                None,
+                &exec_info(
+                    "client.authentication.k8s.io/v1",
+                    Some("https://apiserver:6443")
+                ),
+            )
+            .await,
+            Err(ProxyAuthK8sError::InvalidServerUrl(..))
+        ));
+    }
+
+    #[tokio::test]
+    async fn get_token_without_a_login_is_denied_and_never_answers_a_token() {
+        let info = exec_info("client.authentication.k8s.io/v1", None);
+        // Nobody logged in to any server.
+        assert!(matches!(
+            credential(&CliCtx::for_test(), Some("prod"), &info).await,
+            Err(ProxyAuthK8sError::NotLoggedIn)
+        ));
+
+        let mut ctx = ctx_with_id_tokens(
+            "https://gettoken-denied.example",
+            &[("team-c", "prod", ID_TOKEN)],
+        );
+        // Logged in to the server, never to this cluster.
+        assert!(matches!(
+            credential(&ctx, Some("never-logged-in"), &info).await,
+            Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
+        // The same cluster name in another namespace is another login.
+        ctx.namespace = "team-a".to_string();
+        assert!(matches!(
+            credential(&ctx, Some("prod"), &info).await,
+            Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
+        // A server never logged in to, named with --server-url.
+        ctx.server_url = "https://gettoken-other.example".to_string();
+        assert!(matches!(
+            credential(&ctx, Some("prod"), &info).await,
+            Err(ProxyAuthK8sError::ServerNotFound(_))
         ));
     }
 }
