@@ -174,6 +174,19 @@ mod tests {
     }
 
     #[test]
+    fn status_can_be_narrowed_to_one_known_server() {
+        let mut ctx = CliCtx::for_test();
+        for url in ["https://status-one.example", "https://status-two.example"] {
+            ctx.config.get_or_insert_server_config(
+                CliServerConfig::url_to_name_from_string(url.to_string()),
+                url.to_string(),
+            );
+        }
+        ctx.server_url = "https://status-two.example".to_string();
+        ctx.handle_status().unwrap();
+    }
+
+    #[test]
     fn status_without_a_server_is_refused() {
         let mut ctx = CliCtx::for_test();
         assert!(matches!(

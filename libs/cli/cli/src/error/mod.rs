@@ -84,3 +84,39 @@ impl ProxyAuthK8sError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_errors_a_user_can_fix_name_the_command_to_run() {
+        let with_hint = [
+            ProxyAuthK8sError::NotLoggedIn,
+            ProxyAuthK8sError::ServerNotFound("s".to_string()),
+            ProxyAuthK8sError::ClusterNotFound {
+                server: "s".to_string(),
+                cluster: "c".to_string(),
+            },
+            ProxyAuthK8sError::Unauthenticated("u".to_string()),
+            ProxyAuthK8sError::UntrustedServerTls("t".to_string()),
+        ];
+        for error in with_hint {
+            let hint = error
+                .hint()
+                .unwrap_or_else(|| panic!("no hint for {error:?}"));
+            assert!(hint.contains("kubectl proxyauth"), "{error:?}: {hint}");
+        }
+        // The others carry their detail in the message alone.
+        assert!(
+            ProxyAuthK8sError::InvalidUsage("x".to_string())
+                .hint()
+                .is_none()
+        );
+        assert!(
+            ProxyAuthK8sError::RemoteServerError("x".to_string())
+                .hint()
+                .is_none()
+        );
+    }
+}

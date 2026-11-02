@@ -53,3 +53,19 @@ pub fn init_tracing(verbose_level: level::VerboseLevel, name: String) {
         Err(e) => eprintln!("Failed to initialize tracing: {e}"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tracing_initialises_once_and_a_second_call_does_not_panic() {
+        // Both layouts are built (timestamps for -v, none at the default
+        // level); only the first call installs the global subscriber, the
+        // second reports it on stderr instead of panicking, as a CLI run
+        // twice in one process (tests, an embedding) would.
+        init_tracing(level::VerboseLevel::DEBUG, "test".to_string());
+        init_tracing(level::VerboseLevel::INFO, "test".to_string());
+        tracing::info!("still logging after a second init");
+    }
+}

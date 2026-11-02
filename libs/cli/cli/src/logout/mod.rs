@@ -152,6 +152,29 @@ mod tests {
     }
 
     #[test]
+    fn a_cluster_logout_without_namespace_uses_the_server_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = CliCtx::for_test_in(dir.path());
+        let url = "https://logout-default-ns.example";
+        let name = CliServerConfig::url_to_name_from_string(url.to_string());
+        let server = ctx
+            .config
+            .get_or_insert_server_config(name.clone(), url.to_string());
+        server.namespace = "team-a".to_string();
+        server
+            .set_cluster_token("team-a".to_string(), "prod".to_string(), "t".to_string())
+            .unwrap();
+        ctx.config.default_server_name = name.clone();
+
+        ctx.handle_logout(Some("prod".to_string())).unwrap();
+        assert!(
+            ctx.config.servers[&name]
+                .get_cluster_token("team-a".to_string(), "prod".to_string())
+                .is_err()
+        );
+    }
+
+    #[test]
     fn logout_needs_a_known_server_and_a_writable_config() {
         let mut ctx = CliCtx::for_test();
         assert!(matches!(

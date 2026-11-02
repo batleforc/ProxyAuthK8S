@@ -1273,6 +1273,10 @@ mod tests {
         ctx.handle_login_clusters("exchange".to_string(), None, None)
             .await
             .unwrap();
+        // A --token given anyway is ignored (warned about), never stored.
+        ctx.handle_login_clusters("exchange".to_string(), Some("ignored".to_string()), None)
+            .await
+            .unwrap();
 
         let name = CliServerConfig::url_to_name_from_string(server.uri());
         let written = CliConfig::read_from_file(ctx.config_path.clone()).unwrap();

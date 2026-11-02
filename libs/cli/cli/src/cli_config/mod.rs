@@ -207,6 +207,20 @@ mod tests {
         assert!(CliConfig::proxy_url_to_tuple("not a url").is_err());
         // Missing the namespace/cluster path segments.
         assert!(CliConfig::proxy_url_to_tuple("https://localhost:5437").is_err());
+        // A URL with no host.
+        assert!(matches!(
+            CliConfig::proxy_url_to_tuple("unix:/clusters/team-a/prod"),
+            Err(CliConfigError::InvalidServerUrl(_, why)) if why.contains("host")
+        ));
+    }
+
+    #[test]
+    fn reading_a_missing_config_file_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(matches!(
+            CliConfig::read_from_file(dir.path().join("absent.yaml")),
+            Err(ProxyAuthK8sError::KubeconfigReadError(msg)) if msg.contains("absent.yaml")
+        ));
     }
 
     /// A config holding one server (`localhost-5437`) with one cluster

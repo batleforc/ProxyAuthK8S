@@ -114,6 +114,61 @@ fn render_error(e: &ProxyAuthK8sError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::Parser;
+    use std::process::ExitCode;
+
+    /// Run `args` as typed, on a fresh context with nothing logged in.
+    async fn run(dir: &std::path::Path, args: &[&str]) -> ExitCode {
+        let mut cli =
+            Cli::try_parse_from(std::iter::once("kubectl-proxyauth").chain(args.iter().copied()))
+                .unwrap();
+        cli.run_cli(CliCtx::for_test_in(dir)).await
+    }
+
+    #[tokio::test]
+    async fn every_command_is_routed_and_its_outcome_is_the_exit_code() {
+        let dir = tempfile::tempdir().unwrap();
+        for args in [
+            &["cache", "clear"][..],
+            &["context"],
+            &["ctx", "--list"],
+            &["get-contexts"],
+            &["config", "get"],
+            &["config", "get", "--list"],
+        ] {
+            assert_eq!(run(dir.path(), args).await, ExitCode::SUCCESS, "{args:?}");
+        }
+        // Nothing logged in, or nothing to act on: a failure, not a 0.
+        for args in [
+            &["get"][..],
+            &["status"],
+            &["login"],
+            &["login", "prod", "--browser", "none"],
+            &["logout"],
+            &["get-token", "prod"],
+            &["use-context", "nope"],
+            &["ctx", "--set"],
+            &["config", "use-server", "https://nope.example"],
+            &["config", "set-def", "-d", "https://nope.example"],
+        ] {
+            assert_eq!(run(dir.path(), args).await, ExitCode::FAILURE, "{args:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn no_command_is_a_hint_not_a_failure() {
+        // clap prints the help first; these shapes only exist when the CLI is
+        // built by hand, and must not fail.
+        let dir = tempfile::tempdir().unwrap();
+        for command in [None, Some(Commands::Config { command: None })] {
+            let mut cli = Cli::try_parse_from(["kubectl-proxyauth", "status"]).unwrap();
+            cli.command = command;
+            assert_eq!(
+                cli.run_cli(CliCtx::for_test_in(dir.path())).await,
+                ExitCode::SUCCESS
+            );
+        }
+    }
 
     #[test]
     fn a_failure_is_printed_once_with_its_code_and_hint() {

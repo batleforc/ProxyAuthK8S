@@ -2952,8 +2952,11 @@ dependencies = [
  "clap",
  "cli",
  "cli_trace",
+ "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
+ "wiremock",
 ]
 
 [[package]]

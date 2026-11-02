@@ -79,3 +79,96 @@ impl CliCtx {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kube::config::Kubeconfig;
+
+    const KUBECONFIG: &str = "apiVersion: v1
+kind: Config
+clusters:
+- name: c1
+  cluster:
+    server: https://proxy.example.com/clusters/team-a/prod
+contexts:
+- name: one
+  context: {cluster: c1, user: u}
+- name: two
+  context: {cluster: c1, user: u}
+current-context: one
+users:
+- name: u
+  user: {}
+";
+
+    /// A context whose kubeconfig (on disk and in memory) holds `one` and
+    /// `two`, `one` being current.
+    fn ctx_in(dir: &std::path::Path) -> CliCtx {
+        let mut ctx = CliCtx::for_test_in(dir);
+        std::fs::write(&ctx.kubeconfig_path, KUBECONFIG).unwrap();
+        ctx.kubeconfig = Kubeconfig::read_from(&ctx.kubeconfig_path).unwrap();
+        ctx
+    }
+
+    fn current_on_disk(ctx: &CliCtx) -> Option<String> {
+        Kubeconfig::read_from(&ctx.kubeconfig_path)
+            .unwrap()
+            .current_context
+    }
+
+    #[test]
+    fn showing_and_listing_contexts_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_in(dir.path());
+        // Current one, a named one, an unknown one (an empty list), all.
+        ctx.handle_context(None, false, false).unwrap();
+        ctx.handle_context(Some("two".to_string()), false, false)
+            .unwrap();
+        ctx.handle_context(Some("nope".to_string()), false, false)
+            .unwrap();
+        ctx.handle_context(None, true, false).unwrap();
+        assert_eq!(current_on_disk(&ctx).as_deref(), Some("one"));
+
+        // No current context at all: an empty listing, not an error.
+        ctx.kubeconfig.current_context = None;
+        ctx.handle_context(None, false, false).unwrap();
+    }
+
+    #[test]
+    fn use_context_writes_the_new_current_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_in(dir.path());
+        ctx.handle_context(Some("two".to_string()), false, true)
+            .unwrap();
+        assert_eq!(current_on_disk(&ctx).as_deref(), Some("two"));
+    }
+
+    #[test]
+    fn use_context_without_a_name_or_with_an_unknown_one_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_in(dir.path());
+        assert!(matches!(
+            ctx.handle_context(None, false, true),
+            Err(ProxyAuthK8sError::InvalidUsage(_))
+        ));
+        assert!(matches!(
+            ctx.handle_context(Some("nope".to_string()), false, true),
+            Err(ProxyAuthK8sError::InvalidUsage(_))
+        ));
+        // Nothing was written.
+        assert_eq!(current_on_disk(&ctx).as_deref(), Some("one"));
+    }
+
+    #[test]
+    fn use_context_on_a_kubeconfig_gone_from_disk_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx_in(dir.path());
+        // Known in memory, but the file to rewrite cannot be read back.
+        ctx.kubeconfig_path = crate::helper::unwritable_path(dir.path(), "kubeconfig");
+        assert!(matches!(
+            ctx.handle_context(Some("two".to_string()), false, true),
+            Err(ProxyAuthK8sError::KubeconfigReadError(_))
+        ));
+    }
+}

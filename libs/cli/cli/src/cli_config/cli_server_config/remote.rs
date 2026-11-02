@@ -157,7 +157,7 @@ fn refresh_error(url: &str, err: &ApiError<ServerAuthRefreshError>) -> ProxyAuth
         ApiError::ResponseError(resp) => match resp.status {
             StatusCode::BAD_REQUEST => ProxyAuthK8sError::Unauthenticated(format!(
                 "the session with {url} is over; log in again with \
-                 `kubectl-proxyauth login --server-url {url}`"
+                 `kubectl proxyauth login --server-url {url}`"
             )),
             StatusCode::TOO_MANY_REQUESTS => ProxyAuthK8sError::RemoteServerError(format!(
                 "too many session renewals on {url}, try again later"
@@ -535,11 +535,44 @@ mod tests {
         let err = config.fresh_server_token().await.unwrap_err();
         assert!(
             matches!(&err, ProxyAuthK8sError::Unauthenticated(msg)
-                if msg.contains("kubectl-proxyauth login --server-url")),
+                if msg.contains("kubectl proxyauth login --server-url")),
             "{err}"
         );
         // Nothing stored over the old pair.
         assert_eq!(config.server_token().unwrap(), "old-access");
+    }
+
+    #[tokio::test]
+    async fn a_throttled_or_unexpected_renewal_failure_is_reported_as_such() {
+        for (tag, response, expected) in [
+            (
+                "refresh-429",
+                ResponseTemplate::new(429),
+                "too many session renewals",
+            ),
+            (
+                "refresh-418",
+                ResponseTemplate::new(418),
+                "could not renew the session",
+            ),
+            // A 200 the client cannot read.
+            (
+                "refresh-garbage",
+                ResponseTemplate::new(200).set_body_string("not json"),
+                "could not renew the session",
+            ),
+        ] {
+            let server = MockServer::start().await;
+            mount_refresh(&server, response, 1).await;
+            let config = with_session(&server, tag, 10);
+            let err = config.fresh_server_token().await.unwrap_err();
+            assert!(
+                matches!(&err, ProxyAuthK8sError::RemoteServerError(msg)
+                    if msg.contains(expected) && !msg.contains("log in")),
+                "{tag}: {err}"
+            );
+            assert_eq!(config.server_token().unwrap(), "old-access", "{tag}");
+        }
     }
 
     #[tokio::test]

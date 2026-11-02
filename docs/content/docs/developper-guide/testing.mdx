@@ -15,6 +15,7 @@ performance la leur (RFC 0016).
 | Unitaire | `mod tests` dans le fichier, ou un `tests.rs` voisin | `task test:unit` | chaque PR |
 | En processus, sans Redis | `libs/server/*/tests/*.rs` sur le store en mémoire | `task test:unit` | chaque PR |
 | En processus, avec Redis | les suites de sécurité (throttle, OAuth, audit) et le contrat du store | `task test:all` | chaque PR |
+| CLI, binaire réel | `apps/kubectl_proxyauth/tests/` : le binaire contre un ProxyAuthK8S mocké (wiremock), `curl -L` dans le rôle du navigateur SSO, trousseau keyutils (bus de session pointé nulle part, jamais celui du poste) | `cargo nextest run -p cli -p cli_trace -p kubectl_proxyauth` (`curl` dans le `PATH`) | chaque PR (`back-cargo-test`) |
 | Garde-fous | `authz_matrix`, `openapi_contract`, `variant_coverage` | `task test:unit` | chaque PR |
 | envtest | `libs/server/api/tests/envtest*.rs` contre un vrai kube-apiserver | `task envtest:run` | chaque PR |
 | Intégration | `tests/integration`, banc k3d ([Suite d'intégration](/docs/developper-guide/integration-tests)) | `task it:up` puis `task it:test` | chaque PR, chaque nuit |

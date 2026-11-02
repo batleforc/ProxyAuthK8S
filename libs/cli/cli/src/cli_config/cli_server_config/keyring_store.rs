@@ -266,6 +266,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn an_unreadable_session_in_the_keyring_is_refused() {
+        let config = CliServerConfig::new("https://garbled-session.example".to_string());
+        config
+            .write_token(&config.session_keyring_user(), "not json")
+            .unwrap();
+        assert!(matches!(
+            config.server_session(),
+            Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
+    }
+
     // The tests below run against the in-memory mock store `keystore` selects
     // under `cfg(test)`. Each uses its own server URL so they stay independent
     // when run in one process (`cargo test`).

@@ -100,3 +100,75 @@ impl CliCtx {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli_config::cli_server_config::CliServerConfig;
+
+    const URL: &str = "https://cfg-dispatch.example";
+
+    fn ctx(dir: &std::path::Path) -> CliCtx {
+        let mut ctx = CliCtx::for_test_in(dir);
+        ctx.config.get_or_insert_server_config(
+            CliServerConfig::url_to_name_from_string(URL.to_string()),
+            URL.to_string(),
+        );
+        ctx
+    }
+
+    #[test]
+    fn every_config_subcommand_reaches_its_handler() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx(dir.path());
+        ctx.handle_config(&ConfigCommands::UseServer {
+            url: URL.to_string(),
+        })
+        .unwrap();
+        assert_eq!(ctx.config.default_server_name, "cfg-dispatch-example");
+        ctx.handle_config(&ConfigCommands::SetNamespace {
+            url: URL.to_string(),
+            namespace: "team-x".to_string(),
+        })
+        .unwrap();
+        assert_eq!(
+            ctx.config.servers["cfg-dispatch-example"].namespace,
+            "team-x"
+        );
+        // The deprecated form still works.
+        ctx.handle_config(&ConfigCommands::SetDef {
+            server_url: Some(URL.to_string()),
+            namespace: Some("team-y".to_string()),
+            default_server: None,
+        })
+        .unwrap();
+        assert_eq!(
+            ctx.config.servers["cfg-dispatch-example"].namespace,
+            "team-y"
+        );
+        ctx.handle_config(&ConfigCommands::Get {
+            server_url: None,
+            namespace: None,
+            list: true,
+        })
+        .unwrap();
+        ctx.handle_config(&ConfigCommands::Clear {
+            all: true,
+            server_url: None,
+        })
+        .unwrap();
+        assert!(ctx.config.servers.is_empty());
+    }
+
+    #[test]
+    fn use_server_of_an_unknown_server_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut ctx = ctx(dir.path());
+        assert!(matches!(
+            ctx.handle_config(&ConfigCommands::UseServer {
+                url: "https://never-logged-in.example".to_string()
+            }),
+            Err(ProxyAuthK8sError::ServerNotFound(_))
+        ));
+    }
+}
