@@ -83,6 +83,9 @@ pub enum Commands {
         /// Get a specific cluster by name
         cluster_name: Option<String>,
     },
+    /// Show who you are logged in as on each server, until when, and the
+    /// clusters logged in through it. Local only: no network call.
+    Status,
     /// Log in to the server (no argument) or to one of its clusters.
     Login {
         /// Cluster name to login to

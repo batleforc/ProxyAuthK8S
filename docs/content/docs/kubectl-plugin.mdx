@@ -167,6 +167,23 @@ Récupérer le certificat depuis le serveur lui-même revient à lui faire confi
 Pour une CA interne, le serveur n'envoie en général pas la racine : prenez-la à la source.
 </Callout>
 
+### Voir où l'on est connecté
+
+```bash
+kubectl proxyauth status          # tous les serveurs connus
+kubectl proxyauth status -f json  # même chose en json/yaml
+```
+
+```text
+ DEFAULT  SERVER                              LOGIN  USER   EXPIRES  CLUSTERS
+ *        https://proxyauthk8s.example.com    sso    alice  in 42m   default/mon-cluster
+```
+
+`status` lit uniquement l'état local (configuration et trousseau) : aucun appel réseau, et
+aucun jeton n'est affiché. `LOGIN` vaut `sso` (session renouvelée à l'usage), `token` (jeton
+collé, pas renouvelé) ou `none`. `USER` et `EXPIRES` sont lus dans le jeton quand c'est un JWT,
+sans en vérifier la signature : c'est un affichage, pas un contrôle d'accès.
+
 ### Lister les clusters visibles
 
 ```bash

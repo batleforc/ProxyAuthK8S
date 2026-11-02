@@ -1,0 +1,252 @@
+//! `status`: which servers you are logged in to, as whom, until when, and the
+//! clusters logged in through each. Local state only: no network call, and no
+//! token is ever printed.
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    cli_config::cli_server_config::CliServerConfig,
+    ctx::CliCtx,
+    error::ProxyAuthK8sError,
+    output::{KubeList, TableRow},
+};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct StatusOutput {
+    pub default: bool,
+    pub server: String,
+    /// `sso` (renewable session), `token` (pasted, not renewed) or `none`.
+    pub login: String,
+    pub user: Option<String>,
+    /// Unix seconds at which the server token expires, when known.
+    pub expires_at: Option<i64>,
+    /// `namespace/name` of each cluster logged in through this server.
+    pub clusters: Vec<String>,
+}
+
+/// The few claims `status` shows.
+#[derive(Deserialize, Default)]
+struct Claims {
+    preferred_username: Option<String>,
+    email: Option<String>,
+    sub: Option<String>,
+    exp: Option<i64>,
+}
+
+/// Display-only read of a JWT payload. The signature is NOT checked: nothing
+/// read here grants access, it only tells the user who they appear to be.
+/// An opaque (non-JWT) token yields no claims.
+fn display_claims(token: &str) -> Claims {
+    token
+        .split('.')
+        .nth(1)
+        .and_then(|payload| URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Time left before `expires_at`, as a person reads it.
+fn remaining(expires_at: Option<i64>, now: i64, renewable: bool) -> String {
+    let Some(at) = expires_at else {
+        return "unknown".to_string();
+    };
+    let left = at.saturating_sub(now);
+    if left <= 0 {
+        return if renewable {
+            "expired (renewed on next use)".to_string()
+        } else {
+            "expired".to_string()
+        };
+    }
+    match left {
+        ..3_600 => format!("in {}m", left / 60),
+        3_600..86_400 => format!("in {}h", left / 3600),
+        _ => format!("in {}d", left / 86_400),
+    }
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|d| i64::try_from(d.as_secs()).ok())
+        .unwrap_or_default()
+}
+
+impl StatusOutput {
+    fn new(server: &CliServerConfig, default: bool) -> Self {
+        let token = server.server_token().ok();
+        let session = server.server_session().ok().flatten();
+        let claims = token.as_deref().map(display_claims).unwrap_or_default();
+        let login = match (&token, &session) {
+            (None, _) => "none",
+            (Some(_), Some(_)) => "sso",
+            (Some(_), None) => "token",
+        };
+        let mut clusters: Vec<String> = server
+            .clusters
+            .iter()
+            .map(|(key, cluster)| {
+                if cluster.token_exchange {
+                    format!("{key} (exchange)")
+                } else {
+                    key.clone()
+                }
+            })
+            .collect();
+        clusters.sort();
+        StatusOutput {
+            default,
+            server: server.url.clone(),
+            login: login.to_string(),
+            user: claims.preferred_username.or(claims.email).or(claims.sub),
+            expires_at: session.and_then(|s| s.expires_at).or(claims.exp),
+            clusters,
+        }
+    }
+}
+
+impl TableRow for StatusOutput {
+    fn headers() -> Vec<String> {
+        ["DEFAULT", "SERVER", "LOGIN", "USER", "EXPIRES", "CLUSTERS"]
+            .map(String::from)
+            .to_vec()
+    }
+
+    fn row(&self) -> Vec<String> {
+        let expires = if self.login == "none" {
+            "-".to_string()
+        } else {
+            remaining(self.expires_at, unix_now(), self.login == "sso")
+        };
+        vec![
+            if self.default { "*" } else { "" }.to_string(),
+            self.server.clone(),
+            self.login.clone(),
+            self.user.clone().unwrap_or_else(|| "-".to_string()),
+            expires,
+            if self.clusters.is_empty() {
+                "-".to_string()
+            } else {
+                self.clusters.join(", ")
+            },
+        ]
+    }
+}
+
+impl CliCtx {
+    /// Print the login state of every known server (or of `--server-url`).
+    pub fn handle_status(&self) -> Result<(), ProxyAuthK8sError> {
+        let only = (!self.server_url.is_empty())
+            .then(|| CliServerConfig::url_to_name_from_string(self.server_url.clone()));
+        let mut rows: Vec<StatusOutput> = self
+            .config
+            .servers
+            .iter()
+            .filter(|(name, _)| only.as_ref().is_none_or(|only| *name == only))
+            .map(|(name, server)| {
+                StatusOutput::new(server, *name == self.config.default_server_name)
+            })
+            .collect();
+        if rows.is_empty() {
+            return Err(match only {
+                Some(name) => ProxyAuthK8sError::ServerNotFound(name),
+                None => ProxyAuthK8sError::NotLoggedIn,
+            });
+        }
+        rows.sort_by(|a, b| b.default.cmp(&a.default).then(a.server.cmp(&b.server)));
+        println!("{}", KubeList::new(rows).to_output(self.format.clone()));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli_config::cli_cluster_config::CliClusterConfig;
+
+    fn jwt(payload: &serde_json::Value) -> String {
+        format!(
+            "e30.{}.sig",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(payload).unwrap())
+        )
+    }
+
+    #[test]
+    fn claims_are_read_from_a_jwt_and_absent_from_an_opaque_token() {
+        let claims = display_claims(&jwt(&serde_json::json!({
+            "sub": "u-1", "email": "a@example.com", "exp": 42
+        })));
+        assert_eq!(claims.email.as_deref(), Some("a@example.com"));
+        assert_eq!(claims.exp, Some(42));
+        assert!(claims.preferred_username.is_none());
+
+        for opaque in ["opaque-token", "a.!!!.c", "", "a.e30"] {
+            let claims = display_claims(opaque);
+            assert!(claims.sub.is_none() && claims.exp.is_none(), "{opaque}");
+        }
+    }
+
+    #[test]
+    fn time_left_reads_like_a_person_would_say_it() {
+        assert_eq!(remaining(None, 0, false), "unknown");
+        assert_eq!(remaining(Some(100), 100, false), "expired");
+        assert_eq!(
+            remaining(Some(50), 100, true),
+            "expired (renewed on next use)"
+        );
+        assert_eq!(remaining(Some(1_800), 0, false), "in 30m");
+        assert_eq!(remaining(Some(7_200), 0, false), "in 2h");
+        assert_eq!(remaining(Some(3 * 86_400), 0, false), "in 3d");
+    }
+
+    #[test]
+    fn status_without_a_server_is_refused() {
+        let mut ctx = CliCtx::for_test();
+        assert!(matches!(
+            ctx.handle_status(),
+            Err(ProxyAuthK8sError::NotLoggedIn)
+        ));
+        ctx.config.get_or_insert_server_config(
+            "status-known".to_string(),
+            "https://status-known".to_string(),
+        );
+        ctx.server_url = "https://status-other".to_string();
+        assert!(matches!(
+            ctx.handle_status(),
+            Err(ProxyAuthK8sError::ServerNotFound(name)) if name == "status-other"
+        ));
+    }
+
+    #[test]
+    fn a_server_row_shows_the_user_and_clusters_never_the_token() {
+        let url = "https://status-row.example".to_string();
+        let mut server = CliServerConfig::new(url.clone());
+        let token =
+            jwt(&serde_json::json!({"preferred_username": "alice", "exp": 4_000_000_000_i64}));
+        server.set_server_token(token.clone()).unwrap();
+        server
+            .clusters
+            .insert("team-a/prod".to_string(), CliClusterConfig::new());
+        server.clusters.insert(
+            "team-a/exch".to_string(),
+            CliClusterConfig::token_exchange(),
+        );
+
+        let row = StatusOutput::new(&server, true);
+        assert_eq!(row.login, "token");
+        assert_eq!(row.user.as_deref(), Some("alice"));
+        assert_eq!(row.expires_at, Some(4_000_000_000));
+        assert_eq!(row.clusters, vec!["team-a/exch (exchange)", "team-a/prod"]);
+        let rendered = KubeList::new(vec![row]).to_output(crate::ctx::ContextFormat::Json);
+        assert!(!rendered.contains(&token));
+
+        server.clear_server_token().unwrap();
+        let row = StatusOutput::new(&server, false);
+        assert_eq!(row.login, "none");
+        assert_eq!(row.row()[4], "-");
+    }
+}

@@ -39,6 +39,7 @@ impl Cli {
                 )
                 .await
             }
+            Some(Commands::Status) => ctx.handle_status(),
             Some(Commands::Logout { cluster_name }) => {
                 debug!("Logging out from cluster: {:?}", cluster_name);
                 ctx.handle_logout(cluster_name.clone())
