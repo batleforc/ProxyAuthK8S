@@ -3,6 +3,8 @@
 //! Configures a `tracing` subscriber tuned for interactive CLI use (verbosity
 //! levels, compact formatting) so command handlers can emit structured logs.
 
+use std::io::IsTerminal;
+
 use time::format_description;
 use tracing::{level_filters::LevelFilter, subscriber};
 use tracing_subscriber::{
@@ -29,13 +31,22 @@ pub fn init_tracing(verbose_level: level::VerboseLevel, name: String) {
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::from(verbose_level).into())
         .from_env_lossy();
-    let terminal_out = fmt::layer()
+    // Colours only on a terminal, and never with NO_COLOR set (no-color.org):
+    // a redirected stderr must not fill a log file with escape codes.
+    let ansi = std::io::stderr().is_terminal()
+        && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty());
+    let layer = fmt::layer()
         .with_writer(std::io::stderr)
+        .with_ansi(ansi)
         .with_thread_names(false)
-        .with_timer(timer)
-        .with_target(false)
-        .with_filter(env_filter)
-        .boxed();
+        .with_target(false);
+    // A timestamp helps a `-v` trace; at the default level it is noise in
+    // front of messages meant for a person.
+    let terminal_out = if verbose_level < level::VerboseLevel::INFO {
+        layer.with_timer(timer).with_filter(env_filter).boxed()
+    } else {
+        layer.without_time().with_filter(env_filter).boxed()
+    };
 
     match subscriber::set_global_default(Registry::default().with(terminal_out)) {
         Ok(()) => tracing::trace!("Initialized tracing for {}", name),

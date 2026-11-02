@@ -65,6 +65,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn more_verbose_levels_compare_lower() {
+        // `init_tracing` shows timestamps for `level < INFO`: the derived order
+        // follows the `repr` values, where TRACE is 0 and ERROR 4.
+        assert!(VerboseLevel::DEBUG < VerboseLevel::INFO);
+        assert!(VerboseLevel::TRACE < VerboseLevel::DEBUG);
+        assert!(VerboseLevel::WARN > VerboseLevel::INFO);
+    }
+
+    #[test]
     fn test_verbose_level() {
         let level = VerboseLevel::ERROR;
         let serialized = serde_json::to_string(&level).unwrap();

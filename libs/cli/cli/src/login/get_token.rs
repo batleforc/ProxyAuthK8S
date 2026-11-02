@@ -1,7 +1,7 @@
 use crate::cli_config::cli_server_config::CliServerConfig;
 use crate::ctx::CliCtx;
 use crate::error::ProxyAuthK8sError;
-use tracing::{debug, error};
+use tracing::debug;
 
 //https://kubernetes.io/docs/reference/access-authn-authz/authentication/#input-and-output-formats
 impl CliCtx {
@@ -18,7 +18,7 @@ impl CliCtx {
             .is_some_and(|cluster| cluster.token_exchange);
         if token_exchange {
             return server_config.fresh_server_token().await.inspect_err(|e| {
-                error!(
+                debug!(
                     "Failed to retrieve the server token for cluster '{}/{}': {}",
                     namespace, cluster_name, e
                 );
@@ -27,8 +27,8 @@ impl CliCtx {
         server_config
             .get_cluster_token(namespace.to_string(), cluster_name.to_string())
             .inspect_err(|e| {
-                error!(
-                    "Failed to retrieve token for cluster '{}/{}': {}. Please login using 'login --cluster-name {}'.",
+                debug!(
+                    "Failed to retrieve token for cluster '{}/{}': {}. Log in with 'kubectl proxyauth login {}'.",
                     namespace, cluster_name, e, cluster_name
                 );
             })
@@ -46,20 +46,14 @@ impl CliCtx {
 
         // if server_url is not provided and none exist in config, return error
         if self.server_url.is_empty() && self.config.default_server_name.is_empty() {
-            error!(
-                "Error: No ProxyAuthK8S server URL provided and no existing configuration found. Please provide a server URL using the --server-url option or login to server first."
-            );
-            return Err(ProxyAuthK8sError::InvalidUsage(
-                "No ProxyAuthK8S server URL provided and no existing configuration found"
-                    .to_owned(),
-            ));
+            return Err(ProxyAuthK8sError::NotLoggedIn);
         }
 
         // KUBERNETES_EXEC_INFO is always set by kubectl when invoking an exec plugin
         let exec_ctx = if let Ok(info) = std::env::var("KUBERNETES_EXEC_INFO") {
             info
         } else {
-            error!("KUBERNETES_EXEC_INFO environment variable is not set. Cannot retrieve ctx.");
+            debug!("KUBERNETES_EXEC_INFO environment variable is not set. Cannot retrieve ctx.");
             return Err(ProxyAuthK8sError::ExecCredential(
                 "KUBERNETES_EXEC_INFO environment variable is not set".to_owned(),
             ));
@@ -69,7 +63,7 @@ impl CliCtx {
         let exec_info: serde_json::Value = match serde_json::from_str(&exec_ctx) {
             Ok(info) => info,
             Err(e) => {
-                error!("Failed to parse KUBERNETES_EXEC_INFO as JSON: {}", e);
+                debug!("Failed to parse KUBERNETES_EXEC_INFO as JSON: {}", e);
                 return Err(ProxyAuthK8sError::ExecCredential(format!(
                     "failed to parse KUBERNETES_EXEC_INFO as JSON: {e}"
                 )));
@@ -112,7 +106,7 @@ impl CliCtx {
             {
                 url
             } else {
-                error!(
+                debug!(
                     "Cluster name not provided and spec.cluster.server not found in KUBERNETES_EXEC_INFO. Please provide the cluster name as argument."
                 );
                 return Err(ProxyAuthK8sError::ExecCredential(
@@ -129,7 +123,7 @@ impl CliCtx {
                     (url_info.cluster_name, Some(url_info.namespace))
                 }
                 Err(e) => {
-                    error!(
+                    debug!(
                         "Failed to extract cluster name from server URL '{}': {}. Please provide the cluster name as argument.",
                         cluster_server_url, e
                     );
@@ -148,7 +142,7 @@ impl CliCtx {
         ) {
             Ok(config) => config,
             Err(e) => {
-                error!(
+                debug!(
                     "Error retrieving server configuration: {}. Please login to the server first.",
                     e
                 );
@@ -198,7 +192,7 @@ impl CliCtx {
                 Ok(())
             }
             Err(e) => {
-                error!("Failed to serialize ExecCredential response: {}", e);
+                debug!("Failed to serialize ExecCredential response: {}", e);
                 Err(ProxyAuthK8sError::ExecCredential(format!(
                     "failed to serialize ExecCredential response: {e}"
                 )))

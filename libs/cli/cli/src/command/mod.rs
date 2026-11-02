@@ -12,60 +12,57 @@ use crate::{config_cmd::ConfigCommands, ctx::ContextFormat};
 
 mod dispatch;
 
-/// Kubectl `ProxyAuth` CLI
+/// Log in to Kubernetes clusters exposed through a ProxyAuthK8S server.
 #[derive(Parser, Debug, Clone)]
 #[command(
-    name = "Kubectl_ProxyAuthK8S",
+    name = "kubectl-proxyauth",
+    // What users type: the binary is run as a kubectl plugin.
+    bin_name = "kubectl proxyauth",
     version,
     about,
-    long_about = "A command-line tool to interact with ProxyAuthK8S for managing authentication to Kubernetes clusters.",
+    long_about = "Log in to Kubernetes clusters exposed through a ProxyAuthK8S server.\n\n\
+                  Start with `kubectl proxyauth login --server-url https://<server>`, list the \
+                  clusters with `kubectl proxyauth get`, then `kubectl proxyauth login <cluster>`.",
     arg_required_else_help = true,
     after_help = "Made with ❤️  and too much ☕ by Batleforc",
     before_help = include_str!("../../../../../docs/public/banner.art"),
 )]
 pub struct Cli {
-    /// Namespace to search within
-    /// If not provided, uses the default namespace
+    /// Namespace of the cluster (default: the server's default namespace).
     #[arg(
         short,
         long,
         global = true,
         value_name = "NAMESPACE",
-        default_value = ""
+        default_value = "",
+        hide_default_value = true
     )]
     pub namespace: String,
 
-    /// Path to the kubeconfig file
-    /// If not provided, uses the default kubeconfig location
-    /// Default location is `$KUBECONFIG` env var or `$HOME/.kube/config`
+    /// Kubeconfig file (default: `$KUBECONFIG`, else `~/.kube/config`).
     #[arg(short, global = true, long, value_name = "FILE")]
     pub kubeconfig: Option<PathBuf>,
 
-    /// CLI configuration file path
-    /// If not provided, uses the default configuration location
-    /// Default location is `$HOME/.kube/proxyauth_config.yaml
+    /// CLI configuration file (default: `~/.kube/proxyauth_config.yaml`).
     #[arg(short, global = true, long, value_name = "FILE")]
     pub proxy_auth_config: Option<PathBuf>,
 
-    /// Context to use/override from kubeconfig
-    #[arg(short, global = true, long, value_name = "CONTEXT")]
-    pub context: Option<String>,
-    /// Verbosity level
-    /// By default, logging is set to 'info'
-    /// Level are as follows:
-    /// -v : debug
-    /// -vv : trace
-    /// -vvv : all logs including very verbose logs
+    /// More logs: -v for debug, -vv for trace.
     #[arg(short,global = true, long, action = clap::ArgAction::Count)]
     pub verbose: Option<u8>,
 
-    /// `ProxyAuthK8S` server URL
-    #[arg(short, long, global = true, value_name = "URL", default_value = "")]
+    /// ProxyAuthK8S server URL (default: the server of the last login).
+    #[arg(
+        short,
+        long,
+        global = true,
+        value_name = "URL",
+        default_value = "",
+        hide_default_value = true
+    )]
     pub server_url: String,
 
-    /// Output format
-    /// Specify the output format (e.g., json, yaml, table)
-    /// Default is `table`
+    /// Output format of `get`, `context` and `config get`.
     #[arg(
         short,
         global = true,
@@ -81,17 +78,17 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Commands {
-    /// Get auth clusters
-    /// If no flags are provided, lists all clusters
+    /// List the clusters visible to you on the server, or one by name.
     Get {
         /// Get a specific cluster by name
         cluster_name: Option<String>,
     },
-    /// Login either to `ProxyAuthK8S` server or to a specific cluster
+    /// Log in to the server (no argument) or to one of its clusters.
     Login {
         /// Cluster name to login to
         cluster_name: Option<String>,
-        /// Optional token for authentication
+        /// Token to use instead of the SSO login (scripts, CI). Prefer the
+        /// prompt: a token on the command line shows in `ps` and history.
         #[arg(short, long, value_name = "TOKEN")]
         token: Option<String>,
         /// PEM file of the CA that signed the `ProxyAuthK8S` server's TLS
@@ -117,7 +114,7 @@ pub enum Commands {
         )]
         browser_args: Vec<String>,
     },
-    /// Logout either from `ProxyAuthK8S` server or from a specific cluster
+    /// Log out of the server (no argument) or of one of its clusters.
     Logout {
         /// Cluster name to logout from
         cluster_name: Option<String>,
@@ -127,26 +124,27 @@ pub enum Commands {
         #[command(subcommand)]
         command: CacheCommands,
     },
-    /// Retrieve the current authentication token for a specific cluster
+    /// Print a cluster token as a kubectl ExecCredential (called by kubectl).
     GetToken {
         /// Cluster name to retrieve the token for
         cluster_name: Option<String>,
     },
-    /// Handle Kubectl contexts
+    /// Show the current kubectl context, list them (-l) or switch (--set).
     #[command(alias = "ctx")]
     Context {
-        /// Get the context for a specific cluster
+        /// Context to show, or to switch to with --set
         context_name: Option<String>,
         /// List all available contexts
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         list: bool,
-        /// Set the current context to the specified cluster
+        /// Make the given context the current one
         // No `short`: `-s` is already the global `--server-url`; clap rejects the
         // duplicate short within this subcommand. Long-only `--set`.
         #[arg(long, action = clap::ArgAction::SetTrue)]
         set: bool,
     },
-    /// Configuration management
+    /// Show or change the CLI configuration (known servers, defaults).
+    #[command(arg_required_else_help = true)]
     Config {
         #[command(subcommand)]
         command: Option<ConfigCommands>,
@@ -200,6 +198,37 @@ mod tests {
                 ]
             )
         );
+    }
+
+    #[test]
+    fn the_command_tree_is_consistent() {
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
+        assert_eq!(Cli::command().get_bin_name(), Some("kubectl proxyauth"));
+    }
+
+    #[test]
+    fn the_removed_context_flag_is_refused() {
+        // `-c/--context` was parsed then ignored; it now fails loudly.
+        for flag in ["-c", "--context"] {
+            assert!(Cli::try_parse_from(["kubectl-proxyauth", "get", flag, "x"]).is_err());
+        }
+    }
+
+    #[test]
+    fn set_def_flag_combinations_are_checked_by_clap() {
+        let parse = |args: &[&str]| {
+            Cli::try_parse_from(
+                ["kubectl-proxyauth", "config", "set-def"]
+                    .into_iter()
+                    .chain(args.iter().copied()),
+            )
+        };
+        assert!(parse(&["-d", "https://a"]).is_ok());
+        assert!(parse(&["-s", "https://a", "-n", "ns"]).is_ok());
+        assert!(parse(&["-s", "https://a"]).is_err());
+        assert!(parse(&["-n", "ns"]).is_err());
+        assert!(parse(&["-d", "https://a", "-s", "https://b", "-n", "ns"]).is_err());
     }
 
     #[test]

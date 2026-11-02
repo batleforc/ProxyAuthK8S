@@ -1,4 +1,4 @@
-use tracing::{error, info};
+use tracing::{debug, info};
 
 use crate::{
     context::output::GetContextOutput, ctx::CliCtx, error::ProxyAuthK8sError, output::KubeList,
@@ -15,7 +15,7 @@ impl CliCtx {
     ) -> Result<(), ProxyAuthK8sError> {
         if set {
             let Some(context_name) = context_name.clone() else {
-                error!("Context name must be provided when using the --set flag.");
+                debug!("Context name must be provided when using the --set flag.");
                 return Err(ProxyAuthK8sError::InvalidUsage(
                     "context name must be provided when using --set".to_string(),
                 ));
@@ -33,11 +33,11 @@ impl CliCtx {
                 if let Err(e) = self.edit_kubeconfig(|kubeconfig| {
                     kubeconfig.current_context = Some(context_name.clone());
                 }) {
-                    error!("Failed to write kubeconfig: {}", e);
+                    debug!("Failed to write kubeconfig: {}", e);
                     return Err(e);
                 }
             } else {
-                error!("Context '{}' not found in kubeconfig.", context_name);
+                debug!("Context '{}' not found in kubeconfig.", context_name);
                 return Err(ProxyAuthK8sError::InvalidUsage(format!(
                     "context '{context_name}' not found in kubeconfig"
                 )));

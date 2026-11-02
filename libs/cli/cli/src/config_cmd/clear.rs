@@ -1,4 +1,4 @@
-use tracing::{error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     cli_config::cli_server_config::CliServerConfig, ctx::CliCtx, error::ProxyAuthK8sError,
@@ -17,7 +17,7 @@ impl CliCtx {
                     Ok(())
                 }
                 Err(e) => {
-                    error!("Failed to clear configurations: {}", e);
+                    debug!("Failed to clear configurations: {}", e);
                     Err(e)
                 }
             };
@@ -47,7 +47,7 @@ impl CliCtx {
                     Ok(())
                 }
                 Err(e) => {
-                    error!("Failed to clear configuration: {}", e);
+                    debug!("Failed to clear configuration: {}", e);
                     Err(e)
                 }
             }

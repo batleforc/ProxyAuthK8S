@@ -9,31 +9,33 @@ pub mod set_def;
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum ConfigCommands {
-    /// Set configuration options
-    /// Default server flag are mutually exclusive with the two other flags
-    /// The two other flags need to be provided together
+    /// Set the default server (-d), or the default namespace of a server (-s and -n).
     SetDef {
-        /// Set the default server URL
-        #[arg(short, long, value_name = "URL")]
+        /// Server whose default namespace is set (with -n)
+        #[arg(short, long, value_name = "URL", requires = "namespace")]
         server_url: Option<String>,
-        /// Set the default namespace for the selected server
-        #[arg(short, long, value_name = "NAMESPACE")]
+        /// Default namespace for that server (with -s)
+        #[arg(short, long, value_name = "NAMESPACE", requires = "server_url")]
         namespace: Option<String>,
-        /// Set the default server namespace
-        #[arg(short, long, value_name = "SERVER_NAME")]
+        /// Make this server the default one
+        #[arg(
+            short,
+            long,
+            value_name = "URL",
+            conflicts_with_all = ["server_url", "namespace"]
+        )]
         default_server: Option<String>,
     },
-    /// Clear configuration options
+    /// Forget one server (-s) or every server (-a).
     Clear {
-        /// Clear all configurations
+        /// Forget every server
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         all: bool,
-        /// Clear configuration for a specific server URL
+        /// Forget this server
         #[arg(short, long, value_name = "URL")]
         server_url: Option<String>,
     },
-    /// Get configuration
-    /// If no flags are provided, shows the current configuration
+    /// Show the default server's configuration, or every server's (-l).
     Get {
         /// Filter by server URL
         #[arg(short, long, value_name = "URL")]
@@ -41,7 +43,7 @@ pub enum ConfigCommands {
         /// Filter by namespace
         #[arg(short, long, value_name = "NAMESPACE")]
         namespace: Option<String>,
-        /// list all configurations
+        /// Show every server
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         list: bool,
     },

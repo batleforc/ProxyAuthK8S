@@ -1,4 +1,4 @@
-use tracing::{error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     cli_config::cli_server_config::CliServerConfig, ctx::CliCtx, error::ProxyAuthK8sError,
@@ -29,7 +29,7 @@ impl CliCtx {
                     Ok(())
                 }
                 Err(e) => {
-                    error!("Failed to set default server: {}", e);
+                    debug!("Failed to set default server: {}", e);
                     Err(e)
                 }
             };
@@ -53,7 +53,7 @@ impl CliCtx {
                     Ok(())
                 }
                 Err(e) => {
-                    error!("Failed to set default namespace: {}", e);
+                    debug!("Failed to set default namespace: {}", e);
                     Err(e)
                 }
             }

@@ -30,7 +30,6 @@ impl TryFrom<Cli> for CliCtx {
             .ok_or(ProxyAuthK8sError::KubeconfigPathCouldNotBeCalculated)?;
         CliCtx::ensure_kubeconfig_exists(&kubeconfig_path)?;
         let kubeconfig = CliCtx::load_merged_kubeconfig(&kubeconfig_paths)?;
-        let invoked_from_kubectl = CliCtx::is_kubectl_invocation(env::args().next());
         // Load CLI configuration
         let config_path =
             CliCtx::resolve_config_path(cli.proxy_auth_config, env::var("HOME").ok())?;
@@ -40,11 +39,9 @@ impl TryFrom<Cli> for CliCtx {
             namespace: cli.namespace,
             kubeconfig,
             kubeconfig_path,
-            context: cli.context,
             verbose: cli.verbose,
             server_url: cli.server_url,
             format: cli.format,
-            invoked_from_kubectl,
             config,
             config_path,
             browser_flag: None,
@@ -83,15 +80,6 @@ impl CliCtx {
                         ))
                     })
             })
-    }
-
-    /// Whether the binary was started as `kubectl` (judged from `argv[0]`).
-    fn is_kubectl_invocation(arg0: Option<String>) -> bool {
-        arg0.is_some_and(|arg0| {
-            PathBuf::from(arg0)
-                .file_stem()
-                .is_some_and(|stem| stem == "kubectl")
-        })
     }
 
     /// `--proxy-auth-config`, else `$HOME/.kube/proxyauth_config.yaml`.
@@ -149,20 +137,6 @@ mod tests {
         drop(fs::remove_dir_all(&dir));
         fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    #[test]
-    fn kubectl_invocation_is_detected_from_argv0_stem() {
-        assert!(CliCtx::is_kubectl_invocation(Some("kubectl".into())));
-        assert!(CliCtx::is_kubectl_invocation(Some(
-            "/usr/local/bin/kubectl".into()
-        )));
-        assert!(CliCtx::is_kubectl_invocation(Some("kubectl.exe".into())));
-        assert!(!CliCtx::is_kubectl_invocation(Some(
-            "/usr/bin/kubectl-proxyauth".into()
-        )));
-        assert!(!CliCtx::is_kubectl_invocation(Some(String::new())));
-        assert!(!CliCtx::is_kubectl_invocation(None));
     }
 
     #[test]
@@ -252,7 +226,6 @@ mod tests {
             namespace: "team-a".to_string(),
             kubeconfig: Some(kubeconfig),
             proxy_auth_config: Some(proxy_auth_config),
-            context: Some("ctx".to_string()),
             verbose: Some(1),
             server_url: "https://proxy.example.com".to_string(),
             format: ContextFormat::Json,
@@ -275,7 +248,6 @@ mod tests {
 
         // Flags are carried over as-is.
         assert_eq!(ctx.namespace, "team-a");
-        assert_eq!(ctx.context.as_deref(), Some("ctx"));
         assert_eq!(ctx.verbose, Some(1));
         assert_eq!(ctx.server_url, "https://proxy.example.com");
         assert!(matches!(ctx.format, ContextFormat::Json));

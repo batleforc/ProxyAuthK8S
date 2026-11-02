@@ -56,4 +56,31 @@ pub enum ProxyAuthK8sError {
     InvalidCertificateAuthority(String),
     #[error("ERR000020: Server certificate not trusted: {0}")]
     UntrustedServerTls(String),
+    #[error("ERR000021: Not logged in to any ProxyAuthK8S server")]
+    NotLoggedIn,
+}
+
+impl ProxyAuthK8sError {
+    /// The next step for the user, printed under the error by `run_cli`.
+    #[must_use]
+    pub fn hint(&self) -> Option<&'static str> {
+        match self {
+            Self::NotLoggedIn => {
+                Some("log in first: kubectl proxyauth login --server-url https://<server>")
+            }
+            Self::ServerNotFound(_) => Some(
+                "log in to that server first (kubectl proxyauth login --server-url <URL>); kubectl proxyauth config get lists the known ones",
+            ),
+            Self::ClusterNotFound { .. } => {
+                Some("kubectl proxyauth get lists the clusters visible to you")
+            }
+            Self::Unauthenticated(_) => {
+                Some("your session is over: run kubectl proxyauth login again")
+            }
+            Self::UntrustedServerTls(_) => Some(
+                "rerun kubectl proxyauth login from a terminal to review the certificate, or pass --certificate-authority <FILE>",
+            ),
+            _ => None,
+        }
+    }
 }

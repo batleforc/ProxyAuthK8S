@@ -10,10 +10,9 @@ use crate::{
 
 impl Cli {
     pub async fn run_cli(&mut self, mut ctx: CliCtx) -> std::process::ExitCode {
-        // Each handler returns `Result<(), ProxyAuthK8sError>` and logs its own
-        // error detail; here we only translate the outcome into the process exit
-        // code so a failed command exits non-zero (previously every command but
-        // `get-token` exited 0 regardless of failure).
+        // Each handler returns `Result<(), ProxyAuthK8sError>` and leaves the
+        // error to this function: it is printed once, with its code and hint,
+        // and turned into a non-zero exit code.
         let result: Result<(), ProxyAuthK8sError> = match &self.command {
             Some(Commands::Get { cluster_name }) => {
                 debug!("Getting cluster info for: {:?}", cluster_name);
@@ -52,13 +51,9 @@ impl Cli {
             },
             Some(Commands::GetToken { cluster_name }) => {
                 debug!("Getting token for cluster: {:?}", cluster_name);
-                // Propagate a non-zero exit code so `kubectl` sees the exec-credential
-                // plugin failed instead of treating a 0 exit as "no credential".
-                return if ctx.handle_get_token(cluster_name.clone()).await.is_err() {
-                    std::process::ExitCode::FAILURE
-                } else {
-                    std::process::ExitCode::SUCCESS
-                };
+                // A non-zero exit lets `kubectl` see the exec-credential plugin
+                // failed instead of treating a 0 exit as "no credential".
+                ctx.handle_get_token(cluster_name.clone()).await
             }
             Some(Commands::Context {
                 context_name,
@@ -89,7 +84,35 @@ impl Cli {
         };
         match result {
             Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(_) => std::process::ExitCode::FAILURE,
+            Err(e) => {
+                eprintln!("{}", render_error(&e));
+                std::process::ExitCode::FAILURE
+            }
         }
+    }
+}
+
+/// The text printed on stderr for a failed command: the error, then its hint.
+fn render_error(e: &ProxyAuthK8sError) -> String {
+    match e.hint() {
+        Some(hint) => format!("error: {e}\n  hint: {hint}"),
+        None => format!("error: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_failure_is_printed_once_with_its_code_and_hint() {
+        assert_eq!(
+            render_error(&ProxyAuthK8sError::NotLoggedIn),
+            "error: ERR000021: Not logged in to any ProxyAuthK8S server\n  hint: log in first: kubectl proxyauth login --server-url https://<server>"
+        );
+        assert_eq!(
+            render_error(&ProxyAuthK8sError::InvalidUsage("bad".to_string())),
+            "error: ERR000017: bad"
+        );
     }
 }

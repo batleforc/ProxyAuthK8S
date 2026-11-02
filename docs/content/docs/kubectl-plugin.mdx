@@ -310,7 +310,7 @@ Le plugin garde sa configuration (serveurs connus, namespace par défaut) dans
 ```bash
 kubectl proxyauth config get                     # configuration courante
 kubectl proxyauth config get --list              # toutes les configurations
-kubectl proxyauth config set-def --default-server <nom>   # serveur par défaut
+kubectl proxyauth config set-def --default-server <url>   # serveur par défaut
 kubectl proxyauth config set-def --server-url <url> --namespace <ns>   # namespace par défaut d'un serveur
 kubectl proxyauth config clear --server-url <url>    # oublie un serveur
 kubectl proxyauth config clear --all
@@ -318,15 +318,17 @@ kubectl proxyauth config clear --all
 
 ### Options globales
 
+Une erreur s'affiche sur une ligne `error: ERR0000xx: …`, suivie au besoin d'une ligne `hint:`
+qui donne la commande à lancer. Le code reste stable d'une version à l'autre.
+
 | Option                       | Effet                                                         |
 | ---------------------------- | ------------------------------------------------------------- |
 | `-s, --server-url <URL>`     | Serveur ProxyAuthK8S à utiliser (sinon le serveur par défaut) |
 | `-n, --namespace <NS>`       | Namespace du cluster visé                                     |
 | `-k, --kubeconfig <FILE>`    | Kubeconfig (défaut : `$KUBECONFIG` puis `~/.kube/config`)    |
-| `-c, --context <CONTEXT>`    | Contexte du kubeconfig à utiliser                             |
 | `-p, --proxy-auth-config <FILE>` | Configuration du plugin (défaut : `~/.kube/proxyauth_config.yaml`) |
 | `-f, --format <FORMAT>`      | `table` (défaut), `json` ou `yaml`                            |
-| `-v` / `-vv` / `-vvv`        | Niveau de logs : debug, trace, tout                           |
+| `-v` / `-vv`                 | Logs de debug, de trace (horodatés)                           |
 
 ## Le kubeconfig plugin
 
@@ -374,6 +376,7 @@ l'appel, applique les règles de sécurité, puis relaie vers l'apiserver.
 | `403` avec un message sur un chemin             | Le chemin n'est pas dans `security_config.allowed_resources`                   |
 | `429` avec un en-tête `Retry-After`             | Rate limiting, ou bannissement après des échecs d'authentification répétés      |
 | `certificate verify failed`                     | Certificat du serveur non reconnu : voir `--certificate-authority` ci-dessus     |
+| `ERR000021: Not logged in to any ProxyAuthK8S server` | Aucun serveur connu : commencer par `kubectl proxyauth login --server-url https://…` |
 | `ERR000020: Server certificate not trusted`     | Certificat auto-signé refusé à l'invite de confiance, ou certificat **renouvelé** depuis qu'il a été épinglé : relancer `kubectl proxyauth login` depuis un terminal et accepter après vérification de l'empreinte, ou passer `--certificate-authority` |
 | `x509: certificate signed by unknown authority` (kubectl) | Le certificat du serveur a changé : relancer `kubectl proxyauth login`, qui met à jour la CA des clusters du kubeconfig |
 | Le cluster n'apparaît pas dans `get`            | `expose_via_dashboard` est à `false` (défaut) ou le groupe dashboard ne correspond pas |

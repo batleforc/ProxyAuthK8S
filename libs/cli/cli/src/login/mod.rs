@@ -6,7 +6,7 @@ use std::{
     io::{self, Write},
     path::Path,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 pub mod get_token;
 mod kubeconfig;
@@ -48,7 +48,7 @@ impl CliCtx {
             Some(path) => match load_certificate_authority(path) {
                 Ok(data) => Some(data),
                 Err(e) => {
-                    error!("{}", e);
+                    debug!("{}", e);
                     return Err(e);
                 }
             },
@@ -64,12 +64,7 @@ impl CliCtx {
         }
         // if server_url is not provided and none exist in config, return error
         if self.server_url.is_empty() && self.config.default_server_name.is_empty() {
-            error!(
-                "Error: No ProxyAuthK8S server URL provided and no existing configuration found. Please provide a server URL using the --server-url option or login to server first."
-            );
-            return Err(ProxyAuthK8sError::InvalidUsage(
-                "no server URL provided and no existing configuration found".to_string(),
-            ));
+            return Err(ProxyAuthK8sError::NotLoggedIn);
         }
         if let Some(cluster) = cluster_name {
             self.handle_login_clusters(cluster, token, certificate_authority_data)
@@ -139,7 +134,7 @@ impl CliCtx {
             // bad token here instead of on first use. Tracked on the roadmap.
             self.store_cluster_login(&server_name, &namespace, &cluster, Some(tok))
         } else {
-            error!("No token provided. Cluster login requires a token.");
+            debug!("No token provided. Cluster login requires a token.");
             Err(ProxyAuthK8sError::InvalidUsage(
                 "cluster login requires a token".to_string(),
             ))
@@ -179,7 +174,7 @@ impl CliCtx {
         match self.config.servers.get_mut(&server_name) {
             Some(server) => Ok(server),
             None => {
-                error!(
+                debug!(
                     "Server '{}' not found in configuration, please login to server before login to cluster.",
                     server_name
                 );
@@ -196,7 +191,7 @@ impl CliCtx {
         {
             Ok(config) => Ok(config),
             Err(e) => {
-                error!(
+                debug!(
                     "Error retrieving server configuration, please login to server before login to cluster: {}",
                     e
                 );
@@ -229,23 +224,10 @@ impl CliCtx {
                 Ok(clusters)
             }
             Err(e) => {
-                error!("Failed to retrieve clusters, : {}", e);
-                match &e {
-                    ProxyAuthK8sError::Unauthenticated(_) => {
-                        // The user is told to re-login rather than being pushed
-                        // through the flow: doing it here would need the login
-                        // command to be re-entrant, which it is not yet.
-                        error!(
-                            "Authentication failed: Invalid server token, please re-login to the server."
-                        );
-                    }
-                    ProxyAuthK8sError::RemoteServerError(_) => {
-                        error!("Server error occurred while retrieving clusters.");
-                    }
-                    _ => {
-                        error!("An unknown error occurred while retrieving clusters.");
-                    }
-                }
+                // On `Unauthenticated` the hint tells the user to re-login rather
+                // than pushing them through the flow: doing it here would need the
+                // login command to be re-entrant, which it is not yet.
+                debug!("Failed to retrieve clusters: {}", e);
                 Err(e)
             }
         }
@@ -265,7 +247,7 @@ impl CliCtx {
         {
             Ok(cluster_config)
         } else {
-            error!("Cluster {} not found on server.", cluster);
+            debug!("Cluster {} not found on server.", cluster);
             Err(ProxyAuthK8sError::ClusterNotFound {
                 server: server_name.to_string(),
                 cluster: cluster.to_string(),
@@ -294,7 +276,7 @@ impl CliCtx {
                 let base_config = match server_config.base_configuration() {
                     Ok(config) => config,
                     Err(e) => {
-                        error!(
+                        debug!(
                             "Cannot start SSO login (are you logged in to the server?): {}",
                             e
                         );
@@ -306,7 +288,7 @@ impl CliCtx {
                     // ClusterCallbackView).
                     Ok(id_token) => Ok(Some(id_token)),
                     Err(e) => {
-                        error!("{}", e);
+                        debug!("{}", e);
                         Err(e)
                     }
                 }
@@ -330,7 +312,7 @@ impl CliCtx {
         let Some(server) = self.config.servers.get_mut(server_name) else {
             // The server config was resolved just above; if it is gone now the
             // config is inconsistent — fail cleanly rather than panicking.
-            error!(
+            debug!(
                 "Server '{}' is no longer present in the configuration; aborting.",
                 server_name
             );
@@ -344,7 +326,7 @@ impl CliCtx {
             if let Err(e) =
                 server.set_cluster_token(namespace.to_string(), cluster.to_string(), tok)
             {
-                error!("Failed to store cluster token: {}", e);
+                debug!("Failed to store cluster token: {}", e);
                 return Err(e);
             }
         } else {
@@ -358,9 +340,9 @@ impl CliCtx {
             }
         }
         match self.config.write_to_file(self.config_path.clone()) {
-            Ok(_) => info!("Config file updated successfully."),
+            Ok(_) => debug!("Config file updated successfully."),
             Err(e) => {
-                error!("Failed to update config file: {}", e);
+                debug!("Failed to update config file: {}", e);
                 return Err(e);
             }
         }
@@ -377,7 +359,7 @@ impl CliCtx {
         }) {
             Ok(names) => names,
             Err(e) => {
-                error!(
+                debug!(
                     "Token stored, but failed to write the kubeconfig at {}: {}",
                     self.kubeconfig_path.to_string_lossy(),
                     e
@@ -403,7 +385,7 @@ impl CliCtx {
         // Refuse a cleartext URL before asking for (and sending) the token.
         let (server_url, server_name) = self.resolve_login_server()?;
         if let Err(e) = require_secure_server_url(&server_url) {
-            error!("{}", e);
+            debug!("{}", e);
             return Err(e);
         }
         let previous_certificate_authority = self.saved_certificate_authority(&server_name);
@@ -464,19 +446,19 @@ impl CliCtx {
         // Both the config write and the keyring store must succeed for the login
         // to have produced a usable, persisted credential.
         if let Err(e) = self.config.write_to_file(self.config_path.clone()) {
-            error!("Failed to update config file: {}", e);
+            debug!("Failed to update config file: {}", e);
             return Err(e);
         }
-        info!("Config file updated successfully.");
+        debug!("Config file updated successfully.");
         let stored = match session {
             Some(tokens) => server_config.store_session_tokens(tokens, None).map(drop),
             None => server_config.set_server_login(&tok, None),
         };
         if let Err(e) = stored {
-            error!("Failed to save token to keyring: {}", e);
+            debug!("Failed to save token to keyring: {}", e);
             return Err(e);
         }
-        info!("Token saved to keyring successfully.");
+        info!("Logged in to {}. Next: kubectl proxyauth get", server_url);
         if certificate_authority_data != previous_certificate_authority {
             self.propagate_certificate_authority(
                 &server_url,
@@ -506,7 +488,7 @@ impl CliCtx {
         let config = api_configuration(server_url, None, http_client(certificate_authority_data)?);
         Self::sso_server_login(&config, browser.as_ref())
             .await
-            .inspect_err(|e| error!("{}", e))
+            .inspect_err(|e| debug!("{}", e))
     }
 
     /// Rewrite the CA of the kubeconfig clusters proxied through `server_url`,
@@ -546,7 +528,7 @@ impl CliCtx {
     fn resolve_login_server(&self) -> Result<(String, String), ProxyAuthK8sError> {
         if self.server_url.is_empty() {
             let Some(def_server) = self.config.servers.get(&self.config.default_server_name) else {
-                error!(
+                debug!(
                     "Default server '{}' not found in configuration. Please login to a server first.",
                     self.config.default_server_name
                 );
@@ -583,7 +565,7 @@ impl CliCtx {
         let client = match http_client(certificate_authority_data) {
             Ok(client) => client,
             Err(e) => {
-                error!("{}", e);
+                debug!("{}", e);
                 return Err(e);
             }
         };
@@ -597,7 +579,7 @@ impl CliCtx {
             // Reuse the client_api -> ProxyAuthK8sError From boundary rather
             // than re-matching the raw variants inline.
             let e = ProxyAuthK8sError::from(e);
-            error!("Failed to retrieve clusters: {}", e);
+            debug!("Failed to retrieve clusters: {}", e);
             e
         })
     }
@@ -917,7 +899,7 @@ mod tests {
         let mut ctx = CliCtx::for_test();
         assert!(matches!(
             ctx.handle_login(None, Some("tok".to_string()), None).await,
-            Err(ProxyAuthK8sError::InvalidUsage(_))
+            Err(ProxyAuthK8sError::NotLoggedIn)
         ));
 
         ctx.server_url = URL.to_string();
