@@ -88,7 +88,7 @@ ces clusters : la page fournit un kubeconfig pointant sur le proxy, avec un
 
 Un cluster en échange de jeton ([`TokenExchange`](/docs/token-exchange)) ouvre la même page,
 mais son kubeconfig n'attend aucun jeton du cluster : il suppose la session SSO du plugin
-(`kubectl proxyauth login --server-url …`, puis `login clusters`), et la page le dit.
+(`kubectl proxyauth login --server-url …`, puis `login <cluster>`), et la page le dit.
 
 Avec le plugin, l'équivalent est :
 

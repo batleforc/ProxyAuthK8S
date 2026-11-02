@@ -33,15 +33,16 @@ l'écriture : mettez `chart-crd` à jour avant de passer un cluster en échange.
   `email` au lieu d'un nom vide partagé (audit et rate limit par utilisateur).
 - **Rafraîchissement** : un refresh token que l'IdP refuse en `invalid_request` est traité
   comme `invalid_grant` : la CLI redemande une connexion au lieu d'échouer.
-- **Réponses de l'IdP** : une réponse de jeton de plus de 16 Kio est refusée en `502`.
-- **CLI** : `kubectl-proxyauth login clusters` sait se connecter au proxy en SSO ; il faut
-  pour cela que la redirection du proxy (`OIDC_REDIRECT_URL`) soit déjà enregistrée chez son
-  IdP. `login --server-url --token` reste disponible.
+- **CLI** : `kubectl-proxyauth login --server-url …` sans `--token` se connecte au proxy en
+  SSO ; il faut pour cela que la redirection du proxy (`OIDC_REDIRECT_URL`) soit déjà
+  enregistrée chez son IdP. `login --server-url --token` reste disponible.
 
 ## Passer un cluster en échange
 
 Activer l'échange sur un cluster **invalide les jetons de cluster déjà distribués** pour lui :
-ses utilisateurs refont `kubectl-proxyauth login clusters`, qui écrit le nouveau contexte.
+ses utilisateurs refont `kubectl-proxyauth login <cluster>`, qui écrit le nouveau contexte
+sans SSO du cluster. Une réponse d'échange de plus de 16 Kio de l'IdP du cluster est
+refusée en `502`.
 Les prérequis côté IdP (client confidentiel, audience du jeton du proxy) sont dans le
 [guide](/docs/token-exchange).
 
@@ -50,6 +51,7 @@ Les prérequis côté IdP (client confidentiel, audience du jeton du proxy) sont
 <Callout type="warn">
 Repassez chaque cluster en `Passthrough` **avant** de revenir à la 0.5.x ou de rétrograder
 `chart-crd` : rien n'est persisté par l'échange (cache en mémoire), mais un binaire 0.5.x ne
-connaît pas le mode `TokenExchange` et ne trouve pas un cluster qui le demande (il répond
-« cluster inconnu » plutôt que de relayer le jeton de l'IdP).
+connaît pas le mode `TokenExchange` : son contrôleur ne lit plus la liste des `ProxyKubeApi`
+tant qu'un cluster le demande (plus aucune réconciliation), et le proxy répond « cluster
+inconnu » pour ce cluster plutôt que de relayer le jeton de l'IdP.
 </Callout>

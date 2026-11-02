@@ -28,7 +28,7 @@ All notable changes to this project will be documented in this file. See [conven
 - (**deps**) bump taiki-e/install-action from 2.87.29 to 2.87.31 - ([2673b25](https://github.com/batleforc/proxyauthK8s/commit/2673b2523893b2fe93b0e418e856a14e3a708ac5)) - dependabot[bot]
 #### Miscellaneous Chores
 - merge fix/it-rfc0010-dex-b-serial (#333) - ([43cdff1](https://github.com/batleforc/proxyauthK8s/commit/43cdff1bd84f4e8e54ab0dad40fa8012c21081c5)) - Maxime, Claude Fable 5.1
-- merge chore/deps-2026-11 (#334) - ([d798977](https://github.com/batleforc/proxyauthK8s/commit/d79897784778a4735843daacec23e40678ab68a8)) - Maxime, Claude Fable 5.1, Claude Fable 5.1, Claude Fable 5.1, Claude Fable 5.1
+- merge chore/deps-2026-11 (#334) - ([d798977](https://github.com/batleforc/proxyauthK8s/commit/d79897784778a4735843daacec23e40678ab68a8)) - Maxime, Claude Fable 5.1
 - merge rfc/0010-token-exchange (#332) - ([2556d0b](https://github.com/batleforc/proxyauthK8s/commit/2556d0b040888185ffe14f369d98878d2e1a5e6d)) - Maxime, Claude Fable 5.1
 - merge rfc/0016-heavy-perf (#331) - ([030781a](https://github.com/batleforc/proxyauthK8s/commit/030781a31da85fa929f96ca97deca55eeb00d783)) - Maxime
 - merge dependabot/github_actions/docker/login-action-4.7.0 (#326) - ([1ccc116](https://github.com/batleforc/proxyauthK8s/commit/1ccc1169fd799e3619990ce1b85a9d34eb8ccc18)) - Maxime

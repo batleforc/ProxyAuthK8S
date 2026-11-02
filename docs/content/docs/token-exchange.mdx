@@ -167,7 +167,7 @@ qui n'est pas celui du proxy sans `connector_id`, et un client sans secret.
 
 ```bash
 kubectl-proxyauth login --server-url https://proxy.example.com   # SSO au proxy, une fois
-kubectl-proxyauth login clusters                                  # aucun SSO pour un cluster en échange
+kubectl-proxyauth login <cluster>                                 # aucun SSO pour un cluster en échange
 kubectl get pods
 ```
 
@@ -176,12 +176,12 @@ moins de 60 s (`/api/v1/auth/refresh`).
 
 Dans le dashboard, **Accéder au cluster** ouvre pour un cluster en échange la page
 `/clusters/<namespace>/<nom>/nosso` : elle donne le kubeconfig du plugin et la marche à
-suivre (`login --server-url`, puis `login clusters`), sans demander de jeton du cluster.
+suivre (`login --server-url`, puis `login <cluster>`), sans demander de jeton du cluster.
  `login --server-url … --token …` reste possible (scripts, CI), sans
 rafraîchissement.
 
 Passer un cluster en échange rend inutiles les jetons de cluster déjà distribués pour lui :
-les utilisateurs refont `kubectl-proxyauth login clusters`. Revenir en `Passthrough` rétablit
+les utilisateurs refont `kubectl-proxyauth login <cluster>`. Revenir en `Passthrough` rétablit
 l'ancien chemin ; rien n'est persisté.
 
 ## 5. Exploiter
