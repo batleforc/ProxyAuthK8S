@@ -20,7 +20,7 @@ tasks:
     cmds:
       - cargo build -p kubectl_proxyauth
       - |
-        env -u DBUS_SESSION_BUS_ADDRESS keyctl session - \
+        env DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent keyctl session - \
           cargo nextest run -p integration --profile perf --no-capture
 
   compare:
