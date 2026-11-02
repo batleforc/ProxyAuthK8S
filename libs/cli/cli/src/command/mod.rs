@@ -83,8 +83,7 @@ pub enum Commands {
         /// Get a specific cluster by name
         cluster_name: Option<String>,
     },
-    /// Show who you are logged in as on each server, until when, and the
-    /// clusters logged in through it. Local only: no network call.
+    /// Show your login state on each server (local only, no network call).
     Status,
     /// Log in to the server (no argument) or to one of its clusters.
     Login {
@@ -132,20 +131,26 @@ pub enum Commands {
         /// Cluster name to retrieve the token for
         cluster_name: Option<String>,
     },
-    /// Show the current kubectl context, list them (-l) or switch (--set).
+    /// Show the current kubectl context, or the one named.
     #[command(alias = "ctx")]
     Context {
-        /// Context to show, or to switch to with --set
+        /// Context to show
         context_name: Option<String>,
-        /// List all available contexts
-        #[arg(short, long, action = clap::ArgAction::SetTrue)]
+        /// Deprecated: use `get-contexts`
+        #[arg(short, long, hide = true, action = clap::ArgAction::SetTrue)]
         list: bool,
-        /// Make the given context the current one
-        // No `short`: `-s` is already the global `--server-url`; clap rejects the
-        // duplicate short within this subcommand. Long-only `--set`.
-        #[arg(long, action = clap::ArgAction::SetTrue)]
+        /// Deprecated: use `use-context <NAME>`
+        // No `short`: `-s` is already the global `--server-url`.
+        #[arg(long, hide = true, action = clap::ArgAction::SetTrue)]
         set: bool,
     },
+    /// Switch kubectl to another context (like `kubectl config use-context`).
+    UseContext {
+        /// Context name, e.g. `<namespace>-<cluster>-context` after a login
+        context_name: String,
+    },
+    /// List the kubeconfig contexts, flagging those served by ProxyAuthK8S.
+    GetContexts,
     /// Show or change the CLI configuration (known servers, defaults).
     #[command(arg_required_else_help = true)]
     Config {
@@ -232,6 +237,55 @@ mod tests {
         assert!(parse(&["-s", "https://a"]).is_err());
         assert!(parse(&["-n", "ns"]).is_err());
         assert!(parse(&["-d", "https://a", "-s", "https://b", "-n", "ns"]).is_err());
+    }
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("kubectl-proxyauth").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn config_takes_kubectl_style_verbs() {
+        match parse(&["config", "use-server", "https://a"])
+            .unwrap()
+            .command
+        {
+            Some(Commands::Config {
+                command: Some(ConfigCommands::UseServer { url }),
+            }) => assert_eq!(url, "https://a"),
+            other => panic!("expected use-server, got {other:?}"),
+        }
+        // `-n` stays the global flag: the positional namespace has its own id.
+        let cli = parse(&["config", "set-namespace", "https://a", "team-a", "-n", "x"]).unwrap();
+        assert_eq!(cli.namespace, "x");
+        match cli.command {
+            Some(Commands::Config {
+                command: Some(ConfigCommands::SetNamespace { url, namespace }),
+            }) => assert_eq!((url.as_str(), namespace.as_str()), ("https://a", "team-a")),
+            other => panic!("expected set-namespace, got {other:?}"),
+        }
+        assert!(parse(&["config", "set-namespace", "https://a"]).is_err());
+    }
+
+    #[test]
+    fn contexts_take_kubectl_style_verbs_and_the_old_flags_still_parse() {
+        assert!(matches!(
+            parse(&["use-context", "team-a-prod-context"]).unwrap().command,
+            Some(Commands::UseContext { context_name }) if context_name == "team-a-prod-context"
+        ));
+        assert!(parse(&["use-context"]).is_err());
+        assert!(matches!(
+            parse(&["get-contexts"]).unwrap().command,
+            Some(Commands::GetContexts)
+        ));
+        // Deprecated, kept so existing scripts keep working.
+        assert!(matches!(
+            parse(&["ctx", "--set", "c"]).unwrap().command,
+            Some(Commands::Context { set: true, .. })
+        ));
+        assert!(matches!(
+            parse(&["ctx", "--list"]).unwrap().command,
+            Some(Commands::Context { list: true, .. })
+        ));
     }
 
     #[test]

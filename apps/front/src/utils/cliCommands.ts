@@ -42,15 +42,6 @@ export function resolveBackendUrl(
   return envUrl;
 }
 
-/** Server name the CLI derives from a backend URL (scheme dropped, first `.`/`:` turned into `-`). */
-export function backendUrlToName(url: string): string {
-  return url
-    .replace('http://', '')
-    .replace('https://', '')
-    .replace('.', '-')
-    .replace(':', '-');
-}
-
 const D = 'cli.data';
 
 /** Installation commands for each platform, in the current locale. */
@@ -92,11 +83,7 @@ export function buildInstallationCommands(t: Translate) {
 }
 
 /** Usage examples, in the current locale. */
-export function buildUsageExamples(
-  backendUrl: string,
-  backendUrlName: string,
-  t: Translate,
-) {
+export function buildUsageExamples(backendUrl: string, t: Translate) {
   const section = (key: string, commands: string[]): UsageSection => ({
     title: t(`${D}.usage.${key}.title`),
     description: t(`${D}.usage.${key}.description`),
@@ -108,9 +95,9 @@ export function buildUsageExamples(
   });
   return {
     config: section('config', [
-      `kubectl proxyauth config set-def --default-server "${backendUrlName}"`,
+      `kubectl proxyauth config use-server "${backendUrl}"`,
       `kubectl proxyauth login --server-url "${backendUrl}"`,
-      `kubectl proxyauth config set-def --server "${backendUrlName}" --namespace "team-production"`,
+      `kubectl proxyauth config set-namespace "${backendUrl}" "team-production"`,
       'kubectl proxyauth config get --list',
     ]),
     auth: section('auth', [
@@ -126,8 +113,8 @@ export function buildUsageExamples(
       'kubectl proxyauth get --namespace production',
     ]),
     contexts: section('contexts', [
-      'kubectl proxyauth ctx --list',
-      'kubectl proxyauth ctx --set my-cluster',
+      'kubectl proxyauth get-contexts',
+      'kubectl proxyauth use-context default-my-cluster-context',
       'kubectl proxyauth ctx',
     ]),
   } satisfies Record<string, UsageSection>;
@@ -138,19 +125,17 @@ export type UsageExamples = ReturnType<typeof buildUsageExamples>;
 /** The complete workflow example, in the current locale. */
 export function buildWorkflowExample(
   backendUrl: string,
-  backendUrlName: string,
   token: string | undefined,
   t: Translate,
 ): string {
   const c = (n: number) => t(`${D}.workflow.c${n}`);
   return `${c(1)}
-kubectl proxyauth config set-def --default-server "${backendUrlName}"
-kubectl proxyauth config set-def --server "${backendUrl}" --namespace "default"
-
-${c(2)}
-kubectl proxyauth login
+kubectl proxyauth login --server-url "${backendUrl}"
 ${c(3)}
 kubectl proxyauth login --server-url "${backendUrl}" --token "${token}"
+
+${c(2)}
+kubectl proxyauth config set-namespace "${backendUrl}" "default"
 
 ${c(4)}
 kubectl proxyauth get
@@ -163,6 +148,6 @@ kubectl get pods
 kubectl get services
 
 ${c(7)}
-kubectl proxyauth ctx --set another-cluster
+kubectl proxyauth use-context default-another-cluster-context
 kubectl get nodes`;
 }

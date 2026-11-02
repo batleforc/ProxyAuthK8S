@@ -367,8 +367,8 @@
         }
       },
       "workflow": {
-        "c1": "# 1. Initial configuration",
-        "c2": "# 2. Authentication",
+        "c1": "# 1. Log in to the server (it becomes the default one)",
+        "c2": "# 2. Optional: default namespace for this server",
         "c3": "# Or with your current token",
         "c4": "# 3. List the available clusters",
         "c5": "# 4. Log in to a cluster",

@@ -65,8 +65,18 @@ impl Cli {
                     "Handling context for cluster: {:?}, list: {}, set: {}",
                     context_name, list, set
                 );
+                if *list {
+                    warn!("`context --list` is deprecated: use `get-contexts`");
+                }
+                if *set {
+                    warn!("`context --set` is deprecated: use `use-context <NAME>`");
+                }
                 ctx.handle_context(context_name.clone(), *list, *set)
             }
+            Some(Commands::UseContext { context_name }) => {
+                ctx.handle_context(Some(context_name.clone()), false, true)
+            }
+            Some(Commands::GetContexts) => ctx.handle_context(None, true, false),
             Some(Commands::Config { command }) => {
                 debug!("Handling config command: {:?}", command);
                 if let Some(command) = command {

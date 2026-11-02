@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { i18n } from '../i18n';
 import {
-  backendUrlToName,
   buildInstallationCommands,
   buildUsageExamples,
   buildWorkflowExample,
@@ -33,26 +32,13 @@ describe('resolveBackendUrl', () => {
   );
 });
 
-describe('backendUrlToName', () => {
-  it('drops the scheme and replaces the first dot and colon', () => {
-    expect(backendUrlToName('https://proxy.example.com')).toBe(
-      'proxy-example.com',
-    );
-    expect(backendUrlToName('http://localhost:8080')).toBe('localhost-8080');
-  });
-});
-
 describe('CLI guide content', () => {
   it('injects the backend URL and name in the configuration examples', () => {
-    const examples = buildUsageExamples(
-      'https://proxy.example.com',
-      'proxy-example.com',
-      fr,
-    );
+    const examples = buildUsageExamples('https://proxy.example.com', fr);
     expect(examples.config.examples.map((e) => e.command)).toEqual([
-      'kubectl proxyauth config set-def --default-server "proxy-example.com"',
+      'kubectl proxyauth config use-server "https://proxy.example.com"',
       'kubectl proxyauth login --server-url "https://proxy.example.com"',
-      'kubectl proxyauth config set-def --server "proxy-example.com" --namespace "team-production"',
+      'kubectl proxyauth config set-namespace "https://proxy.example.com" "team-production"',
       'kubectl proxyauth config get --list',
     ]);
     expect(Object.keys(examples)).toEqual([
@@ -66,33 +52,41 @@ describe('CLI guide content', () => {
   it('includes the current token in the workflow', () => {
     const workflow = buildWorkflowExample(
       'https://proxy.example.com',
-      'proxy-example.com',
       'TOKEN',
       fr,
     );
     expect(workflow).toContain(
       'kubectl proxyauth login --server-url "https://proxy.example.com" --token "TOKEN"',
     );
-    expect(workflow.startsWith('# 1. Configuration initiale\n')).toBe(true);
+    // Login first: `config` only acts on a server already logged in to.
+    expect(
+      workflow.startsWith(
+        '# 1. Se connecter au serveur (il devient le serveur par défaut)\nkubectl proxyauth login --server-url',
+      ),
+    ).toBe(true);
+    expect(workflow).not.toContain('set-def');
+    expect(workflow).toContain(
+      'kubectl proxyauth use-context default-another-cluster-context',
+    );
   });
 
   it('follows the locale, commands unchanged', () => {
-    const inEn = buildUsageExamples('https://p.example', 'p-example', en);
-    const inFr = buildUsageExamples('https://p.example', 'p-example', fr);
+    const inEn = buildUsageExamples('https://p.example', en);
+    const inFr = buildUsageExamples('https://p.example', fr);
     expect(inEn.auth.title).toBe('Authentication');
     expect(inFr.auth.title).toBe('Authentification');
     expect(inEn.config.examples.map((e) => e.command)).toEqual(
       inFr.config.examples.map((e) => e.command),
     );
     expect(buildInstallationCommands(en).mise.badge).toBe('Recommended');
-    expect(
-      buildWorkflowExample('https://p.example', 'p-example', 'T', en),
-    ).toMatch(/^# 1\. Initial configuration\n/);
+    expect(buildWorkflowExample('https://p.example', 'T', en)).toMatch(
+      /^# 1\. Log in to the server/,
+    );
     // Every key resolves: none is printed raw.
     const all = JSON.stringify([
-      buildUsageExamples('u', 'n', en),
+      buildUsageExamples('u', en),
       buildInstallationCommands(en),
-      buildWorkflowExample('u', 'n', 'T', en),
+      buildWorkflowExample('u', 'T', en),
     ]);
     expect(all).not.toContain('cli.data');
   });

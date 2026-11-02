@@ -1,5 +1,7 @@
 use clap::Subcommand;
 
+use tracing::warn;
+
 use crate::{ctx::CliCtx, error::ProxyAuthK8sError};
 
 pub mod clear;
@@ -9,7 +11,22 @@ pub mod set_def;
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum ConfigCommands {
-    /// Set the default server (-d), or the default namespace of a server (-s and -n).
+    /// Make a server the default one (the server of commands without --server-url).
+    UseServer {
+        /// URL of a server you have logged in to
+        url: String,
+    },
+    /// Set the namespace used by default for a server's clusters.
+    SetNamespace {
+        /// URL of a server you have logged in to
+        url: String,
+        /// Namespace to use when -n is not given
+        // Own id: `namespace` is the global flag's.
+        #[arg(id = "default_namespace", value_name = "NAMESPACE")]
+        namespace: String,
+    },
+    /// Deprecated: use `config use-server` or `config set-namespace`.
+    #[command(hide = true)]
     SetDef {
         /// Server whose default namespace is set (with -n)
         #[arg(short, long, value_name = "URL", requires = "namespace")]
@@ -54,15 +71,24 @@ impl CliCtx {
     /// command is invoked as `ctx.handle_*(...)`.
     pub fn handle_config(&mut self, command: &ConfigCommands) -> Result<(), ProxyAuthK8sError> {
         match command {
+            ConfigCommands::UseServer { url } => self.handle_set_def(None, None, Some(url)),
+            ConfigCommands::SetNamespace { url, namespace } => {
+                self.handle_set_def(Some(url), Some(namespace), None)
+            }
             ConfigCommands::SetDef {
                 server_url,
                 namespace,
                 default_server,
-            } => self.handle_set_def(
-                server_url.as_ref(),
-                namespace.as_ref(),
-                default_server.as_ref(),
-            ),
+            } => {
+                warn!(
+                    "`config set-def` is deprecated: use `config use-server <URL>` or `config set-namespace <URL> <NAMESPACE>`"
+                );
+                self.handle_set_def(
+                    server_url.as_ref(),
+                    namespace.as_ref(),
+                    default_server.as_ref(),
+                )
+            }
             ConfigCommands::Clear { all, server_url } => {
                 self.handle_clear_config(*all, server_url.as_ref())
             }

@@ -367,8 +367,8 @@
         }
       },
       "workflow": {
-        "c1": "# 1. Configuration initiale",
-        "c2": "# 2. Authentification",
+        "c1": "# 1. Se connecter au serveur (il devient le serveur par défaut)",
+        "c2": "# 2. Optionnel : namespace par défaut de ce serveur",
         "c3": "# Ou avec votre token actuel",
         "c4": "# 3. Lister les clusters disponibles",
         "c5": "# 4. Se connecter à un cluster spécifique",

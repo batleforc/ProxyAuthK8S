@@ -90,7 +90,7 @@ describe('generateCallbackPluginCommands', () => {
       'kubectl proxyauth -n "team" login "prod" --token "ID"',
     );
     expect(
-      commands.endsWith('kubectl proxyauth ctx --set "team-prod-context"'),
+      commands.endsWith('kubectl proxyauth use-context "team-prod-context"'),
     ).toBe(true);
   });
 

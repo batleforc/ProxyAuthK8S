@@ -134,7 +134,7 @@ kubectl get pods
 kubectl get services
 
 ${c(5)}
-kubectl proxyauth ctx --set "${data.ns}-${data.cluster}-context"`;
+kubectl proxyauth use-context "${data.ns}-${data.cluster}-context"`;
 }
 
 /**
