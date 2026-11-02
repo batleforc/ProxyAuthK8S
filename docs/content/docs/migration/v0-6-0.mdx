@@ -1,0 +1,55 @@
+---
+title: Vers la 0.6.0
+description: Mettre à jour depuis la 0.5.x, échange de jeton (RFC 0010)
+icon: CircleArrowUp
+---
+
+import { Callout } from 'fumadocs-ui/components/callout';
+
+La 0.6.0 ajoute le mode `upstream_auth.mode: TokenExchange` (RFC 0010) : une seule connexion
+SSO au proxy, échangée contre un jeton par cluster auprès de l'IdP de ce cluster
+([Échange de jeton](/docs/token-exchange)). Rien ne change sans action de l'admin du proxy :
+`upstreamAuth.allowedModes` vaut `[Passthrough]`, et un cluster qui ne demande pas l'échange
+garde son chemin actuel.
+
+## Mettre à jour
+
+Comme toujours, `chart-crd` **avant** le chart :
+
+```bash
+helm upgrade proxyauthk8s-crd oci://ghcr.io/batleforc/proxyauthk8s/chart-crd:0.6.0 \
+  --namespace ${NAMESPACE}
+helm upgrade proxyauthk8s oci://ghcr.io/batleforc/proxyauthk8s/chart:0.6.0 \
+  --namespace ${NAMESPACE} \
+  --values proxyauthk8s-values.yaml
+```
+
+Sur une CRD 0.5.x, le contrôleur démarre mais l'apiserver refuse `mode: TokenExchange` à
+l'écriture : mettez `chart-crd` à jour avant de passer un cluster en échange.
+
+## Ce qui change pour tous les clusters
+
+- **Nom d'utilisateur** : un jeton sans `preferred_username` nomme l'utilisateur par son
+  `email` au lieu d'un nom vide partagé (audit et rate limit par utilisateur).
+- **Rafraîchissement** : un refresh token que l'IdP refuse en `invalid_request` est traité
+  comme `invalid_grant` : la CLI redemande une connexion au lieu d'échouer.
+- **Réponses de l'IdP** : une réponse de jeton de plus de 16 Kio est refusée en `502`.
+- **CLI** : `kubectl-proxyauth login clusters` sait se connecter au proxy en SSO ; il faut
+  pour cela que la redirection du proxy (`OIDC_REDIRECT_URL`) soit déjà enregistrée chez son
+  IdP. `login --server-url --token` reste disponible.
+
+## Passer un cluster en échange
+
+Activer l'échange sur un cluster **invalide les jetons de cluster déjà distribués** pour lui :
+ses utilisateurs refont `kubectl-proxyauth login clusters`, qui écrit le nouveau contexte.
+Les prérequis côté IdP (client confidentiel, audience du jeton du proxy) sont dans le
+[guide](/docs/token-exchange).
+
+## Revenir en arrière
+
+<Callout type="warn">
+Repassez chaque cluster en `Passthrough` **avant** de revenir à la 0.5.x ou de rétrograder
+`chart-crd` : rien n'est persisté par l'échange (cache en mémoire), mais un binaire 0.5.x ne
+connaît pas le mode `TokenExchange` et ne trouve pas un cluster qui le demande (il répond
+« cluster inconnu » plutôt que de relayer le jeton de l'IdP).
+</Callout>

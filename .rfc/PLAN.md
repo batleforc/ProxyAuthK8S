@@ -82,7 +82,7 @@ mergée.
 | 16 | **tag 0.4.0** | — | 13, 17 | — | `integration.yaml` vert, la 0011 (fait) et la 0012 retirées de `PENDING` | à faire : la 0011 et la 0012 sont livrées et hors de `PENDING` ; reste `integration.yaml` vert sur `main` ; la 0010 passe en 0.5.0 (2026-10-24) |
 | 19 | **Première instance et recette de la 0007** | — | 16 | déploiement de la 0.4.0, en mode agent là où l'apiserver n'est pas exposé | 7 jours selon la 0007 §13 ; sans déploiement antérieur, le critère « sans hausse » est à reformuler en seuils absolus avant de commencer | à faire |
 | 15 | **0010** (échange de jeton) | B | 17 | relecture face au mode `Agent` (la 0010 ne touche ni `upstream.rs` ni `agent/`), puis phases 1 à 4 | §6.P de la 0010 | fait (0010 §17) : phases 1 à 4, PR #332, §6.P 9/9 sur le banc le 2026-11-01 ; Dex A tenu à v2.45.1 (dexidp/dex#5017) |
-| 18 | **tag 0.6.0** | — | 15 | — | `integration.yaml` vert, la 0010 retirée de `PENDING` | à faire : la 0010 est Implemented et hors de `PENDING` ; reste le merge de #332 et `integration.yaml` vert sur `main` |
+| 18 | **tag 0.6.0** | — | 15 | — | `integration.yaml` vert, la 0010 retirée de `PENDING` | fait : #332 mergé le 2026-11-01, #333 et #334 le 2026-11-02, `integration.yaml` vert sur `main` ; v0.6.0 taguée le 2026-11-02 |
 | 14 | **v1.0.0** | — | 18 | bascules de défauts (§ « v1.0.0 ») | — | à faire |
 
 Les numéros d'étape sont gardés pour les renvois des RFC ; la table suit

@@ -2,6 +2,43 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.6.0](https://github.com/batleforc/proxyauthK8s/compare/2673b2523893b2fe93b0e418e856a14e3a708ac5..v0.6.0) - 2026-11-02
+#### Features
+- (**api**) exchange the proxy token per cluster and serve the CLI session (RFC 0010, #332) - ([2556d0b](https://github.com/batleforc/proxyauthK8s/commit/2556d0b040888185ffe14f369d98878d2e1a5e6d)) - Max Batleforc, Claude Fable 5.1
+- (**cli**) sign in to the proxy once for every exchange cluster (RFC 0010, #332) - ([2556d0b](https://github.com/batleforc/proxyauthK8s/commit/2556d0b040888185ffe14f369d98878d2e1a5e6d)) - Max Batleforc, Claude Fable 5.1
+- (**api**) name a user without preferred_username by their email (#332) - ([2556d0b](https://github.com/batleforc/proxyauthK8s/commit/2556d0b040888185ffe14f369d98878d2e1a5e6d)) - Max Batleforc, Claude Fable 5.1
+- (**api**) refuse a refresh token Dex calls invalid_request as invalid_grant (#332) - ([2556d0b](https://github.com/batleforc/proxyauthK8s/commit/2556d0b040888185ffe14f369d98878d2e1a5e6d)) - Max Batleforc, Claude Fable 5.1
+- (**api**) refuse an IdP answer past 16 KiB as 502 (#332) - ([2556d0b](https://github.com/batleforc/proxyauthK8s/commit/2556d0b040888185ffe14f369d98878d2e1a5e6d)) - Max Batleforc, Claude Fable 5.1
+- (**chart**) quote the back and front extra env values (#332) - ([2556d0b](https://github.com/batleforc/proxyauthK8s/commit/2556d0b040888185ffe14f369d98878d2e1a5e6d)) - Max Batleforc, Claude Fable 5.1
+- (**deps**) bump everything in range, closing RUSTSEC-2026-0387 (#334) - ([d798977](https://github.com/batleforc/proxyauthK8s/commit/d79897784778a4735843daacec23e40678ab68a8)) - Max Batleforc, Claude Fable 5.1
+- (**docs**) token exchange guide, Authentik as the cluster's IdP, migration to 0.6.0 (#332) - ([2556d0b](https://github.com/batleforc/proxyauthK8s/commit/2556d0b040888185ffe14f369d98878d2e1a5e6d)) - Max Batleforc, Claude Fable 5.1
+#### Bug Fixes
+- (**test**) validate the echo clusters' tokens against Dex - ([473873a](https://github.com/batleforc/proxyauthK8s/commit/473873a7c9e165939bec370777026f2acfdc42d9)) - Max Batleforc, Claude Opus 5.5
+#### Documentation
+- (**rfc**) RFC 0016 implemented, decisions confirmed - ([3a1d630](https://github.com/batleforc/proxyauthK8s/commit/3a1d63079bd3b6f04809dcb4dd35a87167b68bc5)) - Max Batleforc, Claude Opus 5.5
+- (**rfc**) record the green heavy run in RFC 0016 - ([dbdc027](https://github.com/batleforc/proxyauthK8s/commit/dbdc02730ec07a8b1b1435c81bc6e7512dd91319)) - Max Batleforc, Claude Opus 5.5
+- (**rfc**) RFC 0016, heavy suite and HTTP load - ([80197b7](https://github.com/batleforc/proxyauthK8s/commit/80197b7ae34ce2f0ea66be7e93a3ff2919a46cc5)) - Max Batleforc, Claude Opus 5.5
+- ship RFC 0010 in 0.6.0, with its migration page - ([527ec8c](https://github.com/batleforc/proxyauthK8s/commit/527ec8cfddfdbd26238949dc4f592f74ee254643)) - Max Batleforc, Claude Fable 5.1
+#### Tests
+- add the heavy suite and the HTTP load (RFC 0016) - ([1d737e9](https://github.com/batleforc/proxyauthK8s/commit/1d737e95ff50941075d215e7554cf52a1052040f)) - Max Batleforc, Claude Opus 5.5
+#### Build system
+- (**deps**) bump docker/login-action from 4.6.0 to 4.7.0 - ([3ba7f9a](https://github.com/batleforc/proxyauthK8s/commit/3ba7f9a8106d27721a9a79c00d636b896036e6d4)) - dependabot[bot]
+- (**deps**) bump github/codeql-action/upload-sarif - ([e0a99da](https://github.com/batleforc/proxyauthK8s/commit/e0a99dabccdec90152eb572c87a4055fea35f640)) - dependabot[bot]
+- (**deps**) bump mlab-sh/postmortem from 2.9.0 to 2.9.2 - ([d996cdd](https://github.com/batleforc/proxyauthK8s/commit/d996cddc19768cba4e3bf3d465911f81e14923d4)) - dependabot[bot]
+- (**deps**) bump taiki-e/install-action from 2.87.29 to 2.87.31 - ([2673b25](https://github.com/batleforc/proxyauthK8s/commit/2673b2523893b2fe93b0e418e856a14e3a708ac5)) - dependabot[bot]
+#### Miscellaneous Chores
+- merge fix/it-rfc0010-dex-b-serial (#333) - ([43cdff1](https://github.com/batleforc/proxyauthK8s/commit/43cdff1bd84f4e8e54ab0dad40fa8012c21081c5)) - Maxime, Claude Fable 5.1
+- merge chore/deps-2026-11 (#334) - ([d798977](https://github.com/batleforc/proxyauthK8s/commit/d79897784778a4735843daacec23e40678ab68a8)) - Maxime, Claude Fable 5.1, Claude Fable 5.1, Claude Fable 5.1, Claude Fable 5.1
+- merge rfc/0010-token-exchange (#332) - ([2556d0b](https://github.com/batleforc/proxyauthK8s/commit/2556d0b040888185ffe14f369d98878d2e1a5e6d)) - Maxime, Claude Fable 5.1
+- merge rfc/0016-heavy-perf (#331) - ([030781a](https://github.com/batleforc/proxyauthK8s/commit/030781a31da85fa929f96ca97deca55eeb00d783)) - Maxime
+- merge dependabot/github_actions/docker/login-action-4.7.0 (#326) - ([1ccc116](https://github.com/batleforc/proxyauthK8s/commit/1ccc1169fd799e3619990ce1b85a9d34eb8ccc18)) - Maxime
+- merge release/v0.5.0 (#330) - ([d9f0069](https://github.com/batleforc/proxyauthK8s/commit/d9f0069127d9a041ea23a2805eec9fce002aa265)) - Maxime
+- merge dependabot/github_actions/mlab-sh/postmortem-2.9.2 (#311) - ([5c9a838](https://github.com/batleforc/proxyauthK8s/commit/5c9a83802a11adeec050a5aa2918f0111c984d96)) - Maxime
+- merge dependabot/github_actions/github/codeql-action/upload-sarif-4.39.1 (#315) - ([ef56845](https://github.com/batleforc/proxyauthK8s/commit/ef56845e4d88a562f772318f6fa79c3bd34f78de)) - Maxime
+- merge dependabot/github_actions/taiki-e/install-action-2.87.31 (#325) - ([44a4acc](https://github.com/batleforc/proxyauthK8s/commit/44a4acc2a9109dc2f59ccad0026ad03efabc6980)) - Maxime
+
+- - -
+
 ## [v0.5.0](https://github.com/batleforc/proxyauthK8s/compare/ff9e08a9d6d7002e2f90acc826cfdeb1cd56a8b7..v0.5.0) - 2026-10-31
 #### Features
 - (**api**) serve the Issuer documents and sign its JWTs (RFC 0014 phase 3) - ([33eaba9](https://github.com/batleforc/proxyauthK8s/commit/33eaba9c6d1e0f1eefe07c3f76613f3d9e028a8d)) - Max Batleforc, Claude Opus 5.5 (1M context)
