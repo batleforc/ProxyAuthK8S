@@ -294,6 +294,12 @@ kubectl proxyauth -n default login mon-cluster
 kubectl get pods   # passe par le proxy avec le jeton du trousseau
 ```
 
+Quand le jeton est un JWT (l'`id_token` d'un login OIDC, ou le jeton d'une session SSO), `get-token`
+indique à kubectl son expiration (`expirationTimestamp`). kubectl relance alors `get-token` à
+l'échéance, y compris pendant une commande longue (`port-forward`, `exec`, `--watch`), ce qui
+renouvelle le jeton quand une session SSO le permet. Un jeton déjà expiré n'est pas transmis :
+`get-token` échoue et indique le login à relancer, au lieu de laisser kubectl recevoir un `401`.
+
 #### Cluster en échange de jeton
 
 Un cluster en `upstream_auth.mode: TokenExchange` (`token_exchange: true` dans
@@ -398,6 +404,7 @@ l'appel, applique les règles de sécurité, puis relaie vers l'apiserver.
 | `403` avec un message sur un chemin             | Le chemin n'est pas dans `security_config.allowed_resources`                   |
 | `429` avec un en-tête `Retry-After`             | Rate limiting, ou bannissement après des échecs d'authentification répétés      |
 | `certificate verify failed`                     | Certificat du serveur non reconnu : voir `--certificate-authority` ci-dessus     |
+| `ERR000014: Unauthenticated: the login to cluster … has expired` | L'`id_token` du cluster (ou le jeton serveur collé) a expiré : lancer la commande indiquée, par ex. `kubectl proxyauth -n <ns> login <cluster>` |
 | `ERR000021: Not logged in to any ProxyAuthK8S server` | Aucun serveur connu : commencer par `kubectl proxyauth login --server-url https://…` |
 | `ERR000020: Server certificate not trusted`     | Certificat auto-signé refusé à l'invite de confiance, ou certificat **renouvelé** depuis qu'il a été épinglé : relancer `kubectl proxyauth login` depuis un terminal et accepter après vérification de l'empreinte, ou passer `--certificate-authority` |
 | `x509: certificate signed by unknown authority` (kubectl) | Le certificat du serveur a changé : relancer `kubectl proxyauth login`, qui met à jour la CA des clusters du kubeconfig |

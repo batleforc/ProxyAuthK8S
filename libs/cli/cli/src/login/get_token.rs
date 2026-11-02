@@ -1,37 +1,61 @@
 use crate::cli_config::cli_server_config::CliServerConfig;
 use crate::ctx::CliCtx;
 use crate::error::ProxyAuthK8sError;
+use crate::helper::{display_claims, rfc3339, unix_now};
 use tracing::debug;
 
 //https://kubernetes.io/docs/reference/access-authn-authz/authentication/#input-and-output-formats
 impl CliCtx {
-    /// The token kubectl sends to `namespace/cluster`: the server token,
-    /// renewed when about to expire, for a cluster recorded in token exchange
-    /// by `login` (RFC 0010); else the cluster token from the keyring.
+    /// The token kubectl sends to `namespace/cluster`, and when it expires
+    /// (Unix seconds, if known): the server token, renewed when about to
+    /// expire, for a cluster recorded in token exchange by `login` (RFC 0010);
+    /// else the cluster token from the keyring (the OIDC `id_token`).
+    ///
+    /// An already expired token is refused rather than handed to kubectl,
+    /// which would only get a 401 for it: the error says which login to run.
     async fn cluster_exec_token(
         server_config: &CliServerConfig,
         namespace: &str,
         cluster_name: &str,
-    ) -> Result<String, ProxyAuthK8sError> {
+    ) -> Result<(String, Option<i64>), ProxyAuthK8sError> {
         let token_exchange = server_config
             .get_clusters_from_ns_name(Some(namespace.to_string()), cluster_name.to_string())
             .is_some_and(|cluster| cluster.token_exchange);
-        if token_exchange {
-            return server_config.fresh_server_token().await.inspect_err(|e| {
+        let (token, expires_at, login) = if token_exchange {
+            let token = server_config.fresh_server_token().await.inspect_err(|e| {
                 debug!(
                     "Failed to retrieve the server token for cluster '{}/{}': {}",
                     namespace, cluster_name, e
                 );
-            });
+            })?;
+            // The IdP's own expiry of a session, else the token's.
+            let expires_at = server_config
+                .server_session()
+                .ok()
+                .flatten()
+                .and_then(|session| session.expires_at)
+                .or_else(|| display_claims(&token).exp);
+            let login = format!("kubectl proxyauth login --server-url {}", server_config.url);
+            (token, expires_at, login)
+        } else {
+            let token = server_config
+                .get_cluster_token(namespace.to_string(), cluster_name.to_string())
+                .inspect_err(|e| {
+                    debug!(
+                        "Failed to retrieve token for cluster '{}/{}': {}. Log in with 'kubectl proxyauth login {}'.",
+                        namespace, cluster_name, e, cluster_name
+                    );
+                })?;
+            let expires_at = display_claims(&token).exp;
+            let login = format!("kubectl proxyauth -n {namespace} login {cluster_name}");
+            (token, expires_at, login)
+        };
+        if expires_at.is_some_and(|at| at <= unix_now()) {
+            return Err(ProxyAuthK8sError::Unauthenticated(format!(
+                "the login to cluster '{namespace}/{cluster_name}' has expired; run `{login}`"
+            )));
         }
-        server_config
-            .get_cluster_token(namespace.to_string(), cluster_name.to_string())
-            .inspect_err(|e| {
-                debug!(
-                    "Failed to retrieve token for cluster '{}/{}': {}. Log in with 'kubectl proxyauth login {}'.",
-                    namespace, cluster_name, e, cluster_name
-                );
-            })
+        Ok((token, expires_at))
     }
 
     /// Returns `Err` on any failure so the caller can propagate a non-zero
@@ -180,7 +204,8 @@ impl CliCtx {
             namespace, cluster_name, server_config.url
         );
 
-        let token = Self::cluster_exec_token(server_config, &namespace, &cluster_name).await?;
+        let (token, expires_at) =
+            Self::cluster_exec_token(server_config, &namespace, &cluster_name).await?;
 
         debug!(
             "Successfully retrieved token for cluster '{}/{}'.",
@@ -193,12 +218,18 @@ impl CliCtx {
             "client.authentication.k8s.io/v1"
         };
 
+        let mut status = serde_json::Map::new();
+        status.insert("token".to_string(), token.into());
+        // kubectl caches the credential until then and runs get-token again
+        // after: long-lived commands (port-forward, exec, --watch) pick up a
+        // renewed token, or the login error, instead of a 401.
+        if let Some(at) = expires_at.and_then(rfc3339) {
+            status.insert("expirationTimestamp".to_string(), at.into());
+        }
         let exec_credential = serde_json::json!({
             "apiVersion": api_version,
             "kind": "ExecCredential",
-            "status": {
-                "token": token
-            }
+            "status": status,
         });
 
         match serde_json::to_string(&exec_credential) {
@@ -230,7 +261,7 @@ mod tests {
             .clusters
             .insert("team-a/x".to_string(), CliClusterConfig::token_exchange());
 
-        let token = CliCtx::cluster_exec_token(&server, "team-a", "x")
+        let (token, _) = CliCtx::cluster_exec_token(&server, "team-a", "x")
             .await
             .unwrap();
         assert_eq!(token, "srv-tok");
@@ -244,10 +275,12 @@ mod tests {
             .set_cluster_token("team-a".to_string(), "x".to_string(), "cl-tok".to_string())
             .unwrap();
 
-        let token = CliCtx::cluster_exec_token(&server, "team-a", "x")
+        let (token, expires_at) = CliCtx::cluster_exec_token(&server, "team-a", "x")
             .await
             .unwrap();
         assert_eq!(token, "cl-tok");
+        // An opaque token: no expiry known.
+        assert_eq!(expires_at, None);
         assert!(matches!(
             CliCtx::cluster_exec_token(&server, "team-a", "missing").await,
             Err(ProxyAuthK8sError::KeyringReadError(_))
@@ -453,5 +486,122 @@ mod tests {
             credential(&ctx, Some("prod"), &info).await,
             Err(ProxyAuthK8sError::ServerNotFound(_))
         ));
+    }
+
+    // --- expiry: when kubectl must ask again ---
+
+    fn jwt_expiring_at(exp: i64) -> String {
+        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+        let payload = serde_json::json!({ "sub": "reader", "exp": exp });
+        format!(
+            "e30.{}.sig",
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap())
+        )
+    }
+
+    #[tokio::test]
+    async fn the_credential_tells_kubectl_when_the_id_token_expires() {
+        let id_token = jwt_expiring_at(4_000_000_000);
+        let ctx = ctx_with_id_tokens(
+            "https://gettoken-expiry.example",
+            &[
+                ("team-c", "prod", &id_token),
+                ("team-c", "opaque", "opaque-token"),
+            ],
+        );
+        let info = exec_info("client.authentication.k8s.io/v1", None);
+
+        let out = credential(&ctx, Some("prod"), &info).await.unwrap();
+        assert_eq!(out["status"]["token"], id_token.as_str());
+        assert_eq!(out["status"]["expirationTimestamp"], "2096-10-02T07:06:40Z");
+        // Nothing to read in an opaque token: no expiry, kubectl keeps it.
+        let out = credential(&ctx, Some("opaque"), &info).await.unwrap();
+        assert!(out["status"].get("expirationTimestamp").is_none(), "{out}");
+    }
+
+    #[tokio::test]
+    async fn an_expired_id_token_is_refused_with_the_login_to_run() {
+        let ctx = ctx_with_id_tokens(
+            "https://gettoken-expired.example",
+            &[("team-c", "prod", &jwt_expiring_at(unix_now() - 1))],
+        );
+        let err = credential(
+            &ctx,
+            Some("prod"),
+            &exec_info("client.authentication.k8s.io/v1", None),
+        )
+        .await
+        .unwrap_err();
+        let ProxyAuthK8sError::Unauthenticated(message) = err else {
+            panic!("expected Unauthenticated, got {err:?}");
+        };
+        assert!(
+            message.contains("kubectl proxyauth -n team-c login prod"),
+            "{message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_exchange_cluster_expires_with_the_sso_session() {
+        use client_api::models::SessionTokens;
+        let url = "https://gettoken-exchange-expiry.example";
+        let mut ctx = ctx_with_id_tokens(url, &[]);
+        let name = CliServerConfig::url_to_name_from_string(url.to_string());
+        let server = ctx.config.servers.get_mut(&name).unwrap();
+        server
+            .clusters
+            .insert("team-c/x".to_string(), CliClusterConfig::token_exchange());
+        // An opaque access token: the expiry is the IdP's `expires_in`. An hour
+        // left: used as is, no renewal (so no network call).
+        let mut tokens = SessionTokens::new("opaque-access".to_string(), "Bearer".to_string());
+        tokens.refresh_token = Some(Some("refresh".to_string()));
+        tokens.expires_in = Some(Some(3_600));
+        server.store_session_tokens(tokens, None).unwrap();
+        let expires_at = server
+            .server_session()
+            .unwrap()
+            .unwrap()
+            .expires_at
+            .unwrap();
+
+        let out = credential(
+            &ctx,
+            Some("x"),
+            &exec_info("client.authentication.k8s.io/v1", None),
+        )
+        .await
+        .unwrap();
+        assert_eq!(out["status"]["token"], "opaque-access");
+        assert_eq!(
+            out["status"]["expirationTimestamp"],
+            rfc3339(expires_at).unwrap().as_str()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_expired_pasted_server_token_is_refused_for_an_exchange_cluster() {
+        let url = "https://gettoken-exchange-expired.example";
+        let mut ctx = ctx_with_id_tokens(url, &[]);
+        let name = CliServerConfig::url_to_name_from_string(url.to_string());
+        let server = ctx.config.servers.get_mut(&name).unwrap();
+        server
+            .clusters
+            .insert("team-c/x".to_string(), CliClusterConfig::token_exchange());
+        // Pasted with --token: no session to renew it.
+        server
+            .set_server_token(jwt_expiring_at(unix_now() - 1))
+            .unwrap();
+
+        let err = credential(
+            &ctx,
+            Some("x"),
+            &exec_info("client.authentication.k8s.io/v1", None),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, ProxyAuthK8sError::Unauthenticated(m) if m.contains(&format!("login --server-url {url}"))),
+            "{err:?}"
+        );
     }
 }

@@ -2,15 +2,13 @@
 //! clusters logged in through each. Local state only: no network call, and no
 //! token is ever printed.
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     cli_config::cli_server_config::CliServerConfig,
     ctx::CliCtx,
     error::ProxyAuthK8sError,
+    helper::{display_claims, unix_now},
     output::{KubeList, TableRow},
 };
 
@@ -25,27 +23,6 @@ pub struct StatusOutput {
     pub expires_at: Option<i64>,
     /// `namespace/name` of each cluster logged in through this server.
     pub clusters: Vec<String>,
-}
-
-/// The few claims `status` shows.
-#[derive(Deserialize, Default)]
-struct Claims {
-    preferred_username: Option<String>,
-    email: Option<String>,
-    sub: Option<String>,
-    exp: Option<i64>,
-}
-
-/// Display-only read of a JWT payload. The signature is NOT checked: nothing
-/// read here grants access, it only tells the user who they appear to be.
-/// An opaque (non-JWT) token yields no claims.
-fn display_claims(token: &str) -> Claims {
-    token
-        .split('.')
-        .nth(1)
-        .and_then(|payload| URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok())
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
 }
 
 /// Time left before `expires_at`, as a person reads it.
@@ -66,14 +43,6 @@ fn remaining(expires_at: Option<i64>, now: i64, renewable: bool) -> String {
         3_600..86_400 => format!("in {}h", left / 3600),
         _ => format!("in {}d", left / 86_400),
     }
-}
-
-fn unix_now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .and_then(|d| i64::try_from(d.as_secs()).ok())
-        .unwrap_or_default()
 }
 
 impl StatusOutput {
@@ -167,6 +136,7 @@ impl CliCtx {
 mod tests {
     use super::*;
     use crate::cli_config::cli_cluster_config::CliClusterConfig;
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
     fn jwt(payload: &serde_json::Value) -> String {
         format!(

@@ -10,6 +10,37 @@ pub(crate) fn unix_now() -> i64 {
         .unwrap_or(0)
 }
 
+/// The few claims of a JWT the CLI shows or uses as a cache hint.
+#[derive(serde::Deserialize, Default)]
+pub(crate) struct DisplayClaims {
+    pub preferred_username: Option<String>,
+    pub email: Option<String>,
+    pub sub: Option<String>,
+    pub exp: Option<i64>,
+}
+
+/// Read a JWT payload WITHOUT checking its signature: only for what the CLI
+/// shows (`status`) or when kubectl should ask again (`get-token`), never to
+/// grant anything. An opaque (non-JWT) token yields no claims.
+pub(crate) fn display_claims(token: &str) -> DisplayClaims {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    token
+        .split('.')
+        .nth(1)
+        .and_then(|payload| URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// Unix seconds as RFC 3339 (`2026-11-02T20:00:00Z`), the format of
+/// Kubernetes timestamps.
+pub(crate) fn rfc3339(unix_seconds: i64) -> Option<String> {
+    time::OffsetDateTime::from_unix_timestamp(unix_seconds)
+        .ok()?
+        .format(&time::format_description::well_known::Rfc3339)
+        .ok()
+}
+
 /// Write `contents` to `path`, restricting the file to owner read/write (`0600`)
 /// on Unix.
 ///

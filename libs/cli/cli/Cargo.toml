@@ -12,6 +12,7 @@ kube = { workspace = true }
 k8s-openapi = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true }
+time = { version = "0.3", features = ["formatting"] }
 serde_yaml_ng = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
