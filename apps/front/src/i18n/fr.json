@@ -331,6 +331,10 @@
           "e5": {
             "title": "Vider le cache des tokens",
             "description": "Supprime tous les tokens en cache"
+          },
+          "e6": {
+            "title": "Voir où vous êtes connecté",
+            "description": "Compte, expiration et clusters connectés pour chaque serveur"
           }
         },
         "clusters": {

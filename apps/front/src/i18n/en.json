@@ -331,6 +331,10 @@
           "e5": {
             "title": "Clear the token cache",
             "description": "Removes every cached token"
+          },
+          "e6": {
+            "title": "Show your login state",
+            "description": "Who you are logged in as on each server, until when, and with which clusters"
           }
         },
         "clusters": {

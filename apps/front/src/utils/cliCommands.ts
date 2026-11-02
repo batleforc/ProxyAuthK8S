@@ -106,6 +106,7 @@ export function buildUsageExamples(backendUrl: string, t: Translate) {
       'kubectl proxyauth get-token my-cluster',
       'kubectl proxyauth logout my-cluster',
       'kubectl proxyauth cache clear',
+      'kubectl proxyauth status',
     ]),
     clusters: section('clusters', [
       'kubectl proxyauth get',

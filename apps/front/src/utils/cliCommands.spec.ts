@@ -101,3 +101,30 @@ describe('CLI guide content', () => {
     );
   });
 });
+
+describe('CLI commands shown in the UI', () => {
+  // Forms the CLI deprecated or never had: the guide must teach the current
+  // verbs (docs/content/docs/kubectl-plugin.mdx).
+  const STALE = [
+    /config set-def/,
+    /ctx --(set|list)/,
+    /context --(set|list)/,
+    /--server "/,
+  ];
+
+  it('use no deprecated or unknown command form', () => {
+    const examples = buildUsageExamples('https://p.example', fr);
+    const commands = [
+      ...Object.values(examples).flatMap((s) =>
+        s.examples.map((e) => e.command),
+      ),
+      buildWorkflowExample('https://p.example', 'T', fr),
+    ];
+    for (const command of commands) {
+      for (const stale of STALE) expect(command).not.toMatch(stale);
+    }
+    expect(examples.auth.examples.map((e) => e.command)).toContain(
+      'kubectl proxyauth status',
+    );
+  });
+});

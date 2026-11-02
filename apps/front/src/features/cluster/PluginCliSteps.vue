@@ -18,7 +18,8 @@ VERSION=$(curl -fsSLI -o /dev/null -w "%{url_effective}" https://github.com/batl
 curl -fsSLO "https://github.com/batleforc/ProxyAuthK8S/releases/download/$VERSION/kubectl-proxyauth_\${VERSION}_linux_amd64.tar.gz"
 tar xzf kubectl-proxyauth_*_linux_amd64.tar.gz
 sudo install kubectl-proxyauth /usr/local/bin/`;
-const VERIFY = `kubectl proxyauth get
+const VERIFY = `kubectl proxyauth status
+kubectl proxyauth get
 kubectl proxyauth ctx
 kubectl get nodes`;
 
