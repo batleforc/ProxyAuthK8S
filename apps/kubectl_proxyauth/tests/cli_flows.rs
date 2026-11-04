@@ -128,10 +128,19 @@ impl User {
 /// clear them with the run, whatever its outcome.
 impl Drop for User {
     fn drop(&mut self) {
+        if let Err(err) = self.clear_keyring() {
+            eprintln!("could not clear the test keyring entries: {err}");
+        }
+    }
+}
+
+impl User {
+    /// `config clear --all`: drops every token and session this user stored.
+    fn clear_keyring(&self) -> Result<(), String> {
         let mut clear = self.command(&["config", "clear", "--all"]);
         match clear.as_std_mut().output() {
-            Ok(out) if out.status.success() => {}
-            other => eprintln!("could not clear the test keyring entries: {other:?}"),
+            Ok(out) if out.status.success() => Ok(()),
+            other => Err(format!("{other:?}")),
         }
     }
 }
@@ -463,6 +472,51 @@ async fn a_config_command_refused_prints_its_error_once() {
         );
         assert!(!out.stderr.contains("WARN"), "{args:?}: {out:?}");
     }
+}
+
+#[tokio::test]
+async fn the_keyring_entries_a_test_stored_are_cleared_when_it_ends() {
+    let server = MockServer::start().await;
+    mount_server_sso(&server, None).await;
+    let user = User::new();
+    let url = server.uri();
+    // An SSO server login (server token + session) and a typed cluster token.
+    let login = user
+        .run(&with_browser(&["login", "--server-url", &url]))
+        .await;
+    assert!(login.ok(), "{login:?}");
+    let cluster = user
+        .run_with(&["-n", NS, "login", "plain"], &[], "typed-token\n")
+        .await;
+    assert!(cluster.ok(), "{cluster:?}");
+    let config = user.home.path().join(".kube").join("proxyauth_config.yaml");
+    let known = read(&config);
+    let before = user.run(&["status", "-f", "json"]).await;
+    assert!(before.stdout.contains("\"login\": \"sso\""), "{before:?}");
+
+    user.clear_keyring().expect("config clear --all");
+
+    // Same config back, keyring left as the clear made it: nothing to read.
+    std::fs::write(&config, known).expect("config restored");
+    let get = user.run(&["get"]).await;
+    assert_eq!(get.code, Some(1), "server token still stored: {get:?}");
+    let credential = user
+        .run_with(
+            &["get-token", "plain"],
+            &[("KUBERNETES_EXEC_INFO", &exec_info(&server, "plain"))],
+            "",
+        )
+        .await;
+    assert_eq!(
+        credential.code,
+        Some(1),
+        "cluster token still stored: {credential:?}"
+    );
+    let status = user.run(&["status", "-f", "json"]).await;
+    assert!(
+        !status.stdout.contains("\"login\": \"sso\""),
+        "SSO session still stored: {status:?}"
+    );
 }
 
 #[tokio::test]
