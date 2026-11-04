@@ -1,4 +1,4 @@
-use tracing::{error, info, warn};
+use tracing::{debug, info};
 
 use crate::{
     cli_config::cli_server_config::CliServerConfig, ctx::CliCtx, error::ProxyAuthK8sError,
@@ -16,10 +16,6 @@ impl CliCtx {
                 CliServerConfig::url_to_name_from_string(default_server.clone());
             // Check if the server exists in the config
             if !self.config.servers.contains_key(&default_server_name) {
-                warn!(
-                    "Server name '{}' not found in config. Please login to add it first.",
-                    default_server
-                );
                 return Err(ProxyAuthK8sError::ServerNotFound(default_server.clone()));
             }
             self.config.default_server_name = default_server_name;
@@ -29,14 +25,13 @@ impl CliCtx {
                     Ok(())
                 }
                 Err(e) => {
-                    error!("Failed to set default server: {}", e);
+                    debug!("Failed to set default server: {}", e);
                     Err(e)
                 }
             };
         }
 
         let (Some(server_url), Some(namespace)) = (server_url, namespace) else {
-            warn!("Both server_url and namespace must be provided together.");
             return Err(ProxyAuthK8sError::InvalidUsage(
                 "both server_url and namespace must be provided together".to_string(),
             ));
@@ -53,16 +48,12 @@ impl CliCtx {
                     Ok(())
                 }
                 Err(e) => {
-                    error!("Failed to set default namespace: {}", e);
+                    debug!("Failed to set default namespace: {}", e);
                     Err(e)
                 }
             }
         } else {
-            warn!(
-                "Server URL not found in config: {}, please login to add it first.",
-                server_url
-            );
-            Err(ProxyAuthK8sError::ServerNotFound(server_name))
+            Err(ProxyAuthK8sError::ServerNotFound(server_url.clone()))
         }
     }
 }
@@ -158,7 +149,7 @@ mod tests {
                 Some(&"ns".to_string()),
                 None
             ),
-            Err(ProxyAuthK8sError::ServerNotFound(name)) if name == "unknown"
+            Err(ProxyAuthK8sError::ServerNotFound(url)) if url == "https://unknown"
         ));
         assert!(!ctx.config_path.exists());
     }

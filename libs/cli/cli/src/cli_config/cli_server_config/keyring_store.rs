@@ -8,7 +8,7 @@
 use client_api::models::SessionTokens;
 use keyring_core::Entry;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error};
+use tracing::{debug, warn};
 
 use crate::{
     cli_config::{cli_cluster_config::CliClusterConfig, cli_server_config::CliServerConfig},
@@ -238,11 +238,11 @@ impl CliServerConfig {
             let ns = val.first().unwrap_or(&"").to_string();
             let cluster = val.get(1).unwrap_or(&"").to_string();
             if let Err(err) = self.clear_cluster_token(ns, cluster.clone()) {
-                error!("Error clearing token for cluster {}: {}", cluster, err);
+                warn!("Error clearing token for cluster {}: {}", cluster, err);
             }
         }
         if let Err(err) = self.clear_server_token() {
-            error!("Error clearing server token: {}", err);
+            warn!("Error clearing server token: {}", err);
         }
     }
 }
@@ -264,6 +264,18 @@ mod tests {
             config.cluster_keyring_user("team-a/prod"),
             "https://localhost:5437::team-a/prod"
         );
+    }
+
+    #[test]
+    fn an_unreadable_session_in_the_keyring_is_refused() {
+        let config = CliServerConfig::new("https://garbled-session.example".to_string());
+        config
+            .write_token(&config.session_keyring_user(), "not json")
+            .unwrap();
+        assert!(matches!(
+            config.server_session(),
+            Err(ProxyAuthK8sError::KeyringReadError(_))
+        ));
     }
 
     // The tests below run against the in-memory mock store `keystore` selects

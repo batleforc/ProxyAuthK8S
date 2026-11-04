@@ -11,6 +11,10 @@ impl From<CliConfigError> for ProxyAuthK8sError {
             CliConfigError::InvalidServerUrl(url, error) => {
                 ProxyAuthK8sError::InvalidServerUrl(url, error)
             }
+            // An empty name is "no default server": nobody has logged in yet.
+            CliConfigError::ServerNotFound(server) if server.is_empty() => {
+                ProxyAuthK8sError::NotLoggedIn
+            }
             CliConfigError::ServerNotFound(server) => ProxyAuthK8sError::ServerNotFound(server),
             CliConfigError::ClusterNotFound { server, cluster } => {
                 ProxyAuthK8sError::ClusterNotFound { server, cluster }

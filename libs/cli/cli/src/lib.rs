@@ -16,6 +16,7 @@ pub mod keystore;
 pub mod login;
 pub mod logout;
 pub mod output;
+pub mod status;
 #[cfg(test)]
 pub(crate) mod test_support;
 

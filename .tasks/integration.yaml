@@ -26,13 +26,15 @@ tasks:
     desc: "Run the Rust then Playwright integration suites against the bench"
     cmds:
       - cargo build -p kubectl_proxyauth
-      # A dedicated session keyring and no D-Bus: the CLI falls back to
-      # keyutils, and nothing reaches the user's own keyring.
+      # A dedicated session keyring and a session bus pointing nowhere: the CLI
+      # falls back to keyutils, and nothing reaches the user's own keyring.
+      # Unsetting the bus address is not enough: zbus still finds
+      # $XDG_RUNTIME_DIR/bus on a desktop.
       - |
         status=0
-        env -u DBUS_SESSION_BUS_ADDRESS keyctl session - \
+        env DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent keyctl session - \
           cargo nextest run -p integration --profile it -E 'not ({{.IT_SERIAL}})' || status=1
-        env -u DBUS_SESSION_BUS_ADDRESS keyctl session - \
+        env DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent keyctl session - \
           cargo nextest run -p integration --profile it -E '{{.IT_SERIAL}}' -j 1 || status=1
         pnpm -C apps/front test:e2e:it || status=1
         exit $status
@@ -42,7 +44,7 @@ tasks:
     cmds:
       - cargo build -p kubectl_proxyauth
       - |
-        env -u DBUS_SESSION_BUS_ADDRESS keyctl session - \
+        env DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent keyctl session - \
           cargo nextest run -p integration --profile heavy
 
   reload:

@@ -485,7 +485,10 @@ impl Session {
             )
             .env("KUBECONFIG", self.home.path().join(".kube/config"))
             .env("PATH", format!("{}:{path}", self.bin.path().display()))
-            .env_remove("DBUS_SESSION_BUS_ADDRESS")
+            // Pointed nowhere, not unset: zbus would still find the desktop's
+            // bus at $XDG_RUNTIME_DIR/bus, and the tokens would land in the
+            // user's keyring instead of the keyutils one `keyring_entries` reads.
+            .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent")
             .env("NO_COLOR", "1");
         command
     }

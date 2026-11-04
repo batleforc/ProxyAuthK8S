@@ -771,6 +771,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_server_login_to_an_unparsable_url_is_refused_before_the_browser() {
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let port = free_port();
+        let config = Configuration {
+            base_path: "not a url".to_string(),
+            ..Default::default()
+        };
+        let result = CliCtx::sso_server_login_with(
+            &config,
+            port,
+            proxy_browser(port, None, Arc::clone(&opened)),
+            None,
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(ProxyAuthK8sError::InvalidServerUrl(..))
+        ));
+        assert!(opened.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn a_redirect_with_another_state_is_refused_before_redeeming() {
         let server = MockServer::start().await;
         mount_token(&server, 0).await;

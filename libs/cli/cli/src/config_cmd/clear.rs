@@ -1,4 +1,4 @@
-use tracing::{error, info, warn};
+use tracing::{debug, info};
 
 use crate::{
     cli_config::cli_server_config::CliServerConfig, ctx::CliCtx, error::ProxyAuthK8sError,
@@ -17,15 +17,12 @@ impl CliCtx {
                     Ok(())
                 }
                 Err(e) => {
-                    error!("Failed to clear configurations: {}", e);
+                    debug!("Failed to clear configurations: {}", e);
                     Err(e)
                 }
             };
         }
         let Some(server_url) = server_url else {
-            warn!(
-                "Please provide either --all to clear all configurations or --server_url to clear a specific server configuration."
-            );
             return Err(ProxyAuthK8sError::InvalidUsage(
                 "provide either --all or --server_url".to_string(),
             ));
@@ -47,13 +44,12 @@ impl CliCtx {
                     Ok(())
                 }
                 Err(e) => {
-                    error!("Failed to clear configuration: {}", e);
+                    debug!("Failed to clear configuration: {}", e);
                     Err(e)
                 }
             }
         } else {
-            warn!("Server URL {} not found in configuration.", server_url);
-            Err(ProxyAuthK8sError::ServerNotFound(server_name))
+            Err(ProxyAuthK8sError::ServerNotFound(server_url.clone()))
         }
     }
 }
@@ -158,7 +154,7 @@ mod tests {
         ));
         assert!(matches!(
             ctx.handle_clear_config(false, Some(&"https://unknown".to_string())),
-            Err(ProxyAuthK8sError::ServerNotFound(name)) if name == "unknown"
+            Err(ProxyAuthK8sError::ServerNotFound(url)) if url == "https://unknown"
         ));
         // Nothing was written.
         assert!(!ctx.config_path.exists());

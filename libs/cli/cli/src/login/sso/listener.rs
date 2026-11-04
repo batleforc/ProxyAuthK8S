@@ -275,6 +275,18 @@ mod tests {
         }
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn a_login_never_completed_in_the_browser_is_refused_after_the_timeout() {
+        let (listeners, _) = listeners().await;
+        // Paused clock: the runtime jumps to the deadline once nothing runs.
+        let err = wait_for_callback(&listeners, None).await.unwrap_err();
+        assert!(
+            matches!(&err, ProxyAuthK8sError::SsoLoginError(msg)
+                if msg.contains(&format!("timed out after {}s", CALLBACK_TIMEOUT.as_secs()))),
+            "{err}"
+        );
+    }
+
     #[tokio::test]
     async fn binding_fails_only_when_no_loopback_family_is_free() {
         // Hold the port on both families (IPv6 may be unavailable, which makes

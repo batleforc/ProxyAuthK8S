@@ -831,6 +831,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_corrupted_saved_pin_is_left_to_the_http_client() {
+        let cert = self_signed_cert("proxy", &["localhost"]);
+        let server = TlsTestServer::start(&[&cert]).await;
+        let inspection = inspect(
+            &server.url(),
+            Some("not base64 PEM"),
+            unrelated_system().as_ref(),
+            UnixTime::now(),
+        )
+        .await;
+        // Nothing to compare with: the client loading it reports the error.
+        assert!(matches!(inspection, Inspection::Keep), "{inspection:?}");
+    }
+
+    #[tokio::test]
     async fn a_pinned_root_survives_a_leaf_rotation() {
         let root = ca_cert("internal root");
         let server =

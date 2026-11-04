@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::debug;
 
 use crate::{
     ctx::CliCtx,
@@ -54,7 +54,7 @@ impl CliCtx {
                 }) {
                 Ok(config) => config,
                 Err(e) => {
-                    error!(
+                    debug!(
                         "Error retrieving server configuration, please login to server first: {}",
                         e
                     );
@@ -102,20 +102,7 @@ impl CliCtx {
                 Ok(())
             }
             Err(e) => {
-                error!("Failed to retrieve clusters: {}", e);
-                match &e {
-                    ProxyAuthK8sError::Unauthenticated(_) => {
-                        info!(
-                            "Authentication failed: invalid or missing server token. Please run login first."
-                        );
-                    }
-                    ProxyAuthK8sError::RemoteServerError(_) => {
-                        info!("Server error occurred while retrieving clusters.");
-                    }
-                    _ => {
-                        info!("An unexpected error occurred while retrieving clusters.");
-                    }
-                }
+                debug!("Failed to retrieve clusters: {}", e);
                 Err(e)
             }
         }
@@ -202,7 +189,7 @@ mod tests {
         let mut ctx = CliCtx::for_test();
         assert!(matches!(
             ctx.handle_get_clusters(None).await,
-            Err(ProxyAuthK8sError::ServerNotFound(_))
+            Err(ProxyAuthK8sError::NotLoggedIn)
         ));
 
         for (status, body, unauthenticated) in [(401, "", true), (500, "[]", false)] {

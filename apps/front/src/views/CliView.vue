@@ -8,7 +8,6 @@ import { CodeBlock } from '@/components/ui/code-block';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useCopyToClipboard } from '../composables/useCopyToClipboard.ts';
 import {
-  backendUrlToName,
   buildUsageExamples,
   buildInstallationCommands,
   buildWorkflowExample,
@@ -24,23 +23,9 @@ const backendUrl = computed(() => {
   return resolveBackendUrl(envUrl, globalThis.location.origin);
 });
 
-const backendUrlName = computed(() => {
-  try {
-    return backendUrlToName(backendUrl.value);
-  } catch (error) {
-    console.error('Error parsing backend URL:', error);
-    return backendUrl.value;
-  }
-});
-
 // Computed: `t` follows the locale, so the content follows a language switch.
 const workflowExample = computed(() =>
-  buildWorkflowExample(
-    backendUrl.value,
-    backendUrlName.value,
-    authStore.getToken,
-    t,
-  ),
+  buildWorkflowExample(backendUrl.value, authStore.getToken, t),
 );
 
 const installTabs = computed(() => {
@@ -52,11 +37,7 @@ const installTabs = computed(() => {
   }));
 });
 const usageSections = computed(() => {
-  const examples = buildUsageExamples(
-    backendUrl.value,
-    backendUrlName.value,
-    t,
-  );
+  const examples = buildUsageExamples(backendUrl.value, t);
   return (['config', 'auth', 'clusters', 'contexts'] as const).map(
     (key) => examples[key],
   );
