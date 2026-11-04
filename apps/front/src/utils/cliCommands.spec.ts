@@ -36,8 +36,8 @@ describe('CLI guide content', () => {
   it('injects the backend URL and name in the configuration examples', () => {
     const examples = buildUsageExamples('https://proxy.example.com', fr);
     expect(examples.config.examples.map((e) => e.command)).toEqual([
-      'kubectl proxyauth config use-server "https://proxy.example.com"',
       'kubectl proxyauth login --server-url "https://proxy.example.com"',
+      'kubectl proxyauth config use-server "https://proxy.example.com"',
       'kubectl proxyauth config set-namespace "https://proxy.example.com" "team-production"',
       'kubectl proxyauth config get --list',
     ]);

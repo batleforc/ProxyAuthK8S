@@ -95,8 +95,8 @@ export function buildUsageExamples(backendUrl: string, t: Translate) {
   });
   return {
     config: section('config', [
-      `kubectl proxyauth config use-server "${backendUrl}"`,
       `kubectl proxyauth login --server-url "${backendUrl}"`,
+      `kubectl proxyauth config use-server "${backendUrl}"`,
       `kubectl proxyauth config set-namespace "${backendUrl}" "team-production"`,
       'kubectl proxyauth config get --list',
     ]),

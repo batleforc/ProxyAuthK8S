@@ -293,12 +293,12 @@
           "title": "Configuration",
           "description": "Configurer le plugin pour votre environnement",
           "e1": {
-            "title": "Définir le serveur par défaut",
-            "description": "Configure le serveur ProxyAuthK8s par défaut"
+            "title": "Ajouter un nouveau serveur",
+            "description": "Se connecte à un serveur par son URL, qui devient le serveur par défaut"
           },
           "e2": {
-            "title": "Ajouter un nouveau serveur",
-            "description": "Ajoute un nouveau serveur avec son URL"
+            "title": "Définir le serveur par défaut",
+            "description": "Bascule sur un serveur auquel vous êtes déjà connecté"
           },
           "e3": {
             "title": "Configurer le namespace par défaut",

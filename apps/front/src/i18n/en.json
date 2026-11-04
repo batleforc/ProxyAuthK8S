@@ -293,12 +293,12 @@
           "title": "Configuration",
           "description": "Set the plugin up for your environment",
           "e1": {
-            "title": "Set the default server",
-            "description": "Sets the default ProxyAuthK8s server"
+            "title": "Add a server",
+            "description": "Logs in to a server by its URL, which becomes the default"
           },
           "e2": {
-            "title": "Add a server",
-            "description": "Adds a server by its URL"
+            "title": "Set the default server",
+            "description": "Switches the default to a server already logged in to"
           },
           "e3": {
             "title": "Set the default namespace",
