@@ -39,7 +39,8 @@ fn remaining(expires_at: Option<i64>, now: i64, renewable: bool) -> String {
         };
     }
     match left {
-        ..3_600 => format!("in {}m", left / 60),
+        ..60 => "in <1m".to_string(),
+        60..3_600 => format!("in {}m", left / 60),
         3_600..86_400 => format!("in {}h", left / 3600),
         _ => format!("in {}d", left / 86_400),
     }
@@ -109,8 +110,8 @@ impl TableRow for StatusOutput {
 impl CliCtx {
     /// Print the login state of every known server (or of `--server-url`).
     pub fn handle_status(&self) -> Result<(), ProxyAuthK8sError> {
-        let only = (!self.server_url.is_empty())
-            .then(|| CliServerConfig::url_to_name_from_string(self.server_url.clone()));
+        let typed = (!self.server_url.is_empty()).then_some(&self.server_url);
+        let only = typed.map(|url| CliServerConfig::url_to_name_from_string(url.clone()));
         let mut rows: Vec<StatusOutput> = self
             .config
             .servers
@@ -121,8 +122,8 @@ impl CliCtx {
             })
             .collect();
         if rows.is_empty() {
-            return Err(match only {
-                Some(name) => ProxyAuthK8sError::ServerNotFound(name),
+            return Err(match typed {
+                Some(url) => ProxyAuthK8sError::ServerNotFound(url.clone()),
                 None => ProxyAuthK8sError::NotLoggedIn,
             });
         }
@@ -168,6 +169,7 @@ mod tests {
             remaining(Some(50), 100, true),
             "expired (renewed on next use)"
         );
+        assert_eq!(remaining(Some(30), 0, false), "in <1m");
         assert_eq!(remaining(Some(1_800), 0, false), "in 30m");
         assert_eq!(remaining(Some(7_200), 0, false), "in 2h");
         assert_eq!(remaining(Some(3 * 86_400), 0, false), "in 3d");
@@ -200,7 +202,7 @@ mod tests {
         ctx.server_url = "https://status-other".to_string();
         assert!(matches!(
             ctx.handle_status(),
-            Err(ProxyAuthK8sError::ServerNotFound(name)) if name == "status-other"
+            Err(ProxyAuthK8sError::ServerNotFound(url)) if url == "https://status-other"
         ));
     }
 

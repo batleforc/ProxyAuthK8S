@@ -5,6 +5,10 @@ use crate::helper::{display_claims, rfc3339, unix_now};
 use tracing::debug;
 
 //https://kubernetes.io/docs/reference/access-authn-authz/authentication/#input-and-output-formats
+/// Leeway on `exp`: a client clock a little ahead must not refuse a token the
+/// API server still accepts.
+const CLOCK_SKEW_SECS: i64 = 60;
+
 impl CliCtx {
     /// The token kubectl sends to `namespace/cluster`, and when it expires
     /// (Unix seconds, if known): the server token, renewed when about to
@@ -50,7 +54,7 @@ impl CliCtx {
             let login = format!("kubectl proxyauth -n {namespace} login {cluster_name}");
             (token, expires_at, login)
         };
-        if expires_at.is_some_and(|at| at <= unix_now()) {
+        if expires_at.is_some_and(|at| at.saturating_add(CLOCK_SKEW_SECS) <= unix_now()) {
             return Err(ProxyAuthK8sError::Unauthenticated(format!(
                 "the login to cluster '{namespace}/{cluster_name}' has expired; run `{login}`"
             )));
@@ -523,7 +527,11 @@ mod tests {
     async fn an_expired_id_token_is_refused_with_the_login_to_run() {
         let ctx = ctx_with_id_tokens(
             "https://gettoken-expired.example",
-            &[("team-c", "prod", &jwt_expiring_at(unix_now() - 1))],
+            &[(
+                "team-c",
+                "prod",
+                &jwt_expiring_at(unix_now() - 2 * CLOCK_SKEW_SECS),
+            )],
         );
         let err = credential(
             &ctx,
@@ -539,6 +547,19 @@ mod tests {
             message.contains("kubectl proxyauth -n team-c login prod"),
             "{message}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_token_just_past_its_exp_is_still_passed_to_kubectl() {
+        let id_token = jwt_expiring_at(unix_now() - CLOCK_SKEW_SECS / 2);
+        let ctx = ctx_with_id_tokens(
+            "https://gettoken-skew.example",
+            &[("team-c", "prod", &id_token)],
+        );
+        let info = exec_info("client.authentication.k8s.io/v1", None);
+        // A client clock up to a minute fast: the API server may still accept it.
+        let out = credential(&ctx, Some("prod"), &info).await.unwrap();
+        assert_eq!(out["status"]["token"], id_token.as_str());
     }
 
     #[tokio::test]
@@ -589,7 +610,7 @@ mod tests {
             .insert("team-c/x".to_string(), CliClusterConfig::token_exchange());
         // Pasted with --token: no session to renew it.
         server
-            .set_server_token(jwt_expiring_at(unix_now() - 1))
+            .set_server_token(jwt_expiring_at(unix_now() - 2 * CLOCK_SKEW_SECS))
             .unwrap();
 
         let err = credential(

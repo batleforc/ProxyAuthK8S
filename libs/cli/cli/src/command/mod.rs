@@ -62,7 +62,7 @@ pub struct Cli {
     )]
     pub server_url: String,
 
-    /// Output format of `get`, `context` and `config get`.
+    /// Output format of `get`, `get-contexts`, `context`, `config get` and `status`.
     #[arg(
         short,
         global = true,

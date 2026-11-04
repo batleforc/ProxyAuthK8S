@@ -435,6 +435,25 @@ async fn get_token_run_outside_kubectl_is_refused() {
 }
 
 #[tokio::test]
+async fn a_config_command_refused_prints_its_error_once() {
+    let user = User::new();
+    for args in [
+        &["config", "use-server", "https://unknown.example"][..],
+        &["config", "clear"][..],
+        &["config", "clear", "-s", "https://unknown.example"][..],
+    ] {
+        let out = user.run(args).await;
+        assert_eq!(out.code, Some(1), "{args:?}: {out:?}");
+        assert_eq!(
+            out.stderr.matches("error: ERR").count(),
+            1,
+            "{args:?}: {out:?}"
+        );
+        assert!(!out.stderr.contains("WARN"), "{args:?}: {out:?}");
+    }
+}
+
+#[tokio::test]
 async fn a_malformed_cli_config_fails_cleanly_before_any_command() {
     let user = User::new();
     let config = user.home.path().join("broken.yaml");

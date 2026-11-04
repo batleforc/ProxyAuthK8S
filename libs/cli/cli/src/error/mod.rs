@@ -74,9 +74,9 @@ impl ProxyAuthK8sError {
             Self::ClusterNotFound { .. } => {
                 Some("kubectl proxyauth get lists the clusters visible to you")
             }
-            Self::Unauthenticated(_) => {
-                Some("your session is over: run kubectl proxyauth login again")
-            }
+            Self::Unauthenticated(_) => Some(
+                "your login has expired: run the login command named above, or kubectl proxyauth login --server-url <URL>",
+            ),
             Self::UntrustedServerTls(_) => Some(
                 "rerun kubectl proxyauth login from a terminal to review the certificate, or pass --certificate-authority <FILE>",
             ),
@@ -107,6 +107,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("no hint for {error:?}"));
             assert!(hint.contains("kubectl proxyauth"), "{error:?}: {hint}");
         }
+        // A cluster id_token expiry is Unauthenticated too: the hint defers to
+        // the command the message names instead of the server login alone.
+        let hint = ProxyAuthK8sError::Unauthenticated("u".to_string()).hint();
+        assert!(hint.is_some_and(|h| h.contains("named above")), "{hint:?}");
         // The others carry their detail in the message alone.
         assert!(
             ProxyAuthK8sError::InvalidUsage("x".to_string())
