@@ -1,9 +1,9 @@
 use std::vec;
 
-use kube::config::NamedContext;
+use kube::config::{Kubeconfig, NamedContext};
 use serde::{Deserialize, Serialize};
 
-use crate::{cli_config::CliConfig, ctx::CliCtx, output::TableRow};
+use crate::{cli_config::CliConfig, output::TableRow};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GetContextOutput {
@@ -20,8 +20,11 @@ pub struct GetContextOutput {
 
 impl GetContextOutput {
     #[must_use]
-    pub fn new_from_kubeconfig(ctx: &NamedContext, cli_ctx: CliCtx) -> Option<GetContextOutput> {
-        let cluster = cli_ctx.kubeconfig.clusters.iter().find(|c| {
+    pub fn new_from_kubeconfig(
+        ctx: &NamedContext,
+        kubeconfig: &Kubeconfig,
+    ) -> Option<GetContextOutput> {
+        let cluster = kubeconfig.clusters.iter().find(|c| {
             ctx.context
                 .as_ref()
                 .is_some_and(|context| context.cluster == c.name)
@@ -37,7 +40,7 @@ impl GetContextOutput {
         )
         .unwrap_or_default();
         Some(GetContextOutput {
-            current_context: match &cli_ctx.kubeconfig.current_context {
+            current_context: match &kubeconfig.current_context {
                 Some(current) => current == &ctx.name,
                 None => false,
             },
@@ -94,6 +97,7 @@ impl TableRow for GetContextOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ctx::CliCtx;
     use kube::config::{Cluster, Context, NamedCluster};
 
     fn named_cluster(name: &str, server: &str) -> NamedCluster {
@@ -139,9 +143,11 @@ mod tests {
     #[test]
     fn a_proxy_auth_context_is_split_into_its_server_namespace_and_cluster() {
         let cli_ctx = cli_ctx();
-        let output =
-            GetContextOutput::new_from_kubeconfig(&cli_ctx.kubeconfig.contexts[0], cli_ctx.clone())
-                .expect("the context resolves to a cluster");
+        let output = GetContextOutput::new_from_kubeconfig(
+            &cli_ctx.kubeconfig.contexts[0],
+            &cli_ctx.kubeconfig,
+        )
+        .expect("the context resolves to a cluster");
 
         assert!(output.current_context);
         assert_eq!(output.name, "proxy-ctx");
@@ -158,9 +164,11 @@ mod tests {
     #[test]
     fn a_plain_cluster_url_is_not_reported_as_proxy_auth() {
         let cli_ctx = cli_ctx();
-        let output =
-            GetContextOutput::new_from_kubeconfig(&cli_ctx.kubeconfig.contexts[1], cli_ctx.clone())
-                .expect("the context resolves to a cluster");
+        let output = GetContextOutput::new_from_kubeconfig(
+            &cli_ctx.kubeconfig.contexts[1],
+            &cli_ctx.kubeconfig,
+        )
+        .expect("the context resolves to a cluster");
 
         // The URL carries no /clusters/<ns>/<name>, so the proxy fields stay empty.
         assert!(!output.current_context);
@@ -175,7 +183,7 @@ mod tests {
     fn a_context_pointing_at_an_unknown_cluster_is_dropped() {
         let cli_ctx = cli_ctx();
         let dangling = named_context("dangling-ctx", "missing", None);
-        assert!(GetContextOutput::new_from_kubeconfig(&dangling, cli_ctx.clone()).is_none());
+        assert!(GetContextOutput::new_from_kubeconfig(&dangling, &cli_ctx.kubeconfig).is_none());
 
         // So is a named context with no context body at all.
         let empty = NamedContext {
@@ -183,25 +191,29 @@ mod tests {
             context: None,
             ..Default::default()
         };
-        assert!(GetContextOutput::new_from_kubeconfig(&empty, cli_ctx).is_none());
+        assert!(GetContextOutput::new_from_kubeconfig(&empty, &cli_ctx.kubeconfig).is_none());
     }
 
     #[test]
     fn nothing_is_current_when_the_kubeconfig_has_no_current_context() {
         let mut cli_ctx = cli_ctx();
         cli_ctx.kubeconfig.current_context = None;
-        let output =
-            GetContextOutput::new_from_kubeconfig(&cli_ctx.kubeconfig.contexts[0], cli_ctx.clone())
-                .expect("the context resolves to a cluster");
+        let output = GetContextOutput::new_from_kubeconfig(
+            &cli_ctx.kubeconfig.contexts[0],
+            &cli_ctx.kubeconfig,
+        )
+        .expect("the context resolves to a cluster");
         assert!(!output.current_context);
     }
 
     #[test]
     fn a_row_lines_up_with_the_headers() {
         let cli_ctx = cli_ctx();
-        let output =
-            GetContextOutput::new_from_kubeconfig(&cli_ctx.kubeconfig.contexts[0], cli_ctx.clone())
-                .expect("the context resolves to a cluster");
+        let output = GetContextOutput::new_from_kubeconfig(
+            &cli_ctx.kubeconfig.contexts[0],
+            &cli_ctx.kubeconfig,
+        )
+        .expect("the context resolves to a cluster");
 
         assert_eq!(
             GetContextOutput::headers(),
@@ -237,9 +249,11 @@ mod tests {
     #[test]
     fn the_flag_columns_and_the_optional_ones_render_their_empty_forms() {
         let cli_ctx = cli_ctx();
-        let output =
-            GetContextOutput::new_from_kubeconfig(&cli_ctx.kubeconfig.contexts[1], cli_ctx.clone())
-                .expect("the context resolves to a cluster");
+        let output = GetContextOutput::new_from_kubeconfig(
+            &cli_ctx.kubeconfig.contexts[1],
+            &cli_ctx.kubeconfig,
+        )
+        .expect("the context resolves to a cluster");
         let row = output.row();
 
         // Not current -> blank marker; not proxy-auth -> "No"; None -> "".

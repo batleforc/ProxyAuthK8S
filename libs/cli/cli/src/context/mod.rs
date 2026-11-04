@@ -47,7 +47,7 @@ impl CliCtx {
             self.kubeconfig
                 .contexts
                 .iter()
-                .filter_map(|ctx| GetContextOutput::new_from_kubeconfig(ctx, self.clone()))
+                .filter_map(|ctx| GetContextOutput::new_from_kubeconfig(ctx, &self.kubeconfig))
                 .collect::<Vec<output::GetContextOutput>>()
         } else if let Some(cluster_name) = context_name {
             let context = self
@@ -56,7 +56,7 @@ impl CliCtx {
                 .iter()
                 .find(|ctx| ctx.name == cluster_name);
             match context {
-                Some(ctx) => match GetContextOutput::new_from_kubeconfig(ctx, self.clone()) {
+                Some(ctx) => match GetContextOutput::new_from_kubeconfig(ctx, &self.kubeconfig) {
                     Some(output) => vec![output],
                     None => vec![],
                 },
@@ -67,7 +67,7 @@ impl CliCtx {
                 ctx.name == self.kubeconfig.current_context.clone().unwrap_or_default()
             });
             match context {
-                Some(ctx) => match GetContextOutput::new_from_kubeconfig(ctx, self.clone()) {
+                Some(ctx) => match GetContextOutput::new_from_kubeconfig(ctx, &self.kubeconfig) {
                     Some(output) => vec![output],
                     None => vec![],
                 },

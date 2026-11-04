@@ -6,9 +6,9 @@
 //!
 //! The "browser" is `curl -L`: it opens the URL the CLI hands it and follows
 //! the provider's redirect to the CLI's loopback listener, as a browser would.
-//! Each run gets its own `HOME`, kubeconfig and keyring service; the session
-//! bus is pointed nowhere so the keyring is the kernel's (keyutils), never the
-//! desktop's Secret Service.
+//! Each run gets its own `HOME`, kubeconfig and keyring service, cleared when
+//! the test ends; the session bus is pointed nowhere so the keyring is the
+//! kernel's (keyutils), never the desktop's Secret Service.
 
 #![expect(
     clippy::expect_used,
@@ -121,6 +121,18 @@ impl User {
 
     async fn run(&self, args: &[&str]) -> Run {
         self.run_with(args, &[], "").await
+    }
+}
+
+/// The tokens a test stored live in the developer's real keyring (keyutils):
+/// clear them with the run, whatever its outcome.
+impl Drop for User {
+    fn drop(&mut self) {
+        let mut clear = self.command(&["config", "clear", "--all"]);
+        match clear.as_std_mut().output() {
+            Ok(out) if out.status.success() => {}
+            other => eprintln!("could not clear the test keyring entries: {other:?}"),
+        }
     }
 }
 

@@ -5,6 +5,14 @@ use wiremock::{
     matchers::{header, method, path_regex},
 };
 
+/// An unsigned JWT (`{}` header, `sig` signature) carrying `payload`: enough
+/// for the CLI, which reads claims for display and expiry, never verifies.
+pub(crate) fn jwt(payload: &serde_json::Value) -> String {
+    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+    let body = serde_json::to_vec(payload).expect("a JSON value serialises");
+    format!("e30.{}.sig", URL_SAFE_NO_PAD.encode(body))
+}
+
 /// Clusters listing returned by [`mount_clusters`]: `team-a/prod` (SSO off)
 /// and `team-a/sso` (SSO on).
 pub(crate) fn clusters_body() -> serde_json::Value {
