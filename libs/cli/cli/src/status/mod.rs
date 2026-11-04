@@ -137,14 +137,7 @@ impl CliCtx {
 mod tests {
     use super::*;
     use crate::cli_config::cli_cluster_config::CliClusterConfig;
-    use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-
-    fn jwt(payload: &serde_json::Value) -> String {
-        format!(
-            "e30.{}.sig",
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(payload).unwrap())
-        )
-    }
+    use crate::test_support::jwt;
 
     #[test]
     fn claims_are_read_from_a_jwt_and_absent_from_an_opaque_token() {

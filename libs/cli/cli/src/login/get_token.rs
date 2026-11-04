@@ -495,12 +495,7 @@ mod tests {
     // --- expiry: when kubectl must ask again ---
 
     fn jwt_expiring_at(exp: i64) -> String {
-        use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-        let payload = serde_json::json!({ "sub": "reader", "exp": exp });
-        format!(
-            "e30.{}.sig",
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap())
-        )
+        crate::test_support::jwt(&serde_json::json!({ "sub": "reader", "exp": exp }))
     }
 
     #[tokio::test]

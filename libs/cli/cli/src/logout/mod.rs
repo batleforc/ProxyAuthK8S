@@ -25,7 +25,13 @@ impl CliCtx {
                 "Server '{}' not found in configuration; nothing to do.",
                 server_name
             );
-            return Err(ProxyAuthK8sError::ServerNotFound(server_name));
+            // The URL typed, else the default server's name.
+            let shown = if self.server_url.is_empty() {
+                server_name
+            } else {
+                self.server_url.clone()
+            };
+            return Err(ProxyAuthK8sError::ServerNotFound(shown));
         };
 
         if let Some(cluster) = cluster_name {
@@ -184,7 +190,7 @@ mod tests {
         ctx.server_url = "https://unknown".to_string();
         assert!(matches!(
             ctx.handle_logout(None),
-            Err(ProxyAuthK8sError::ServerNotFound(name)) if name == "unknown"
+            Err(ProxyAuthK8sError::ServerNotFound(url)) if url == "https://unknown"
         ));
 
         let dir = tempfile::tempdir().unwrap();
