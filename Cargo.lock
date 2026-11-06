@@ -1163,7 +1163,7 @@ dependencies = [
  "trace",
  "tracing",
  "weebo-kit-api",
- "weebo-kit-domain",
+ "weebo-kit-domain 0.25.0",
  "weebo-kit-runtime",
  "wiremock",
  "x509-parser",
@@ -5898,6 +5898,11 @@ version = "0.24.0"
 source = "git+https://github.com/batleforc/weebo-operator-kit?tag=v0.24.0#2dbed2d802e6ed73f9b981312798a921ac6ac800"
 
 [[package]]
+name = "weebo-kit-domain"
+version = "0.25.0"
+source = "git+https://github.com/batleforc/weebo-operator-kit?tag=v0.25.0#defc63206a606ee6d923d1e5bc62effcfe2a3f37"
+
+[[package]]
 name = "weebo-kit-runtime"
 version = "0.24.0"
 source = "git+https://github.com/batleforc/weebo-operator-kit?tag=v0.24.0#2dbed2d802e6ed73f9b981312798a921ac6ac800"
@@ -5922,7 +5927,7 @@ dependencies = [
  "tracing-subscriber",
  "weebo-kit-api",
  "weebo-kit-application",
- "weebo-kit-domain",
+ "weebo-kit-domain 0.24.0",
 ]
 
 [[package]]
