@@ -271,7 +271,7 @@ dependencies = [
  "utoipa-scalar",
  "uuid",
  "virtual_api",
- "weebo-kit-api",
+ "weebo-kit-api 0.25.0",
  "weebo-kit-runtime",
  "wiremock",
 ]
@@ -1162,7 +1162,7 @@ dependencies = [
  "tokio",
  "trace",
  "tracing",
- "weebo-kit-api",
+ "weebo-kit-api 0.25.0",
  "weebo-kit-domain",
  "weebo-kit-runtime",
  "wiremock",
@@ -1253,7 +1253,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "tracing",
- "weebo-kit-api",
+ "weebo-kit-api 0.25.0",
 ]
 
 [[package]]
@@ -1284,7 +1284,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "weebo-kit-api",
+ "weebo-kit-api 0.25.0",
 ]
 
 [[package]]
@@ -5879,6 +5879,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "weebo-kit-api"
+version = "0.25.0"
+source = "git+https://github.com/batleforc/weebo-operator-kit?tag=v0.25.0#defc63206a606ee6d923d1e5bc62effcfe2a3f37"
+dependencies = [
+ "k8s-openapi",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "weebo-kit-application"
 version = "0.24.0"
 source = "git+https://github.com/batleforc/weebo-operator-kit?tag=v0.24.0#2dbed2d802e6ed73f9b981312798a921ac6ac800"
@@ -5889,7 +5900,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",
- "weebo-kit-api",
+ "weebo-kit-api 0.24.0",
 ]
 
 [[package]]
@@ -5920,7 +5931,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "weebo-kit-api",
+ "weebo-kit-api 0.24.0",
  "weebo-kit-application",
  "weebo-kit-domain",
 ]
